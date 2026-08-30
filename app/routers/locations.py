@@ -60,6 +60,11 @@ async def update_location(location_id: int, name: str = Form(...), sort_order: i
 @router.post("/{location_id}/delete")
 async def delete_location(location_id: int):
     with get_db() as db:
+        exists = db.execute(
+            "SELECT 1 FROM locations WHERE id = ?", (location_id,)
+        ).fetchone()
+        if not exists:
+            return _settings_error("missing")
         db.execute("UPDATE items SET location_id = NULL WHERE location_id = ?", (location_id,))
         db.execute("DELETE FROM locations WHERE id = ?", (location_id,))
     return RedirectResponse(url="/settings", status_code=303)
