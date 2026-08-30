@@ -34,7 +34,7 @@ and when an individual is representing the project in public.
 ## Enforcement
 
 Report unacceptable behaviour to the maintainer privately via
-[GitHub private vulnerability reporting](https://github.com/dgahagan/shelf/security/advisories/new)
+[GitHub private vulnerability reporting](https://github.com/sudo-rpaisley/shelf/security/advisories/new)
 (it reaches the maintainer directly and is not public) or by email to the
 address on the maintainer's GitHub profile. Reports are handled
 confidentially. The maintainer may remove, edit, or reject comments,
