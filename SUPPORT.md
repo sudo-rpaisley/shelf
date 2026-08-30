@@ -7,9 +7,8 @@
   (Settings → Logs, or `docker compose logs shelf`).
 - **Feature requests:** use the feature-request template in the same issue
   tracker. Requests are considered on a best-effort basis.
-- **Security problems:** please **don't** open a public issue — use
-  [private vulnerability reporting](https://github.com/sudo-rpaisley/shelf/security/advisories/new).
-  See [SECURITY.md](SECURITY.md).
+- **Security problems:** please **don't** open a public issue. Follow the
+  private reporting instructions in [SECURITY.md](SECURITY.md).
 
 This fork is maintained as a personal project and is provided as-is under
 AGPL-3.0; there is no support SLA.
