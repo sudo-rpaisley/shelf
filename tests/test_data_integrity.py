@@ -82,6 +82,16 @@ def test_edit_bad_isbn_preserves_existing_pair(admin_client, db):
     assert row["isbn10"] == "0441172717"
 
 
+def test_edit_nonexistent_item_returns_not_found(admin_client):
+    resp = admin_client.post(
+        "/api/items/999999999",
+        data={"title": "Nowhere"},
+        follow_redirects=False,
+    )
+    assert resp.status_code == 404
+    assert resp.text == "Not found"
+
+
 def test_bulk_clear_reading_status_stores_null(admin_client, db):
     item_id = _insert_item(
         db,
@@ -103,6 +113,29 @@ def test_bulk_clear_reading_status_stores_null(admin_client, db):
             "SELECT reading_status FROM items WHERE id = ?", (item_id,)
         ).fetchone()
     assert row["reading_status"] is None
+
+
+def test_bulk_invalid_reading_status_is_rejected_without_mutation(admin_client, db):
+    item_id = _insert_item(
+        db,
+        title="Bulk Invalid Status Probe",
+        isbn="9780000000292",
+        reading_status="reading",
+    )
+    db.commit()
+
+    resp = admin_client.post(
+        "/api/items/bulk-update",
+        json={"item_ids": [item_id], "updates": {"reading_status": "finished-ish"}},
+    )
+    assert resp.status_code == 200
+    assert resp.json() == {"ok": False, "message": "Invalid reading status"}
+
+    with get_db() as check_db:
+        row = check_db.execute(
+            "SELECT reading_status FROM items WHERE id = ?", (item_id,)
+        ).fetchone()
+    assert row["reading_status"] == "reading"
 
 
 def test_bulk_update_reports_rows_that_actually_exist(admin_client, db):
