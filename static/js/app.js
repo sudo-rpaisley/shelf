@@ -115,6 +115,35 @@ document.addEventListener('keydown', function(e) {
     else if (e.key === '?') { document.getElementById('shortcut-modal').classList.toggle('hidden'); }
 });
 
+// The visible shortcut-help controls used inline onclick handlers. Shelf's
+// script-src 'self' CSP refuses those handlers, so the button and both close
+// surfaces looked clickable but did nothing. Bind the same behaviour from this
+// external script instead. Remove the inert inline attributes before a user can
+// click them so browsers do not report a CSP violation for the dead handler.
+(function() {
+    var modal = document.getElementById('shortcut-modal');
+    var trigger = document.querySelector('[title="Keyboard shortcuts (?)"]');
+    if (!modal || !trigger) return;
+
+    trigger.removeAttribute('onclick');
+    trigger.addEventListener('click', function() {
+        modal.classList.toggle('hidden');
+    });
+
+    modal.removeAttribute('onclick');
+    modal.addEventListener('click', function(e) {
+        if (e.target === modal) modal.classList.add('hidden');
+    });
+
+    var close = modal.querySelector('button[onclick]');
+    if (close) {
+        close.removeAttribute('onclick');
+        close.addEventListener('click', function() {
+            modal.classList.add('hidden');
+        });
+    }
+})();
+
 // --- Search-result form sync ---
 // Replaces the inline scripts formerly embedded in the book/dvd/game
 // search-result fragments (inline scripts cannot execute under the CSP).
