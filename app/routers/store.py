@@ -96,6 +96,8 @@ async def store_queue(request: Request, _=Depends(require_role("editor"))):
         body = await request.json()
     except Exception:
         return JSONResponse({"error": "Invalid JSON body"}, status_code=400)
+    if not isinstance(body, dict):
+        return JSONResponse({"error": "Invalid JSON body"}, status_code=400)
     isbns = body.get("isbns")
     if not isinstance(isbns, list) or not all(isinstance(x, str) for x in isbns):
         return JSONResponse({"error": "isbns must be a list of strings"}, status_code=400)
