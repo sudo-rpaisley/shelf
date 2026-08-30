@@ -4,5 +4,5 @@ contact_links:
     url: https://github.com/sudo-rpaisley/shelf/tree/main/docs#readme
     about: Installation, configuration, user guide, FAQ and troubleshooting.
   - name: Security vulnerability
-    url: https://github.com/sudo-rpaisley/shelf/security/advisories/new
+    url: https://github.com/sudo-rpaisley/shelf/blob/main/SECURITY.md
     about: Please report security issues privately, not as public issues.
