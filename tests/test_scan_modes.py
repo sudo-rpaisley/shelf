@@ -131,7 +131,6 @@ class TestMoveMode:
         assert b"moved" in resp.content
         assert "HX-Trigger" not in resp.headers
 
-        # Verify location was updated
         with get_db() as check_db:
             row = check_db.execute("SELECT location_id FROM items WHERE id = ?", (item_id,)).fetchone()
         assert row["location_id"] == loc_id
@@ -272,7 +271,7 @@ class TestGoogleBooksCredentialPropagation:
         lookup = AsyncMock(return_value=(None, "manual", {}, provider_result.no_match("openlibrary")))
         with patch("app.routers.items_common._lookup_metadata", new=lookup):
             editor_client.post("/api/books/add", data={
-                "isbn": "9780000099979", "media_type": "book",
+                "isbn": "9780000099976", "media_type": "book",
             })
 
         assert lookup.await_args.kwargs["google_api_key"] == "add-google-key"
@@ -306,12 +305,9 @@ class TestManualAddForm:
         assert "Copy from an existing item" in html
         assert 'name="series_name"' in html
         assert 'name="location_id"' in html
-        # Locations must reach the fragment's context — this is wired at every
-        # render site that can show the form, and breaks silently if one is missed.
         assert "Living Room" in html
 
     def test_manual_form_renders_without_locations_configured(self, admin_client):
-        """No locations defined yet — the select still renders, empty."""
         resp = self._scan_unknown(admin_client)
         assert resp.status_code == 200
         assert 'name="location_id"' in resp.text
@@ -325,7 +321,6 @@ class TestRecentScans:
         assert b"No recent activity" in resp.content
 
     def test_recent_scans_filtered_by_mode(self, admin_client, db):
-        # Insert scan_log entries for different modes
         db.execute(
             "INSERT INTO scan_log (isbn, media_type, result, mode) VALUES (?, ?, ?, ?)",
             ("9780000000001", "book", "added", "add"),
@@ -461,7 +456,6 @@ class TestCoverStatusEndpoint:
         assert "data-cover-settled" in resp.text
 
     def test_unknown_item_settles_with_200(self, admin_client):
-        """An item deleted mid-poll must not produce an htmx error swap."""
         resp = admin_client.get("/api/items/999999/cover-status?attempt=1")
         assert resp.status_code == 200
         assert "hx-get" not in resp.text
@@ -525,7 +519,6 @@ class TestTheBarcodeOutranksTheDropdown:
     def test_an_isbn_keeps_a_book_family_hint_the_barcode_cannot_contradict(
         self, admin_client, db, stub_book_lookup, hint
     ):
-        """Tier 1 honours these — no barcode signal can tell them apart."""
         admin_client.post("/api/scan", data={
             "isbn": self.ISBN, "media_type": hint, "mode": "add",
         })
@@ -538,7 +531,6 @@ class TestTheBarcodeOutranksTheDropdown:
     def test_an_isbn_with_no_usable_hint_is_stored_as_a_book_never_the_hint(
         self, admin_client, db, stub_book_lookup, hint
     ):
-        """`auto` must never reach the database — the whole point of tier 4."""
         admin_client.post("/api/scan", data={
             "isbn": self.ISBN, "media_type": hint, "mode": "add",
         })
@@ -550,11 +542,6 @@ class TestTheBarcodeOutranksTheDropdown:
     def test_the_duplicate_check_keys_on_the_resolved_type_not_the_hint(
         self, admin_client, db, stub_book_lookup
     ):
-        """A book already on the shelf dedupes against a stale "dvd" scan.
-
-        Before detection the check ran on the hint, so this scan missed the
-        existing row and tried to file a second one.
-        """
         _insert_item(db, title="Already A Book", isbn=self.ISBN, media_type="book")
         db.commit()
 
