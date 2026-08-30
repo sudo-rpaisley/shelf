@@ -1,8 +1,8 @@
-"""E2E coverage for Browse bulk actions.
+"""E2E coverage for user-facing controls that previously had no browser test.
 
-These tests drive the actual Alpine/HTMX UI rather than calling the API
-endpoint directly.  That distinction is important: an endpoint can be correct
-while an Alpine CSP expression prevents the button from ever sending a request.
+These tests drive the actual Alpine/HTMX/CSP UI rather than calling API
+endpoints directly.  That distinction is important: an endpoint can be correct
+while a client-side expression prevents the button from ever sending a request.
 """
 import sqlite3
 
@@ -64,3 +64,25 @@ def test_bulk_move_apply_moves_selected_list_item(live_server, authed_page):
     # checking the database so this test cannot race the POST request.
     authed_page.wait_for_load_state("networkidle")
     assert _location_id(live_server["data_dir"], item_id) == location_id
+
+
+def test_shortcut_help_button_opens_and_modal_controls_close(live_server, authed_page):
+    """The visible ? button and modal close surfaces must work under strict CSP."""
+    authed_page.goto(f"{live_server['url']}/browse")
+    authed_page.wait_for_load_state("networkidle")
+
+    modal = authed_page.locator("#shortcut-modal")
+    expect(modal).to_be_hidden()
+
+    authed_page.get_by_title("Keyboard shortcuts (?)").click()
+    expect(modal).to_be_visible()
+
+    # The modal header has a single close button.
+    modal.locator("button").first.click()
+    expect(modal).to_be_hidden()
+
+    # Reopen and verify clicking the backdrop closes it too.
+    authed_page.get_by_title("Keyboard shortcuts (?)").click()
+    expect(modal).to_be_visible()
+    modal.click(position={"x": 5, "y": 5})
+    expect(modal).to_be_hidden()
