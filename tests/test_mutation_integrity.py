@@ -53,6 +53,60 @@ def test_merge_first_nonempty_value_wins(admin_client, db):
     assert row["authors"] == "First Author"
 
 
+def test_merge_preserves_zero_valued_metadata(admin_client, db):
+    keep_id = _insert_item(
+        db, title="Keep Zero", isbn="9780306406157", manual_value=0, series_position=0
+    )
+    merge_id = _insert_item(
+        db, title="Merge Nonzero", isbn="9780140328721", manual_value=12.5, series_position=3
+    )
+    db.commit()
+
+    resp = admin_client.post(
+        "/api/items/merge",
+        json={"keep_id": keep_id, "merge_ids": [merge_id]},
+    )
+
+    assert resp.json() == {"ok": True, "merged": 1}
+    with get_db() as check_db:
+        row = check_db.execute(
+            "SELECT manual_value, series_position FROM items WHERE id = ?", (keep_id,)
+        ).fetchone()
+    assert row["manual_value"] == 0
+    assert row["series_position"] == 0
+
+
+def test_merge_rejects_multiple_active_loans(admin_client, db):
+    keep_id = _insert_item(db, title="Keep Lent", isbn="9780306406157")
+    merge_id = _insert_item(db, title="Merge Lent", isbn="9780140328721")
+    first_borrower = _insert_borrower(db, "Alice")
+    second_borrower = _insert_borrower(db, "Bob")
+    db.execute(
+        "INSERT INTO checkouts (item_id, borrower_id) VALUES (?, ?)",
+        (keep_id, first_borrower),
+    )
+    db.execute(
+        "INSERT INTO checkouts (item_id, borrower_id) VALUES (?, ?)",
+        (merge_id, second_borrower),
+    )
+    db.commit()
+
+    resp = admin_client.post(
+        "/api/items/merge",
+        json={"keep_id": keep_id, "merge_ids": [merge_id]},
+    )
+
+    assert resp.status_code == 200
+    assert resp.json()["ok"] is False
+    with get_db() as check_db:
+        assert check_db.execute("SELECT id FROM items WHERE id = ?", (keep_id,)).fetchone()
+        assert check_db.execute("SELECT id FROM items WHERE id = ?", (merge_id,)).fetchone()
+        active = check_db.execute(
+            "SELECT COUNT(*) AS c FROM checkouts WHERE checked_in IS NULL"
+        ).fetchone()["c"]
+    assert active == 2
+
+
 def test_merge_copies_isbn_pair_together(admin_client, db):
     keep_id = _insert_item(db, title="Keep", isbn=None, isbn10=None)
     merge_id = _insert_item(
