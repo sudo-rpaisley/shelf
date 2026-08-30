@@ -168,7 +168,7 @@ def test_bulk_update_rejects_overlong_series_name(admin_client, db):
 
     resp = admin_client.post(
         "/api/items/bulk-update",
-        json={"item_ids": [item_id], "updates": {"series_name": "x" * 501}},
+        json={"item_ids": [item_id], "updates": {"series_name": "x" * 1001}},
     )
     assert resp.status_code == 200
     assert resp.json()["ok"] is False
