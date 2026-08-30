@@ -53,12 +53,6 @@ def _find_duplicate_item(db, isbn13: str | None, upc_code: str | None, media_typ
         ).fetchone()
         if row:
             return dict(row)
-        # Rows written before #20 kept the barcode in items.isbn, zero-padded
-        # by to_isbn13() — the same canonical form normalize_upc() produces,
-        # so this matches them exactly. Migration 21 re-files them, but it
-        # skips any row whose move would collide, and an older instance may
-        # still share the database. No real ISBN can land here: ISBN-13 is
-        # always 978/979, which detect_barcode_type() classifies as an ISBN.
         row = db.execute(
             "SELECT id, title FROM items WHERE isbn = ? AND media_type = ?",
             (upc_code, media_type),
@@ -71,8 +65,6 @@ def _find_duplicate_item(db, isbn13: str | None, upc_code: str | None, media_typ
 def _find_item_by_barcode(raw: str) -> dict | None:
     """Find an existing item by ISBN or UPC barcode. Returns dict or None."""
     barcode_type = upc_svc.detect_barcode_type(raw)
-    # to_isbn13() zero-pads a UPC-A into an ISBN-shaped string, so a UPC must
-    # not be looked up against items.isbn — that is what mis-filed them (#20).
     isbn13 = isbn_svc.to_isbn13(raw) if barcode_type != "upc" else None
     upc_norm = upc_svc.normalize_upc(raw) if barcode_type == "upc" else None
 
@@ -745,6 +737,11 @@ async def bulk_update(request: Request, _=Depends(require_role("admin"))):
     return {"ok": True, "updated": updated}
 
 
+def _merge_value_missing(value) -> bool:
+    """Whether a merge field is genuinely blank; numeric zero is meaningful."""
+    return value is None or (isinstance(value, str) and not value.strip())
+
+
 @router.post("/items/merge")
 async def merge_items(request: Request, _=Depends(require_role("admin"))):
     """Merge multiple items into one without discarding related catalogue data."""
@@ -775,6 +772,20 @@ async def merge_items(request: Request, _=Depends(require_role("admin"))):
             return {"ok": False, "message": "Primary item not found"}
         primary = dict(primary_row)
 
+        target_ids = [keep_id] + merge_ids
+        target_placeholders = ",".join("?" for _ in target_ids)
+        active_loans = db.execute(
+            f"SELECT COUNT(*) AS c FROM checkouts "
+            f"WHERE checked_in IS NULL AND item_id IN ({target_placeholders})",
+            target_ids,
+        ).fetchone()["c"]
+        if active_loans > 1:
+            return {
+                "ok": False,
+                "message": "Cannot merge items with multiple active loans",
+                "merged": 0,
+            }
+
         try:
             for mid in merge_ids:
                 other_row = db.execute("SELECT * FROM items WHERE id = ?", (mid,)).fetchone()
@@ -784,7 +795,8 @@ async def merge_items(request: Request, _=Depends(require_role("admin"))):
 
                 updates = {}
                 for field in fillable:
-                    if not primary.get(field) and other.get(field):
+                    if (_merge_value_missing(primary.get(field)) and
+                            not _merge_value_missing(other.get(field))):
                         updates[field] = other[field]
                         primary[field] = other[field]
 
@@ -832,8 +844,6 @@ async def merge_items(request: Request, _=Depends(require_role("admin"))):
                     "DELETE FROM item_links WHERE item_a_id = ? OR item_b_id = ?", (mid, mid)
                 )
 
-                # Free UNIQUE(isbn, media_type) / UNIQUE(upc, media_type) before
-                # copying identifiers from the duplicate onto the primary.
                 db.execute("DELETE FROM items WHERE id = ?", (mid,))
 
                 if updates:
@@ -1136,7 +1146,6 @@ async def inventory_missing(
     _=Depends(require_role("editor")),
 ):
     """Find items expected at a location but not scanned during inventory audit."""
-    templates = request.app.state.templates
     scanned = set()
     if scanned_ids.strip():
         scanned = {int(x) for x in scanned_ids.split(",") if x.strip().isdigit()}
