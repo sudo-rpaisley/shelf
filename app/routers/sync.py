@@ -5,7 +5,7 @@ from urllib.parse import urlparse
 
 import httpx
 from fastapi import APIRouter, Depends, Request, Form
-from fastapi.responses import RedirectResponse
+from fastapi.responses import JSONResponse, RedirectResponse
 from starlette.responses import StreamingResponse
 
 from app.auth import require_role
@@ -66,7 +66,9 @@ async def test_audiobookshelf(request: Request):
         if resp.status_code == 200:
             libs = resp.json().get("libraries", [])
             return {"ok": True, "message": f"Connected — {len(libs)} library(ies) found"}
-        elif resp.status_code == 401 or resp.status_code == 403:
+        elif resp.status_code == 403:
+            return {"ok": False, "message": "Invalid or expired API token"}
+        elif resp.status_code == 401:
             return {"ok": False, "message": "Invalid or expired API token"}
         else:
             return {"ok": False, "message": f"Unexpected response: HTTP {resp.status_code}"}
@@ -108,9 +110,14 @@ async def save_abs_libraries(request: Request):
     """Save which ABS libraries to sync. Body: {excluded: [library_id, ...]}."""
     try:
         body = await request.json()
-        excluded = [str(x) for x in (body.get("excluded") or [])]
+        raw_excluded = body.get("excluded") or []
     except Exception:
         return {"ok": False, "message": "Invalid request body"}
+    if not isinstance(raw_excluded, list) or not all(
+        isinstance(value, str) for value in raw_excluded
+    ):
+        return {"ok": False, "message": "Invalid request body"}
+    excluded = raw_excluded
 
     with get_db() as db:
         db.execute(
@@ -253,7 +260,9 @@ async def sync_audiobookshelf_stream(request: Request):
 async def set_sync_schedule(interval: str = Form("off")):
     """Set the Audiobookshelf sync schedule. Values: off, daily, weekly."""
     if interval not in ("off", "daily", "weekly"):
-        interval = "off"
+        return JSONResponse(
+            {"ok": False, "message": "Invalid sync interval"}, status_code=400
+        )
     with get_db() as db:
         db.execute(
             "INSERT INTO settings (key, value) VALUES ('abs_sync_interval', ?) "
