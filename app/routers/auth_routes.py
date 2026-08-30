@@ -1,7 +1,6 @@
 import logging
 import sqlite3
 
-import bcrypt
 from fastapi import APIRouter, Form, Request, Depends
 from fastapi.responses import RedirectResponse, HTMLResponse
 
@@ -17,9 +16,9 @@ logger = logging.getLogger(__name__)
 
 # Unknown usernames must do the same one bcrypt verification as known usernames
 # without generating a fresh salt/hash on every request. The hash is created
-# once at process start; its plaintext is deliberately not a valid account
-# credential and only exists to equalise the password-check work factor.
-_DUMMY_PASSWORD_HASH = hash_password("shelf-dummy-login-password")
+# once at process start; the fixed plaintext is deliberately not a valid
+# account credential and only exists to equalise the password-check work factor.
+_DUMMY_PASSWORD_HASH = hash_password("dummy")
 
 router = APIRouter()
 
@@ -47,7 +46,7 @@ async def login(request: Request, username: str = Form(...), password: str = For
 
     if not user:
         # One bcrypt verification on both known and unknown username paths.
-        verify_password(password, _DUMMY_PASSWORD_HASH)
+        verify_password("dummy", _DUMMY_PASSWORD_HASH)
         logger.warning("Failed login attempt for username=%s from %s", username, get_client_ip(request))
         return templates.TemplateResponse(
             request, "login.html",
