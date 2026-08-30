@@ -175,10 +175,15 @@ def _scan_mode_move(request, templates, item: dict, location_id: int | None, raw
 
     old_location = item.get("location_name") or "No location"
     with get_db() as db:
-        db.execute("UPDATE items SET location_id = ? WHERE id = ?", (location_id, item["id"]))
         new_loc = db.execute("SELECT name FROM locations WHERE id = ?", (location_id,)).fetchone()
+        if not new_loc:
+            return templates.TemplateResponse(
+                request, "fragments/scan_result.html",
+                {"status": "error", "isbn": raw, "message": "Location not found"},
+            )
+        db.execute("UPDATE items SET location_id = ? WHERE id = ?", (location_id, item["id"]))
 
-    new_name = new_loc["name"] if new_loc else "Unknown"
+    new_name = new_loc["name"]
     items_common._log_scan(raw, item.get("media_type", ""), "moved", item["id"], "move")
     return templates.TemplateResponse(
         request, "fragments/scan_result.html",
@@ -198,7 +203,12 @@ def _scan_mode_inventory(request, templates, item: dict | None, location_id: int
 
     with get_db() as db:
         loc = db.execute("SELECT name FROM locations WHERE id = ?", (location_id,)).fetchone()
-    loc_name = loc["name"] if loc else "Unknown"
+    if not loc:
+        return templates.TemplateResponse(
+            request, "fragments/scan_result.html",
+            {"status": "error", "isbn": raw, "message": "Location not found"},
+        )
+    loc_name = loc["name"]
 
     if not item:
         items_common._log_scan(raw, "", "not_owned", None, "inventory")
@@ -638,8 +648,10 @@ async def bulk_update(request: Request, _=Depends(require_role("admin"))):
         return {"ok": False, "message": "No items or updates specified"}
 
     try:
-        item_ids = [int(i) for i in raw_ids]
+        item_ids = list(dict.fromkeys(int(i) for i in raw_ids))
     except (ValueError, TypeError):
+        return {"ok": False, "message": "Invalid item IDs"}
+    if any(item_id <= 0 for item_id in item_ids):
         return {"ok": False, "message": "Invalid item IDs"}
 
     allowed = {"media_type", "location_id", "reading_status", "owned", "series_name"}
@@ -647,11 +659,19 @@ async def bulk_update(request: Request, _=Depends(require_role("admin"))):
     if not filtered:
         return {"ok": False, "message": "No valid fields to update"}
 
+    if "media_type" in filtered and filtered["media_type"] not in MEDIA_TYPES:
+        return {"ok": False, "message": "Invalid media type"}
+
     if "series_name" in filtered:
         if filtered["series_name"] == "__clear__":
             filtered["series_name"] = None
-        elif not str(filtered["series_name"]).strip():
-            return {"ok": False, "message": "Series name cannot be empty"}
+        else:
+            series_name = str(filtered["series_name"]).strip()
+            if not series_name:
+                return {"ok": False, "message": "Series name cannot be empty"}
+            if len(series_name) > MAX_SERIES_NAME:
+                return {"ok": False, "message": "Series name is too long"}
+            filtered["series_name"] = series_name
 
     if "reading_status" in filtered:
         if filtered["reading_status"] in ("", "__clear__", None):
@@ -659,10 +679,45 @@ async def bulk_update(request: Request, _=Depends(require_role("admin"))):
         elif filtered["reading_status"] not in {"want_to_read", "reading", "read"}:
             return {"ok": False, "message": "Invalid reading status"}
 
+    if "owned" in filtered:
+        owned = filtered["owned"]
+        if isinstance(owned, bool):
+            filtered["owned"] = int(owned)
+        elif owned in (0, 1, "0", "1"):
+            filtered["owned"] = int(owned)
+        else:
+            return {"ok": False, "message": "Owned must be 0 or 1"}
+
+    if "location_id" in filtered:
+        raw_location = filtered["location_id"]
+        if raw_location in (None, "", "__clear__"):
+            filtered["location_id"] = None
+        else:
+            try:
+                location_id = int(raw_location)
+            except (TypeError, ValueError):
+                return {"ok": False, "message": "Invalid location"}
+            if location_id <= 0:
+                return {"ok": False, "message": "Invalid location"}
+            filtered["location_id"] = location_id
+
     placeholders = ",".join("?" for _ in item_ids)
     set_clause = ", ".join(f"{k} = ?" for k in filtered)
 
     with get_db() as db:
+        matched = db.execute(
+            f"SELECT COUNT(*) AS c FROM items WHERE id IN ({placeholders})", item_ids
+        ).fetchone()["c"]
+        if matched != len(item_ids):
+            return {"ok": False, "message": "One or more items not found", "updated": 0}
+
+        if filtered.get("location_id") is not None:
+            location = db.execute(
+                "SELECT id FROM locations WHERE id = ?", (filtered["location_id"],)
+            ).fetchone()
+            if not location:
+                return {"ok": False, "message": "Location not found"}
+
         old_series_names = []
         if "series_name" in filtered:
             old_series_names = [
@@ -673,10 +728,13 @@ async def bulk_update(request: Request, _=Depends(require_role("admin"))):
                 if r["series_name"]
             ]
 
-        cursor = db.execute(
-            f"UPDATE items SET {set_clause}, updated_at = datetime('now') WHERE id IN ({placeholders})",
-            list(filtered.values()) + item_ids,
-        )
+        try:
+            cursor = db.execute(
+                f"UPDATE items SET {set_clause}, updated_at = datetime('now') WHERE id IN ({placeholders})",
+                list(filtered.values()) + item_ids,
+            )
+        except sqlite3.IntegrityError:
+            return {"ok": False, "message": "Update conflicts with existing catalogue data", "updated": 0}
         updated = cursor.rowcount
 
         if old_series_names:
@@ -689,36 +747,109 @@ async def bulk_update(request: Request, _=Depends(require_role("admin"))):
 
 @router.post("/items/merge")
 async def merge_items(request: Request, _=Depends(require_role("admin"))):
-    """Merge multiple items into one, keeping the first as primary."""
+    """Merge multiple items into one without discarding related catalogue data."""
     data = await request.json()
     try:
         keep_id = int(data.get("keep_id", 0))
-        merge_ids = [int(i) for i in data.get("merge_ids", [])]
+        merge_ids = list(dict.fromkeys(int(i) for i in data.get("merge_ids", [])))
     except (ValueError, TypeError):
         return {"ok": False, "message": "Invalid item IDs"}
 
     if not keep_id or not merge_ids:
         return {"ok": False, "message": "Specify keep_id and merge_ids"}
+    if keep_id in merge_ids:
+        return {"ok": False, "message": "Primary item cannot be merged into itself"}
 
+    fillable = (
+        "subtitle", "authors", "cover_path", "publisher", "publish_year", "page_count",
+        "description", "series_name", "series_position", "narrator", "duration_mins",
+        "location_id", "abs_id", "notes", "reading_status", "date_started", "date_finished",
+        "estimated_value", "value_updated_at", "hardcover_book_id", "hardcover_edition_id",
+        "hardcover_user_book_id", "platform", "abs_library_id", "manual_value", "language",
+    )
+
+    merged = 0
     with get_db() as db:
-        primary = db.execute("SELECT * FROM items WHERE id = ?", (keep_id,)).fetchone()
-        if not primary:
+        primary_row = db.execute("SELECT * FROM items WHERE id = ?", (keep_id,)).fetchone()
+        if not primary_row:
             return {"ok": False, "message": "Primary item not found"}
+        primary = dict(primary_row)
 
-        _MERGE_FILLABLE = frozenset(["subtitle", "authors", "publisher", "publish_year", "page_count",
-                                      "description", "series_name", "narrator", "isbn"])
-        for mid in merge_ids:
-            other = db.execute("SELECT * FROM items WHERE id = ?", (mid,)).fetchone()
-            if not other:
-                continue
-            for field in _MERGE_FILLABLE:
-                if not primary[field] and other[field]:
-                    db.execute(f"UPDATE items SET {field} = ? WHERE id = ?", (other[field], keep_id))
-            db.execute("UPDATE scan_log SET item_id = ? WHERE item_id = ?", (keep_id, mid))
-            db.execute("UPDATE reading_log SET item_id = ? WHERE item_id = ?", (keep_id, mid))
-            db.execute("DELETE FROM items WHERE id = ?", (mid,))
+        try:
+            for mid in merge_ids:
+                other_row = db.execute("SELECT * FROM items WHERE id = ?", (mid,)).fetchone()
+                if not other_row:
+                    continue
+                other = dict(other_row)
 
-    return {"ok": True, "merged": len(merge_ids)}
+                updates = {}
+                for field in fillable:
+                    if not primary.get(field) and other.get(field):
+                        updates[field] = other[field]
+                        primary[field] = other[field]
+
+                if not primary.get("isbn") and other.get("isbn"):
+                    updates["isbn"] = other["isbn"]
+                    updates["isbn10"] = other.get("isbn10")
+                    primary["isbn"] = other["isbn"]
+                    primary["isbn10"] = other.get("isbn10")
+                elif (primary.get("isbn") == other.get("isbn") and
+                      not primary.get("isbn10") and other.get("isbn10")):
+                    updates["isbn10"] = other["isbn10"]
+                    primary["isbn10"] = other["isbn10"]
+
+                if not primary.get("upc") and other.get("upc"):
+                    updates["upc"] = other["upc"]
+                    primary["upc"] = other["upc"]
+
+                db.execute("UPDATE scan_log SET item_id = ? WHERE item_id = ?", (keep_id, mid))
+                db.execute("UPDATE reading_log SET item_id = ? WHERE item_id = ?", (keep_id, mid))
+                db.execute("UPDATE checkouts SET item_id = ? WHERE item_id = ?", (keep_id, mid))
+
+                db.execute(
+                    "INSERT OR IGNORE INTO item_tags (item_id, tag_id) "
+                    "SELECT ?, tag_id FROM item_tags WHERE item_id = ?",
+                    (keep_id, mid),
+                )
+                db.execute("DELETE FROM item_tags WHERE item_id = ?", (mid,))
+
+                links = db.execute(
+                    "SELECT item_a_id, item_b_id, link_type, created_at FROM item_links "
+                    "WHERE item_a_id = ? OR item_b_id = ?",
+                    (mid, mid),
+                ).fetchall()
+                for link in links:
+                    item_a = keep_id if link["item_a_id"] == mid else link["item_a_id"]
+                    item_b = keep_id if link["item_b_id"] == mid else link["item_b_id"]
+                    if item_a == item_b:
+                        continue
+                    db.execute(
+                        "INSERT OR IGNORE INTO item_links "
+                        "(item_a_id, item_b_id, link_type, created_at) VALUES (?, ?, ?, ?)",
+                        (item_a, item_b, link["link_type"], link["created_at"]),
+                    )
+                db.execute(
+                    "DELETE FROM item_links WHERE item_a_id = ? OR item_b_id = ?", (mid, mid)
+                )
+
+                # Free UNIQUE(isbn, media_type) / UNIQUE(upc, media_type) before
+                # copying identifiers from the duplicate onto the primary.
+                db.execute("DELETE FROM items WHERE id = ?", (mid,))
+
+                if updates:
+                    set_clause = ", ".join(f"{field} = ?" for field in updates)
+                    db.execute(
+                        f"UPDATE items SET {set_clause}, updated_at = datetime('now') WHERE id = ?",
+                        list(updates.values()) + [keep_id],
+                    )
+                merged += 1
+        except sqlite3.IntegrityError:
+            db.rollback()
+            return {"ok": False, "message": "Merge conflicts with existing catalogue data", "merged": 0}
+
+    if merged == 0:
+        return {"ok": False, "message": "No matching items found", "merged": 0}
+    return {"ok": True, "merged": merged}
 
 
 @router.post("/items/{item_id}")
@@ -1012,7 +1143,9 @@ async def inventory_missing(
 
     with get_db() as db:
         loc = db.execute("SELECT name FROM locations WHERE id = ?", (location_id,)).fetchone()
-        loc_name = loc["name"] if loc else "Unknown"
+        if not loc:
+            return HTMLResponse("Location not found", status_code=404)
+        loc_name = loc["name"]
         items = db.execute(
             "SELECT id, title, authors, cover_path FROM items WHERE location_id = ? ORDER BY title",
             (location_id,),
@@ -1055,4 +1188,4 @@ async def test_igdb_key(request: Request, _=Depends(require_role("admin"))):
     if not client_id or not client_secret:
         return {"ok": False, "message": "Both Client ID and Client Secret are required"}
     async with httpx.AsyncClient(timeout=HTTP_TIMEOUT) as client:
-        return await igdb.test_credentials(client_id, client_secret, client)
+        return await igdb.test_credentials(client_id, client_secret)
