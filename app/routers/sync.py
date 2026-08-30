@@ -66,9 +66,7 @@ async def test_audiobookshelf(request: Request):
         if resp.status_code == 200:
             libs = resp.json().get("libraries", [])
             return {"ok": True, "message": f"Connected — {len(libs)} library(ies) found"}
-        elif resp.status_code == 403:
-            return {"ok": False, "message": "Invalid or expired API token"}
-        elif resp.status_code == 401:
+        elif resp.status_code == 401 or resp.status_code == 403:
             return {"ok": False, "message": "Invalid or expired API token"}
         else:
             return {"ok": False, "message": f"Unexpected response: HTTP {resp.status_code}"}
