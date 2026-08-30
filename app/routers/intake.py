@@ -18,6 +18,7 @@ from app.services import authors as authors_svc
 from app.services import national
 from app.services.title_match import titles_agree
 from app.services.item_write import insert_item
+from app.services.write_targets import UnknownLocationError, validated_location_id
 
 logger = logging.getLogger(__name__)
 
@@ -314,6 +315,13 @@ async def confirm_books(payload: IntakeConfirm):
     new_item_ids: list[int] = []
 
     with get_db() as db:
+        try:
+            location_id = validated_location_id(db, payload.location_id)
+        except UnknownLocationError:
+            return {
+                "ok": False,
+                "message": "Selected location no longer exists — choose another location",
+            }
         search_lang = get_setting(db, "metadata_search_lang") or "en"
         # get_setting, never get_all_settings — the latter drops env-only keys (G15).
         hc_token = get_setting(db, "hardcover_token") or None
@@ -327,7 +335,7 @@ async def confirm_books(payload: IntakeConfirm):
                 continue
 
             status, entry, item_id = await _confirm_one(
-                book, client, search_lang, preferred_marc, payload.location_id,
+                book, client, search_lang, preferred_marc, location_id,
                 payload.owned, hc_token, google_api_key)
             if status == "added":
                 added.append(entry)
