@@ -6,15 +6,15 @@ from contextlib import contextmanager
 from tests.conftest import _insert_borrower, _insert_item
 
 
-def test_blank_borrower_redirects_to_safe_settings_error(admin_client, db):
+def test_blank_borrower_preserves_bad_request_contract(admin_client, db):
     response = admin_client.post(
         "/api/borrowers",
         data={"name": "   "},
         follow_redirects=False,
     )
 
-    assert response.status_code == 303
-    assert response.headers["location"] == "/settings?borrower_error=blank"
+    assert response.status_code == 400
+    assert response.json()["ok"] is False
     assert db.execute("SELECT COUNT(*) FROM borrowers").fetchone()[0] == 0
 
 
