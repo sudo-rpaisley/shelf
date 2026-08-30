@@ -27,7 +27,7 @@ def test_unknown_login_uses_precomputed_dummy_hash(client, admin_user, monkeypat
     )
 
     assert response.status_code == 401
-    assert calls == [("wrong-password", auth_routes._DUMMY_PASSWORD_HASH)]
+    assert calls == [("dummy", auth_routes._DUMMY_PASSWORD_HASH)]
 
 
 def test_setup_zero_user_guard_runs_under_write_lock(client, monkeypatch):
