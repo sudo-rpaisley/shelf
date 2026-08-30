@@ -10,6 +10,8 @@ def _insert_platform(db, name: str, slug: str) -> int:
 
 
 def test_blank_platform_name_is_rejected(admin_client, db):
+    before = db.execute("SELECT COUNT(*) FROM game_platforms").fetchone()[0]
+
     response = admin_client.post(
         "/api/platforms",
         data={"name": "   "},
@@ -18,7 +20,8 @@ def test_blank_platform_name_is_rejected(admin_client, db):
 
     assert response.status_code == 303
     assert response.headers["location"] == "/settings?platform_error=blank"
-    assert db.execute("SELECT COUNT(*) FROM game_platforms").fetchone()[0] == 0
+    after = db.execute("SELECT COUNT(*) FROM game_platforms").fetchone()[0]
+    assert after == before
 
 
 def test_platform_slug_collision_is_reported_instead_of_silently_ignored(admin_client, db):
