@@ -58,11 +58,16 @@ def test_bulk_move_apply_moves_selected_list_item(live_server, authed_page):
     authed_page.locator('select[x-model="bulkLocationVal"]').select_option(str(location_id))
     apply_button = authed_page.get_by_role("button", name="Apply", exact=True).first
     expect(apply_button).to_be_visible()
-    apply_button.click()
 
-    # A successful bulk update reloads Browse.  Wait for that reload before
-    # checking the database so this test cannot race the POST request.
-    authed_page.wait_for_load_state("networkidle")
+    # bulkUpdate() awaits its POST before calling location.reload().  Waiting
+    # for the current page's load state after click is racy because it may
+    # already be network-idle before that future reload starts.  Arm the
+    # navigation waiter first so the assertion always observes the completed
+    # mutation rather than whichever side of that race the runner happened to
+    # hit.
+    with authed_page.expect_navigation(wait_until="networkidle"):
+        apply_button.click()
+
     assert _location_id(live_server["data_dir"], item_id) == location_id
 
 
