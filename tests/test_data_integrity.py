@@ -20,6 +20,19 @@ def test_scan_rejects_bad_isbn_checksum_before_lookup(admin_client, db):
         ).fetchone() is None
 
 
+def test_catalogue_add_rejects_bad_isbn_checksum_before_lookup(admin_client, db):
+    resp = admin_client.post(
+        "/api/books/add",
+        data={"isbn": BAD_ISBN13, "media_type": "book"},
+    )
+    assert resp.status_code == 200
+    assert b"Invalid ISBN" in resp.content
+    with get_db() as check_db:
+        assert check_db.execute(
+            "SELECT 1 FROM items WHERE isbn = ?", (BAD_ISBN13,)
+        ).fetchone() is None
+
+
 def test_manual_add_rejects_bad_isbn_instead_of_dropping_it(admin_client, db):
     resp = admin_client.post(
         "/api/items/manual",
