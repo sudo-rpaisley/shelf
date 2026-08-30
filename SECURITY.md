@@ -2,9 +2,10 @@
 
 ## Reporting a Vulnerability
 
-Please report vulnerabilities privately via
-[GitHub private vulnerability reporting](https://github.com/sudo-rpaisley/shelf/security/advisories/new)
-— do **not** open a public issue for security problems.
+Please **do not** open a public issue for security problems. Use GitHub private
+vulnerability reporting from the repository's Security tab when it is enabled;
+otherwise contact the maintainer privately using the email address on their
+GitHub profile.
 
 This is a personal project with no formal SLA, but security reports should be
 handled before routine feature work.
