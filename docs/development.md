@@ -13,7 +13,7 @@ Alpine.js (**CSP build**) · Tailwind CSS (built locally, committed) · pytest
 ## Setup
 
 ```bash
-git clone https://github.com/dgahagan/shelf.git && cd shelf
+git clone https://github.com/sudo-rpaisley/shelf.git && cd shelf
 python -m venv .venv && source .venv/bin/activate
 pip install -r requirements.txt
 make setup            # dev deps, npm (tailwind), Playwright Chromium
@@ -22,7 +22,7 @@ make setup            # dev deps, npm (tailwind), Playwright Chromium
 ## Run it
 
 ```bash
-# Docker, same as production (uses docker-compose.yml — dev defaults:
+# Docker development environment (uses docker-compose.yml — dev defaults:
 # port 18889, ./data-dev, host networking):
 make dev              # docker compose up -d --build
 make dev-logs
@@ -38,7 +38,7 @@ DATA_DIR=./data-dev uvicorn app.main:app --reload
 
 | Command | What |
 |---|---|
-| `make test` | Unit + integration, quiet and parallel (~1500 tests, excludes `tests/e2e/`) |
+| `make test` | Unit + integration, quiet and parallel (excludes `tests/e2e/`) |
 | `make test-fast` | Re-run only the last failures |
 | `make test-verbose` | Per-test output |
 | `make test-e2e` | Playwright E2E; starts its own server |
@@ -186,6 +186,7 @@ for anything non-trivial, run `make test`, `make test-e2e`, `make checks`,
 
 ## Releases
 
-Releases are tagged `vX.Y.Z`; pushing the tag triggers the Docker Hub publish
-workflow (`.github/workflows/docker-publish.yml`). `CHANGELOG.md` is the
-release artifact — there is no version string in code.
+This fork does not currently publish its own Docker image. Stable release
+artifacts are still provided by the upstream `dgahagan/shelf` project. Before
+creating fork-specific version tags, configure a release workflow and image
+namespace owned by this fork.

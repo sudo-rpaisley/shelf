@@ -2,8 +2,9 @@
 
 Shelf is a self-hosted home library catalog: scan barcodes or photograph whole
 shelves, and Shelf fetches metadata and cover art, tracks lending, series and
-reading, and works offline in a bookstore. One Docker container, one SQLite
-file, no cloud.
+reading, and works offline in a bookstore. One Docker container and one SQLite
+file; no Shelf-hosted account or service is required. Optional metadata, sync
+and vision integrations contact the providers you configure.
 
 New here? Start with **[Installation](installation.md)**, then
 **[Getting started](user-guide/getting-started.md)**.
@@ -53,5 +54,5 @@ New here? Start with **[Installation](installation.md)**, then
 | [Changelog](../CHANGELOG.md) | What changed in each release |
 | [Code of conduct](../CODE_OF_CONDUCT.md) | Expected behaviour in project spaces |
 
-Screenshots live in [`../screenshots/`](../screenshots/). The Docker image is
-[`dangahagan/shelf`](https://hub.docker.com/r/dangahagan/shelf).
+Screenshots live in [`../screenshots/`](../screenshots/). The current stable
+Docker image is [`dangahagan/shelf`](https://hub.docker.com/r/dangahagan/shelf).

@@ -33,14 +33,12 @@ and when an individual is representing the project in public.
 
 ## Enforcement
 
-Report unacceptable behaviour to the maintainer privately via
-[GitHub private vulnerability reporting](https://github.com/dgahagan/shelf/security/advisories/new)
-(it reaches the maintainer directly and is not public) or by email to the
-address on the maintainer's GitHub profile. Reports are handled
-confidentially. The maintainer may remove, edit, or reject comments,
-commits, issues and other contributions that violate this code, and may
-temporarily or permanently ban contributors for behaviour they deem
-inappropriate, threatening, offensive, or harmful.
+Report unacceptable behaviour to the maintainer privately using the contact
+method described in [SECURITY.md](SECURITY.md). Reports are handled
+confidentially. The maintainer may remove, edit, or reject comments, commits,
+issues and other contributions that violate this code, and may temporarily or
+permanently ban contributors for behaviour they deem inappropriate,
+threatening, offensive, or harmful.
 
 ## Attribution
 
