@@ -216,6 +216,8 @@ async def notify_test(request: Request):
         body = await request.json()
     except Exception:
         return {"ok": False, "message": "Invalid request"}
+    if not isinstance(body, dict):
+        return {"ok": False, "message": "Invalid request"}
     url = (body.get("url") or "").strip()
     fmt = body.get("format") or "ntfy"
     if not url:
