@@ -307,13 +307,14 @@ async def scan_isbn(
             request, templates, raw, media_type, location_id, platform or None, mode=mode
         )
 
-    isbn13 = isbn_svc.to_isbn13(raw)
-    if not isbn13:
+    pair = isbn_svc.canonical_isbn_pair(raw)
+    if pair is None:
         items_common._log_scan(isbn, media_type, "error", mode=mode)
         return templates.TemplateResponse(
             request, "fragments/scan_result.html",
             {"status": "error", "isbn": isbn, "message": "Invalid ISBN"},
         )
+    isbn13, _isbn10 = pair
 
     hint = media_type
     detection = detect.detect_media_type(barcode_type, hint, None, None)
