@@ -20,7 +20,7 @@ pytestmark = pytest.mark.e2e
 
 OWNED_ISBN = "9780901000018"
 WISHLIST_ISBN = "9780901000025"
-UNKNOWN_ISBN = "9780901000032"
+UNKNOWN_ISBN = "9780901000033"
 
 
 def _login(live_server, ctx, setup_admin):
