@@ -697,12 +697,6 @@ async def bulk_update(request: Request, _=Depends(require_role("admin"))):
     set_clause = ", ".join(f"{k} = ?" for k in filtered)
 
     with get_db() as db:
-        matched = db.execute(
-            f"SELECT COUNT(*) AS c FROM items WHERE id IN ({placeholders})", item_ids
-        ).fetchone()["c"]
-        if matched != len(item_ids):
-            return {"ok": False, "message": "One or more items not found", "updated": 0}
-
         if filtered.get("location_id") is not None:
             location = db.execute(
                 "SELECT id FROM locations WHERE id = ?", (filtered["location_id"],)
@@ -1197,4 +1191,4 @@ async def test_igdb_key(request: Request, _=Depends(require_role("admin"))):
     if not client_id or not client_secret:
         return {"ok": False, "message": "Both Client ID and Client Secret are required"}
     async with httpx.AsyncClient(timeout=HTTP_TIMEOUT) as client:
-        return await igdb.test_credentials(client_id, client_secret)
+        return await igdb.test_credentials(client_id, client_secret, client)
