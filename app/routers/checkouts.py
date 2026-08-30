@@ -1,7 +1,7 @@
 from datetime import date, timedelta
 
 from fastapi import APIRouter, Depends, Form, Request
-from fastapi.responses import RedirectResponse
+from fastapi.responses import JSONResponse, RedirectResponse
 
 from app.auth import require_role
 from app.database import get_db, get_setting
@@ -51,8 +51,13 @@ def get_overdue_loans(db) -> list[dict]:
 
 @router.post("/borrowers")
 async def create_borrower(name: str = Form(...), _=Depends(require_role("admin"))):
+    clean_name = name.strip()
+    if not clean_name:
+        return JSONResponse(
+            {"ok": False, "message": "Borrower name is required"}, status_code=400
+        )
     with get_db() as db:
-        db.execute("INSERT OR IGNORE INTO borrowers (name) VALUES (?)", (name.strip(),))
+        db.execute("INSERT OR IGNORE INTO borrowers (name) VALUES (?)", (clean_name,))
     return RedirectResponse(url="/settings", status_code=303)
 
 
@@ -101,6 +106,20 @@ async def checkout_item(
     due = (date.today() + timedelta(days=due_days)).isoformat() if due_days > 0 else None
 
     with get_db() as db:
+        item = db.execute("SELECT id FROM items WHERE id = ?", (item_id,)).fetchone()
+        if not item:
+            return JSONResponse(
+                {"ok": False, "message": "Item not found"}, status_code=404
+            )
+
+        borrower = db.execute(
+            "SELECT id FROM borrowers WHERE id = ?", (borrower_id,)
+        ).fetchone()
+        if not borrower:
+            return JSONResponse(
+                {"ok": False, "message": "Borrower not found"}, status_code=404
+            )
+
         # Check not already checked out
         active = db.execute(
             "SELECT id FROM checkouts WHERE item_id = ? AND checked_in IS NULL", (item_id,)
