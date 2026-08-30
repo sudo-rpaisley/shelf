@@ -57,7 +57,9 @@ def _borrower_settings_error(code: str) -> RedirectResponse:
 async def create_borrower(name: str = Form(...), _=Depends(require_role("admin"))):
     clean_name = name.strip()
     if not clean_name:
-        return _borrower_settings_error("blank")
+        return JSONResponse(
+            {"ok": False, "message": "Borrower name is required"}, status_code=400
+        )
     with get_db() as db:
         existing = db.execute(
             "SELECT id FROM borrowers WHERE name = ?", (clean_name,)
