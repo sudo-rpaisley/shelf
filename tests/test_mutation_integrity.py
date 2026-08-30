@@ -227,8 +227,8 @@ def test_checkout_rejects_unknown_item(admin_client, db):
     db.commit()
 
     resp = admin_client.post(
-        "/api/checkouts",
-        data={"item_id": "999999999", "borrower_id": str(borrower_id)},
+        "/api/items/999999999/checkout",
+        data={"borrower_id": str(borrower_id)},
     )
     assert resp.status_code == 404
     assert resp.json()["ok"] is False
@@ -239,8 +239,8 @@ def test_checkout_rejects_unknown_borrower(admin_client, db):
     db.commit()
 
     resp = admin_client.post(
-        "/api/checkouts",
-        data={"item_id": str(item_id), "borrower_id": "999999999"},
+        f"/api/items/{item_id}/checkout",
+        data={"borrower_id": "999999999"},
     )
     assert resp.status_code == 404
     assert resp.json()["ok"] is False
