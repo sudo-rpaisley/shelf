@@ -90,6 +90,17 @@ async def add_game_from_search(
     """Add a video game to the collection from an IGDB search result."""
     templates = request.app.state.templates
 
+    platform = (platform or "").strip()
+    with get_db() as db:
+        valid_platforms = get_game_platforms(db)
+    if platform and platform not in valid_platforms:
+        return templates.TemplateResponse(
+            request, "fragments/scan_result.html",
+            {"status": "error", "isbn": "",
+             "message": "Unrecognised game platform — pick one and try again"},
+        )
+    platform_val = platform or None
+
     # A location can disappear between rendering the search form and clicking
     # Add. Reject that target before spending an IGDB request on an insert that
     # SQLite's foreign key will refuse anyway.
@@ -116,9 +127,6 @@ async def add_game_from_search(
         )
 
     with get_db() as db:
-        valid_platforms = get_game_platforms(db)
-        platform_val = platform if platform in valid_platforms else None
-
         # Check duplicate by title + platform
         existing = db.execute(
             "SELECT id, title FROM items WHERE title = ? AND media_type = 'video_game' AND platform = ?",
@@ -368,6 +376,24 @@ async def add_dvd_from_search(
     """Add a DVD/Blu-ray to the collection from a TMDb search result."""
     templates = request.app.state.templates
 
+    title = (title or "").strip()
+    if not title:
+        return templates.TemplateResponse(
+            request, "fragments/scan_result.html",
+            {"status": "error", "isbn": "", "message": "Title is required"},
+        )
+
+    publish_year = (publish_year or "").strip()
+    if publish_year:
+        if not publish_year.isdigit():
+            return templates.TemplateResponse(
+                request, "fragments/scan_result.html",
+                {"status": "error", "isbn": "", "message": "Invalid publish year"},
+            )
+        year = int(publish_year)
+    else:
+        year = None
+
     try:
         with get_db() as db:
             loc_id = validated_location_id(db, location_id)
@@ -386,8 +412,6 @@ async def add_dvd_from_search(
             request, "fragments/scan_result.html",
             {"status": "duplicate", "isbn": "", "title": existing["title"], "item_id": existing["id"]},
         )
-
-    year = int(publish_year) if publish_year and publish_year.isdigit() else None
 
     with get_db() as db:
         item_id = insert_item(
