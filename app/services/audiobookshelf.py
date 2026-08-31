@@ -24,12 +24,22 @@ def get_excluded_libraries() -> set[str]:
         return set()
 
 
+def _normalise_publish_year(value):
+    """Match SQLite's usual INTEGER coercion so an unchanged year stays unchanged."""
+    if value in (None, ""):
+        return None
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return value
+
+
 async def sync(abs_url: str, abs_token: str, on_progress=None) -> dict:
     """Sync items from Audiobookshelf. Returns summary stats.
 
     on_progress: optional async callback(current, total, title, status) for progress updates.
     """
-    stats = {"added": 0, "updated": 0, "skipped": 0, "errors": 0}
+    stats = {"added": 0, "updated": 0, "unchanged": 0, "skipped": 0, "errors": 0}
 
     headers = {"Authorization": f"Bearer {abs_token}"}
     excluded = get_excluded_libraries()
@@ -110,7 +120,21 @@ async def sync(abs_url: str, abs_token: str, on_progress=None) -> dict:
                 if not title:
                     stats["skipped"] += 1
                     if on_progress:
-                        await on_progress(current, total, "(untitled)", "skipped")
+                        item_label = abs_id or "unknown item"
+                        await on_progress(
+                            current, total,
+                            f"Missing title — Audiobookshelf item {item_label}",
+                            "skipped",
+                        )
+                    continue
+                if not abs_id:
+                    stats["skipped"] += 1
+                    if on_progress:
+                        await on_progress(
+                            current, total,
+                            f"Missing Audiobookshelf item ID — {title}",
+                            "skipped",
+                        )
                     continue
 
                 authors = metadata.get("authorName") or metadata.get("author")
@@ -118,7 +142,7 @@ async def sync(abs_url: str, abs_token: str, on_progress=None) -> dict:
                 isbn = metadata.get("isbn") or metadata.get("asin")
                 series_name = metadata.get("seriesName")
                 publisher = metadata.get("publisher")
-                pub_year = metadata.get("publishedYear")
+                pub_year = _normalise_publish_year(metadata.get("publishedYear"))
                 description = metadata.get("description")
 
                 duration_secs = media.get("duration")
@@ -126,7 +150,11 @@ async def sync(abs_url: str, abs_token: str, on_progress=None) -> dict:
 
                 with get_db() as db:
                     existing = db.execute(
-                        "SELECT id, abs_id FROM items WHERE abs_id = ?", (abs_id,)
+                        """SELECT id, title, authors, narrator, isbn, series_name,
+                                  publisher, publish_year, description, duration_mins,
+                                  media_type, abs_id, abs_library_id, cover_path
+                           FROM items WHERE abs_id = ?""",
+                        (abs_id,),
                     ).fetchone()
 
                     # Shelf permits the same ISBN across formats, but not twice
@@ -160,30 +188,63 @@ async def sync(abs_url: str, abs_token: str, on_progress=None) -> dict:
                             )
                             stats["skipped"] += 1
                             if on_progress:
-                                await on_progress(current, total, title, "skipped")
+                                await on_progress(
+                                    current, total,
+                                    f"ISBN conflict with Shelf item {isbn_match['id']} — {title} ({isbn})",
+                                    "skipped",
+                                )
                             continue
 
                         # Adopt an existing manually-added same-format item
                         # instead of attempting a duplicate insert. From this
                         # point on it follows the normal ABS update path.
-                        existing = isbn_match
+                        existing = db.execute(
+                            """SELECT id, title, authors, narrator, isbn, series_name,
+                                      publisher, publish_year, description, duration_mins,
+                                      media_type, abs_id, abs_library_id, cover_path
+                               FROM items WHERE id = ?""",
+                            (isbn_match["id"],),
+                        ).fetchone()
 
                     if existing:
-                        db.execute(
-                            """UPDATE items SET title=?, authors=?, narrator=?,
-                               isbn=?, series_name=?, publisher=?, publish_year=?,
-                               description=?, duration_mins=?, media_type=?,
-                               abs_id=?, abs_library_id=?,
-                               updated_at=datetime('now')
-                               WHERE id=?""",
-                            (title, authors, narrator, isbn, series_name,
-                             publisher, pub_year, description, duration_mins,
-                             media_type, abs_id, lib_id, existing["id"]),
-                        )
-                        stats["updated"] += 1
+                        desired = {
+                            "title": title,
+                            "authors": authors,
+                            "narrator": narrator,
+                            "isbn": isbn,
+                            "series_name": series_name,
+                            "publisher": publisher,
+                            "publish_year": pub_year,
+                            "description": description,
+                            "duration_mins": duration_mins,
+                            "media_type": media_type,
+                            "abs_id": abs_id,
+                            "abs_library_id": lib_id,
+                        }
+                        changed = any(existing[key] != value for key, value in desired.items())
+
+                        if changed:
+                            db.execute(
+                                """UPDATE items SET title=?, authors=?, narrator=?,
+                                   isbn=?, series_name=?, publisher=?, publish_year=?,
+                                   description=?, duration_mins=?, media_type=?,
+                                   abs_id=?, abs_library_id=?,
+                                   updated_at=datetime('now')
+                                   WHERE id=?""",
+                                (title, authors, narrator, isbn, series_name,
+                                 publisher, pub_year, description, duration_mins,
+                                 media_type, abs_id, lib_id, existing["id"]),
+                            )
+                            stats["updated"] += 1
+                            status = "updated"
+                        else:
+                            stats["unchanged"] += 1
+                            status = "unchanged"
+
                         item_id = existing["id"]
+                        fetch_cover = changed or not existing["cover_path"]
                         if on_progress:
-                            await on_progress(current, total, title, "updated")
+                            await on_progress(current, total, title, status)
                     else:
                         item_id = insert_item(
                             db,
@@ -202,10 +263,15 @@ async def sync(abs_url: str, abs_token: str, on_progress=None) -> dict:
                             source="audiobookshelf",
                         )
                         stats["added"] += 1
+                        fetch_cover = True
                         if on_progress:
                             await on_progress(current, total, title, "added")
 
-                # Download cover from ABS
+                # Download covers for new/changed items, or fill a missing
+                # cover on an otherwise unchanged item. Stable items with a
+                # cover no longer re-download the same image on every sync.
+                if not fetch_cover:
+                    continue
                 try:
                     cover_resp = await client.get(
                         f"{abs_url}/api/items/{abs_id}/cover",
