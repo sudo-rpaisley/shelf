@@ -223,12 +223,13 @@ async def add_book_from_search(
             {"status": "error", "isbn": isbn.strip(),
              "message": "Unrecognised media type — pick one and try again"},
         )
-    isbn13 = isbn_svc.to_isbn13(isbn.strip())
-    if not isbn13:
+    pair = isbn_svc.canonical_isbn_pair(isbn.strip())
+    if pair is None:
         return templates.TemplateResponse(
             request, "fragments/scan_result.html",
             {"status": "error", "isbn": isbn, "message": "Invalid ISBN"},
         )
+    isbn13, _isbn10 = pair
 
     # Check duplicate
     with get_db() as db:
@@ -305,7 +306,7 @@ async def search_dvds(
     if not tmdb_key:
         return HTMLResponse(
             '<p class="text-sm text-shelf-error">TMDb API key not configured. '
-            'Add it in <a href="/settings" class="text-shelf-accent2 underline">Settings</a>.</p>'
+            'Add them in <a href="/settings" class="text-shelf-accent2 underline">Settings</a>.</p>'
         )
 
     async with httpx.AsyncClient(timeout=HTTP_TIMEOUT) as client:
