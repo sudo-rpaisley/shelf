@@ -802,7 +802,7 @@ async def merge_items(request: Request, _=Depends(require_role("admin"))):
                 elif (primary.get("isbn") == other.get("isbn") and
                       not primary.get("isbn10") and other.get("isbn10")):
                     updates["isbn10"] = other["isbn10"]
-                    primary["isbn10"] = other.get("isbn10")
+                    primary["isbn10"] = other["isbn10"]
 
                 if not primary.get("upc") and other.get("upc"):
                     updates["upc"] = other["upc"]
