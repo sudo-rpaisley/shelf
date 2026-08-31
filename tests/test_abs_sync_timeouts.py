@@ -40,6 +40,8 @@ def test_sync_skips_timed_out_library_and_continues(db):
 
     stats = asyncio.run(sync(ABS, "token"))
 
-    assert stats == {"added": 1, "updated": 0, "skipped": 0, "errors": 1}
+    assert stats == {
+        "added": 1, "updated": 0, "unchanged": 0, "skipped": 0, "errors": 1
+    }
     rows = db.execute("SELECT title, abs_id FROM items").fetchall()
     assert [(r["title"], r["abs_id"]) for r in rows] == [("Healthy Book", "li_good")]
