@@ -233,6 +233,14 @@ def _upsert_series_description(db, name: str, description: str, source: str) -> 
     )
 
 
+def _series_exists(db, name: str) -> bool:
+    """Whether at least one local item belongs to the named series."""
+    return bool(db.execute(
+        "SELECT 1 FROM items WHERE series_name = ? COLLATE NOCASE LIMIT 1",
+        (name,),
+    ).fetchone())
+
+
 @router.post("/api/series/{name:path}/description")
 async def set_series_description(name: str, description: str = Form(""),
                                   _=Depends(require_role("editor"))):
@@ -257,6 +265,8 @@ async def set_series_description(name: str, description: str = Form(""),
     description = (description or "").strip()
 
     with get_db() as db:
+        if not _series_exists(db, name):
+            return {"ok": False, "message": "Series not found"}
         if description:
             _upsert_series_description(db, name, description, "manual")
         else:
@@ -460,6 +470,8 @@ async def fetch_series_description(name: str, _=Depends(require_role("editor")))
         return {"ok": False, "message": "Series name required"}
 
     with get_db() as db:
+        if not _series_exists(db, name):
+            return {"ok": False, "message": "Series not found"}
         token = get_setting(db, "hardcover_token")
         if not token:
             return {"ok": False, "message": "Hardcover integration not configured"}
