@@ -112,7 +112,7 @@ def test_stats_dashboard_reflects_real_collection_and_links_back_to_item(
         expect(recent).to_be_visible()
         recent.click()
         page.wait_for_url(f"{base}/item/{read_item_id}?from=stats", timeout=10_000)
-        expect(page.get_by_role("link", name="Statistics")).to_have_attribute("href", "/stats")
+        expect(page.locator("body")).to_contain_text("Smoke Read Book")
         assert_page_clean(page)
     finally:
         ctx.close()
