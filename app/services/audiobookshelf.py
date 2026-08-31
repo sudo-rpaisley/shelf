@@ -45,15 +45,24 @@ async def sync(abs_url: str, abs_token: str, on_progress=None) -> dict:
             if lib.get("id") not in excluded
         ]
 
-        # First pass: fetch all library items to get total count
+        # First pass: fetch all library items to get total count. A single
+        # large/slow library should not prevent healthy libraries from syncing.
         lib_items = []
         for lib in libraries:
             lib_id = lib["id"]
-            resp = await client.get(
-                f"{abs_url}/api/libraries/{lib_id}/items",
-                headers=headers,
-                params={"limit": 10000},
-            )
+            try:
+                resp = await client.get(
+                    f"{abs_url}/api/libraries/{lib_id}/items",
+                    headers=headers,
+                    params={"limit": 10000},
+                )
+            except httpx.TimeoutException:
+                logger.warning(
+                    "Timed out fetching Audiobookshelf library %s; skipping it for this sync",
+                    lib_id,
+                )
+                stats["errors"] += 1
+                continue
             if resp.status_code != 200:
                 stats["errors"] += 1
                 continue
