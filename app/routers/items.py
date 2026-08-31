@@ -1237,9 +1237,22 @@ async def inventory_missing(
 @router.post("/igdb/test-key")
 async def test_igdb_key(request: Request, _=Depends(require_role("admin"))):
     """Test IGDB (Twitch) credentials."""
-    data = await request.json()
-    client_id = data.get("client_id", "")
-    client_secret = data.get("client_secret", "")
+    try:
+        data = await request.json()
+    except Exception:
+        return {"ok": False, "message": "Invalid request body"}
+    if not isinstance(data, dict):
+        return {"ok": False, "message": "Invalid request body"}
+
+    raw_client_id = data.get("client_id")
+    raw_client_secret = data.get("client_secret")
+    if raw_client_id is not None and not isinstance(raw_client_id, str):
+        return {"ok": False, "message": "Invalid request body"}
+    if raw_client_secret is not None and not isinstance(raw_client_secret, str):
+        return {"ok": False, "message": "Invalid request body"}
+
+    client_id = (raw_client_id or "").strip()
+    client_secret = (raw_client_secret or "").strip()
     if not client_id or not client_secret:
         with get_db() as db:
             client_id = client_id or get_setting(db, "igdb_client_id")
