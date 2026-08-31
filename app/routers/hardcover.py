@@ -31,8 +31,17 @@ HC_STATUSES = {
 @router.post("/test")
 async def test_hardcover(request: Request, _=Depends(require_role("admin"))):
     """Test a Hardcover API token."""
-    data = await request.json()
-    token = data.get("token", "").strip()
+    try:
+        data = await request.json()
+    except Exception:
+        return {"ok": False, "message": "Invalid request body"}
+    if not isinstance(data, dict):
+        return {"ok": False, "message": "Invalid request body"}
+
+    raw_token = data.get("token")
+    if raw_token is not None and not isinstance(raw_token, str):
+        return {"ok": False, "message": "Invalid request body"}
+    token = (raw_token or "").strip()
     if not token:
         # Masked field posts empty — test the stored token instead
         with get_db() as db:
