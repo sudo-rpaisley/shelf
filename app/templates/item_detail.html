@@ -135,7 +135,7 @@
                 {% endif %}
 
                 <!-- Hardcover Sync -->
-                {% if has_hardcover %}
+                {% if has_hardcover and user and user.role in ('admin', 'editor') %}
                 <div class="mb-4" x-data="hardcoverPush" data-item-id="{{ item.id }}">
                     <button @click="push"
                             :disabled="hcPushing"
