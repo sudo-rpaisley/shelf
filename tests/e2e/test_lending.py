@@ -32,6 +32,10 @@ def _insert_active_checkout(data_dir, item_id: int, borrower_id: int) -> None:
         conn.close()
 
 
+def _csrf_headers(page):
+    return {"X-CSRF-Token": page.evaluate("() => window.csrfToken()")}
+
+
 def test_item_page_lend_then_return_full_journey(live_server, authed_page):
     """A normal household lend/return cycle works end to end from item detail."""
     borrower = "E2E Lending Friend"
@@ -71,10 +75,10 @@ def test_item_page_lend_then_return_full_journey(live_server, authed_page):
     assert_page_clean(authed_page)
 
 
-def test_viewer_sees_loan_status_but_no_lending_or_editor_actions(
+def test_viewer_sees_read_only_product_ui_without_editor_mutations(
     live_server, browser, authed_page
 ):
-    """Viewer UI mirrors backend permissions while retaining read-only loan context."""
+    """Viewer UI mirrors backend permissions while retaining useful read-only context."""
     base = live_server["url"]
     username = "e2eviewer_lending"
     password = "viewer-password-123"
@@ -99,8 +103,21 @@ def test_viewer_sees_loan_status_but_no_lending_or_editor_actions(
         live_server["data_dir"],
         title="E2E Viewer Available Item",
         isbn="9780907000031",
+        series_name="E2E Viewer Saga",
+        series_position=1,
     )
     _insert_active_checkout(live_server["data_dir"], lent_item_id, borrower_id)
+
+    # Configure Hardcover through the real settings endpoint so its viewer-facing
+    # read-only surfaces render. The test clears it again in finally because the
+    # E2E server and nav cache are shared across files.
+    headers = _csrf_headers(authed_page)
+    resp = authed_page.request.post(
+        f"{base}/api/settings",
+        form={"hardcover_token": "test-hc-token-viewer-smoke"},
+        headers=headers,
+    )
+    assert resp.status in (200, 303)
 
     ctx = browser.new_context()
     try:
@@ -112,28 +129,43 @@ def test_viewer_sees_loan_status_but_no_lending_or_editor_actions(
         page.wait_for_url(f"{base}/browse", timeout=10_000)
 
         # Viewer navigation exposes read-only product surfaces, not editor/admin tools.
-        expect(page.locator('[data-nav-tab="browse"]')).to_be_visible()
-        expect(page.locator('[data-nav-tab="store"]')).to_be_visible()
-        expect(page.locator('[data-nav-tab="series"]')).to_be_visible()
-        expect(page.locator('[data-nav-tab="stats"]')).to_be_visible()
+        for key in ("browse", "store", "series", "discover", "stats"):
+            expect(page.locator(f'[data-nav-tab="{key}"]')).to_be_visible()
         for key in ("scan", "settings", "logs"):
             expect(page.locator(f'[data-nav-tab="{key}"]')).to_have_count(0)
 
-        # A Viewer can understand that a book is out, but cannot return it.
+        # A Viewer can understand that a book is out, but cannot return or sync it.
         page.goto(f"{base}/item/{lent_item_id}")
         page.wait_for_load_state("networkidle")
         expect(page.locator("body")).to_contain_text("Lent to E2E Viewer Borrower")
         expect(page.get_by_role("button", name="Check In")).to_have_count(0)
+        expect(page.get_by_role("button", name="Push to Hardcover")).to_have_count(0)
         expect(page.locator('[data-testid="cover-controls"]')).to_have_count(0)
         expect(page.get_by_role("link", name="Edit", exact=True)).to_have_count(0)
         expect(page.get_by_role("button", name="Delete", exact=True)).to_have_count(0)
         expect(page.locator("body")).to_contain_text("Reading Status")
 
-        # Nor should an available item advertise an action that the server rejects.
+        # Nor should an available item advertise actions that the server rejects.
         page.goto(f"{base}/item/{available_item_id}")
         page.wait_for_load_state("networkidle")
         expect(page.get_by_role("button", name="Lend this item")).to_have_count(0)
+        expect(page.get_by_role("button", name="Push to Hardcover")).to_have_count(0)
         expect(page.locator(f'form[action="/api/items/{available_item_id}/checkout"]')).to_have_count(0)
+
+        # Series stays useful to Viewers: Hardcover completeness is read-only and
+        # permitted, while synopsis/wishlist/rename/complete mutations are hidden.
+        page.goto(f"{base}/series")
+        page.wait_for_load_state("networkidle")
+        card = page.locator('[data-testid="series-card"]').filter(has_text="E2E Viewer Saga")
+        expect(card).to_be_visible()
+        expect(card.locator('[data-testid="check-series"]')).to_be_visible()
+        for test_id in ("fetch-synopsis", "series-actions", "edit-synopsis"):
+            expect(card.locator(f'[data-testid="{test_id}"]')).to_have_count(0)
         assert_page_clean(page)
     finally:
         ctx.close()
+        authed_page.request.post(
+            f"{base}/api/settings",
+            form={"hardcover_token": "", "clear_hardcover_token": "on"},
+            headers=headers,
+        )
