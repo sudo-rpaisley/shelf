@@ -385,13 +385,12 @@ async def add_dvd_from_search(
 
     publish_year = (publish_year or "").strip()
     if publish_year:
-        try:
-            year = int(publish_year)
-        except ValueError:
+        if not publish_year.isdigit():
             return templates.TemplateResponse(
                 request, "fragments/scan_result.html",
                 {"status": "error", "isbn": "", "message": "Invalid publish year"},
             )
+        year = int(publish_year)
     else:
         year = None
 
