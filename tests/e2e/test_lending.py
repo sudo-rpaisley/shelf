@@ -161,6 +161,28 @@ def test_viewer_sees_read_only_product_ui_without_editor_mutations(
         expect(card.locator('[data-testid="check-series"]')).to_be_visible()
         for test_id in ("fetch-synopsis", "series-actions", "edit-synopsis"):
             expect(card.locator(f'[data-testid="{test_id}"]')).to_have_count(0)
+
+        # Discover remains useful when configured, but its copy is read-only for Viewers.
+        page.goto(f"{base}/discover")
+        page.wait_for_load_state("networkidle")
+        expect(page.locator('input[name="q"]')).to_be_visible()
+        expect(page.locator("body")).to_contain_text("Search Hardcover's catalog to explore books.")
+        expect(page.get_by_role("link", name="Go to Settings", exact=True)).to_have_count(0)
+
+        # If Hardcover becomes unconfigured, a Viewer should be told to ask an
+        # administrator rather than being sent to the Admin-only Settings route.
+        clear = authed_page.request.post(
+            f"{base}/api/settings",
+            form={"hardcover_token": "", "clear_hardcover_token": "on"},
+            headers=headers,
+        )
+        assert clear.status in (200, 303)
+        page.goto(f"{base}/discover")
+        page.wait_for_load_state("networkidle")
+        expect(page.locator("body")).to_contain_text(
+            "Hardcover is not connected. Ask an administrator to configure the integration."
+        )
+        expect(page.get_by_role("link", name="Go to Settings", exact=True)).to_have_count(0)
         assert_page_clean(page)
     finally:
         ctx.close()
