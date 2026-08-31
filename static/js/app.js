@@ -107,6 +107,14 @@ document.body.addEventListener('showToast', function(e) {
 
 // --- Keyboard shortcuts ---
 document.addEventListener('keydown', function(e) {
+    if (e.key === 'Escape') {
+        var shortcutModal = document.getElementById('shortcut-modal');
+        if (shortcutModal && !shortcutModal.classList.contains('hidden')) {
+            shortcutModal.classList.add('hidden');
+            return;
+        }
+    }
+
     var tag = document.activeElement.tagName;
     if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return;
     if (e.key === '/' ) { e.preventDefault(); var q = document.querySelector('[name="q"]'); if (q) q.focus(); }
