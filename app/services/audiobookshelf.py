@@ -117,20 +117,59 @@ async def sync(abs_url: str, abs_token: str, on_progress=None) -> dict:
 
                 with get_db() as db:
                     existing = db.execute(
-                        "SELECT id FROM items WHERE abs_id = ?", (abs_id,)
+                        "SELECT id, abs_id FROM items WHERE abs_id = ?", (abs_id,)
                     ).fetchone()
+
+                    # Shelf permits the same ISBN across formats, but not twice
+                    # within one media type. ABS IDs alone are therefore not
+                    # enough to decide whether an insert is safe: a manually
+                    # catalogued audiobook may already occupy the ISBN slot,
+                    # or ABS itself may expose duplicate records for it.
+                    isbn_match = None
+                    if isbn:
+                        if existing:
+                            isbn_match = db.execute(
+                                """SELECT id, abs_id FROM items
+                                   WHERE isbn = ? AND media_type = ? AND id != ?
+                                   ORDER BY id LIMIT 1""",
+                                (isbn, media_type, existing["id"]),
+                            ).fetchone()
+                        else:
+                            isbn_match = db.execute(
+                                """SELECT id, abs_id FROM items
+                                   WHERE isbn = ? AND media_type = ?
+                                   ORDER BY id LIMIT 1""",
+                                (isbn, media_type),
+                            ).fetchone()
+
+                    if isbn_match:
+                        if existing or isbn_match["abs_id"]:
+                            logger.warning(
+                                "Skipping ABS item %s (%s): ISBN %s already belongs "
+                                "to Shelf item %s for media type %s",
+                                abs_id, title, isbn, isbn_match["id"], media_type,
+                            )
+                            stats["skipped"] += 1
+                            if on_progress:
+                                await on_progress(current, total, title, "skipped")
+                            continue
+
+                        # Adopt an existing manually-added same-format item
+                        # instead of attempting a duplicate insert. From this
+                        # point on it follows the normal ABS update path.
+                        existing = isbn_match
 
                     if existing:
                         db.execute(
                             """UPDATE items SET title=?, authors=?, narrator=?,
                                isbn=?, series_name=?, publisher=?, publish_year=?,
                                description=?, duration_mins=?, media_type=?,
-                               abs_library_id=?,
+                               abs_id=?, abs_library_id=?,
                                updated_at=datetime('now')
-                               WHERE abs_id=?""",
+                               WHERE id=?""",
                             (title, authors, narrator, isbn, series_name,
                              publisher, pub_year, description, duration_mins,
-                             media_type, lib_id, abs_id),
+                             media_type, abs_id, lib_id, existing["id"]),
                         )
                         stats["updated"] += 1
                         item_id = existing["id"]
