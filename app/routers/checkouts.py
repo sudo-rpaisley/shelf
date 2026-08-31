@@ -111,7 +111,15 @@ async def checkout_item(
     _=Depends(require_role("editor")),
 ):
     """Check out an item to a borrower."""
-    due = (date.today() + timedelta(days=due_days)).isoformat() if due_days > 0 else None
+    if due_days > 0:
+        try:
+            due = (date.today() + timedelta(days=due_days)).isoformat()
+        except OverflowError:
+            return JSONResponse(
+                {"ok": False, "message": "Due date is out of range"}, status_code=400
+            )
+    else:
+        due = None
 
     with get_db() as db:
         # Guard and insert must be one serialized write decision. Without a
@@ -148,14 +156,28 @@ async def checkout_item(
 
 @router.post("/checkouts/{checkout_id}/checkin")
 async def checkin_item(checkout_id: int, _=Depends(require_role("editor"))):
-    """Check in an item (return it)."""
+    """Check in an active item loan exactly once."""
     with get_db() as db:
-        checkout = db.execute("SELECT item_id FROM checkouts WHERE id = ?", (checkout_id,)).fetchone()
+        checkout = db.execute(
+            "SELECT item_id, checked_in FROM checkouts WHERE id = ?", (checkout_id,)
+        ).fetchone()
         if not checkout:
-            return {"ok": False, "message": "Checkout not found"}
-        db.execute(
-            "UPDATE checkouts SET checked_in = datetime('now') WHERE id = ?", (checkout_id,)
+            return JSONResponse(
+                {"ok": False, "message": "Checkout not found"}, status_code=404
+            )
+        if checkout["checked_in"] is not None:
+            return JSONResponse(
+                {"ok": False, "message": "Checkout already checked in"}, status_code=409
+            )
+        cursor = db.execute(
+            "UPDATE checkouts SET checked_in = datetime('now') "
+            "WHERE id = ? AND checked_in IS NULL",
+            (checkout_id,),
         )
+        if cursor.rowcount != 1:
+            return JSONResponse(
+                {"ok": False, "message": "Checkout already checked in"}, status_code=409
+            )
     return RedirectResponse(url=f"/item/{checkout['item_id']}", status_code=303)
 
 
