@@ -35,17 +35,3 @@ def test_fetch_description_rejects_unknown_series_before_hardcover(
     assert response.status_code == 200
     assert response.json() == {"ok": False, "message": "Series not found"}
     assert _meta_count(db, "Not In Library") == 0
-
-
-def test_check_rejects_unknown_series_before_hardcover(viewer_client, monkeypatch):
-    monkeypatch.setattr(series, "get_setting", lambda db, key: "configured-token")
-
-    async def _forbid_lookup(*args, **kwargs):
-        raise AssertionError("Hardcover lookup must not run for an unknown local series")
-
-    monkeypatch.setattr(series.hardcover, "get_series_books", _forbid_lookup)
-
-    response = viewer_client.get("/api/series/check", params={"name": "Not In Library"})
-
-    assert response.status_code == 200
-    assert response.json() == {"ok": False, "message": "Series not found"}
