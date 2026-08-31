@@ -47,6 +47,14 @@ def find_gaps(positions: list) -> list[int]:
     return [n for n in range(1, max(ints) + 1) if n not in ints]
 
 
+def _series_exists(db, name: str) -> bool:
+    """Whether the catalogue currently contains at least one item in a series."""
+    return bool(db.execute(
+        "SELECT 1 FROM items WHERE series_name = ? COLLATE NOCASE LIMIT 1",
+        (name,),
+    ).fetchone())
+
+
 @router.get("/series")
 async def series_page(request: Request, _=Depends(require_role("viewer"))):
     templates = request.app.state.templates
@@ -136,14 +144,16 @@ async def check_series(name: str = "", _=Depends(require_role("viewer"))):
         return {"ok": False, "message": "Series name required"}
 
     with get_db() as db:
-        token = get_setting(db, "hardcover_token")
-        if not token:
-            return {"ok": False, "message": "Hardcover integration not configured"}
         local = db.execute(
             "SELECT title, owned, hardcover_book_id FROM items "
             "WHERE series_name = ? COLLATE NOCASE",
             (name,),
         ).fetchall()
+        if not local:
+            return {"ok": False, "message": "Series not found"}
+        token = get_setting(db, "hardcover_token")
+        if not token:
+            return {"ok": False, "message": "Hardcover integration not configured"}
 
     books = await hardcover.get_series_books(name, token)
     if books is None:
@@ -163,14 +173,8 @@ async def check_series(name: str = "", _=Depends(require_role("viewer"))):
 
     missing = sum(1 for b in out if b["status"] == "missing")
 
-    # Cache the result only for a series the library actually holds. This is a
-    # viewer-role GET, so without the guard any name Hardcover recognises would
-    # let a viewer create series_meta rows for series that do not exist here —
-    # and a check against an empty local set is meaningless anyway (every book
-    # would read as "missing"). Same not-found rule the complete endpoint uses.
-    if local:
-        with get_db() as db:
-            _upsert_series_check(db, name, len(out), missing)
+    with get_db() as db:
+        _upsert_series_check(db, name, len(out), missing)
 
     return {"ok": True, "series": name, "total": len(out), "missing": missing, "books": out}
 
@@ -257,6 +261,8 @@ async def set_series_description(name: str, description: str = Form(""),
     description = (description or "").strip()
 
     with get_db() as db:
+        if not _series_exists(db, name):
+            return {"ok": False, "message": "Series not found"}
         if description:
             _upsert_series_description(db, name, description, "manual")
         else:
@@ -460,6 +466,8 @@ async def fetch_series_description(name: str, _=Depends(require_role("editor")))
         return {"ok": False, "message": "Series name required"}
 
     with get_db() as db:
+        if not _series_exists(db, name):
+            return {"ok": False, "message": "Series not found"}
         token = get_setting(db, "hardcover_token")
         if not token:
             return {"ok": False, "message": "Hardcover integration not configured"}
