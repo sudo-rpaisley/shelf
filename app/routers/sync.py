@@ -34,15 +34,26 @@ router = APIRouter(prefix="/api/sync", dependencies=[Depends(require_role("admin
 @router.post("/audiobookshelf/test")
 async def test_audiobookshelf(request: Request):
     """Test whether ABS URL and token are valid. Accepts values from POST body or falls back to DB."""
-    # Try to read from request body first (user may not have saved yet)
-    url = ""
-    token = ""
+    # Try to read from request body first (user may not have saved yet).
+    # Empty or absent values deliberately fall back to the stored setting, but
+    # a supplied value must still have the request shape the UI/API promises.
     try:
         body = await request.json()
-        url = (body.get("url") or "").strip().rstrip("/")
-        token = (body.get("token") or "").strip()
     except Exception:
-        pass
+        body = {}
+    if body is None:
+        body = {}
+    if not isinstance(body, dict):
+        return {"ok": False, "message": "Invalid request body"}
+
+    raw_url = body.get("url")
+    raw_token = body.get("token")
+    if ((raw_url is not None and not isinstance(raw_url, str)) or
+            (raw_token is not None and not isinstance(raw_token, str))):
+        return {"ok": False, "message": "Invalid request body"}
+
+    url = (raw_url or "").strip().rstrip("/")
+    token = (raw_token or "").strip()
 
     # Fall back to database (with env var override) if not provided in body
     if not url or not token:
