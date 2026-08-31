@@ -802,7 +802,7 @@ async def merge_items(request: Request, _=Depends(require_role("admin"))):
                 elif (primary.get("isbn") == other.get("isbn") and
                       not primary.get("isbn10") and other.get("isbn10")):
                     updates["isbn10"] = other["isbn10"]
-                    primary["isbn10"] = other["isbn10"]
+                    primary["isbn10"] = other.get("isbn10")
 
                 if not primary.get("upc") and other.get("upc"):
                     updates["upc"] = other["upc"]
@@ -862,23 +862,60 @@ async def update_item(request: Request, item_id: int, _=Depends(require_role("ed
     back_key = nav.back_target(form.get("from"))["key"]
     redirect_url = f"/item/{item_id}" + (f"?from={back_key}" if back_key else "")
     fields = {}
+    int_fields = {
+        "publish_year": "Invalid publish year",
+        "page_count": "Invalid page count",
+        "duration_mins": "Invalid duration",
+        "location_id": "Invalid location",
+    }
+    float_fields = {
+        "series_position": "Invalid series position",
+        "manual_value": "Invalid manual value",
+    }
     for key in ("title", "subtitle", "authors", "isbn", "media_type", "publisher",
                 "publish_year", "page_count", "description", "series_name",
                 "series_position", "narrator", "duration_mins", "location_id", "notes",
                 "reading_status", "date_started", "date_finished", "owned", "platform",
                 "manual_value", "language"):
         val = form.get(key)
-        if val is not None:
-            if val == "" and key != "owned":
-                fields[key] = None
-            elif key in ("publish_year", "page_count", "duration_mins", "location_id"):
-                fields[key] = int(val) if val else None
-            elif key in ("series_position", "manual_value"):
-                fields[key] = float(val) if val else None
-            elif key == "owned":
-                fields[key] = int(val) if val else 0
-            else:
-                fields[key] = val
+        if val is None:
+            continue
+        if val == "" and key != "owned":
+            fields[key] = None
+        elif key in int_fields:
+            try:
+                fields[key] = int(val)
+            except (TypeError, ValueError):
+                return HTMLResponse(int_fields[key], status_code=400)
+        elif key in float_fields:
+            try:
+                fields[key] = float(val)
+            except (TypeError, ValueError):
+                return HTMLResponse(float_fields[key], status_code=400)
+        elif key == "owned":
+            if val not in ("0", "1", 0, 1):
+                return HTMLResponse("Owned must be 0 or 1", status_code=400)
+            fields[key] = int(val)
+        else:
+            fields[key] = val
+
+    if "title" in fields:
+        title = str(fields["title"] or "").strip()
+        if not title:
+            return HTMLResponse("Title is required", status_code=400)
+        fields["title"] = title
+
+    if "media_type" in fields and fields["media_type"] not in MEDIA_TYPES:
+        return HTMLResponse("Invalid media type", status_code=400)
+
+    if "reading_status" in fields:
+        if fields["reading_status"] is None:
+            pass
+        elif fields["reading_status"] not in {"want_to_read", "reading", "read"}:
+            return HTMLResponse("Invalid reading status", status_code=400)
+
+    if fields.get("location_id") is not None and fields["location_id"] <= 0:
+        return HTMLResponse("Invalid location", status_code=400)
 
     if "isbn" in fields:
         if fields["isbn"] is None:
@@ -889,38 +926,57 @@ async def update_item(request: Request, item_id: int, _=Depends(require_role("ed
                 return HTMLResponse("Invalid ISBN", status_code=400)
             fields["isbn"], fields["isbn10"] = pair
 
+    cover_content = None
     cover_file = form.get("cover")
     if cover_file and hasattr(cover_file, "read"):
         content = await cover_file.read()
         if content and len(content) > 100:
-            cover_path = covers.save_uploaded_cover(item_id, content)
-            if cover_path:
-                fields["cover_path"] = cover_path
+            cover_content = content
 
-    if not fields:
+    if not fields and cover_content is None:
         from fastapi.responses import RedirectResponse
         return RedirectResponse(url=redirect_url, status_code=303)
 
-    set_clause = ", ".join(f"{k} = ?" for k in fields)
-    values = list(fields.values()) + [item_id]
-
     with get_db() as db:
-        old_series_name = None
-        if "series_name" in fields:
-            row = db.execute("SELECT series_name FROM items WHERE id = ?", (item_id,)).fetchone()
-            old_series_name = row["series_name"] if row else None
-
-        cursor = db.execute(
-            f"UPDATE items SET {set_clause}, updated_at = datetime('now') WHERE id = ?",
-            values,
-        )
-        if cursor.rowcount == 0:
+        current = db.execute(
+            "SELECT series_name FROM items WHERE id = ?", (item_id,)
+        ).fetchone()
+        if not current:
             return HTMLResponse("Not found", status_code=404)
 
-        if "series_name" in fields and old_series_name:
-            new_series_name = fields["series_name"]
-            if old_series_name.strip().casefold() != (new_series_name or "").strip().casefold():
-                gc_orphaned_series_meta(db, old_series_name)
+        if fields.get("location_id") is not None:
+            location = db.execute(
+                "SELECT id FROM locations WHERE id = ?", (fields["location_id"],)
+            ).fetchone()
+            if not location:
+                return HTMLResponse("Location not found", status_code=400)
+
+        old_series_name = current["series_name"] if "series_name" in fields else None
+        if fields:
+            set_clause = ", ".join(f"{k} = ?" for k in fields)
+            try:
+                db.execute(
+                    f"UPDATE items SET {set_clause}, updated_at = datetime('now') WHERE id = ?",
+                    list(fields.values()) + [item_id],
+                )
+            except sqlite3.IntegrityError:
+                return HTMLResponse(
+                    "Update conflicts with existing catalogue data", status_code=409
+                )
+
+            if "series_name" in fields and old_series_name:
+                new_series_name = fields["series_name"]
+                if old_series_name.strip().casefold() != (new_series_name or "").strip().casefold():
+                    gc_orphaned_series_meta(db, old_series_name)
+
+    if cover_content is not None:
+        cover_path = covers.save_uploaded_cover(item_id, cover_content)
+        if cover_path:
+            with get_db() as db:
+                db.execute(
+                    "UPDATE items SET cover_path = ?, updated_at = datetime('now') WHERE id = ?",
+                    (cover_path, item_id),
+                )
 
     from fastapi.responses import RedirectResponse
     return RedirectResponse(url=redirect_url, status_code=303)
@@ -932,7 +988,7 @@ async def set_reading_status(request: Request, item_id: int, status: str = Form(
     templates = request.app.state.templates
     valid = ("want_to_read", "reading", "read", "")
     if status not in valid:
-        status = ""
+        return HTMLResponse("Invalid reading status", status_code=400)
 
     reading_status = status or None
     now_date = None
