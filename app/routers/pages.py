@@ -11,6 +11,7 @@ from app.database import get_db, get_setting, get_game_platforms, get_reading_hi
 from app.routers import items_common
 from app.routers.items_common import SORT_OPTIONS
 from app.routers.series import find_gaps
+from app.services import browse_grouping
 
 router = APIRouter()
 
@@ -41,21 +42,15 @@ async def browse(
     with get_db() as db:
         _, order_clause = SORT_OPTIONS.get(values["sort"], SORT_OPTIONS["newest"])
 
-        from app.routers.checkouts import OVERDUE_CONDITION, get_overdue_days
-        items = db.execute(
-            f"SELECT i.*, l.name as location_name, "
-            f"(SELECT b.name FROM checkouts c JOIN borrowers b ON c.borrower_id = b.id "
-            f" WHERE c.item_id = i.id AND c.checked_in IS NULL LIMIT 1) AS lent_to, "
-            f"(SELECT 1 FROM checkouts c WHERE c.item_id = i.id AND {OVERDUE_CONDITION} LIMIT 1) AS lent_overdue "
-            f"FROM items i "
-            f"LEFT JOIN locations l ON i.location_id = l.id "
-            f"{where} ORDER BY {order_clause} LIMIT ?",
-            [get_overdue_days(db)] + params + [DEFAULT_PAGE_SIZE],
-        ).fetchall()
-
-        total_filtered = db.execute(
-            f"SELECT COUNT(*) as c FROM items i {where}", params
-        ).fetchone()["c"]
+        items, total_filtered, display_total = browse_grouping.fetch_page(
+            db,
+            where,
+            params,
+            order_clause,
+            limit=DEFAULT_PAGE_SIZE,
+            offset=0,
+            values=values,
+        )
 
         series_names = [
             row["series_name"]
@@ -90,7 +85,7 @@ async def browse(
             ).fetchall()
         ]
 
-        has_more = len(items) < total_filtered
+        has_more = len(items) < display_total
 
         load_more_url = "/api/search?" + browse_filters.querystring(
             values, extra=["page=2"]
