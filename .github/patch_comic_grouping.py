@@ -238,11 +238,15 @@ replace_once(
 )
 
 # 7. The background-job migration intentionally replaced the old SSE start
-# endpoint; update the two browser guards that still asserted the obsolete URL.
+# endpoint. Update both route intercepts, both request assertions and the test
+# documentation so this guard follows the real background-job start request.
 p = Path("tests/e2e/test_settings_abs_sync_guard.py")
 text = p.read_text()
-old = '**/api/sync/audiobookshelf/stream'
-count = text.count(old)
-if count != 2:
-    raise RuntimeError(f"ABS E2E endpoint: expected 2 stale stream assertions, found {count}")
-p.write_text(text.replace(old, '**/api/sync/audiobookshelf/job'))
+old_path = "/api/sync/audiobookshelf/stream"
+count = text.count(old_path)
+if count != 5:
+    raise RuntimeError(f"ABS E2E endpoint: expected 5 stale stream references, found {count}")
+text = text.replace(old_path, "/api/sync/audiobookshelf/job")
+text = text.replace("issues the stream request", "issues the background-job request")
+text = text.replace("with the stream\nroute aborted first", "with the job\nroute aborted first")
+p.write_text(text)
