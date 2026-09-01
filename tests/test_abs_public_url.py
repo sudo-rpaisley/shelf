@@ -71,10 +71,10 @@ def test_settings_renders_saved_browser_url(admin_client, db):
 
     html = admin_client.get("/settings").text
 
-    assert "Audiobookshelf Browser URL" in html
+    assert "Audiobookshelf Browser / Public URL" in html
     assert 'name="abs_public_url"' in html
     assert 'value="https://audiobooks.example.com"' in html
-    assert "does not change the address Shelf uses for syncing or API calls" in html
+    assert "never changes the address Shelf uses for sync or API traffic" in html
 
 
 def test_abs_item_detail_uses_public_browser_root(admin_client, db):
