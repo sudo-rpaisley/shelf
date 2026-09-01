@@ -32,6 +32,7 @@ jobs:
         run: python .github/patch_comic_grouping.py
       - name: Run focused Browse and background-job regressions
         run: |
+          # item_grid.html emits both grid and list templates; tests assert both.
           python -m pytest tests/test_browse_comic_grouping.py tests/test_browse_filters.py tests/test_sync_jobs.py -q
       - name: Refresh generated assets and test badge
         run: |
