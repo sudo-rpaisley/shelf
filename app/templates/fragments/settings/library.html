@@ -38,6 +38,19 @@
                 </select>
                 <p class="text-xs text-shelf-muted mt-2">Preferred language for Open Library title searches — browse search, CSV-import ISBN recovery, and shelf-photo intake.</p>
             </div>
+            <div class="pt-2 border-t border-shelf-border">
+                <input type="hidden" name="browse_group_digital_comics_present" value="1">
+                {% set group_digital_comics = settings.get("browse_group_digital_comics", "1") != "0" %}
+                <label class="flex items-start gap-3 cursor-pointer">
+                    <input type="checkbox" name="browse_group_digital_comics"
+                           class="mt-1 rounded border-shelf-border"
+                           {% if group_digital_comics %}checked{% endif %}>
+                    <span>
+                        <span class="block text-sm font-medium text-shelf-text">Group Digital Comics by series in Browse</span>
+                        <span class="block text-xs text-shelf-muted mt-0.5">Show one card per series by default. Open a series to browse its individual issues.</span>
+                    </span>
+                </label>
+            </div>
             <button type="submit" class="px-4 py-2 bg-shelf-accent text-white rounded-lg text-sm hover:bg-shelf-accent2 transition-colors">
                 Save
             </button>

@@ -1,7 +1,11 @@
 {% extends "base.html" %}
 {% block title %}Browse — Shelf{% endblock %}
 {% block content %}
-<div x-data="browsePage" data-initial-query="{{ initial_query or '' }}">
+{% set can_select = user and user.role in ('editor', 'admin') %}
+{% set can_bulk_edit = user and user.role == 'admin' %}
+<div x-data="browsePage" data-initial-query="{{ initial_query or '' }}" data-can-select="{{ '1' if can_select else '0' }}">
+    <input type="hidden" name="series" value="{{ (initial_filters or {}).get('series', '') }}">
+    {% if can_select %}
     <!-- Bulk Action Bar -->
     <div x-show="selectMode && selectedIds.length > 0" x-transition
          class="fixed bottom-0 inset-x-0 z-40 bg-shelf-card border-t border-shelf-border py-3 px-4 shadow-lg">

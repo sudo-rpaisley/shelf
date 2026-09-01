@@ -112,6 +112,10 @@ def _tag(value):
     )
 
 
+def _series(value):
+    return "i.series_name = ? COLLATE NOCASE", [value]
+
+
 @dataclass(frozen=True)
 class BrowseFilter:
     """One Browse filter, in every form the app needs it.
@@ -175,6 +179,7 @@ FILTERS: tuple[BrowseFilter, ...] = (
     BrowseFilter("lent_out", condition=_lent_out),
     BrowseFilter("tag", prefix="Tag", condition=_tag, quote_in_qs=True),
     BrowseFilter("language", prefix="Language", condition=_column("i.language")),
+    BrowseFilter("series", prefix="Series", condition=_series, quote_in_qs=True),
     # `view` is the odd one: client-owned state (localStorage) that is sent to
     # the server so it can pick the grid or list template. It is not a filter
     # the user clears, chips, or reads out of the URL — hence all three opt-outs.
