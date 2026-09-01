@@ -1,0 +1,46 @@
+name: Apply Digital Comic Browse grouping
+
+on:
+  push:
+    branches: [feature/komga-sync]
+    paths:
+      - .github/patch_comic_grouping.py
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: feature/komga-sync
+          fetch-depth: 0
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Install test and build dependencies
+        run: |
+          pip install -r requirements-dev.txt
+          npm install
+      - name: Apply Browse grouping patch
+        run: python .github/patch_comic_grouping.py
+      - name: Run focused Browse and background-job regressions
+        run: |
+          python -m pytest tests/test_browse_comic_grouping.py tests/test_browse_filters.py tests/test_sync_jobs.py -q
+      - name: Refresh generated assets and test badge
+        run: |
+          make css
+          make badges
+      - name: Commit feature changes and remove temporary patch machinery
+        run: |
+          rm .github/patch_comic_grouping.py .github/workflows/comic-grouping-patch.yml
+          git config user.name "Robert J Paisley"
+          git config user.email "56076332+sudo-rpaisley@users.noreply.github.com"
+          git add -A
+          git commit -m "Group Digital Comics by series in Browse"
+          git push origin HEAD:feature/komga-sync
