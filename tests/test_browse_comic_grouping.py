@@ -58,7 +58,10 @@ def test_browse_groups_digital_comics_by_default_and_uses_earliest_cover(db, adm
 
     html = admin_client.get("/browse").text
 
-    assert html.count('data-series-group="Saga Alpha"') == 1
+    # item_grid.html intentionally emits both the grid and list templates;
+    # Alpine reveals one of them. The collapsed series must therefore appear
+    # once as a card and once as a row, never as its three individual issues.
+    assert html.count('data-series-group="Saga Alpha"') == 2
     assert "covers/saga1.jpg" in html
     assert "3 issues" in html
     assert f'data-item-id="{physical}"' in html
@@ -140,5 +143,5 @@ def test_api_search_uses_the_same_series_grouping(db, admin_client):
     db.commit()
 
     html = admin_client.get("/api/search?media_type_filter=digital_comic").text
-    assert html.count('data-series-group="Saga Alpha"') == 1
+    assert html.count('data-series-group="Saga Alpha"') == 2
     assert "covers/saga1.jpg" in html
