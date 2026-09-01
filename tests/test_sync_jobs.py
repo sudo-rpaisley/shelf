@@ -2,10 +2,13 @@
 
 These tests pin the behaviour the Settings page relies on when a user starts a
 sync, navigates elsewhere in Shelf, and later returns to reattach to progress,
-including the server-seeded first paint before polling resumes.
+including the server-seeded first paint before polling resumes. Provider work
+must also stay off Uvicorn's request-serving event-loop thread so synchronous
+SQLite/filesystem work cannot freeze the rest of the web application.
 """
 
 import asyncio
+import threading
 
 from app.services import sync_jobs
 
@@ -18,13 +21,23 @@ def teardown_function():
     sync_jobs._reset_for_tests()
 
 
+async def _wait_for_progress(provider: str, current: int) -> dict:
+    for _ in range(200):
+        status = sync_jobs.get_status(provider)
+        if status["current"] == current:
+            return status
+        await asyncio.sleep(0.005)
+    raise AssertionError(f"{provider} did not reach progress item {current}")
+
+
 def test_job_returns_immediately_and_records_progress():
-    gate = asyncio.Event()
+    gate = threading.Event()
 
     async def scenario():
         async def runner(progress):
             await progress(1, 3, "One", "added")
-            await gate.wait()
+            while not gate.is_set():
+                await asyncio.sleep(0.005)
             await progress(3, 3, "Three", "updated")
             return {"added": 1, "updated": 1}
 
@@ -32,10 +45,8 @@ def test_job_returns_immediately_and_records_progress():
         assert started["started"] is True
         assert started["state"] == "running"
 
-        await asyncio.sleep(0)
-        live = sync_jobs.get_status("komga")
+        live = await _wait_for_progress("komga", 1)
         assert live["state"] == "running"
-        assert live["current"] == 1
         assert live["total"] == 3
         assert live["title"] == "One"
         assert live["recent"][-1] == {"i": 1, "t": "One", "s": "added"}
@@ -50,7 +61,7 @@ def test_job_returns_immediately_and_records_progress():
 
 
 def test_duplicate_start_reuses_running_provider_job():
-    gate = asyncio.Event()
+    gate = threading.Event()
     calls = 0
 
     async def scenario():
@@ -60,11 +71,12 @@ def test_duplicate_start_reuses_running_provider_job():
             nonlocal calls
             calls += 1
             await progress(1, 2, "Working", "unchanged")
-            await gate.wait()
+            while not gate.is_set():
+                await asyncio.sleep(0.005)
             return {"unchanged": 1}
 
         first = sync_jobs.start("audiobookshelf", runner)
-        await asyncio.sleep(0)
+        await _wait_for_progress("audiobookshelf", 1)
         second = sync_jobs.start("audiobookshelf", runner)
 
         assert first["started"] is True
@@ -73,6 +85,27 @@ def test_duplicate_start_reuses_running_provider_job():
 
         gate.set()
         await sync_jobs.wait("audiobookshelf")
+
+    asyncio.run(scenario())
+
+
+def test_provider_runner_uses_worker_thread_not_request_event_loop():
+    """Blocking provider work must not execute on Uvicorn's event-loop thread."""
+    async def scenario():
+        request_thread = threading.get_ident()
+        provider_threads = []
+
+        async def runner(progress):
+            provider_threads.append(threading.get_ident())
+            await progress(1, 1, "Finished", "unchanged")
+            return {"unchanged": 1}
+
+        sync_jobs.start("komga", runner)
+        done = await sync_jobs.wait("komga")
+
+        assert done["state"] == "completed"
+        assert provider_threads
+        assert provider_threads[0] != request_thread
 
     asyncio.run(scenario())
 
