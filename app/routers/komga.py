@@ -11,7 +11,7 @@ from starlette.responses import StreamingResponse
 from app.auth import require_role
 from app.config import HTTP_TIMEOUT
 from app.database import get_db, get_setting
-from app.services import komga
+from app.services import komga, sync_jobs
 
 logger = logging.getLogger(__name__)
 
@@ -198,6 +198,30 @@ async def cleanup_libraries():
         detached,
     )
     return {"ok": True, "deleted": deleted, "detached": detached}
+
+
+@router.get("/job")
+async def komga_job_status():
+    """Return the current/most recent detached Komga sync job."""
+    return sync_jobs.get_status("komga")
+
+
+@router.post("/job")
+async def start_komga_job():
+    """Start Komga sync on the server and return without holding the browser open."""
+    with get_db() as db:
+        url = get_setting(db, "komga_url")
+        api_key = get_setting(db, "komga_api_key")
+    if not url or not api_key:
+        return {"state": "error", "error": "Komga URL and API key must be configured in Settings"}
+    url_error = _validate_url(url)
+    if url_error:
+        return {"state": "error", "error": url_error}
+
+    async def runner(on_progress):
+        return await komga.sync(url, api_key, on_progress=on_progress)
+
+    return sync_jobs.start("komga", runner, source="manual")
 
 
 @router.post("")

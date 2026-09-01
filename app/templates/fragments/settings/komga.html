@@ -76,7 +76,7 @@
             <button @click="startSync" :disabled="syncing || !syncReady"
                     class="px-4 py-2 bg-shelf-hover text-shelf-text rounded-lg text-sm hover:bg-shelf-border transition-colors disabled:opacity-50">
                 <span x-show="!syncing" x-text="syncLabel"></span>
-                <span x-show="syncing" x-cloak>Syncing...</span>
+                <span x-show="syncing" x-cloak>Syncing in background...</span>
             </button>
 
             <div x-show="syncing && syncTotal > 0" class="mt-3">

@@ -27,6 +27,69 @@ async function postJSON(url, opts) {
     }
 }
 
+// Long integration syncs belong to the Shelf server, not to the browser
+// page that happened to start them.  Polling is intentionally modest (2s) so
+// a user can navigate away and later return without hitting the API rate limit.
+function applyBackgroundSyncState(self, data) {
+    if (!data || !data.state) return;
+    self.syncing = data.state === 'running';
+    self.syncCurrent = Number(data.current || 0);
+    self.syncTotal = Number(data.total || 0);
+    self.syncLastTitle = data.title || '';
+    if (Array.isArray(data.recent)) {
+        self.syncLog = data.recent.map(function (entry) {
+            var copy = {i: entry.i, t: entry.t, s: entry.s};
+            if (typeof self.statusClass === 'function') copy.statusClass = self.statusClass(entry.s);
+            return copy;
+        });
+    }
+    if (data.state === 'completed') {
+        self.result = data.stats || {};
+    } else if (data.state === 'error' || data.state === 'cancelled') {
+        self.result = {error: data.error || 'Sync stopped'};
+    }
+}
+
+function pollBackgroundSync(self, url) {
+    if (self._syncJobTimer) clearTimeout(self._syncJobTimer);
+    fetch(url)
+        .then(function (r) { return r.json(); })
+        .then(function (data) {
+            applyBackgroundSyncState(self, data);
+            if (data.state === 'running') {
+                self._syncJobTimer = setTimeout(function () { pollBackgroundSync(self, url); }, 2000);
+            }
+        })
+        .catch(function () {
+            if (self.syncing) {
+                self._syncJobTimer = setTimeout(function () { pollBackgroundSync(self, url); }, 3000);
+            }
+        });
+}
+
+function startBackgroundSync(self, url) {
+    if (self._syncJobTimer) clearTimeout(self._syncJobTimer);
+    self.syncing = true;
+    self.result = false;
+    self.syncCurrent = 0;
+    self.syncTotal = 0;
+    self.syncLastTitle = '';
+    self.syncLog = [];
+    self.showSyncLog = false;
+    fetch(url, {method: 'POST', headers: {'X-CSRF-Token': window.csrfToken()}})
+        .then(function (r) { return r.json(); })
+        .then(function (data) {
+            applyBackgroundSyncState(self, data);
+            if (data.state === 'running') {
+                self._syncJobTimer = setTimeout(function () { pollBackgroundSync(self, url); }, 1000);
+            }
+        })
+        .catch(function () {
+            self.syncing = false;
+            self.result = {error: 'Failed to start background sync'};
+        });
+}
+
 document.addEventListener('alpine:init', function () {
 
     // settings.html — tab bar (persists active tab in localStorage)
@@ -75,6 +138,7 @@ document.addEventListener('alpine:init', function () {
                 this.absUrl = this.$el.dataset.absUrl || '';
                 this.absUrlPresent = this.$el.dataset.absUrlPresent === '1';
                 this.absSaved = this.$el.dataset.absSaved === '1';
+                pollBackgroundSync(this, '/api/sync/audiobookshelf/job');
             },
             get syncPct() { return Math.round(this.syncCurrent / this.syncTotal * 100) + '%'; },
             // One source for "Test has something to send". The template's
@@ -112,24 +176,7 @@ document.addEventListener('alpine:init', function () {
             },
             startSync() {
                 if (!this.absSyncReady) return;
-                this.syncing = true; this.result = false; this.syncCurrent = 0; this.syncTotal = 0;
-                this.syncLastTitle = ''; this.syncLog = []; this.showSyncLog = false;
-                var self = this;
-                var es = new EventSource('/api/sync/audiobookshelf/stream');
-                es.onmessage = function (e) {
-                    var d = JSON.parse(e.data);
-                    if (d.type === 'progress') {
-                        self.syncCurrent = d.current;
-                        self.syncTotal = d.total;
-                        self.syncLastTitle = d.title;
-                        self.syncLog.push({i: d.current, t: d.title, s: d.status});
-                    } else if (d.type === 'done') {
-                        self.result = d; self.syncing = false; es.close();
-                    } else if (d.type === 'error') {
-                        self.result = {error: d.message}; self.syncing = false; es.close();
-                    }
-                };
-                es.onerror = function () { self.result = {error: 'Connection lost'}; self.syncing = false; es.close(); };
+                startBackgroundSync(this, '/api/sync/audiobookshelf/job');
             }
         };
     });
@@ -182,6 +229,7 @@ document.addEventListener('alpine:init', function () {
                 this.komgaUrl = this.$el.dataset.komgaUrl || '';
                 this.komgaUrlPresent = this.$el.dataset.komgaUrlPresent === '1';
                 this.komgaSaved = this.$el.dataset.komgaSaved === '1';
+                pollBackgroundSync(this, '/api/sync/komga/job');
             },
             get testReady() { return Boolean((this.komgaUrl || this.komgaUrlPresent) && (this.komgaApiKey || this.komgaSaved)); },
             get syncReady() { return Boolean(this.komgaUrlPresent && this.komgaSaved); },
@@ -212,22 +260,7 @@ document.addEventListener('alpine:init', function () {
             },
             startSync() {
                 if (!this.syncReady) return;
-                this.syncing = true; this.result = false; this.syncCurrent = 0; this.syncTotal = 0;
-                this.syncLastTitle = ''; this.syncLog = []; this.showSyncLog = false;
-                var self = this;
-                var es = new EventSource('/api/sync/komga/stream');
-                es.onmessage = function (e) {
-                    var d = JSON.parse(e.data);
-                    if (d.type === 'progress') {
-                        self.syncCurrent = d.current; self.syncTotal = d.total; self.syncLastTitle = d.title;
-                        self.syncLog.push({i: d.current, t: d.title, s: d.status, statusClass: self.statusClass(d.status)});
-                    } else if (d.type === 'done') {
-                        self.result = d; self.syncing = false; es.close();
-                    } else if (d.type === 'error') {
-                        self.result = {error: d.message}; self.syncing = false; es.close();
-                    }
-                };
-                es.onerror = function () { self.result = {error: 'Connection lost'}; self.syncing = false; es.close(); };
+                startBackgroundSync(this, '/api/sync/komga/job');
             }
         };
     });
