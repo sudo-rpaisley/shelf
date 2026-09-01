@@ -1,4 +1,5 @@
 """Komga settings, request boundaries and browser-link regressions."""
+# Cover batching and stall protection live in the sync-focused regressions.
 import httpx
 import respx
 
