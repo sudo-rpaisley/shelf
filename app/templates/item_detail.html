@@ -138,9 +138,16 @@
                 </div>
                 {% endif %}
 
-                {# Hardcover Sync — a books service, and the push needs an ISBN or an
-                   existing Hardcover id; the id terms keep an already-synced row visible. #}
-                {% if item.media_type in book_media_types and (item.isbn or item.hardcover_book_id or item.hardcover_user_book_id) %}
+                <!-- Komga -->
+                {% if komga_url %}
+                <div class="mb-4">
+                    <a href="{{ komga_url }}" target="_blank" rel="noopener"
+                       class="inline-flex items-center gap-1 px-3 py-1.5 bg-shelf-accent/20 text-shelf-accent2 rounded-lg text-sm hover:bg-shelf-accent/30 transition-colors">
+                        &#128214; Open in Komga
+                    </a>
+                </div>
+                {% endif %}
+
                 <!-- Hardcover Sync -->
                 {% if has_hardcover and user and user.role in ('admin', 'editor') %}
                 <div class="mb-4" x-data="hardcoverPush" data-item-id="{{ item.id }}">
@@ -169,6 +176,18 @@
                     <a href="{{ la.abs_url }}" target="_blank" rel="noopener"
                        class="inline-flex items-center gap-1 px-3 py-1.5 bg-shelf-accent/20 text-shelf-accent2 rounded-lg text-sm hover:bg-shelf-accent/30 transition-colors mr-2">
                         {% if la.media_type == 'ebook' %}&#128214;{% else %}&#9654;{% endif %} Also in Audiobookshelf ({{ media_types.get(la.media_type, la.media_type) }})
+                    </a>
+                    {% endfor %}
+                </div>
+                {% endif %}
+
+                <!-- Also in Komga (linked copy) -->
+                {% if not komga_url and linked_komga_items %}
+                <div class="mb-4">
+                    {% for lk in linked_komga_items %}
+                    <a href="{{ lk.komga_url }}" target="_blank" rel="noopener"
+                       class="inline-flex items-center gap-1 px-3 py-1.5 bg-shelf-accent/20 text-shelf-accent2 rounded-lg text-sm hover:bg-shelf-accent/30 transition-colors mr-2">
+                        &#128214; Also in Komga ({{ media_types.get(lk.media_type, lk.media_type) }})
                     </a>
                     {% endfor %}
                 </div>

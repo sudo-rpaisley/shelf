@@ -202,7 +202,7 @@ async def item_detail(
 
         # Linked items (different formats of the same work)
         linked_items = db.execute(
-            "SELECT i.id, i.title, i.media_type, i.abs_id FROM item_links il "
+            "SELECT i.id, i.title, i.media_type, i.abs_id, i.komga_id FROM item_links il "
             "JOIN items i ON (i.id = CASE WHEN il.item_a_id = ? THEN il.item_b_id ELSE il.item_a_id END) "
             "WHERE il.item_a_id = ? OR il.item_b_id = ?",
             (item_id, item_id, item_id),
@@ -221,6 +221,21 @@ async def item_detail(
                 {"id": li["id"], "media_type": li["media_type"],
                  "abs_url": get_playback_url(abs_url_val, li["abs_id"])}
                 for li in linked_items if li["abs_id"]
+            ]
+
+        # Komga browser URLs use the public root when configured,
+        # while all server-side API traffic continues to use komga_url.
+        komga_url = None
+        linked_komga_items = []
+        komga_url_val = get_setting(db, "komga_url")
+        if komga_url_val:
+            from app.services.komga import get_browser_url
+            if item["komga_id"]:
+                komga_url = get_browser_url(komga_url_val, item["komga_id"])
+            linked_komga_items = [
+                {"id": li["id"], "media_type": li["media_type"],
+                 "komga_url": get_browser_url(komga_url_val, li["komga_id"])}
+                for li in linked_items if li["komga_id"]
             ]
 
         # Hardcover token check
@@ -281,6 +296,8 @@ async def item_detail(
             "linked_items": linked_items,
             "linked_abs_items": linked_abs_items,
             "abs_url": abs_url,
+            "linked_komga_items": linked_komga_items,
+            "komga_url": komga_url,
             "reading_history": reading_history,
             "series_progress": series_progress,
         },
@@ -551,6 +568,7 @@ async def settings(request: Request, _=Depends(require_role("admin"))):
     # for it — and both Audiobookshelf actions gate on the URL: Test on typed-or-
     # present, Sync Now on presence alone (issue #41).
     abs_url_present = bool(settings.get("abs_url")) or "abs_url" in env_overrides
+    komga_url_present = bool(settings.get("komga_url")) or "komga_url" in env_overrides
     for k in SENSITIVE_KEYS:
         if k in settings:
             settings[k] = ""
@@ -560,6 +578,7 @@ async def settings(request: Request, _=Depends(require_role("admin"))):
         {"settings": settings, "locations": locations, "item_count": item_count, "share_links": share_links,
          "borrowers": borrowers, "secrets_saved": secrets_saved,
          "secrets_present": secrets_present, "abs_url_present": abs_url_present,
+         "komga_url_present": komga_url_present,
          "game_platforms_list": game_platforms_list,
          "hideable_nav_tab_states": hideable_nav_tab_states,
          "borrower_error_message": borrower_error_message,

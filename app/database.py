@@ -137,6 +137,10 @@ MIGRATIONS: Sequence[tuple[int, str, str]] = (
             ELSE NULL
         END
         WHERE language IS NULL AND isbn IS NOT NULL"""),
+    (24, "Add komga_id column", "ALTER TABLE items ADD COLUMN komga_id TEXT DEFAULT NULL"),
+    (25, "Add komga_library_id column", "ALTER TABLE items ADD COLUMN komga_library_id TEXT DEFAULT NULL"),
+    (26, "Add komga_series_id column", "ALTER TABLE items ADD COLUMN komga_series_id TEXT DEFAULT NULL"),
+    (27, "Index Komga item IDs", "CREATE INDEX IF NOT EXISTS idx_items_komga_id ON items(komga_id)"),
 )
 
 MIGRATION_TABLES = """
