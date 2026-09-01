@@ -503,7 +503,7 @@ async def settings(request: Request, _=Depends(require_role("admin"))):
     from app.config import SECRET_ENV_VARS, is_env_override
     from app.database import get_all_settings
     from app.nav import hideable_tab_states
-    from app.services import cover_queue
+    from app.services import cover_queue, sync_jobs
     # Known codes only — never reflect the raw query param into the template.
     borrower_error_message = BORROWER_ERROR_MESSAGES.get(request.query_params.get("borrower_error"))
     with get_db() as db:
@@ -571,6 +571,13 @@ async def settings(request: Request, _=Depends(require_role("admin"))):
     for k in SENSITIVE_KEYS:
         if k in settings:
             settings[k] = ""
+
+    # Seed detached integration-sync progress into the first Settings render.
+    # The browser still polls for fresh values, but a transient failed/429
+    # reconnect can no longer make an active job look idle after navigation.
+    abs_sync_job = sync_jobs.get_status("audiobookshelf")
+    komga_sync_job = sync_jobs.get_status("komga")
+
     return request.app.state.templates.TemplateResponse(
         request,
         "settings.html",
@@ -581,5 +588,6 @@ async def settings(request: Request, _=Depends(require_role("admin"))):
          "game_platforms_list": game_platforms_list,
          "hideable_nav_tab_states": hideable_nav_tab_states,
          "borrower_error_message": borrower_error_message,
-         "missing_covers": missing_covers, "cover_queue_stats": cover_queue_stats},
+         "missing_covers": missing_covers, "cover_queue_stats": cover_queue_stats,
+         "abs_sync_job": abs_sync_job, "komga_sync_job": komga_sync_job},
     )

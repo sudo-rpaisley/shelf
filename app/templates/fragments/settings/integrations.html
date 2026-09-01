@@ -10,7 +10,11 @@
          x-data="absSync"
          data-abs-url="{{ settings.get('abs_url', '') }}"
          data-abs-url-present="{{ '1' if abs_url_present else '' }}"
-         data-abs-saved="{{ '1' if secrets_present['abs_token'] else '' }}">
+         data-abs-saved="{{ '1' if secrets_present['abs_token'] else '' }}"
+         data-sync-state="{{ abs_sync_job.get('state', 'idle') }}"
+         data-sync-current="{{ abs_sync_job.get('current', 0) }}"
+         data-sync-total="{{ abs_sync_job.get('total', 0) }}"
+         data-sync-title="{{ abs_sync_job.get('title', '') | e }}">
         <div class="flex items-center justify-between mb-4">
             <h2 class="text-lg font-semibold">Audiobookshelf Sync</h2>
             <button @click="showAbsHelp = true" class="text-xs text-shelf-accent2 hover:text-shelf-accent transition-colors">Setup guide</button>
