@@ -1,0 +1,42 @@
+name: Apply sync reconnect fix
+
+on:
+  push:
+    branches: [feature/komga-sync]
+    paths:
+      - '.github/patch_sync_reconnect.py'
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: feature/komga-sync
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Install build dependencies
+        run: |
+          pip install -r requirements-dev.txt
+          npm install
+      - name: Apply reconnect fix
+        run: python .github/patch_sync_reconnect.py
+      - name: Refresh generated repository assets
+        run: |
+          make badges
+          make css
+      - name: Remove temporary patch machinery and commit
+        run: |
+          rm .github/patch_sync_reconnect.py .github/workflows/sync-reconnect-fix.yml
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add -A
+          git commit -m 'Keep background sync progress visible after navigation'
+          git push origin HEAD:feature/komga-sync
