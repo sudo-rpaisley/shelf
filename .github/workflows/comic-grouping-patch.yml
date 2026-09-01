@@ -5,6 +5,7 @@ on:
     branches: [feature/komga-sync]
     paths:
       - .github/patch_comic_grouping.py
+      - .github/workflows/comic-grouping-patch.yml
 
 permissions:
   contents: write
