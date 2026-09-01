@@ -150,7 +150,11 @@ class TestKomgaSync:
     @respx.mock
     def test_adopts_existing_manual_comic_by_isbn_and_second_sync_is_unchanged(self, db):
         existing_id = _insert_item(
-            db, title="Manual Watchmen", isbn=ISBN, media_type="comic"
+            db,
+            title="Manual Watchmen",
+            isbn=ISBN,
+            media_type="comic",
+            source="manual",
         )
         db.execute("COMMIT")
         _mock_single_library(_book())
