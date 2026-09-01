@@ -25,6 +25,10 @@ class TestKomgaSettingsUI:
         assert 'name="komga_url"' in html
         assert 'name="komga_api_key"' in html
         assert 'name="komga_public_url"' in html
+        assert 'Komga Internal / API URL' in html
+        assert 'Komga Browser / Public URL' in html
+        assert 'Audiobookshelf Internal / API URL' in html
+        assert 'Audiobookshelf Browser / Public URL' in html
 
     def test_generic_settings_normalizes_url_and_keeps_api_key_write_only(
         self, admin_client, db
@@ -110,7 +114,7 @@ class TestKomgaPublicUrl:
             db,
             title="Komga Comic",
             isbn=None,
-            media_type="comic",
+            media_type="digital_comic",
             komga_id="book_public",
             komga_library_id="lib_1",
             source="komga",
@@ -131,7 +135,7 @@ class TestKomgaPublicUrl:
             db,
             title="Linked Work",
             isbn=None,
-            media_type="comic",
+            media_type="digital_comic",
             komga_id="book_linked",
             source="komga",
         )

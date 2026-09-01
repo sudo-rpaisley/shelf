@@ -13,6 +13,7 @@ MEDIA_TYPES = {
     "dvd": "DVD / Blu-ray",
     "cd": "CD",
     "comic": "Comic / Graphic Novel",
+    "digital_comic": "Digital Comic",
     "video_game": "Video Game",
 }
 

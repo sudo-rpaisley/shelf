@@ -9,7 +9,11 @@ from app.services.item_write import insert_item
 
 logger = logging.getLogger(__name__)
 
-PAGE_SIZE = 500
+# Keep individual Komga responses modest. Large 500-item pages plus cover
+# traffic made big libraries look as if they had stopped at a page boundary.
+PAGE_SIZE = 200
+COVER_TIMEOUT = httpx.Timeout(10.0, connect=5.0)
+COVER_RETRIES = 1
 
 
 def get_excluded_libraries() -> set[str]:
@@ -80,9 +84,15 @@ async def _fetch_library_books(
     api_key: str,
     library_id: str,
 ) -> list[dict] | None:
-    """Fetch every non-deleted Komga book for one library."""
+    """Fetch every non-deleted Komga book for one library.
+
+    Pagination is guarded against a server returning the same page forever:
+    if a page makes no progress we stop that library rather than hanging the
+    complete sync.
+    """
     page = 0
     books: list[dict] = []
+    seen_ids: set[str] = set()
     body = {
         "condition": {
             "allOf": [
@@ -100,14 +110,27 @@ async def _fetch_library_books(
                 json=body,
             )
         except httpx.TimeoutException:
-            logger.warning("Timed out fetching Komga library %s", library_id)
+            logger.warning("Timed out fetching Komga library %s page %s", library_id, page)
+            return None
+        except httpx.HTTPError:
+            logger.warning(
+                "Failed fetching Komga library %s page %s", library_id, page,
+                exc_info=True,
+            )
             return None
         if response.status_code != 200:
             logger.warning(
-                "Komga library %s returned HTTP %s", library_id, response.status_code
+                "Komga library %s page %s returned HTTP %s",
+                library_id,
+                page,
+                response.status_code,
             )
             return None
-        data = response.json()
+        try:
+            data = response.json()
+        except ValueError:
+            logger.warning("Komga library %s returned invalid JSON", library_id)
+            return None
         if not isinstance(data, dict):
             logger.warning("Komga library %s returned an invalid page", library_id)
             return None
@@ -115,7 +138,19 @@ async def _fetch_library_books(
         if not isinstance(content, list):
             logger.warning("Komga library %s returned an invalid book list", library_id)
             return None
-        books.extend(book for book in content if isinstance(book, dict))
+
+        added_this_page = 0
+        for book in content:
+            if not isinstance(book, dict):
+                continue
+            book_id = str(book.get("id") or "").strip()
+            if book_id and book_id in seen_ids:
+                continue
+            if book_id:
+                seen_ids.add(book_id)
+            books.append(book)
+            added_this_page += 1
+
         if data.get("last") is True:
             break
         total_pages = data.get("totalPages")
@@ -123,13 +158,89 @@ async def _fetch_library_books(
             break
         if not content:
             break
+        if added_this_page == 0:
+            logger.warning(
+                "Komga library %s pagination made no progress at page %s; stopping",
+                library_id,
+                page,
+            )
+            break
         page += 1
     return books
 
 
+async def _download_cover(
+    client: httpx.AsyncClient,
+    komga_url: str,
+    api_key: str,
+    komga_id: str,
+    item_id: int,
+) -> str:
+    """Download one Komga thumbnail.
+
+    Returns ``downloaded``, ``missing`` or ``error``. A transient timeout or
+    5xx gets one retry, but a bad cover can never hold the entire library sync
+    for repeated 30-second waits.
+    """
+    for attempt in range(COVER_RETRIES + 1):
+        try:
+            response = await client.get(
+                f"{komga_url}/api/v1/books/{komga_id}/thumbnail",
+                headers=_headers(api_key),
+                timeout=COVER_TIMEOUT,
+            )
+        except (httpx.TimeoutException, httpx.TransportError):
+            if attempt < COVER_RETRIES:
+                continue
+            logger.warning("Komga cover timed out for book %s", komga_id)
+            return "error"
+
+        if response.status_code in (404, 204):
+            return "missing"
+        if response.status_code >= 500 and attempt < COVER_RETRIES:
+            continue
+        if response.status_code != 200:
+            logger.warning(
+                "Komga cover for book %s returned HTTP %s",
+                komga_id,
+                response.status_code,
+            )
+            return "error"
+        if len(response.content) <= 500:
+            return "missing"
+
+        try:
+            covers.COVERS_DIR.mkdir(parents=True, exist_ok=True)
+            cover_dest = covers.COVERS_DIR / f"{item_id}.jpg"
+            tmp_dest = covers.COVERS_DIR / f".{item_id}.jpg.tmp"
+            tmp_dest.write_bytes(response.content)
+            tmp_dest.replace(cover_dest)
+            with get_db() as db:
+                db.execute(
+                    "UPDATE items SET cover_path = ? WHERE id = ?",
+                    (f"covers/{item_id}.jpg", item_id),
+                )
+            return "downloaded"
+        except OSError:
+            logger.warning(
+                "Failed writing Komga cover for book %s", komga_id, exc_info=True
+            )
+            return "error"
+
+    return "error"
+
+
 async def sync(komga_url: str, api_key: str, on_progress=None) -> dict:
-    """Sync comics/graphic novels from Komga into Shelf."""
-    stats = {"added": 0, "updated": 0, "unchanged": 0, "skipped": 0, "errors": 0}
+    """Sync digital comics from Komga into Shelf."""
+    stats = {
+        "added": 0,
+        "updated": 0,
+        "unchanged": 0,
+        "skipped": 0,
+        "errors": 0,
+        "covers": 0,
+        "cover_errors": 0,
+    }
     excluded = get_excluded_libraries()
 
     async with httpx.AsyncClient(timeout=30) as client:
@@ -139,14 +250,20 @@ async def sync(komga_url: str, api_key: str, on_progress=None) -> dict:
             )
         except httpx.TimeoutException:
             return {"error": "Timed out connecting to Komga"}
+        except httpx.HTTPError:
+            return {"error": "Failed to connect to Komga"}
         if response.status_code != 200:
             return {"error": f"Failed to connect: HTTP {response.status_code}"}
 
-        raw_libraries = response.json()
+        try:
+            raw_libraries = response.json()
+        except ValueError:
+            return {"error": "Komga returned an invalid library response"}
         if not isinstance(raw_libraries, list):
             return {"error": "Komga returned an invalid library response"}
         libraries = [
-            library for library in raw_libraries
+            library
+            for library in raw_libraries
             if isinstance(library, dict)
             and library.get("id")
             and library.get("id") not in excluded
@@ -203,24 +320,46 @@ async def sync(komga_url: str, api_key: str, on_progress=None) -> dict:
                     existing = db.execute(
                         """SELECT id, title, authors, isbn, series_name, series_position,
                                   publish_year, description, page_count, media_type,
-                                  komga_id, komga_library_id, komga_series_id, cover_path
+                                  komga_id, komga_library_id, komga_series_id, cover_path,
+                                  source
                            FROM items WHERE komga_id = ?""",
                         (komga_id,),
                     ).fetchone()
 
+                    # Early versions of this integration adopted a physical
+                    # `comic` row on ISBN match. Komga is a digital copy, so
+                    # repair that state in-place: preserve the physical item,
+                    # detach its Komga IDs, and create/link a Digital Comic.
+                    if (
+                        existing
+                        and existing["source"] != "komga"
+                        and existing["media_type"] == "comic"
+                    ):
+                        db.execute(
+                            """UPDATE items SET komga_id = NULL,
+                               komga_library_id = NULL, komga_series_id = NULL
+                               WHERE id = ?""",
+                            (existing["id"],),
+                        )
+                        existing = None
+
+                    # Shelf allows one ISBN in different formats. Only another
+                    # Digital Comic is a collision/adoption candidate; a
+                    # physical Comic / Graphic Novel should coexist and link.
                     isbn_match = None
                     if isbn:
                         if existing:
                             isbn_match = db.execute(
                                 """SELECT id, komga_id FROM items
-                                   WHERE isbn = ? AND media_type = 'comic' AND id != ?
+                                   WHERE isbn = ? AND media_type = 'digital_comic'
+                                     AND id != ?
                                    ORDER BY id LIMIT 1""",
                                 (isbn, existing["id"]),
                             ).fetchone()
                         else:
                             isbn_match = db.execute(
                                 """SELECT id, komga_id FROM items
-                                   WHERE isbn = ? AND media_type = 'comic'
+                                   WHERE isbn = ? AND media_type = 'digital_comic'
                                    ORDER BY id LIMIT 1""",
                                 (isbn,),
                             ).fetchone()
@@ -229,7 +368,7 @@ async def sync(komga_url: str, api_key: str, on_progress=None) -> dict:
                         if existing or isbn_match["komga_id"]:
                             logger.warning(
                                 "Skipping Komga book %s (%s): ISBN %s already belongs "
-                                "to Shelf item %s",
+                                "to Digital Comic item %s",
                                 komga_id,
                                 title,
                                 isbn,
@@ -240,15 +379,17 @@ async def sync(komga_url: str, api_key: str, on_progress=None) -> dict:
                                 await on_progress(
                                     current,
                                     total,
-                                    f"ISBN conflict with Shelf item {isbn_match['id']} — "
-                                    f"{title} ({isbn})",
+                                    f"Digital Comic ISBN conflict with Shelf item "
+                                    f"{isbn_match['id']} — {title} ({isbn})",
                                     "skipped",
                                 )
                             continue
                         existing = db.execute(
-                            """SELECT id, title, authors, isbn, series_name, series_position,
-                                      publish_year, description, page_count, media_type,
-                                      komga_id, komga_library_id, komga_series_id, cover_path
+                            """SELECT id, title, authors, isbn, series_name,
+                                      series_position, publish_year, description,
+                                      page_count, media_type, komga_id,
+                                      komga_library_id, komga_series_id,
+                                      cover_path, source
                                FROM items WHERE id = ?""",
                             (isbn_match["id"],),
                         ).fetchone()
@@ -262,7 +403,7 @@ async def sync(komga_url: str, api_key: str, on_progress=None) -> dict:
                         "publish_year": publish_year,
                         "description": description,
                         "page_count": page_count,
-                        "media_type": "comic",
+                        "media_type": "digital_comic",
                         "komga_id": komga_id,
                         "komga_library_id": library_id,
                         "komga_series_id": series_id,
@@ -276,7 +417,7 @@ async def sync(komga_url: str, api_key: str, on_progress=None) -> dict:
                             db.execute(
                                 """UPDATE items SET title=?, authors=?, isbn=?,
                                    series_name=?, series_position=?, publish_year=?,
-                                   description=?, page_count=?, media_type='comic',
+                                   description=?, page_count=?, media_type='digital_comic',
                                    komga_id=?, komga_library_id=?, komga_series_id=?,
                                    updated_at=datetime('now') WHERE id=?""",
                                 (
@@ -300,16 +441,17 @@ async def sync(komga_url: str, api_key: str, on_progress=None) -> dict:
                             stats["unchanged"] += 1
                             status = "unchanged"
                         item_id = existing["id"]
-                        fetch_cover = changed or not existing["cover_path"]
-                        if on_progress:
-                            await on_progress(current, total, title, status)
+                        # Do not overwrite a user-selected cover. Missing
+                        # covers are retried on every sync until Komga supplies
+                        # one, so interrupted runs self-heal.
+                        fetch_cover = not existing["cover_path"]
                     else:
                         item_id = insert_item(
                             db,
                             title=title,
                             authors=authors,
                             isbn=isbn,
-                            media_type="comic",
+                            media_type="digital_comic",
                             publish_year=publish_year,
                             description=description,
                             series_name=series_name,
@@ -321,35 +463,23 @@ async def sync(komga_url: str, api_key: str, on_progress=None) -> dict:
                             source="komga",
                         )
                         stats["added"] += 1
+                        status = "added"
                         fetch_cover = True
-                        if on_progress:
-                            await on_progress(current, total, title, "added")
 
-                if not fetch_cover:
-                    continue
-                try:
-                    cover_response = await client.get(
-                        f"{komga_url}/api/v1/books/{komga_id}/thumbnail",
-                        headers=_headers(api_key),
+                # Cover work is part of the item before progress advances. A
+                # single bad thumbnail has a bounded retry/timeout instead of
+                # making the progress bar look frozen for minutes.
+                if fetch_cover:
+                    cover_status = await _download_cover(
+                        client, komga_url, api_key, komga_id, item_id
                     )
-                    if (
-                        cover_response.status_code == 200
-                        and len(cover_response.content) > 500
-                    ):
-                        cover_dest = covers.COVERS_DIR / f"{item_id}.jpg"
-                        covers.COVERS_DIR.mkdir(parents=True, exist_ok=True)
-                        cover_dest.write_bytes(cover_response.content)
-                        with get_db() as db:
-                            db.execute(
-                                "UPDATE items SET cover_path = ? WHERE id = ?",
-                                (f"covers/{item_id}.jpg", item_id),
-                            )
-                except Exception:
-                    logger.debug(
-                        "Failed to download cover for Komga book %s",
-                        komga_id,
-                        exc_info=True,
-                    )
+                    if cover_status == "downloaded":
+                        stats["covers"] += 1
+                    elif cover_status == "error":
+                        stats["cover_errors"] += 1
+
+                if on_progress:
+                    await on_progress(current, total, title, status)
 
     _auto_link_items()
     return stats
@@ -376,47 +506,55 @@ def _authors_compatible(a: str | None, b: str | None) -> bool:
 
 
 def _auto_link_items():
-    """Link Komga items to matching other-format Shelf items."""
+    """Link Komga Digital Comics to matching other-format Shelf items.
+
+    Build candidate indexes once. The original implementation queried and
+    normalized the entire Shelf collection once per Komga item, which became
+    quadratic and could look like a sync stall after the progress bar reached
+    a few hundred items.
+    """
     with get_db() as db:
         komga_items = db.execute(
             """SELECT id, title, authors, isbn, media_type
                FROM items WHERE komga_id IS NOT NULL"""
         ).fetchall()
+        candidates = db.execute(
+            """SELECT id, title, authors, isbn, media_type
+               FROM items WHERE komga_id IS NULL"""
+        ).fetchall()
+
+        by_isbn: dict[str, list] = {}
+        by_title: dict[str, list] = {}
+        for candidate in candidates:
+            if candidate["isbn"]:
+                by_isbn.setdefault(candidate["isbn"], []).append(candidate)
+            normalized = _normalize_title(candidate["title"])
+            if normalized:
+                by_title.setdefault(normalized, []).append(candidate)
+
         for komga_item in komga_items:
+            matches = []
             if komga_item["isbn"]:
-                matches = db.execute(
-                    """SELECT id FROM items
-                       WHERE isbn = ? AND id != ? AND media_type != ?""",
-                    (
-                        komga_item["isbn"],
-                        komga_item["id"],
-                        komga_item["media_type"],
-                    ),
-                ).fetchall()
-            else:
-                matches = []
+                matches = [
+                    candidate
+                    for candidate in by_isbn.get(komga_item["isbn"], [])
+                    if candidate["media_type"] != komga_item["media_type"]
+                ]
 
             if not matches:
                 normalized = _normalize_title(komga_item["title"])
-                candidates = db.execute(
-                    """SELECT id, title, authors, media_type FROM items
-                       WHERE id != ? AND komga_id IS NULL""",
-                    (komga_item["id"],),
-                ).fetchall()
                 matches = [
                     candidate
-                    for candidate in candidates
+                    for candidate in by_title.get(normalized, [])
                     if candidate["media_type"] != komga_item["media_type"]
-                    and _normalize_title(candidate["title"]) == normalized
                     and _authors_compatible(
                         komga_item["authors"], candidate["authors"]
                     )
                 ]
 
             for match in matches:
-                match_id = match["id"] if hasattr(match, "keys") else match[0]
-                a_id = min(komga_item["id"], match_id)
-                b_id = max(komga_item["id"], match_id)
+                a_id = min(komga_item["id"], match["id"])
+                b_id = max(komga_item["id"], match["id"])
                 db.execute(
                     """INSERT OR IGNORE INTO item_links (item_a_id, item_b_id)
                        VALUES (?, ?)""",

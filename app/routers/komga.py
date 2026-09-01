@@ -131,7 +131,7 @@ async def list_libraries():
         {
             "id": library.get("id"),
             "name": library.get("name"),
-            "media_type": "comic",
+            "media_type": "digital_comic",
             "included": library.get("id") not in excluded,
         }
         for library in raw_libraries
