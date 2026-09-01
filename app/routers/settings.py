@@ -18,6 +18,8 @@ router = APIRouter(prefix="/api/settings", dependencies=[Depends(require_role("a
 _INTEGRATION_KEYS = (
     "abs_url",
     "abs_token",
+    "komga_url",
+    "komga_api_key",
     "isbndb_api_key",
     "tmdb_api_key",
     "hardcover_token",
@@ -58,7 +60,7 @@ async def update_settings(request: Request):
             if key not in form:
                 continue
             value = (form.get(key) or "").strip()
-            if key == "abs_url":
+            if key in ("abs_url", "komga_url"):
                 value = value.rstrip("/")
             _upsert_setting(db, key, value, cleared=form.get(f"clear_{key}") == "on")
     invalidate_nav_cache()  # hardcover_token gates the Discover tab
