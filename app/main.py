@@ -216,7 +216,7 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
 
 async def _periodic_abs_sync():
     """Background task: run ABS sync on schedule if configured."""
-    from app.services import audiobookshelf
+    from app.services import audiobookshelf, sync_jobs
 
     intervals = {"daily": 86400, "weekly": 604800}
 
@@ -242,12 +242,29 @@ async def _periodic_abs_sync():
                 abs_token_val = get_setting(db, "abs_token")
 
             if abs_url_val and abs_token_val:
-                await audiobookshelf.sync(abs_url_val, abs_token_val)
+                async def runner(on_progress):
+                    return await audiobookshelf.sync(
+                        abs_url_val, abs_token_val, on_progress=on_progress
+                    )
+
+                started = sync_jobs.start(
+                    "audiobookshelf", runner, source="scheduled"
+                )
+                if not started.get("started"):
+                    continue
+                final = await sync_jobs.wait("audiobookshelf")
+                if final["state"] != "completed":
+                    logger.warning(
+                        "Periodic Audiobookshelf sync did not complete: %s",
+                        final.get("error") or final["state"],
+                    )
+                    continue
+                finished = str(time.time())
                 with get_db() as db:
                     db.execute(
                         "INSERT INTO settings (key, value) VALUES ('abs_last_sync', ?) "
                         "ON CONFLICT(key) DO UPDATE SET value = ?",
-                        (str(now), str(now)),
+                        (finished, finished),
                     )
                 logger.info("Periodic Audiobookshelf sync completed")
         except Exception:
@@ -256,7 +273,7 @@ async def _periodic_abs_sync():
 
 async def _periodic_komga_sync():
     """Background task: run Komga sync on schedule if configured."""
-    from app.services import komga as komga_service
+    from app.services import komga as komga_service, sync_jobs
     from app.database import get_setting
 
     intervals = {"daily": 86400, "weekly": 604800}
@@ -285,15 +302,27 @@ async def _periodic_komga_sync():
                 komga_api_key = get_setting(db, "komga_api_key")
 
             if komga_url_val and komga_api_key:
-                result = await komga_service.sync(komga_url_val, komga_api_key)
-                if result.get("error"):
-                    logger.warning("Periodic Komga sync failed: %s", result["error"])
+                async def runner(on_progress):
+                    return await komga_service.sync(
+                        komga_url_val, komga_api_key, on_progress=on_progress
+                    )
+
+                started = sync_jobs.start("komga", runner, source="scheduled")
+                if not started.get("started"):
                     continue
+                final = await sync_jobs.wait("komga")
+                if final["state"] != "completed":
+                    logger.warning(
+                        "Periodic Komga sync did not complete: %s",
+                        final.get("error") or final["state"],
+                    )
+                    continue
+                finished = str(time.time())
                 with get_db() as db:
                     db.execute(
                         "INSERT INTO settings (key, value) VALUES ('komga_last_sync', ?) "
                         "ON CONFLICT(key) DO UPDATE SET value = ?",
-                        (str(now), str(now)),
+                        (finished, finished),
                     )
                 logger.info("Periodic Komga sync completed")
         except Exception:
@@ -416,6 +445,8 @@ async def lifespan(app: FastAPI):
     loan_task.cancel()
     if cover_task is not None:
         cover_task.cancel()
+    from app.services import sync_jobs
+    await sync_jobs.cancel_all()
 
 
 app = FastAPI(title="Shelf", lifespan=lifespan)
