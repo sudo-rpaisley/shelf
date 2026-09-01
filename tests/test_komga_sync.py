@@ -5,7 +5,7 @@ import json
 import httpx
 import respx
 
-from app.services import covers
+from app.services import covers, komga as komga_service
 from app.services.komga import PAGE_SIZE, get_excluded_libraries, sync
 from tests.conftest import _insert_item
 
@@ -188,6 +188,45 @@ class TestKomgaSync:
         rows = db.execute("SELECT title, cover_path FROM items ORDER BY title").fetchall()
         assert rows[0]["cover_path"] is None
         assert rows[1]["cover_path"] is not None
+
+    @respx.mock
+    def test_progress_advances_before_cover_batch_is_drained(self, db, monkeypatch):
+        _mock_single_library(
+            _book("book_1", "One", "9780000000103"),
+            _book("book_2", "Two", "9780000000110"),
+        )
+        events = []
+
+        async def fake_cover(client, komga_url, api_key, komga_id, item_id):
+            events.append(f"cover:{komga_id}")
+            return "missing"
+
+        async def progress(current, total, title, status):
+            events.append(f"progress:{current}")
+
+        monkeypatch.setattr(komga_service, "_download_cover", fake_cover)
+        stats = asyncio.run(sync(KOMGA, KEY, on_progress=progress))
+
+        assert stats["added"] == 2
+        assert events[:2] == ["progress:1", "progress:2"]
+        assert set(events[2:]) == {"cover:book_1", "cover:book_2"}
+
+    @respx.mock
+    def test_cover_has_total_wall_clock_deadline(self, db, monkeypatch):
+        _mock_single_library(_book())
+
+        async def trickling_cover(client, komga_url, api_key, komga_id, item_id):
+            await asyncio.sleep(1)
+            return "downloaded"
+
+        monkeypatch.setattr(komga_service, "_download_cover", trickling_cover)
+        monkeypatch.setattr(komga_service, "COVER_WALL_TIMEOUT", 0.01)
+
+        stats = asyncio.run(sync(KOMGA, KEY))
+
+        assert stats["added"] == 1
+        assert stats["covers"] == 0
+        assert stats["cover_errors"] == 1
 
     @respx.mock
     def test_paginates_large_library_without_repeating_page(self, db):
