@@ -144,6 +144,17 @@
                 </div>
                 {% endif %}
 
+
+                <!-- RomM -->
+                {% if romm_url %}
+                <div class="mb-4">
+                    <a href="{{ romm_url }}" target="_blank" rel="noopener"
+                       class="inline-flex items-center gap-1 px-3 py-1.5 bg-shelf-accent/20 text-shelf-accent2 rounded-lg text-sm hover:bg-shelf-accent/30 transition-colors">
+                        &#127918; Open in RomM
+                    </a>
+                </div>
+                {% endif %}
+
                 <!-- Hardcover Sync -->
                 {% if has_hardcover and user and user.role in ('admin', 'editor') %}
                 <div class="mb-4" x-data="hardcoverPush" data-item-id="{{ item.id }}">
@@ -183,6 +194,19 @@
                     <a href="{{ lk.komga_url }}" target="_blank" rel="noopener"
                        class="inline-flex items-center gap-1 px-3 py-1.5 bg-shelf-accent/20 text-shelf-accent2 rounded-lg text-sm hover:bg-shelf-accent/30 transition-colors mr-2">
                         &#128214; Also in Komga ({{ media_types.get(lk.media_type, lk.media_type) }})
+                    </a>
+                    {% endfor %}
+                </div>
+                {% endif %}
+
+
+                <!-- Also in RomM (linked digital copy) -->
+                {% if not romm_url and linked_romm_items %}
+                <div class="mb-4">
+                    {% for lr in linked_romm_items %}
+                    <a href="{{ lr.romm_url }}" target="_blank" rel="noopener"
+                       class="inline-flex items-center gap-1 px-3 py-1.5 bg-shelf-accent/20 text-shelf-accent2 rounded-lg text-sm hover:bg-shelf-accent/30 transition-colors mr-2">
+                        &#127918; Also in RomM ({{ media_types.get(lr.media_type, lr.media_type) }})
                     </a>
                     {% endfor %}
                 </div>

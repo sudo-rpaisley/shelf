@@ -197,7 +197,7 @@ async def item_detail(
 
         # Linked items (different formats of the same work)
         linked_items = db.execute(
-            "SELECT i.id, i.title, i.media_type, i.abs_id, i.komga_id FROM item_links il "
+            "SELECT i.id, i.title, i.media_type, i.abs_id, i.komga_id, i.romm_id FROM item_links il "
             "JOIN items i ON (i.id = CASE WHEN il.item_a_id = ? THEN il.item_b_id ELSE il.item_a_id END) "
             "WHERE il.item_a_id = ? OR il.item_b_id = ?",
             (item_id, item_id, item_id),
@@ -231,6 +231,21 @@ async def item_detail(
                 {"id": li["id"], "media_type": li["media_type"],
                  "komga_url": get_browser_url(komga_url_val, li["komga_id"])}
                 for li in linked_items if li["komga_id"]
+            ]
+
+        # RomM browser URLs use the public root when configured while sync
+        # traffic continues to use romm_url.
+        romm_url = None
+        linked_romm_items = []
+        romm_url_val = get_setting(db, "romm_url")
+        if romm_url_val:
+            from app.services.romm import get_browser_url as get_romm_browser_url
+            if item["romm_id"]:
+                romm_url = get_romm_browser_url(romm_url_val, item["romm_id"])
+            linked_romm_items = [
+                {"id": li["id"], "media_type": li["media_type"],
+                 "romm_url": get_romm_browser_url(romm_url_val, li["romm_id"])}
+                for li in linked_items if li["romm_id"]
             ]
 
         # Hardcover token check
@@ -292,6 +307,8 @@ async def item_detail(
             "abs_url": abs_url,
             "linked_komga_items": linked_komga_items,
             "komga_url": komga_url,
+            "linked_romm_items": linked_romm_items,
+            "romm_url": romm_url,
             "reading_history": reading_history,
             "series_progress": series_progress,
         },
@@ -563,6 +580,7 @@ async def settings(request: Request, _=Depends(require_role("admin"))):
     # present, Sync Now on presence alone (issue #41).
     abs_url_present = bool(settings.get("abs_url")) or "abs_url" in env_overrides
     komga_url_present = bool(settings.get("komga_url")) or "komga_url" in env_overrides
+    romm_url_present = bool(settings.get("romm_url")) or "romm_url" in env_overrides
     for k in SENSITIVE_KEYS:
         if k in settings:
             settings[k] = ""
@@ -572,6 +590,7 @@ async def settings(request: Request, _=Depends(require_role("admin"))):
     # reconnect can no longer make an active job look idle after navigation.
     abs_sync_job = sync_jobs.get_status("audiobookshelf")
     komga_sync_job = sync_jobs.get_status("komga")
+    romm_sync_job = sync_jobs.get_status("romm")
 
     return request.app.state.templates.TemplateResponse(
         request,
@@ -580,9 +599,11 @@ async def settings(request: Request, _=Depends(require_role("admin"))):
          "borrowers": borrowers, "secrets_saved": secrets_saved,
          "secrets_present": secrets_present, "abs_url_present": abs_url_present,
          "komga_url_present": komga_url_present,
+         "romm_url_present": romm_url_present,
          "game_platforms_list": game_platforms_list,
          "hideable_nav_tab_states": hideable_nav_tab_states,
          "borrower_error_message": borrower_error_message,
          "missing_covers": missing_covers, "cover_queue_stats": cover_queue_stats,
-         "abs_sync_job": abs_sync_job, "komga_sync_job": komga_sync_job},
+         "abs_sync_job": abs_sync_job, "komga_sync_job": komga_sync_job,
+         "romm_sync_job": romm_sync_job},
     )
