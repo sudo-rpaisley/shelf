@@ -18,6 +18,8 @@ router = APIRouter(prefix="/api/settings", dependencies=[Depends(require_role("a
 _INTEGRATION_KEYS = (
     "abs_url",
     "abs_token",
+    "komga_url",
+    "komga_api_key",
     "isbndb_api_key",
     "tmdb_api_key",
     "hardcover_token",
@@ -58,7 +60,7 @@ async def update_settings(request: Request):
             if key not in form:
                 continue
             value = (form.get(key) or "").strip()
-            if key == "abs_url":
+            if key in ("abs_url", "komga_url"):
                 value = value.rstrip("/")
             _upsert_setting(db, key, value, cleared=form.get(f"clear_{key}") == "on")
     invalidate_nav_cache()  # hardcover_token gates the Discover tab
@@ -190,7 +192,7 @@ async def update_nav_settings(request: Request):
 
 @router.post("/display")
 async def update_display_settings(request: Request):
-    """Save the display currency and metadata search language.
+    """Save display currency, metadata language and Browse grouping.
 
     Only writes when the posted code is known — an unknown code is silently
     dropped, same posture as /nav's key filtering. Currency is display
@@ -208,6 +210,11 @@ async def update_display_settings(request: Request):
     if search_lang in SEARCH_LANGS:
         with get_db() as db:
             _upsert_setting(db, "metadata_search_lang", search_lang)
+
+    if form.get("browse_group_digital_comics_present") == "1":
+        group_digital_comics = "1" if form.get("browse_group_digital_comics") == "on" else "0"
+        with get_db() as db:
+            _upsert_setting(db, "browse_group_digital_comics", group_digital_comics)
 
     return RedirectResponse(url="/settings", status_code=303)
 

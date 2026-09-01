@@ -24,7 +24,7 @@ MAX_SERIES_NAME = 1000
 # Media types that can belong to a series. Deliberately a local literal,
 # not an import of items.BOOK_MEDIA_TYPES / synopsis.BOOK_MEDIA_TYPES (which
 # already disagree about comics) — see docs: issue #31 design plan §1.
-UNASSIGNED_MEDIA_TYPES = ("book", "kids_book", "audiobook", "ebook", "comic")
+UNASSIGNED_MEDIA_TYPES = ("book", "kids_book", "audiobook", "ebook", "comic", "digital_comic")
 # Covers shown in the Unassigned strip; the heading always shows the true total.
 UNASSIGNED_STRIP_CAP = 12
 

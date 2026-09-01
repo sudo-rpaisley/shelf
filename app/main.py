@@ -41,7 +41,7 @@ from app.config import COVERS_DIR, DATA_DIR, MEDIA_TYPES, get_client_ip
 from app.currency import CURRENCIES, format_money, get_currency
 from app.services.national import SEARCH_LANGS
 from app.database import init_db, get_db
-from app.routers import pages, items, items_covers, items_csv, items_catalog, locations, platforms, settings, sync, checkouts, valuation, hardcover, store, series, share, tags, intake, archive
+from app.routers import pages, items, items_covers, items_csv, items_catalog, locations, platforms, settings, sync, komga, checkouts, valuation, hardcover, store, series, share, tags, intake, archive
 from app.routers import auth_routes
 
 
@@ -216,7 +216,7 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
 
 async def _periodic_abs_sync():
     """Background task: run ABS sync on schedule if configured."""
-    from app.services import audiobookshelf
+    from app.services import audiobookshelf, sync_jobs
 
     intervals = {"daily": 86400, "weekly": 604800}
 
@@ -242,16 +242,91 @@ async def _periodic_abs_sync():
                 abs_token_val = get_setting(db, "abs_token")
 
             if abs_url_val and abs_token_val:
-                await audiobookshelf.sync(abs_url_val, abs_token_val)
+                async def runner(on_progress):
+                    return await audiobookshelf.sync(
+                        abs_url_val, abs_token_val, on_progress=on_progress
+                    )
+
+                started = sync_jobs.start(
+                    "audiobookshelf", runner, source="scheduled"
+                )
+                if not started.get("started"):
+                    continue
+                final = await sync_jobs.wait("audiobookshelf")
+                if final["state"] != "completed":
+                    logger.warning(
+                        "Periodic Audiobookshelf sync did not complete: %s",
+                        final.get("error") or final["state"],
+                    )
+                    continue
+                finished = str(time.time())
                 with get_db() as db:
                     db.execute(
                         "INSERT INTO settings (key, value) VALUES ('abs_last_sync', ?) "
                         "ON CONFLICT(key) DO UPDATE SET value = ?",
-                        (str(now), str(now)),
+                        (finished, finished),
                     )
                 logger.info("Periodic Audiobookshelf sync completed")
         except Exception:
             logger.exception("Periodic Audiobookshelf sync failed")
+
+
+async def _periodic_komga_sync():
+    """Background task: run Komga sync on schedule if configured."""
+    from app.services import komga as komga_service, sync_jobs
+    from app.database import get_setting
+
+    intervals = {"daily": 86400, "weekly": 604800}
+
+    while True:
+        await asyncio.sleep(300)
+        try:
+            with get_db() as db:
+                row = db.execute(
+                    "SELECT value FROM settings WHERE key = 'komga_sync_interval'"
+                ).fetchone()
+                interval = row["value"] if row else "off"
+                if interval == "off":
+                    continue
+
+                last = db.execute(
+                    "SELECT value FROM settings WHERE key = 'komga_last_sync'"
+                ).fetchone()
+                now = time.time()
+                if last and last["value"]:
+                    elapsed = now - float(last["value"])
+                    if elapsed < intervals.get(interval, 86400):
+                        continue
+
+                komga_url_val = get_setting(db, "komga_url")
+                komga_api_key = get_setting(db, "komga_api_key")
+
+            if komga_url_val and komga_api_key:
+                async def runner(on_progress):
+                    return await komga_service.sync(
+                        komga_url_val, komga_api_key, on_progress=on_progress
+                    )
+
+                started = sync_jobs.start("komga", runner, source="scheduled")
+                if not started.get("started"):
+                    continue
+                final = await sync_jobs.wait("komga")
+                if final["state"] != "completed":
+                    logger.warning(
+                        "Periodic Komga sync did not complete: %s",
+                        final.get("error") or final["state"],
+                    )
+                    continue
+                finished = str(time.time())
+                with get_db() as db:
+                    db.execute(
+                        "INSERT INTO settings (key, value) VALUES ('komga_last_sync', ?) "
+                        "ON CONFLICT(key) DO UPDATE SET value = ?",
+                        (finished, finished),
+                    )
+                logger.info("Periodic Komga sync completed")
+        except Exception:
+            logger.exception("Periodic Komga sync failed")
 
 
 async def _periodic_hardcover_sync():
@@ -358,16 +433,20 @@ async def lifespan(app: FastAPI):
     from app.crypto import migrate_sensitive_settings
     migrate_sensitive_settings()
     task = asyncio.create_task(_periodic_abs_sync())
+    komga_task = asyncio.create_task(_periodic_komga_sync())
     hc_task = asyncio.create_task(_periodic_hardcover_sync())
     loan_task = asyncio.create_task(_periodic_loan_reminders())
     from app.services import cover_queue
     cover_task = cover_queue.start()
     yield
     task.cancel()
+    komga_task.cancel()
     hc_task.cancel()
     loan_task.cancel()
     if cover_task is not None:
         cover_task.cancel()
+    from app.services import sync_jobs
+    await sync_jobs.cancel_all()
 
 
 app = FastAPI(title="Shelf", lifespan=lifespan)
@@ -491,6 +570,7 @@ app.include_router(locations.router)
 app.include_router(platforms.router)
 app.include_router(settings.router)
 app.include_router(sync.router)
+app.include_router(komga.router)
 app.include_router(checkouts.router)
 app.include_router(valuation.router)
 app.include_router(hardcover.router)

@@ -11,6 +11,7 @@ from app.database import get_db, get_setting, get_game_platforms, get_reading_hi
 from app.routers import items_common
 from app.routers.items_common import SORT_OPTIONS
 from app.routers.series import find_gaps
+from app.services import browse_grouping
 
 router = APIRouter()
 
@@ -41,21 +42,15 @@ async def browse(
     with get_db() as db:
         _, order_clause = SORT_OPTIONS.get(values["sort"], SORT_OPTIONS["newest"])
 
-        from app.routers.checkouts import OVERDUE_CONDITION, get_overdue_days
-        items = db.execute(
-            f"SELECT i.*, l.name as location_name, "
-            f"(SELECT b.name FROM checkouts c JOIN borrowers b ON c.borrower_id = b.id "
-            f" WHERE c.item_id = i.id AND c.checked_in IS NULL LIMIT 1) AS lent_to, "
-            f"(SELECT 1 FROM checkouts c WHERE c.item_id = i.id AND {OVERDUE_CONDITION} LIMIT 1) AS lent_overdue "
-            f"FROM items i "
-            f"LEFT JOIN locations l ON i.location_id = l.id "
-            f"{where} ORDER BY {order_clause} LIMIT ?",
-            [get_overdue_days(db)] + params + [DEFAULT_PAGE_SIZE],
-        ).fetchall()
-
-        total_filtered = db.execute(
-            f"SELECT COUNT(*) as c FROM items i {where}", params
-        ).fetchone()["c"]
+        items, total_filtered, display_total = browse_grouping.fetch_page(
+            db,
+            where,
+            params,
+            order_clause,
+            limit=DEFAULT_PAGE_SIZE,
+            offset=0,
+            values=values,
+        )
 
         series_names = [
             row["series_name"]
@@ -90,7 +85,7 @@ async def browse(
             ).fetchall()
         ]
 
-        has_more = len(items) < total_filtered
+        has_more = len(items) < display_total
 
         load_more_url = "/api/search?" + browse_filters.querystring(
             values, extra=["page=2"]
@@ -202,7 +197,7 @@ async def item_detail(
 
         # Linked items (different formats of the same work)
         linked_items = db.execute(
-            "SELECT i.id, i.title, i.media_type, i.abs_id FROM item_links il "
+            "SELECT i.id, i.title, i.media_type, i.abs_id, i.komga_id FROM item_links il "
             "JOIN items i ON (i.id = CASE WHEN il.item_a_id = ? THEN il.item_b_id ELSE il.item_a_id END) "
             "WHERE il.item_a_id = ? OR il.item_b_id = ?",
             (item_id, item_id, item_id),
@@ -221,6 +216,21 @@ async def item_detail(
                 {"id": li["id"], "media_type": li["media_type"],
                  "abs_url": get_playback_url(abs_url_val, li["abs_id"])}
                 for li in linked_items if li["abs_id"]
+            ]
+
+        # Komga browser URLs use the public root when configured,
+        # while all server-side API traffic continues to use komga_url.
+        komga_url = None
+        linked_komga_items = []
+        komga_url_val = get_setting(db, "komga_url")
+        if komga_url_val:
+            from app.services.komga import get_browser_url
+            if item["komga_id"]:
+                komga_url = get_browser_url(komga_url_val, item["komga_id"])
+            linked_komga_items = [
+                {"id": li["id"], "media_type": li["media_type"],
+                 "komga_url": get_browser_url(komga_url_val, li["komga_id"])}
+                for li in linked_items if li["komga_id"]
             ]
 
         # Hardcover token check
@@ -280,6 +290,8 @@ async def item_detail(
             "linked_items": linked_items,
             "linked_abs_items": linked_abs_items,
             "abs_url": abs_url,
+            "linked_komga_items": linked_komga_items,
+            "komga_url": komga_url,
             "reading_history": reading_history,
             "series_progress": series_progress,
         },
@@ -486,7 +498,7 @@ async def settings(request: Request, _=Depends(require_role("admin"))):
     from app.config import SECRET_ENV_VARS, is_env_override
     from app.database import get_all_settings
     from app.nav import hideable_tab_states
-    from app.services import cover_queue
+    from app.services import cover_queue, sync_jobs
     # Known codes only — never reflect the raw query param into the template.
     borrower_error_message = BORROWER_ERROR_MESSAGES.get(request.query_params.get("borrower_error"))
     with get_db() as db:
@@ -550,17 +562,27 @@ async def settings(request: Request, _=Depends(require_role("admin"))):
     # for it — and both Audiobookshelf actions gate on the URL: Test on typed-or-
     # present, Sync Now on presence alone (issue #41).
     abs_url_present = bool(settings.get("abs_url")) or "abs_url" in env_overrides
+    komga_url_present = bool(settings.get("komga_url")) or "komga_url" in env_overrides
     for k in SENSITIVE_KEYS:
         if k in settings:
             settings[k] = ""
+
+    # Seed detached integration-sync progress into the first Settings render.
+    # The browser still polls for fresh values, but a transient failed/429
+    # reconnect can no longer make an active job look idle after navigation.
+    abs_sync_job = sync_jobs.get_status("audiobookshelf")
+    komga_sync_job = sync_jobs.get_status("komga")
+
     return request.app.state.templates.TemplateResponse(
         request,
         "settings.html",
         {"settings": settings, "locations": locations, "item_count": item_count, "share_links": share_links,
          "borrowers": borrowers, "secrets_saved": secrets_saved,
          "secrets_present": secrets_present, "abs_url_present": abs_url_present,
+         "komga_url_present": komga_url_present,
          "game_platforms_list": game_platforms_list,
          "hideable_nav_tab_states": hideable_nav_tab_states,
          "borrower_error_message": borrower_error_message,
-         "missing_covers": missing_covers, "cover_queue_stats": cover_queue_stats},
+         "missing_covers": missing_covers, "cover_queue_stats": cover_queue_stats,
+         "abs_sync_job": abs_sync_job, "komga_sync_job": komga_sync_job},
     )

@@ -27,6 +27,70 @@ async function postJSON(url, opts) {
     }
 }
 
+// Long integration syncs belong to the Shelf server, not to the browser
+// page that happened to start them.  Polling is intentionally modest (2s) so
+// a user can navigate away and later return without hitting the API rate limit.
+function applyBackgroundSyncState(self, data) {
+    if (!data || !data.state) return;
+    self.syncing = data.state === 'running';
+    self.syncCurrent = Number(data.current || 0);
+    self.syncTotal = Number(data.total || 0);
+    self.syncLastTitle = data.title || '';
+    if (Array.isArray(data.recent)) {
+        self.syncLog = data.recent.map(function (entry) {
+            var copy = {i: entry.i, t: entry.t, s: entry.s};
+            if (typeof self.statusClass === 'function') copy.statusClass = self.statusClass(entry.s);
+            return copy;
+        });
+    }
+    if (data.state === 'completed') {
+        self.result = data.stats || {};
+    } else if (data.state === 'error' || data.state === 'cancelled') {
+        self.result = {error: data.error || 'Sync stopped'};
+    }
+}
+
+function pollBackgroundSync(self, url) {
+    if (self._syncJobTimer) clearTimeout(self._syncJobTimer);
+    fetch(url)
+        .then(function (r) { return r.json(); })
+        .then(function (data) {
+            applyBackgroundSyncState(self, data);
+            if (data.state === 'running') {
+                self._syncJobTimer = setTimeout(function () { pollBackgroundSync(self, url); }, 5000);
+            }
+        })
+        .catch(function () {
+            // A fresh Settings component begins with syncing=false. Previously
+            // one failed/429 reconnect therefore stopped polling forever and
+            // hid a still-running job. Always retry a failed status read.
+            self._syncJobTimer = setTimeout(function () { pollBackgroundSync(self, url); }, 5000);
+        });
+}
+
+function startBackgroundSync(self, url) {
+    if (self._syncJobTimer) clearTimeout(self._syncJobTimer);
+    self.syncing = true;
+    self.result = false;
+    self.syncCurrent = 0;
+    self.syncTotal = 0;
+    self.syncLastTitle = '';
+    self.syncLog = [];
+    self.showSyncLog = false;
+    fetch(url, {method: 'POST', headers: {'X-CSRF-Token': window.csrfToken()}})
+        .then(function (r) { return r.json(); })
+        .then(function (data) {
+            applyBackgroundSyncState(self, data);
+            if (data.state === 'running') {
+                self._syncJobTimer = setTimeout(function () { pollBackgroundSync(self, url); }, 1000);
+            }
+        })
+        .catch(function () {
+            self.syncing = false;
+            self.result = {error: 'Failed to start background sync'};
+        });
+}
+
 document.addEventListener('alpine:init', function () {
 
     // settings.html — tab bar (persists active tab in localStorage)
@@ -75,6 +139,14 @@ document.addEventListener('alpine:init', function () {
                 this.absUrl = this.$el.dataset.absUrl || '';
                 this.absUrlPresent = this.$el.dataset.absUrlPresent === '1';
                 this.absSaved = this.$el.dataset.absSaved === '1';
+                applyBackgroundSyncState(this, {
+                    state: this.$el.dataset.syncState || 'idle',
+                    current: Number(this.$el.dataset.syncCurrent || 0),
+                    total: Number(this.$el.dataset.syncTotal || 0),
+                    title: this.$el.dataset.syncTitle || '',
+                    recent: []
+                });
+                pollBackgroundSync(this, '/api/sync/audiobookshelf/job');
             },
             get syncPct() { return Math.round(this.syncCurrent / this.syncTotal * 100) + '%'; },
             // One source for "Test has something to send". The template's
@@ -112,24 +184,7 @@ document.addEventListener('alpine:init', function () {
             },
             startSync() {
                 if (!this.absSyncReady) return;
-                this.syncing = true; this.result = false; this.syncCurrent = 0; this.syncTotal = 0;
-                this.syncLastTitle = ''; this.syncLog = []; this.showSyncLog = false;
-                var self = this;
-                var es = new EventSource('/api/sync/audiobookshelf/stream');
-                es.onmessage = function (e) {
-                    var d = JSON.parse(e.data);
-                    if (d.type === 'progress') {
-                        self.syncCurrent = d.current;
-                        self.syncTotal = d.total;
-                        self.syncLastTitle = d.title;
-                        self.syncLog.push({i: d.current, t: d.title, s: d.status});
-                    } else if (d.type === 'done') {
-                        self.result = d; self.syncing = false; es.close();
-                    } else if (d.type === 'error') {
-                        self.result = {error: d.message}; self.syncing = false; es.close();
-                    }
-                };
-                es.onerror = function () { self.result = {error: 'Connection lost'}; self.syncing = false; es.close(); };
+                startBackgroundSync(this, '/api/sync/audiobookshelf/job');
             }
         };
     });
@@ -168,6 +223,104 @@ document.addEventListener('alpine:init', function () {
                     .then(r => r.json())
                     .then(d => { this.cleaning = false; this.cleanResult = d; if (d.ok) showToast('Removed ' + d.deleted + ' items') })
                     .catch(() => { this.cleaning = false; showToast('Cleanup failed', 'error') });
+            }
+        };
+    });
+
+    // settings.html — Komga sync card
+    Alpine.data('komgaSync', function () {
+        return {
+            syncing: false, result: false, status: false, testing: false, showHelp: false,
+            komgaUrl: '', komgaApiKey: '', komgaSaved: false, komgaUrlPresent: false,
+            syncCurrent: 0, syncTotal: 0, syncLastTitle: '', syncLog: [], showSyncLog: false,
+            init() {
+                this.komgaUrl = this.$el.dataset.komgaUrl || '';
+                this.komgaUrlPresent = this.$el.dataset.komgaUrlPresent === '1';
+                this.komgaSaved = this.$el.dataset.komgaSaved === '1';
+                applyBackgroundSyncState(this, {
+                    state: this.$el.dataset.syncState || 'idle',
+                    current: Number(this.$el.dataset.syncCurrent || 0),
+                    total: Number(this.$el.dataset.syncTotal || 0),
+                    title: this.$el.dataset.syncTitle || '',
+                    recent: []
+                });
+                pollBackgroundSync(this, '/api/sync/komga/job');
+            },
+            get testReady() { return Boolean((this.komgaUrl || this.komgaUrlPresent) && (this.komgaApiKey || this.komgaSaved)); },
+            get syncReady() { return Boolean(this.komgaUrlPresent && this.komgaSaved); },
+            get syncLabel() {
+                if (this.syncReady) return 'Sync Now';
+                if (this.komgaUrl || this.komgaApiKey) return 'Save your settings to sync';
+                return 'Enter URL and API key to sync';
+            },
+            get syncPct() { return (this.syncTotal ? Math.round(this.syncCurrent / this.syncTotal * 100) : 0) + '%'; },
+            get syncProgress() { return this.syncCurrent + ' / ' + this.syncTotal; },
+            get syncWidth() { return 'width:' + (this.syncTotal ? (this.syncCurrent / this.syncTotal * 100) : 0) + '%'; },
+            get syncLogLabel() { return this.showSyncLog ? 'Hide details' : 'Show details (' + this.syncLog.length + ' items)'; },
+            statusClass(status) {
+                if (status === 'added') return 'text-shelf-success';
+                if (status === 'updated') return 'text-shelf-accent2';
+                return 'text-shelf-muted';
+            },
+            testKomga() {
+                if (!this.testReady) return;
+                this.testing = true; this.status = false;
+                fetch('/api/sync/komga/test', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': window.csrfToken() },
+                    body: JSON.stringify({ url: this.komgaUrl, api_key: this.komgaApiKey })
+                }).then(r => r.json())
+                  .then(d => { this.status = d; this.testing = false; })
+                  .catch(() => { this.status = { ok: false, message: 'Connection failed' }; this.testing = false; });
+            },
+            startSync() {
+                if (!this.syncReady) return;
+                startBackgroundSync(this, '/api/sync/komga/job');
+            }
+        };
+    });
+
+    // settings.html — Komga library selection
+    Alpine.data('komgaLibraries', function () {
+        return {
+            libs: false, libsLoading: false, libsError: false, libsSaving: false,
+            cleaning: false, cleanResult: false,
+            excludedIds() { return this.libs.filter(l => !l.included).map(l => l.id); },
+            get hasExcluded() { return Boolean(this.libs && this.excludedIds().length); },
+            get cleanResultLabel() {
+                if (!this.cleanResult) return '';
+                return 'Removed ' + this.cleanResult.deleted + ' synced items; detached ' + this.cleanResult.detached + ' existing Shelf items.';
+            },
+            toggleLib(id) {
+                var lib = this.libs.find(l => l.id === id);
+                if (lib) lib.included = !lib.included;
+            },
+            loadLibs() {
+                this.libsLoading = true; this.libsError = false;
+                fetch('/api/sync/komga/libraries')
+                    .then(r => r.json())
+                    .then(d => { if (d.ok) this.libs = d.libraries; else this.libsError = d.message; this.libsLoading = false; })
+                    .catch(() => { this.libsError = 'Failed to load libraries'; this.libsLoading = false; });
+            },
+            saveLibs() {
+                this.libsSaving = true;
+                fetch('/api/sync/komga/libraries', {
+                    method: 'POST', headers: {'Content-Type': 'application/json', 'X-CSRF-Token': window.csrfToken()},
+                    body: JSON.stringify({excluded: this.excludedIds()})
+                }).then(r => r.json())
+                  .then(d => { this.libsSaving = false; if (d.ok) showToast('Library selection saved'); else showToast(d.message || 'Save failed', 'error'); })
+                  .catch(() => { this.libsSaving = false; showToast('Save failed', 'error'); });
+            },
+            cleanup() {
+                if (!confirm('Remove Komga-synced Shelf items from unchecked libraries? Komga itself is not touched. Existing Shelf comics adopted by ISBN are kept and only detached from Komga.')) return;
+                this.cleaning = true; this.cleanResult = false;
+                fetch('/api/sync/komga/libraries', {
+                    method: 'POST', headers: {'Content-Type': 'application/json', 'X-CSRF-Token': window.csrfToken()},
+                    body: JSON.stringify({excluded: this.excludedIds()})
+                }).then(() => fetch('/api/sync/komga/libraries/cleanup', {method: 'POST', headers: {'X-CSRF-Token': window.csrfToken()}}))
+                  .then(r => r.json())
+                  .then(d => { this.cleaning = false; this.cleanResult = d; if (d.ok) showToast('Komga cleanup complete'); })
+                  .catch(() => { this.cleaning = false; showToast('Cleanup failed', 'error'); });
             }
         };
     });

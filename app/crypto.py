@@ -37,6 +37,7 @@ _FERNET_PREFIX = "gAAAAA"
 SENSITIVE_KEYS: frozenset[str] = frozenset(
     {
         "abs_token",
+        "komga_api_key",
         "anthropic_api_key",
         "openai_api_key",
         "hardcover_token",

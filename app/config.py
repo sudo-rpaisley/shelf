@@ -13,6 +13,7 @@ MEDIA_TYPES = {
     "dvd": "DVD / Blu-ray",
     "cd": "CD",
     "comic": "Comic / Graphic Novel",
+    "digital_comic": "Digital Comic",
     "video_game": "Video Game",
 }
 
@@ -160,6 +161,8 @@ JWT_EXPIRY_SECONDS = 7 * 24 * 3600  # 7 days
 SECRET_ENV_VARS = {
     "abs_url": "ABS_URL",
     "abs_token": "ABS_TOKEN",
+    "komga_url": "KOMGA_URL",
+    "komga_api_key": "KOMGA_API_KEY",
     "hardcover_token": "HARDCOVER_TOKEN",
     "google_books_api_key": "GOOGLE_BOOKS_API_KEY",
     "isbndb_api_key": "ISBNDB_API_KEY",
