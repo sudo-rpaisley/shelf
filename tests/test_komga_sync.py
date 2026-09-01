@@ -148,6 +148,9 @@ class TestKomgaSync:
         assert stats["cover_errors"] == 0
         assert row["cover_path"] == f"covers/{row['id']}.jpg"
         assert (covers.COVERS_DIR / f"{row['id']}.jpg").read_bytes() == image
+        cover_request = respx.calls[-1].request
+        assert cover_request.headers["X-API-Key"] == KEY
+        assert cover_request.headers["Accept"] == "image/jpeg"
 
     @respx.mock
     def test_missing_cover_is_retried_on_later_sync(self, db):

@@ -186,7 +186,7 @@ async def _download_cover(
         try:
             response = await client.get(
                 f"{komga_url}/api/v1/books/{komga_id}/thumbnail",
-                headers=_headers(api_key),
+                headers={"X-API-Key": api_key, "Accept": "image/jpeg"},
                 timeout=COVER_TIMEOUT,
             )
         except (httpx.TimeoutException, httpx.TransportError):
