@@ -157,7 +157,8 @@ async def add_game_from_search(
     resp.headers["HX-Trigger"] = items_common._toast_header(f"Added: {metadata['title'][:50]}")
     return resp
 
-BOOK_MEDIA_TYPES = {"book", "kids_book", "audiobook", "ebook", "comic"}
+
+BOOK_MEDIA_TYPES = {"book", "kids_book", "audiobook", "ebook", "comic", "digital_comic"}
 
 @router.get("/title-search")
 async def title_search(

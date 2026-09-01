@@ -94,7 +94,7 @@ class Detection:
 # barcode is an ISBN. Not every MEDIA_TYPES key is book-family — dvd, cd and
 # video_game are physical/digital media, not books, even though they are
 # valid hints on a non-ISBN scan.
-_BOOK_FAMILY_HINTS = frozenset({"book", "kids_book", "audiobook", "ebook", "comic"})
+_BOOK_FAMILY_HINTS = frozenset({"book", "kids_book", "audiobook", "ebook", "comic", "digital_comic"})
 
 # --- Tier 2: title markers -------------------------------------------------
 #
