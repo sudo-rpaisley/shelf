@@ -2,6 +2,7 @@
 
 Komga can add thousands of individual issues. Browse groups those issues by
 series by default, but opening a series must reveal ordinary individual items.
+The cases also pin grouped pagination and representative-cover behaviour.
 """
 
 from app import browse_filters
