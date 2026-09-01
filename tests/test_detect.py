@@ -9,7 +9,7 @@ from app.services import detect
 from app.services.detect import SIGNALS, Signal, detect_media_type
 from app.services.upc import detect_barcode_type
 
-_BOOK_FAMILY_HINTS_FOR_TEST = sorted(BOOK_MEDIA_TYPES)
+_BOOK_FAMILY_HINTS_FOR_TEST = ["book", "kids_book", "audiobook", "ebook", "comic", "digital_comic"]
 
 # --- The six resolved probe rows from the design doc -----------------------
 #
