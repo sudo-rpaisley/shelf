@@ -1,7 +1,8 @@
 """Background integration sync job regressions.
 
 These tests pin the behaviour the Settings page relies on when a user starts a
-sync, navigates elsewhere in Shelf, and later returns to reattach to progress.
+sync, navigates elsewhere in Shelf, and later returns to reattach to progress,
+including the server-seeded first paint before polling resumes.
 """
 
 import asyncio
