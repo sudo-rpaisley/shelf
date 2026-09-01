@@ -1,3 +1,4 @@
+import asyncio
 import json
 import logging
 
@@ -14,6 +15,11 @@ logger = logging.getLogger(__name__)
 PAGE_SIZE = 200
 COVER_TIMEOUT = httpx.Timeout(10.0, connect=5.0)
 COVER_RETRIES = 1
+# Covers must never serialize a large metadata sync behind one slow image.
+# Process a small batch concurrently and also cap total wall-clock time per
+# thumbnail; httpx's read timeout is an inactivity timeout, not a total one.
+COVER_BATCH_SIZE = 8
+COVER_WALL_TIMEOUT = 15.0
 
 
 def get_excluded_libraries() -> set[str]:
@@ -230,6 +236,57 @@ async def _download_cover(
     return "error"
 
 
+async def _download_cover_with_deadline(
+    client: httpx.AsyncClient,
+    komga_url: str,
+    api_key: str,
+    komga_id: str,
+    item_id: int,
+) -> str:
+    """Download a cover with a real wall-clock deadline.
+
+    httpx timeouts reset while bytes continue to arrive, so a server that
+    trickles a broken thumbnail can otherwise keep one request alive
+    indefinitely.
+    """
+    try:
+        async with asyncio.timeout(COVER_WALL_TIMEOUT):
+            return await _download_cover(
+                client, komga_url, api_key, komga_id, item_id
+            )
+    except TimeoutError:
+        logger.warning(
+            "Komga cover exceeded %.1fs wall-clock deadline for book %s",
+            COVER_WALL_TIMEOUT,
+            komga_id,
+        )
+        return "error"
+
+
+async def _drain_cover_batch(cover_batch: list[tuple], stats: dict) -> None:
+    """Fetch one small cover batch concurrently and fold results into stats."""
+    if not cover_batch:
+        return
+
+    results = await asyncio.gather(
+        *(
+            _download_cover_with_deadline(*job)
+            for job in cover_batch
+        ),
+        return_exceptions=True,
+    )
+    cover_batch.clear()
+
+    for result in results:
+        if isinstance(result, BaseException):
+            logger.warning("Unexpected Komga cover failure: %r", result)
+            stats["cover_errors"] += 1
+        elif result == "downloaded":
+            stats["covers"] += 1
+        elif result == "error":
+            stats["cover_errors"] += 1
+
+
 async def sync(komga_url: str, api_key: str, on_progress=None) -> dict:
     """Sync digital comics from Komga into Shelf."""
     stats = {
@@ -281,6 +338,7 @@ async def sync(komga_url: str, api_key: str, on_progress=None) -> dict:
 
         total = sum(len(books) for _, books in library_books)
         current = 0
+        cover_batch: list[tuple] = []
 
         for library, books in library_books:
             library_id = library["id"]
@@ -466,20 +524,23 @@ async def sync(komga_url: str, api_key: str, on_progress=None) -> dict:
                         status = "added"
                         fetch_cover = True
 
-                # Cover work is part of the item before progress advances. A
-                # single bad thumbnail has a bounded retry/timeout instead of
-                # making the progress bar look frozen for minutes.
+                # Metadata progress is independent of cover I/O. Queue the cover
+                # first, report this item immediately, then periodically drain a
+                # small concurrent batch. One pathological thumbnail can pause
+                # the bar for at most COVER_WALL_TIMEOUT, not indefinitely.
                 if fetch_cover:
-                    cover_status = await _download_cover(
-                        client, komga_url, api_key, komga_id, item_id
+                    cover_batch.append(
+                        (client, komga_url, api_key, komga_id, item_id)
                     )
-                    if cover_status == "downloaded":
-                        stats["covers"] += 1
-                    elif cover_status == "error":
-                        stats["cover_errors"] += 1
 
                 if on_progress:
                     await on_progress(current, total, title, status)
+
+                if len(cover_batch) >= COVER_BATCH_SIZE:
+                    await _drain_cover_batch(cover_batch, stats)
+
+        # Finish the final partial batch while the shared HTTP client is open.
+        await _drain_cover_batch(cover_batch, stats)
 
     _auto_link_items()
     return stats
