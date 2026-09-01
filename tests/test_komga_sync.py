@@ -1,11 +1,12 @@
-"""Komga sync, library selection, mapping and collision regressions."""
+"""Komga sync, library selection, mapping, cover and scale regressions."""
 import asyncio
 import json
 
 import httpx
 import respx
 
-from app.services.komga import get_excluded_libraries, sync
+from app.services import covers
+from app.services.komga import PAGE_SIZE, get_excluded_libraries, sync
 from tests.conftest import _insert_item
 
 KOMGA = "http://komga.example:25600"
@@ -54,14 +55,14 @@ def _book(book_id="book_1", title="Watchmen", isbn=ISBN, library_id="lib_comics"
     }
 
 
-def _books_page(*books, last=True, total_pages=1):
+def _books_page(*books, last=True, total_pages=1, number=0):
     return httpx.Response(
         200,
         json={
             "content": list(books),
             "last": last,
             "totalPages": total_pages,
-            "number": 0,
+            "number": number,
         },
     )
 
@@ -86,7 +87,7 @@ class TestKomgaSettings:
 
 class TestKomgaSync:
     @respx.mock
-    def test_maps_komga_book_to_comic_metadata(self, db):
+    def test_maps_komga_book_to_digital_comic_metadata(self, db):
         _mock_single_library(_book())
         cover = respx.get(f"{KOMGA}/api/v1/books/book_1/thumbnail").mock(
             return_value=httpx.Response(404)
@@ -100,6 +101,8 @@ class TestKomgaSync:
             "unchanged": 0,
             "skipped": 0,
             "errors": 0,
+            "covers": 0,
+            "cover_errors": 0,
         }
         row = db.execute(
             """SELECT title, authors, isbn, media_type, series_name,
@@ -110,7 +113,7 @@ class TestKomgaSync:
         assert row["title"] == "Watchmen"
         assert row["authors"] == "Alan Moore, Dave Gibbons"
         assert row["isbn"] == ISBN
-        assert row["media_type"] == "comic"
+        assert row["media_type"] == "digital_comic"
         assert row["series_name"] == "Watchmen"
         assert row["series_position"] == 1.0
         assert row["publish_year"] == 1987
@@ -124,10 +127,84 @@ class TestKomgaSync:
 
         listing = respx.calls[1].request
         assert listing.headers["X-API-Key"] == KEY
+        assert listing.url.params["size"] == str(PAGE_SIZE)
         payload = json.loads(listing.content)
         conditions = payload["condition"]["allOf"]
         assert {"libraryId": {"operator": "is", "value": "lib_comics"}} in conditions
         assert {"deleted": {"operator": "isFalse"}} in conditions
+
+    @respx.mock
+    def test_imports_komga_thumbnail_as_cover(self, db):
+        _mock_single_library(_book())
+        image = b"\xff\xd8" + (b"cover-data" * 150)
+        respx.get(f"{KOMGA}/api/v1/books/book_1/thumbnail").mock(
+            return_value=httpx.Response(200, content=image, headers={"Content-Type": "image/jpeg"})
+        )
+
+        stats = asyncio.run(sync(KOMGA, KEY))
+
+        row = db.execute("SELECT id, cover_path FROM items").fetchone()
+        assert stats["covers"] == 1
+        assert stats["cover_errors"] == 0
+        assert row["cover_path"] == f"covers/{row['id']}.jpg"
+        assert (covers.COVERS_DIR / f"{row['id']}.jpg").read_bytes() == image
+
+    @respx.mock
+    def test_missing_cover_is_retried_on_later_sync(self, db):
+        _mock_single_library(_book())
+        route = respx.get(f"{KOMGA}/api/v1/books/book_1/thumbnail").mock(
+            side_effect=[
+                httpx.Response(404),
+                httpx.Response(200, content=b"x" * 1200),
+            ]
+        )
+        first = asyncio.run(sync(KOMGA, KEY))
+        second = asyncio.run(sync(KOMGA, KEY))
+        assert first["covers"] == 0
+        assert second["covers"] == 1
+        assert route.call_count == 2
+        assert db.execute("SELECT cover_path FROM items").fetchone()["cover_path"]
+
+    @respx.mock
+    def test_cover_timeout_does_not_abort_remaining_books(self, db):
+        _mock_single_library(
+            _book("book_1", "One", "9780000000103"),
+            _book("book_2", "Two", "9780000000110"),
+        )
+        respx.get(f"{KOMGA}/api/v1/books/book_1/thumbnail").mock(
+            side_effect=httpx.ReadTimeout("slow cover")
+        )
+        respx.get(f"{KOMGA}/api/v1/books/book_2/thumbnail").mock(
+            return_value=httpx.Response(200, content=b"y" * 1200)
+        )
+
+        stats = asyncio.run(sync(KOMGA, KEY))
+        assert stats["added"] == 2
+        assert stats["cover_errors"] == 1
+        assert stats["covers"] == 1
+        rows = db.execute("SELECT title, cover_path FROM items ORDER BY title").fetchall()
+        assert rows[0]["cover_path"] is None
+        assert rows[1]["cover_path"] is not None
+
+    @respx.mock
+    def test_paginates_large_library_without_repeating_page(self, db):
+        respx.get(f"{KOMGA}/api/v1/libraries").mock(
+            return_value=httpx.Response(200, json=[{"id": "lib_comics", "name": "Comics"}])
+        )
+        listing = respx.post(f"{KOMGA}/api/v1/books/list").mock(
+            side_effect=[
+                _books_page(_book("book_1", "One", None), last=False, total_pages=2, number=0),
+                _books_page(_book("book_2", "Two", None), last=True, total_pages=2, number=1),
+            ]
+        )
+        respx.get(f"{KOMGA}/api/v1/books/book_1/thumbnail").mock(return_value=httpx.Response(404))
+        respx.get(f"{KOMGA}/api/v1/books/book_2/thumbnail").mock(return_value=httpx.Response(404))
+
+        stats = asyncio.run(sync(KOMGA, KEY))
+        assert stats["added"] == 2
+        assert listing.call_count == 2
+        assert listing.calls[0].request.url.params["page"] == "0"
+        assert listing.calls[1].request.url.params["page"] == "1"
 
     @respx.mock
     def test_excluded_library_is_not_listed_for_sync(self, db):
@@ -148,43 +225,79 @@ class TestKomgaSync:
         assert b"lib_manga" not in list_route.calls[0].request.content
 
     @respx.mock
-    def test_adopts_existing_manual_comic_by_isbn_and_second_sync_is_unchanged(self, db):
-        existing_id = _insert_item(
+    def test_physical_comic_and_komga_copy_coexist_and_link(self, db):
+        physical_id = _insert_item(
             db,
-            title="Manual Watchmen",
+            title="Physical Watchmen",
             isbn=ISBN,
             media_type="comic",
             source="manual",
         )
         db.execute("COMMIT")
         _mock_single_library(_book())
-        respx.get(f"{KOMGA}/api/v1/books/book_1/thumbnail").mock(
-            return_value=httpx.Response(404)
-        )
+        respx.get(f"{KOMGA}/api/v1/books/book_1/thumbnail").mock(return_value=httpx.Response(404))
 
         first = asyncio.run(sync(KOMGA, KEY))
-        assert first["added"] == 0 and first["updated"] == 1
-        row = db.execute(
-            "SELECT id, komga_id, komga_library_id, source FROM items"
+        assert first["added"] == 1
+        rows = db.execute(
+            "SELECT id, media_type, komga_id, source FROM items ORDER BY id"
+        ).fetchall()
+        assert len(rows) == 2
+        assert rows[0]["id"] == physical_id
+        assert rows[0]["media_type"] == "comic"
+        assert rows[0]["komga_id"] is None
+        assert rows[0]["source"] == "manual"
+        assert rows[1]["media_type"] == "digital_comic"
+        assert rows[1]["komga_id"] == "book_1"
+        assert rows[1]["source"] == "komga"
+        link = db.execute(
+            "SELECT item_a_id, item_b_id FROM item_links"
         ).fetchone()
-        assert row["id"] == existing_id
-        assert row["komga_id"] == "book_1"
-        assert row["komga_library_id"] == "lib_comics"
-        assert row["source"] == "manual"
+        assert {link["item_a_id"], link["item_b_id"]} == {physical_id, rows[1]["id"]}
 
         db.execute(
             "UPDATE items SET updated_at = '2000-01-01 00:00:00' WHERE id = ?",
-            (existing_id,),
+            (rows[1]["id"],),
         )
         db.execute("COMMIT")
         second = asyncio.run(sync(KOMGA, KEY))
         assert second["unchanged"] == 1
         assert db.execute(
-            "SELECT updated_at FROM items WHERE id = ?", (existing_id,)
+            "SELECT updated_at FROM items WHERE id = ?", (rows[1]["id"],)
         ).fetchone()["updated_at"] == "2000-01-01 00:00:00"
 
     @respx.mock
-    def test_duplicate_komga_isbn_is_skipped(self, db):
+    def test_repairs_legacy_physical_item_that_was_adopted(self, db):
+        physical_id = _insert_item(
+            db,
+            title="Old Adopted Watchmen",
+            isbn=ISBN,
+            media_type="comic",
+            source="manual",
+            komga_id="book_1",
+            komga_library_id="lib_comics",
+        )
+        db.execute("COMMIT")
+        _mock_single_library(_book())
+        respx.get(f"{KOMGA}/api/v1/books/book_1/thumbnail").mock(return_value=httpx.Response(404))
+
+        stats = asyncio.run(sync(KOMGA, KEY))
+        assert stats["added"] == 1
+        physical = db.execute(
+            "SELECT media_type, komga_id, source FROM items WHERE id = ?", (physical_id,)
+        ).fetchone()
+        assert physical["media_type"] == "comic"
+        assert physical["komga_id"] is None
+        assert physical["source"] == "manual"
+        digital = db.execute(
+            "SELECT media_type, komga_id, source FROM items WHERE id != ?", (physical_id,)
+        ).fetchone()
+        assert digital["media_type"] == "digital_comic"
+        assert digital["komga_id"] == "book_1"
+        assert digital["source"] == "komga"
+
+    @respx.mock
+    def test_duplicate_komga_digital_isbn_is_skipped(self, db):
         _mock_single_library(
             _book("book_1", "First", ISBN),
             _book("book_2", "Duplicate", ISBN),
@@ -211,6 +324,7 @@ class TestKomgaLibraryEndpoints:
         assert data["ok"] is True
         by_id = {library["id"]: library for library in data["libraries"]}
         assert by_id["lib_comics"]["included"] is True
+        assert by_id["lib_comics"]["media_type"] == "digital_comic"
         assert by_id["lib_manga"]["included"] is False
         assert route.calls[0].request.headers["X-API-Key"] == KEY
 
@@ -230,16 +344,16 @@ class TestKomgaLibraryEndpoints:
             db,
             title="Synced",
             isbn=None,
-            media_type="comic",
+            media_type="digital_comic",
             komga_id="k1",
             komga_library_id="lib_manga",
             source="komga",
         )
         adopted = _insert_item(
             db,
-            title="Manual",
+            title="Manual Digital",
             isbn=None,
-            media_type="comic",
+            media_type="digital_comic",
             komga_id="k2",
             komga_library_id="lib_manga",
             source="manual",
@@ -248,7 +362,7 @@ class TestKomgaLibraryEndpoints:
             db,
             title="Keep",
             isbn=None,
-            media_type="comic",
+            media_type="digital_comic",
             komga_id="k3",
             komga_library_id="lib_comics",
             source="komga",
