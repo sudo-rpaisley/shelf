@@ -1,0 +1,50 @@
+name: RomM feature build
+
+on:
+  push:
+    branches: [feature/romm-sync]
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: feature/romm-sync
+          fetch-depth: 0
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+      - name: Install dependencies
+        run: |
+          pip install -r requirements-dev.txt
+          npm ci
+      - name: Apply RomM integration wiring
+        run: python scripts/romm_patch.py
+      - name: Validate focused RomM implementation
+        run: |
+          python -m compileall -q app
+          pytest -q tests/test_romm_sync.py tests/test_romm_public_url.py tests/test_schema_parity.py
+          python scripts/check_alpine_csp.py
+          python scripts/check_csrf_fetch.py
+      - name: Regenerate committed derived files
+        run: |
+          python scripts/stamp_test_badges.py
+          make css
+      - name: Show game-family references
+        run: grep -R "video_game\|digital_game" app --exclude='*.pyc' | head -200 || true
+      - name: Commit feature tree
+        run: |
+          rm scripts/romm_patch.py .github/workflows/romm-build.yml
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git commit -m "Add RomM library sync"
+          git push origin HEAD:feature/romm-sync
