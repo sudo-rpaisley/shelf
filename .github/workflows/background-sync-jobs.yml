@@ -1,0 +1,46 @@
+name: Apply background sync jobs
+
+on:
+  push:
+    branches:
+      - feature/komga-sync
+    paths:
+      - .github/workflows/background-sync-jobs.yml
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: feature/komga-sync
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+          cache: pip
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+      - name: Install build dependencies
+        run: |
+          pip install -r requirements-dev.txt
+          npm ci
+      - name: Apply background job wiring
+        run: python .github/scripts/apply_background_sync_jobs.py
+      - name: Refresh generated repository assets
+        run: |
+          make badges
+          make css
+      - name: Remove temporary patch machinery and commit
+        run: |
+          rm .github/scripts/apply_background_sync_jobs.py
+          rm .github/workflows/background-sync-jobs.yml
+          git config user.name "Robert J Paisley"
+          git config user.email "56076332+sudo-rpaisley@users.noreply.github.com"
+          git add -A
+          git commit -m "Run integration syncs as background jobs"
+          git push origin feature/komga-sync
