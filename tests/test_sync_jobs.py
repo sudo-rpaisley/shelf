@@ -88,3 +88,34 @@ def test_runner_error_is_exposed_as_job_error():
         assert status["finished_at"] is not None
 
     asyncio.run(scenario())
+
+
+def test_settings_render_seeds_running_komga_progress(admin_client, monkeypatch):
+    real_get_status = sync_jobs.get_status
+
+    def fake_status(provider):
+        if provider == "komga":
+            return {
+                "provider": "komga",
+                "source": "manual",
+                "state": "running",
+                "current": 546,
+                "total": 2576,
+                "title": "The Deluge Drivers",
+                "item_status": "updated",
+                "started_at": 1.0,
+                "updated_at": 2.0,
+                "finished_at": None,
+                "stats": {},
+                "error": None,
+                "recent": [],
+            }
+        return real_get_status(provider)
+
+    monkeypatch.setattr(sync_jobs, "get_status", fake_status)
+    html = admin_client.get("/settings").text
+
+    assert 'data-sync-state="running"' in html
+    assert 'data-sync-current="546"' in html
+    assert 'data-sync-total="2576"' in html
+    assert 'data-sync-title="The Deluge Drivers"' in html

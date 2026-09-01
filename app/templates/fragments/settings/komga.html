@@ -4,6 +4,10 @@
          data-komga-url="{{ settings.get('komga_url', '') }}"
          data-komga-url-present="{{ '1' if komga_url_present else '' }}"
          data-komga-saved="{{ '1' if secrets_present['komga_api_key'] else '' }}"
+         data-sync-state="{{ komga_sync_job.get('state', 'idle') }}"
+         data-sync-current="{{ komga_sync_job.get('current', 0) }}"
+         data-sync-total="{{ komga_sync_job.get('total', 0) }}"
+         data-sync-title="{{ komga_sync_job.get('title', '') | e }}"
          data-testid="komga-sync-card">
         <div class="flex items-center justify-between mb-4">
             <h2 class="text-lg font-semibold">Komga Sync</h2>

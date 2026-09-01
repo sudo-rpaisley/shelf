@@ -57,13 +57,14 @@ function pollBackgroundSync(self, url) {
         .then(function (data) {
             applyBackgroundSyncState(self, data);
             if (data.state === 'running') {
-                self._syncJobTimer = setTimeout(function () { pollBackgroundSync(self, url); }, 2000);
+                self._syncJobTimer = setTimeout(function () { pollBackgroundSync(self, url); }, 5000);
             }
         })
         .catch(function () {
-            if (self.syncing) {
-                self._syncJobTimer = setTimeout(function () { pollBackgroundSync(self, url); }, 3000);
-            }
+            // A fresh Settings component begins with syncing=false. Previously
+            // one failed/429 reconnect therefore stopped polling forever and
+            // hid a still-running job. Always retry a failed status read.
+            self._syncJobTimer = setTimeout(function () { pollBackgroundSync(self, url); }, 5000);
         });
 }
 
@@ -138,6 +139,13 @@ document.addEventListener('alpine:init', function () {
                 this.absUrl = this.$el.dataset.absUrl || '';
                 this.absUrlPresent = this.$el.dataset.absUrlPresent === '1';
                 this.absSaved = this.$el.dataset.absSaved === '1';
+                applyBackgroundSyncState(this, {
+                    state: this.$el.dataset.syncState || 'idle',
+                    current: Number(this.$el.dataset.syncCurrent || 0),
+                    total: Number(this.$el.dataset.syncTotal || 0),
+                    title: this.$el.dataset.syncTitle || '',
+                    recent: []
+                });
                 pollBackgroundSync(this, '/api/sync/audiobookshelf/job');
             },
             get syncPct() { return Math.round(this.syncCurrent / this.syncTotal * 100) + '%'; },
@@ -229,6 +237,13 @@ document.addEventListener('alpine:init', function () {
                 this.komgaUrl = this.$el.dataset.komgaUrl || '';
                 this.komgaUrlPresent = this.$el.dataset.komgaUrlPresent === '1';
                 this.komgaSaved = this.$el.dataset.komgaSaved === '1';
+                applyBackgroundSyncState(this, {
+                    state: this.$el.dataset.syncState || 'idle',
+                    current: Number(this.$el.dataset.syncCurrent || 0),
+                    total: Number(this.$el.dataset.syncTotal || 0),
+                    title: this.$el.dataset.syncTitle || '',
+                    recent: []
+                });
                 pollBackgroundSync(this, '/api/sync/komga/job');
             },
             get testReady() { return Boolean((this.komgaUrl || this.komgaUrlPresent) && (this.komgaApiKey || this.komgaSaved)); },
