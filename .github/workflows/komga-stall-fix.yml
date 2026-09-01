@@ -1,0 +1,72 @@
+name: Apply Komga cover stall fix
+
+on:
+  push:
+    branches:
+      - feature/komga-sync
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: feature/komga-sync
+      - name: Apply bounded concurrent cover batches
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          path = Path('app/services/komga.py')
+          text = path.read_text()
+
+          old = "import json\nimport logging\n\nimport httpx\n"
+          new = "import asyncio\nimport json\nimport logging\n\nimport httpx\n"
+          assert old in text
+          text = text.replace(old, new, 1)
+
+          old = "COVER_TIMEOUT = httpx.Timeout(10.0, connect=5.0)\nCOVER_RETRIES = 1\n"
+          new = "COVER_TIMEOUT = httpx.Timeout(10.0, connect=5.0)\nCOVER_RETRIES = 1\n# Covers must never serialize a large metadata sync behind one slow image.\n# Process a small batch concurrently and also cap total wall-clock time per\n# thumbnail; httpx's read timeout is an inactivity timeout, not a total one.\nCOVER_BATCH_SIZE = 8\nCOVER_WALL_TIMEOUT = 15.0\n"
+          assert old in text
+          text = text.replace(old, new, 1)
+
+          marker = "\n\nasync def sync(komga_url: str, api_key: str, on_progress=None) -> dict:\n"
+          helper = '''\n\nasync def _download_cover_with_deadline(\n    client: httpx.AsyncClient,\n    komga_url: str,\n    api_key: str,\n    komga_id: str,\n    item_id: int,\n) -> str:\n    \"\"\"Download a cover with a real wall-clock deadline.\n\n    httpx timeouts reset while bytes continue to arrive, so a server that\n    trickles a broken thumbnail can otherwise keep one request alive\n    indefinitely.\n    \"\"\"\n    try:\n        async with asyncio.timeout(COVER_WALL_TIMEOUT):\n            return await _download_cover(\n                client, komga_url, api_key, komga_id, item_id\n            )\n    except TimeoutError:\n        logger.warning(\n            \"Komga cover exceeded %.1fs wall-clock deadline for book %s\",\n            COVER_WALL_TIMEOUT,\n            komga_id,\n        )\n        return \"error\"\n\n\nasync def _drain_cover_batch(cover_batch: list[tuple], stats: dict) -> None:\n    \"\"\"Fetch one small cover batch concurrently and fold results into stats.\"\"\"\n    if not cover_batch:\n        return\n\n    results = await asyncio.gather(\n        *(\n            _download_cover_with_deadline(*job)\n            for job in cover_batch\n        ),\n        return_exceptions=True,\n    )\n    cover_batch.clear()\n\n    for result in results:\n        if isinstance(result, BaseException):\n            logger.warning(\"Unexpected Komga cover failure: %r\", result)\n            stats[\"cover_errors\"] += 1\n        elif result == \"downloaded\":\n            stats[\"covers\"] += 1\n        elif result == \"error\":\n            stats[\"cover_errors\"] += 1\n'''
+          assert marker in text
+          text = text.replace(marker, helper + marker, 1)
+
+          old = "        total = sum(len(books) for _, books in library_books)\n        current = 0\n\n        for library, books in library_books:\n"
+          new = "        total = sum(len(books) for _, books in library_books)\n        current = 0\n        cover_batch: list[tuple] = []\n\n        for library, books in library_books:\n"
+          assert old in text
+          text = text.replace(old, new, 1)
+
+          old = '''                # Cover work is part of the item before progress advances. A\n                # single bad thumbnail has a bounded retry/timeout instead of\n                # making the progress bar look frozen for minutes.\n                if fetch_cover:\n                    cover_status = await _download_cover(\n                        client, komga_url, api_key, komga_id, item_id\n                    )\n                    if cover_status == \"downloaded\":\n                        stats[\"covers\"] += 1\n                    elif cover_status == \"error\":\n                        stats[\"cover_errors\"] += 1\n\n                if on_progress:\n                    await on_progress(current, total, title, status)\n\n    _auto_link_items()\n'''
+          new = '''                # Metadata progress is independent of cover I/O. Queue the cover\n                # first, report this item immediately, then periodically drain a\n                # small concurrent batch. One pathological thumbnail can pause\n                # the bar for at most COVER_WALL_TIMEOUT, not indefinitely.\n                if fetch_cover:\n                    cover_batch.append(\n                        (client, komga_url, api_key, komga_id, item_id)\n                    )\n\n                if on_progress:\n                    await on_progress(current, total, title, status)\n\n                if len(cover_batch) >= COVER_BATCH_SIZE:\n                    await _drain_cover_batch(cover_batch, stats)\n\n        # Finish the final partial batch while the shared HTTP client is open.\n        await _drain_cover_batch(cover_batch, stats)\n\n    _auto_link_items()\n'''
+          assert old in text
+          text = text.replace(old, new, 1)
+          path.write_text(text)
+
+          test_path = Path('tests/test_komga_sync.py')
+          tests = test_path.read_text()
+          old = "from app.services import covers\n"
+          new = "from app.services import covers, komga as komga_service\n"
+          assert old in tests
+          tests = tests.replace(old, new, 1)
+
+          anchor = '''    @respx.mock\n    def test_paginates_large_library_without_repeating_page(self, db):\n'''
+          addition = '''    @respx.mock\n    def test_progress_advances_before_cover_batch_is_drained(self, db, monkeypatch):\n        _mock_single_library(\n            _book(\"book_1\", \"One\", \"9780000000103\"),\n            _book(\"book_2\", \"Two\", \"9780000000110\"),\n        )\n        events = []\n\n        async def fake_cover(client, komga_url, api_key, komga_id, item_id):\n            events.append(f\"cover:{komga_id}\")\n            return \"missing\"\n\n        async def progress(current, total, title, status):\n            events.append(f\"progress:{current}\")\n\n        monkeypatch.setattr(komga_service, \"_download_cover\", fake_cover)\n        stats = asyncio.run(sync(KOMGA, KEY, on_progress=progress))\n\n        assert stats[\"added\"] == 2\n        assert events[:2] == [\"progress:1\", \"progress:2\"]\n        assert set(events[2:]) == {\"cover:book_1\", \"cover:book_2\"}\n\n    @respx.mock\n    def test_cover_has_total_wall_clock_deadline(self, db, monkeypatch):\n        _mock_single_library(_book())\n\n        async def trickling_cover(client, komga_url, api_key, komga_id, item_id):\n            await asyncio.sleep(1)\n            return \"downloaded\"\n\n        monkeypatch.setattr(komga_service, \"_download_cover\", trickling_cover)\n        monkeypatch.setattr(komga_service, \"COVER_WALL_TIMEOUT\", 0.01)\n\n        stats = asyncio.run(sync(KOMGA, KEY))\n\n        assert stats[\"added\"] == 1\n        assert stats[\"covers\"] == 0\n        assert stats[\"cover_errors\"] == 1\n\n'''
+          assert anchor in tests
+          tests = tests.replace(anchor, addition + anchor, 1)
+          test_path.write_text(tests)
+          PY
+      - name: Remove temporary workflow and commit
+        run: |
+          rm .github/workflows/komga-stall-fix.yml
+          git config user.name "Robert J Paisley"
+          git config user.email "56076332+sudo-rpaisley@users.noreply.github.com"
+          git add app/services/komga.py tests/test_komga_sync.py .github/workflows/komga-stall-fix.yml
+          git commit -m "Prevent Komga cover requests stalling sync"
+          git push origin HEAD:feature/komga-sync
