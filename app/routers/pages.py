@@ -195,13 +195,10 @@ async def item_detail(
         ).fetchall()
         borrowers = db.execute("SELECT * FROM borrowers ORDER BY name").fetchall()
 
-        # Linked items (different formats of the same work)
-        linked_items = db.execute(
-            "SELECT i.id, i.title, i.media_type, i.abs_id, i.komga_id, i.romm_id FROM item_links il "
-            "JOIN items i ON (i.id = CASE WHEN il.item_a_id = ? THEN il.item_b_id ELSE il.item_a_id END) "
-            "WHERE il.item_a_id = ? OR il.item_b_id = ?",
-            (item_id, item_id, item_id),
-        ).fetchall()
+        # Related media is a transitive group: A↔B↔C means every member sees
+        # the complete set, not only its immediate item_links neighbours.
+        from app.services import media_groups
+        linked_items = media_groups.related_items(db, item_id)
 
         # ABS playback URLs — for this item and for linked formats, so a
         # physical copy's page can deep-link straight into Audiobookshelf
@@ -253,6 +250,52 @@ async def item_detail(
 
         game_platforms = get_game_platforms(db)
 
+        # Enrich related rows once for the unified Related media panel. Provider
+        # deep links still use each integration's public/browser URL setting.
+        abs_link_map = {entry["id"]: entry["abs_url"] for entry in linked_abs_items}
+        komga_link_map = {entry["id"]: entry["komga_url"] for entry in linked_komga_items}
+        romm_link_map = {entry["id"]: entry["romm_url"] for entry in linked_romm_items}
+        related_media = []
+        for related_item in linked_items:
+            data = dict(related_item)
+            data["media_label"] = MEDIA_TYPES.get(data["media_type"], data["media_type"])
+            data["platform_label"] = (
+                game_platforms.get(data["platform"], data["platform"])
+                if data.get("platform") else None
+            )
+            data["provider_url"] = None
+            data["provider_name"] = None
+            if data["id"] in abs_link_map:
+                data["provider_url"] = abs_link_map[data["id"]]
+                data["provider_name"] = "Audiobookshelf"
+            elif data["id"] in komga_link_map:
+                data["provider_url"] = komga_link_map[data["id"]]
+                data["provider_name"] = "Komga"
+            elif data["id"] in romm_link_map:
+                data["provider_url"] = romm_link_map[data["id"]]
+                data["provider_name"] = "RomM"
+            data["manual_linked"] = media_groups.has_manual_group_edge(
+                db, item_id, data["id"]
+            )
+            related_media.append(data)
+
+        all_group_items = [dict(item)] + [dict(row) for row in linked_items]
+        related_formats = []
+        related_game_platforms = []
+        for group_item in all_group_items:
+            label = MEDIA_TYPES.get(group_item["media_type"], group_item["media_type"])
+            if label not in related_formats:
+                related_formats.append(label)
+            if (
+                group_item["media_type"] in ("video_game", "digital_game")
+                and group_item.get("platform")
+            ):
+                platform_label = game_platforms.get(
+                    group_item["platform"], group_item["platform"]
+                )
+                if platform_label not in related_game_platforms:
+                    related_game_platforms.append(platform_label)
+
         from app.routers.tags import get_item_tags, get_all_tags
         item_tags = get_item_tags(db, item_id)
         all_tags = get_all_tags(db)
@@ -303,6 +346,9 @@ async def item_detail(
             "borrowers": borrowers,
             "now_date": date.today().isoformat(),
             "linked_items": linked_items,
+            "related_media": related_media,
+            "related_formats": related_formats,
+            "related_game_platforms": related_game_platforms,
             "linked_abs_items": linked_abs_items,
             "abs_url": abs_url,
             "linked_komga_items": linked_komga_items,

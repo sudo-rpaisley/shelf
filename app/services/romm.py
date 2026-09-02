@@ -521,31 +521,7 @@ async def sync(romm_url: str, token: str, on_progress=None) -> dict:
 
 
 def _auto_link_items() -> None:
-    """Link RomM Digital Games to physical Video Games on title + platform."""
+    """Group same-title game representations across platforms and formats."""
+    from app.services import media_groups
     with get_db() as db:
-        digital = db.execute(
-            """SELECT id, title, platform FROM items
-               WHERE romm_id IS NOT NULL AND media_type = 'digital_game'"""
-        ).fetchall()
-        physical = db.execute(
-            """SELECT id, title, platform FROM items
-               WHERE media_type = 'video_game'"""
-        ).fetchall()
-
-        index: dict[tuple[str, str], list] = {}
-        for item in physical:
-            if not item["platform"]:
-                continue
-            key = (_normal_title(item["title"]), item["platform"])
-            index.setdefault(key, []).append(item)
-
-        for item in digital:
-            if not item["platform"]:
-                continue
-            for match in index.get((_normal_title(item["title"]), item["platform"]), []):
-                a_id, b_id = sorted((item["id"], match["id"]))
-                db.execute(
-                    """INSERT OR IGNORE INTO item_links (item_a_id, item_b_id)
-                       VALUES (?, ?)""",
-                    (a_id, b_id),
-                )
+        media_groups.auto_link_family(db, "game")

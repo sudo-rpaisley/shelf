@@ -567,57 +567,7 @@ def _authors_compatible(a: str | None, b: str | None) -> bool:
 
 
 def _auto_link_items():
-    """Link Komga Digital Comics to matching other-format Shelf items.
-
-    Build candidate indexes once. The original implementation queried and
-    normalized the entire Shelf collection once per Komga item, which became
-    quadratic and could look like a sync stall after the progress bar reached
-    a few hundred items.
-    """
+    """Group physical and digital comic representations of the same work."""
+    from app.services import media_groups
     with get_db() as db:
-        komga_items = db.execute(
-            """SELECT id, title, authors, isbn, media_type
-               FROM items WHERE komga_id IS NOT NULL"""
-        ).fetchall()
-        candidates = db.execute(
-            """SELECT id, title, authors, isbn, media_type
-               FROM items WHERE komga_id IS NULL"""
-        ).fetchall()
-
-        by_isbn: dict[str, list] = {}
-        by_title: dict[str, list] = {}
-        for candidate in candidates:
-            if candidate["isbn"]:
-                by_isbn.setdefault(candidate["isbn"], []).append(candidate)
-            normalized = _normalize_title(candidate["title"])
-            if normalized:
-                by_title.setdefault(normalized, []).append(candidate)
-
-        for komga_item in komga_items:
-            matches = []
-            if komga_item["isbn"]:
-                matches = [
-                    candidate
-                    for candidate in by_isbn.get(komga_item["isbn"], [])
-                    if candidate["media_type"] != komga_item["media_type"]
-                ]
-
-            if not matches:
-                normalized = _normalize_title(komga_item["title"])
-                matches = [
-                    candidate
-                    for candidate in by_title.get(normalized, [])
-                    if candidate["media_type"] != komga_item["media_type"]
-                    and _authors_compatible(
-                        komga_item["authors"], candidate["authors"]
-                    )
-                ]
-
-            for match in matches:
-                a_id = min(komga_item["id"], match["id"])
-                b_id = max(komga_item["id"], match["id"])
-                db.execute(
-                    """INSERT OR IGNORE INTO item_links (item_a_id, item_b_id)
-                       VALUES (?, ?)""",
-                    (a_id, b_id),
-                )
+        media_groups.auto_link_family(db, "comic")

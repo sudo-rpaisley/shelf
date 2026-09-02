@@ -160,15 +160,19 @@ def test_links_digital_game_to_physical_copy_on_title_and_platform(db):
 
 
 @respx.mock
-def test_same_title_different_platform_is_not_linked(db):
-    _insert_item(db, title="Chrono Trigger", isbn=None,
-                 media_type="video_game", platform="ps1")
+def test_same_title_different_platform_is_grouped(db):
+    physical_id = _insert_item(db, title="Chrono Trigger", isbn=None,
+                               media_type="video_game", platform="ps1")
     db.execute("COMMIT")
     _mock_library()
     respx.get(f"{ROMM}/assets/romm/resources/snes/cover/chrono.jpg").mock(
         return_value=httpx.Response(404))
     asyncio.run(sync(ROMM, TOKEN))
-    assert db.execute("SELECT COUNT(*) AS c FROM item_links").fetchone()["c"] == 0
+    digital_id = db.execute(
+        "SELECT id FROM items WHERE media_type='digital_game'"
+    ).fetchone()["id"]
+    link = db.execute("SELECT item_a_id, item_b_id FROM item_links").fetchone()
+    assert {link["item_a_id"], link["item_b_id"]} == {physical_id, digital_id}
 
 
 @respx.mock
