@@ -60,6 +60,10 @@ jobs:
       - name: Committed build output must match the rebuild
         run: |
           git diff --exit-code --stat static/css/app.css static/sw.js || {
+            echo "--- Tailwind rule drift ---"
+            git diff --word-diff=plain --word-diff-regex='[^}]+}' -- static/css/app.css || true
+            echo "--- Service worker drift ---"
+            git diff -- static/sw.js || true
             echo "::error::Committed build output is stale — run 'make css' and commit the result."
             echo "static/css/app.css is the Tailwind build; static/sw.js carries the"
             echo "SW_VERSION stamped from the precache digest. Both are generated."
