@@ -1,16 +1,15 @@
 """Presentation helpers shared by series-oriented library surfaces.
 
-Shelf stores series membership directly on items.  These helpers deliberately
-stay small and source-agnostic: they turn positions into local gap hints and
-choose human-friendly terminology without changing catalogue data.
+Shelf stores series membership directly on items. These helpers deliberately
+stay small: they turn positions into local gap hints and choose safe,
+human-friendly terminology without changing catalogue data.
 
-The Komga volume heuristic is intentionally conservative.  When a canonical
-Digital Comic series contains multiple Komga series IDs, Komga has usually
-split ComicInfo ``Volume`` values into generated series such as ``One Piece
-(21)``.  Shelf canonicalises those names back to ``One Piece`` during sync, so
-multiple source-series IDs are a strong signal that the resulting entries are
-volumes rather than individual issues.  A later explicit series-unit field can
-override this heuristic without changing callers.
+Komga-backed Digital Comics use neutral ``item`` wording here. Komga's series
+identity is authoritative, but Shelf does not yet store an explicit semantic
+unit saying whether a given Komga series contains issues, manga volumes,
+omnibuses, or another kind of book. Guessing from series IDs caused Shelf to
+reinterpret the source catalogue, so precise issue/volume wording is reserved
+for data Shelf actually understands.
 """
 
 from __future__ import annotations
@@ -28,6 +27,7 @@ class SeriesUnit:
 
 ISSUES = SeriesUnit("issue", "issues", "#")
 VOLUMES = SeriesUnit("volume", "volumes", "Vol. ")
+ITEMS = SeriesUnit("item", "items", "#")
 
 
 def find_gaps(positions: Iterable[object]) -> list[int]:
@@ -53,12 +53,12 @@ def find_gaps(positions: Iterable[object]) -> list[int]:
 
 
 def infer_series_unit(items: Iterable[Mapping[str, object]]) -> SeriesUnit:
-    """Choose ``issue(s)`` or ``volume(s)`` for a displayed series.
+    """Choose safe wording for a displayed series.
 
-    Books are conventionally volumes.  Comic-like series default to issues,
-    except for the Komga pattern described in this module's docstring where
-    several distinct Komga series IDs have been canonicalised into one Shelf
-    series; those entries are volumes.
+    Ordinary book-like series are conventionally volumes. Shelf-managed comic
+    series use issues. Komga-backed Digital Comics remain neutral until an
+    explicit source/unit field is added; series identity alone cannot tell us
+    whether Komga's books are issues or volumes.
     """
     rows = list(items)
     if not rows:
@@ -69,18 +69,15 @@ def infer_series_unit(items: Iterable[Mapping[str, object]]) -> SeriesUnit:
     if not comic_like:
         return VOLUMES
 
-    komga_series_ids = {
-        str(row.get("komga_series_id") or "").strip()
+    if any(
+        str(row.get("source") or "").lower() == "komga"
         for row in rows
-        if str(row.get("source") or "").lower() == "komga"
-        and str(row.get("komga_series_id") or "").strip()
-    }
-    if len(komga_series_ids) > 1:
-        return VOLUMES
+    ):
+        return ITEMS
     return ISSUES
 
 
 def count_label(count: int, unit: SeriesUnit) -> str:
-    """Return a correctly pluralised count such as ``1 issue`` or ``3 volumes``."""
+    """Return a correctly pluralised count such as ``1 issue`` or ``3 items``."""
     noun = unit.singular if count == 1 else unit.plural
     return f"{count} {noun}"
