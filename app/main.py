@@ -41,7 +41,7 @@ from app.config import COVERS_DIR, DATA_DIR, MEDIA_TYPES, get_client_ip
 from app.currency import CURRENCIES, format_money, get_currency
 from app.services.national import SEARCH_LANGS
 from app.database import init_db, get_db
-from app.routers import pages, items, items_covers, items_csv, items_catalog, locations, platforms, settings, sync, komga, romm, checkouts, valuation, hardcover, store, series, share, tags, intake, archive
+from app.routers import pages, items, items_covers, items_csv, items_catalog, locations, platforms, settings, sync, komga, romm, checkouts, valuation, hardcover, store, series, share, tags, intake, archive, music
 from app.routers import auth_routes
 
 
@@ -51,7 +51,7 @@ class SecurityHeadersMiddleware(BaseHTTPMiddleware):
         response.headers["X-Content-Type-Options"] = "nosniff"
         response.headers["Strict-Transport-Security"] = "max-age=31536000; includeSubDomains"
         response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
-        response.headers["X-XSS-Protection"] = "1; mode=block"
+        response.headers["X-XSS-Protection"] = "0"
         # No 'unsafe-inline', no CDN hosts, and no 'unsafe-eval': all JS is
         # served from /static and Alpine is the CSP build (no new Function) —
         # see .devdocs/archive/completed/CSP_BUNDLING.md and .devdocs/archive/completed/ALPINE_CSP.md.
@@ -617,6 +617,7 @@ async def health():
 # Routers
 app.include_router(auth_routes.router)
 app.include_router(pages.router)
+app.include_router(music.router)
 app.include_router(items.router)
 # items.py was split by feature area (Lever 5); all four share the /api prefix.
 app.include_router(items_covers.router)
