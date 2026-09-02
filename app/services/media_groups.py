@@ -2,12 +2,12 @@
 
 Shelf historically treated an item link as a one-hop relation: a physical book
 could see its audiobook, but the audiobook could not necessarily see another
-edition that was linked through the physical copy.  A media group is the
-*connected component* of that graph.  No second source of truth is required.
+edition that was linked through the physical copy. A media group is the
+*connected component* of that graph. No second source of truth is required.
 
-Automatic grouping stays deliberately conservative inside three format
-families (books, comics and games). Cross-family relationships such as a novel
-and its game adaptation are user-managed links.
+Automatic grouping stays inside three format families (books, comics and
+games). Cross-family relationships such as a novel and its game adaptation are
+user-managed links.
 """
 
 from __future__ import annotations
@@ -57,16 +57,6 @@ def _authors_compatible(a: str | None, b: str | None) -> bool:
     )
 
 
-def _game_years_compatible(a, b) -> bool:
-    """Keep same-name remakes decades apart out of one automatic group."""
-    if a in (None, "") or b in (None, ""):
-        return True
-    try:
-        return abs(int(a) - int(b)) <= 5
-    except (TypeError, ValueError):
-        return True
-
-
 def _match(a, b, family: str) -> bool:
     if family in ("book", "comic"):
         if a["isbn"] and b["isbn"] and a["isbn"] == b["isbn"]:
@@ -76,10 +66,11 @@ def _match(a, b, family: str) -> bool:
             and _authors_compatible(a["authors"], b["authors"])
         )
     if family == "game":
-        return (
-            normalise_title(a["title"]) == normalise_title(b["title"])
-            and _game_years_compatible(a["publish_year"], b["publish_year"])
-        )
+        # Related media intentionally spans ports, remasters and later platform
+        # releases. Exact normalised title is the safe automatic boundary;
+        # subtitles are retained by normalise_title so distinct entries such as
+        # Zelda: Ocarina of Time / Majora's Mask do not collapse together.
+        return normalise_title(a["title"]) == normalise_title(b["title"])
     return False
 
 
@@ -171,7 +162,7 @@ def auto_link_family(db, family: str) -> int:
     """Build sparse automatic groups for one media family.
 
     Provider syncs call this once after their batch instead of performing an
-    O(n) search for every imported item.  Each natural cluster becomes a star
+    O(n) search for every imported item. Each natural cluster becomes a star
     around its first item, so N representations require N-1 links rather than
     N² pairwise edges.
     """
@@ -286,7 +277,7 @@ def remove_manual_group_edges(db, anchor_id: int, target_id: int) -> int:
     """Detach target's user-created edges into this group.
 
     Automatic format links are intentionally left alone; a provider sync should
-    remain authoritative about safe same-work matches.
+    remain authoritative about safe same-family matches.
     """
     group = set(related_ids(db, anchor_id, include_self=True))
     if target_id not in group:
