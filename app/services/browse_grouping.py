@@ -26,7 +26,7 @@ _GROUPABLE = (
 )
 _GROUP_KEY = (
     "CASE "
-    "WHEN i.media_type = 'digital_comic' "
+    "WHEN " + _GROUPABLE + " "
     "AND LOWER(COALESCE(i.source, '')) = 'komga' "
     "AND i.komga_series_id IS NOT NULL AND TRIM(i.komga_series_id) != '' "
     "THEN 'komga:' || TRIM(i.komga_series_id) "
