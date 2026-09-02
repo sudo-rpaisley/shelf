@@ -28,6 +28,8 @@ from urllib.parse import quote
 
 from markupsafe import Markup
 
+from app.config import MEDIA_FAMILIES
+
 #: Filter names become CSS attribute selectors and querystring keys, so they
 #: are held to identifier syntax. `filter_includes` marks its output safe on
 #: the strength of this check — without it, a name could inject markup.
@@ -85,6 +87,16 @@ def _search(value):
         "(i.title LIKE ? OR i.authors LIKE ? OR i.isbn LIKE ? OR i.narrator LIKE ?)",
         [like, like, like, like],
     )
+
+
+def _media_family(value):
+    """Match every concrete media type that belongs to one library family."""
+    family = MEDIA_FAMILIES.get(value)
+    if not family:
+        return _NEVER
+    media_types = family["types"]
+    placeholders = ", ".join("?" for _ in media_types)
+    return f"i.media_type IN ({placeholders})", list(media_types)
 
 
 def _owned(value):
@@ -171,6 +183,7 @@ class BrowseFilter:
 # immaterial (AND commutes, and each condition's params travel with it).
 FILTERS: tuple[BrowseFilter, ...] = (
     BrowseFilter("q", prefix="Search", condition=_search),
+    BrowseFilter("media_family_filter", prefix="Family", condition=_media_family),
     BrowseFilter("media_type_filter", prefix="Type", condition=_column("i.media_type")),
     BrowseFilter("location_filter", prefix="Location", condition=_column("i.location_id", cast=int)),
     BrowseFilter("sort", prefix="Sort", default="newest", clear_to="newest"),

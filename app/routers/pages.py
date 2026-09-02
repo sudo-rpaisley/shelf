@@ -5,7 +5,7 @@ from fastapi.responses import RedirectResponse
 
 from app import browse_filters, nav
 from app.auth import require_role
-from app.config import MEDIA_TYPES, DEFAULT_PAGE_SIZE
+from app.config import DEFAULT_PAGE_SIZE, MEDIA_FAMILIES, MEDIA_TYPES, MUSIC_MEDIA_TYPES
 from app.currency import get_currency
 from app.database import get_db, get_setting, get_game_platforms, get_reading_history
 from app.routers import items_common
@@ -17,8 +17,50 @@ router = APIRouter()
 
 
 @router.get("/")
-async def index():
-    return RedirectResponse(url="/browse")
+async def index(request: Request, _=Depends(require_role("viewer"))):
+    """Shelf's lightweight landing page, separate from the advanced browser."""
+    with get_db() as db:
+        type_counts = {
+            row["media_type"]: row["c"]
+            for row in db.execute(
+                "SELECT media_type, COUNT(*) AS c FROM items GROUP BY media_type"
+            ).fetchall()
+        }
+        total_items = db.execute("SELECT COUNT(*) AS c FROM items").fetchone()["c"]
+        recent_items = db.execute(
+            "SELECT id, title, authors, media_type, cover_path, created_at "
+            "FROM items ORDER BY created_at DESC, id DESC LIMIT 8"
+        ).fetchall()
+        in_progress = db.execute(
+            "SELECT id, title, authors, media_type, cover_path FROM items "
+            "WHERE reading_status = 'reading' ORDER BY id DESC LIMIT 6"
+        ).fetchall()
+
+    families = []
+    for key, family in MEDIA_FAMILIES.items():
+        families.append({
+            "key": key,
+            "label": family["label"],
+            "count": sum(type_counts.get(media_type, 0) for media_type in family["types"]),
+            # Music has a release/pressing-aware catalogue of its own. Other
+            # families enter the generic Collection with a family filter set.
+            "href": "/music" if key == "music" else f"/browse?media_family_filter={key}",
+        })
+
+    visible_nav = nav.visible_tabs(request.state.user)
+    return request.app.state.templates.TemplateResponse(
+        request,
+        "home.html",
+        {
+            "families": families,
+            "total_items": total_items,
+            "recent_items": recent_items,
+            "in_progress": in_progress,
+            "media_types": MEDIA_TYPES,
+            "music_media_types": MUSIC_MEDIA_TYPES,
+            "intake_available": any(tab["key"] == "intake" for tab in visible_nav),
+        },
+    )
 
 
 @router.get("/browse")
@@ -94,6 +136,7 @@ async def browse(
     ctx = {
         "items": items,
         "media_types": MEDIA_TYPES,
+        "media_families": MEDIA_FAMILIES,
         "series_names": series_names,
         "all_tags": all_tags,
         "lent_out_count": lent_out_count,

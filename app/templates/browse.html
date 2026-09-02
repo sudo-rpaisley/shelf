@@ -1,5 +1,5 @@
 {% extends "base.html" %}
-{% block title %}Browse — Shelf{% endblock %}
+{% block title %}Collection — Shelf{% endblock %}
 {% block content %}
 {% set can_select = user and user.role in ('editor', 'admin') %}
 {% set can_bulk_edit = user and user.role == 'admin' %}
@@ -159,6 +159,17 @@
                    class="hidden sm:block bg-shelf-card border border-shelf-border rounded-lg px-3 py-2 text-sm text-shelf-text focus:ring-2 focus:ring-shelf-accent focus:border-transparent outline-none placeholder-shelf-muted/50 w-48">
 
             {% set f = initial_filters or {} %}
+            <!-- Media Family Filter -->
+            <select id="family-filter" name="media_family_filter"
+                    hx-get="/api/search" hx-trigger="change" hx-target="#item-grid"
+                    hx-include="{{ filter_includes('media_family_filter') }}"
+                    class="bg-shelf-card border border-shelf-border rounded-lg px-3 py-2 text-sm text-shelf-text focus:ring-2 focus:ring-shelf-accent outline-none">
+                <option value="" {{ 'selected' if not f.media_family_filter else '' }}>All Media</option>
+                {% for key, family in media_families.items() %}
+                <option value="{{ key }}" {{ 'selected' if f.media_family_filter == key else '' }}>{{ family.label }}</option>
+                {% endfor %}
+            </select>
+
             <!-- Media Type Filter -->
             <select id="type-filter" name="media_type_filter"
                     hx-get="/api/search" hx-trigger="change" hx-target="#item-grid"

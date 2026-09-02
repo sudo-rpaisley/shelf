@@ -294,6 +294,7 @@ def _lookup_existing_by_romm_ids(db, romm_ids: list[str]) -> dict[str, object]:
 
 def _import_rom_batch(
     db,
+    romm_url: str,
     roms: list[dict],
     shelf_platform: str,
     platform_id: str,
@@ -325,7 +326,7 @@ def _import_rom_batch(
         publisher = _publisher(metadata)
         publish_year = _publish_year(metadata.get("first_release_date"))
         description = str(rom.get("summary") or "").strip() or None
-        cover_url = _cover_url("", rom)
+        cover_url = _cover_url(romm_url, rom)
 
         existing = existing_by_id.get(romm_id)
         if not existing:
@@ -742,6 +743,7 @@ async def sync(romm_url: str, token: str, on_progress=None) -> dict:
                     with get_db() as db:
                         outcomes, cover_jobs = _import_rom_batch(
                             db,
+                            romm_url,
                             batch,
                             shelf_platform,
                             platform_id,
@@ -760,12 +762,8 @@ async def sync(romm_url: str, token: str, on_progress=None) -> dict:
                             )
 
                     for cover_url, item_id in cover_jobs:
-                        resolved_cover = urljoin(
-                            romm_url.rstrip("/") + "/",
-                            cover_url,
-                        )
                         cover_batch.append(
-                            (client, romm_url, token, resolved_cover, item_id)
+                            (client, romm_url, token, cover_url, item_id)
                         )
                         if len(cover_batch) >= COVER_BATCH_SIZE:
                             await _drain_cover_batch(cover_batch, stats)

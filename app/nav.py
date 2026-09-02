@@ -14,23 +14,30 @@ import logging
 
 logger = logging.getLogger(__name__)
 
+# `group` controls presentation in base.html without changing route access.
+# Primary destinations stay visible; creation tools sit under Add; specialist
+# and reporting pages sit under More; admin pages live with the account menu.
 NAV_TABS = [
-    {"key": "browse", "label": "Browse", "path": "/browse"},
-    {"key": "music", "label": "Music", "path": "/music"},
-    {"key": "scan", "label": "Scan", "path": "/scan", "roles": ("admin", "editor")},
-    {"key": "intake", "label": "Intake", "path": "/intake", "roles": ("admin", "editor"),
-     "requires": "vision"},
-    {"key": "store", "label": "Store", "path": "/store"},
-    {"key": "series", "label": "Series", "path": "/series"},
-    {"key": "discover", "label": "Discover", "path": "/discover", "requires": "hardcover"},
-    {"key": "stats", "label": "Stats", "path": "/stats"},
-    {"key": "settings", "label": "Settings", "path": "/settings", "roles": ("admin",)},
-    {"key": "logs", "label": "Logs", "path": "/logs", "roles": ("admin",)},
+    {"key": "home", "label": "Home", "path": "/", "group": "primary"},
+    {"key": "browse", "label": "Collection", "path": "/browse", "group": "primary"},
+    {"key": "series", "label": "Series", "path": "/series", "group": "primary"},
+    {"key": "discover", "label": "Discover", "path": "/discover", "group": "primary",
+     "requires": "hardcover"},
+    {"key": "scan", "label": "Scan", "path": "/scan", "group": "add",
+     "roles": ("admin", "editor")},
+    {"key": "intake", "label": "Intake", "path": "/intake", "group": "add",
+     "roles": ("admin", "editor"), "requires": "vision"},
+    {"key": "music", "label": "Music", "path": "/music", "group": "more"},
+    {"key": "store", "label": "Store", "path": "/store", "group": "more"},
+    {"key": "stats", "label": "Stats", "path": "/stats", "group": "more"},
+    {"key": "settings", "label": "Settings", "path": "/settings", "group": "account",
+     "roles": ("admin",)},
+    {"key": "logs", "label": "Logs", "path": "/logs", "group": "account",
+     "roles": ("admin",)},
 ]
 
-# The page that controls visibility must stay reachable, and so must the
-# collection itself — neither can be hidden, however the form is submitted.
-ALWAYS_VISIBLE = ("browse", "settings")
+# Home, Collection and the page that controls visibility must stay reachable.
+ALWAYS_VISIBLE = ("home", "browse", "settings")
 
 HIDEABLE_TABS = [t for t in NAV_TABS if t["key"] not in ALWAYS_VISIBLE]
 HIDEABLE_KEYS = frozenset(t["key"] for t in HIDEABLE_TABS)
@@ -161,12 +168,17 @@ def visible_tabs(user: dict | None) -> list[dict]:
             continue
         if tab["key"] in hidden:
             continue
-        tabs.append({"key": tab["key"], "label": tab["label"], "path": tab["path"]})
+        tabs.append({
+            "key": tab["key"],
+            "label": tab["label"],
+            "path": tab["path"],
+            "group": tab.get("group", "primary"),
+        })
     return tabs
 
 
 # Where the item-detail "back" link goes when arriving from somewhere other
-# than Browse. This is a whitelist, not an echo: `back_target` is the only
+# than Collection. This is a whitelist, not an echo: `back_target` is the only
 # way a `?from=` value may influence emitted HTML, and any key not listed
 # here — including anything crafted to look like a URL or path — silently
 # degrades to the default with no `from=` param emitted at all.
