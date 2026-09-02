@@ -46,7 +46,7 @@
                 {% if related.provider_url %}
                 <a href="{{ related.provider_url }}" target="_blank" rel="noopener"
                    class="px-2 py-1 bg-shelf-accent/15 text-shelf-accent2 rounded text-xs hover:bg-shelf-accent/25 transition-colors">
-                    Also in {{ related.provider_name }}
+                    Also in {{ related.provider_name }} ({{ related.media_label }})
                 </a>
                 {% endif %}
                 {% if user and user.role in ('admin', 'editor') and related.manual_linked %}
