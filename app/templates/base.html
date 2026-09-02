@@ -42,12 +42,34 @@
                             <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 12h16M4 18h16"/></svg>
                         </button>
                         <div x-show="open" x-cloak data-testid="nav-menu-panel"
-                             class="absolute left-0 top-full mt-2 w-48 bg-shelf-card border border-shelf-border rounded-lg shadow-xl py-1 z-50">
-                            {% for tab in nav_tabs %}
-                            <a href="{{ tab.path }}" data-nav-menu-tab="{{ tab.key }}" class="block px-4 py-2 text-sm font-medium {% if request.url.path == tab.path %}bg-shelf-hover text-white{% else %}text-shelf-muted hover:text-white hover:bg-shelf-hover{% endif %} transition-colors">
+                             class="absolute left-0 top-full mt-2 w-56 bg-shelf-card border border-shelf-border rounded-xl shadow-xl py-1 z-50 overflow-hidden">
+                            {% for tab in primary_tabs %}
+                            <a href="{{ tab.path }}" data-nav-menu-tab="{{ tab.key }}" class="block px-4 py-2.5 text-sm font-medium {% if request.url.path == tab.path %}bg-shelf-hover text-white{% else %}text-shelf-muted hover:text-white hover:bg-shelf-hover{% endif %} transition-colors">
                                 {{ tab.label }}
                             </a>
                             {% endfor %}
+
+                            {% if add_tabs %}
+                            <div class="border-t border-shelf-border py-1">
+                                <p class="px-4 pt-1.5 pb-1 text-[10px] uppercase tracking-widest text-shelf-muted">Add</p>
+                                {% for tab in add_tabs %}
+                                <a href="{{ tab.path }}" data-nav-menu-tab="{{ tab.key }}" class="block px-4 py-2.5 text-sm font-medium {% if request.url.path == tab.path %}bg-shelf-hover text-white{% else %}text-shelf-muted hover:text-white hover:bg-shelf-hover{% endif %} transition-colors">
+                                    {{ tab.label }}
+                                </a>
+                                {% endfor %}
+                            </div>
+                            {% endif %}
+
+                            {% if more_tabs %}
+                            <div class="border-t border-shelf-border py-1">
+                                <p class="px-4 pt-1.5 pb-1 text-[10px] uppercase tracking-widest text-shelf-muted">More</p>
+                                {% for tab in more_tabs %}
+                                <a href="{{ tab.path }}" data-nav-menu-tab="{{ tab.key }}" class="block px-4 py-2.5 text-sm font-medium {% if request.url.path == tab.path %}bg-shelf-hover text-white{% else %}text-shelf-muted hover:text-white hover:bg-shelf-hover{% endif %} transition-colors">
+                                    {{ tab.label }}
+                                </a>
+                                {% endfor %}
+                            </div>
+                            {% endif %}
                         </div>
                     </div>
 
@@ -90,26 +112,90 @@
                         {% endif %}
                     </div>
                 </div>
+
                 {% if user %}
-                <div class="flex items-center gap-3" x-data="{ showAccount: false }">
-                    <button @click="showAccount = true" class="flex items-center gap-2 text-shelf-muted hover:text-white text-sm transition-colors">
-                        <span class="hidden sm:inline">{{ user.display_name or user.username }}</span>
-                        <span class="bg-shelf-hover text-shelf-muted text-xs uppercase px-1.5 py-0.5 rounded hidden sm:inline">{{ user.role }}</span>
-                        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z"/></svg>
+                <!-- Account actions stay separate from collection navigation on every screen size. -->
+                <div class="relative" x-data="accountMenu" @click.outside="close()" @keydown.escape.window="close()">
+                    <button type="button" @click="toggle()" data-testid="account-menu-button"
+                            aria-label="Account menu" aria-haspopup="menu" :aria-expanded="open"
+                            class="flex items-center gap-2 rounded-lg px-2 py-1.5 text-shelf-muted hover:text-white hover:bg-shelf-hover transition-colors">
+                        <span class="w-7 h-7 rounded-full bg-shelf-hover border border-shelf-border flex items-center justify-center text-shelf-accent2">
+                            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z"/></svg>
+                        </span>
+                        <span class="hidden sm:block text-left leading-tight">
+                            <span class="block text-sm font-medium text-shelf-text">{{ user.display_name or user.username }}</span>
+                            <span class="block text-[10px] uppercase tracking-wider text-shelf-muted">{{ user.role }}</span>
+                        </span>
+                        <svg class="hidden sm:block w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/></svg>
                     </button>
-                    <form method="POST" action="/logout">
-                        <button type="submit" class="text-shelf-muted hover:text-white text-sm transition-colors">Logout</button>
-                    </form>
+
+                    <div x-show="open" x-cloak data-testid="account-menu-panel" role="menu"
+                         class="absolute right-0 top-full mt-2 w-64 bg-shelf-card border border-shelf-border rounded-xl shadow-2xl z-50 overflow-hidden">
+                        <div class="px-4 py-3 border-b border-shelf-border">
+                            <p class="text-sm font-medium text-shelf-text truncate">{{ user.display_name or user.username }}</p>
+                            <p class="text-xs text-shelf-muted truncate">{{ user.username }} · {{ user.role|capitalize }}</p>
+                        </div>
+
+                        <div class="py-1">
+                            <button type="button" @click="openAccount()" data-testid="account-profile-action" role="menuitem"
+                                    class="w-full flex items-center gap-3 px-4 py-2.5 text-left text-sm text-shelf-muted hover:text-white hover:bg-shelf-hover transition-colors">
+                                <svg class="w-4 h-4 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5.121 17.804A9.969 9.969 0 0112 15c2.61 0 4.986 1.002 6.765 2.643M15 11a3 3 0 11-6 0 3 3 0 016 0zM12 21a9 9 0 100-18 9 9 0 000 18z"/></svg>
+                                <span>
+                                    <span class="block font-medium text-shelf-text">Account</span>
+                                    <span class="block text-xs text-shelf-muted">Profile and password</span>
+                                </span>
+                            </button>
+                        </div>
+
+                        {% if account_tabs %}
+                        <div class="py-1 border-t border-shelf-border">
+                            <p class="px-4 pt-1.5 pb-1 text-[10px] uppercase tracking-widest text-shelf-muted">Administration</p>
+                            {% for tab in account_tabs %}
+                            <a href="{{ tab.path }}" data-nav-tab="{{ tab.key }}" data-nav-menu-tab="{{ tab.key }}" role="menuitem"
+                               class="flex items-center gap-3 px-4 py-2.5 text-sm {% if request.url.path == tab.path %}bg-shelf-hover text-white{% else %}text-shelf-muted hover:text-white hover:bg-shelf-hover{% endif %} transition-colors">
+                                {% if tab.key == 'settings' %}
+                                <svg class="w-4 h-4 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z"/><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"/></svg>
+                                {% else %}
+                                <svg class="w-4 h-4 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6M9 8h6m2 13H7a2 2 0 01-2-2V5a2 2 0 012-2h7l5 5v11a2 2 0 01-2 2z"/></svg>
+                                {% endif %}
+                                <span>{{ tab.label }}</span>
+                            </a>
+                            {% endfor %}
+                        </div>
+                        {% endif %}
+
+                        <div class="py-1 border-t border-shelf-border">
+                            <button type="button" @click="openShortcuts()" role="menuitem"
+                                    class="w-full flex items-center justify-between gap-3 px-4 py-2.5 text-left text-sm text-shelf-muted hover:text-white hover:bg-shelf-hover transition-colors">
+                                <span class="flex items-center gap-3">
+                                    <svg class="w-4 h-4 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9.75 9.75a2.25 2.25 0 114.5 0c0 1.5-2.25 1.875-2.25 3.375M12 17.25h.008M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
+                                    <span>Keyboard shortcuts</span>
+                                </span>
+                                <kbd class="bg-shelf-hover px-1.5 py-0.5 rounded text-xs font-mono">?</kbd>
+                            </button>
+                        </div>
+
+                        <form method="POST" action="/logout" class="border-t border-shelf-border">
+                            <button type="submit" role="menuitem"
+                                    class="w-full flex items-center gap-3 px-4 py-2.5 text-left text-sm text-shelf-muted hover:text-white hover:bg-shelf-hover transition-colors">
+                                <svg class="w-4 h-4 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1"/></svg>
+                                <span>Sign out</span>
+                            </button>
+                        </form>
+                    </div>
 
                     <!-- Account Modal -->
-                    <div x-show="showAccount" x-cloak @click.self="showAccount = false" @keydown.escape.window="showAccount = false"
+                    <div x-show="showAccount" x-cloak @click.self="closeAccount()" @keydown.escape.window="closeAccount()"
                          class="fixed inset-0 bg-black/60 z-[200] flex items-center justify-center">
                         <div class="bg-shelf-card border border-shelf-border rounded-xl p-6 max-w-md w-full mx-4 shadow-2xl"
                              data-display-name="{{ user.display_name or user.username }}"
                              x-data="accountModal">
                             <div class="flex items-center justify-between mb-5">
-                                <h3 class="text-lg font-bold">Account</h3>
-                                <button @click="showAccount = false" class="text-shelf-muted hover:text-white">
+                                <div>
+                                    <h3 class="text-lg font-bold">Account</h3>
+                                    <p class="text-xs text-shelf-muted mt-0.5">Manage your profile and sign-in details</p>
+                                </div>
+                                <button type="button" @click="closeAccount()" aria-label="Close account dialog" class="text-shelf-muted hover:text-white">
                                     <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg>
                                 </button>
                             </div>
@@ -176,20 +262,6 @@
                                     Change Password
                                 </button>
                             </div>
-
-                            {% if account_tabs %}
-                            <div class="mt-6 pt-4 border-t border-shelf-border">
-                                <p class="text-xs uppercase tracking-wider text-shelf-muted mb-2">Administration</p>
-                                <div class="flex flex-wrap gap-2">
-                                    {% for tab in account_tabs %}
-                                    <a href="{{ tab.path }}" data-nav-tab="{{ tab.key }}"
-                                       class="px-3 py-2 rounded-lg text-sm {% if request.url.path == tab.path %}bg-shelf-hover text-white{% else %}bg-shelf-bg border border-shelf-border text-shelf-muted hover:text-white hover:border-shelf-accent/50{% endif %} transition-colors">
-                                        {{ tab.label }}
-                                    </a>
-                                    {% endfor %}
-                                </div>
-                            </div>
-                            {% endif %}
                         </div>
                     </div>
                 </div>
