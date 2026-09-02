@@ -1,0 +1,51 @@
+name: Media groups feature build
+
+on:
+  push:
+    branches: [feature/media-groups]
+    paths:
+      - 'scripts/media_groups_patch.py'
+      - '.github/workflows/media-groups-build.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: feature/media-groups
+          fetch-depth: 0
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+      - name: Install dependencies
+        run: |
+          pip install -r requirements-dev.txt
+          npm ci
+      - name: Apply related-media wiring
+        run: python scripts/media_groups_patch.py
+      - name: Validate focused media groups
+        run: |
+          python -m compileall -q app
+          pytest -q tests/test_media_groups.py tests/test_related_media_ui.py tests/test_komga_sync.py tests/test_romm_sync.py
+          python scripts/check_alpine_csp.py
+          python scripts/check_csrf_fetch.py
+      - name: Regenerate committed derived files
+        run: |
+          python scripts/stamp_test_badges.py
+          make css
+      - name: Commit feature tree
+        run: |
+          rm scripts/media_groups_patch.py .github/workflows/media-groups-build.yml
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git commit -m "Add transitive related media groups"
+          git push origin HEAD:feature/media-groups
