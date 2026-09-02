@@ -100,4 +100,12 @@ def test_komga_volume_series_repair_into_one_browse_group(db, admin_client):
     html = admin_client.get("/browse?media_type_filter=digital_comic").text
     # The grid and list variants are both rendered; Alpine shows one at a time.
     assert html.count('data-series-group="One Piece"') == 2
-    assert "3 issues" in html
+    assert "3 in series" in html
+
+    detail_html = admin_client.get(
+        "/series/detail?name=One%20Piece&media_type=digital_comic"
+    ).text
+    assert "3 volumes" in detail_html
+    assert "Vol. 3" in detail_html
+    assert "Vol. 21" in detail_html
+    assert "Vol. 25" in detail_html
