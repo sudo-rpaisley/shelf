@@ -2,6 +2,7 @@
 
 The progress panel must be visible from job start, before RomM discovery knows the final total.
 This also pins the final related-media branch after rebasing on the current main tree.
+The comment-only touch keeps the exact combined tree under the normal PR CI path.
 """
 
 from pathlib import Path
