@@ -54,15 +54,15 @@
                 {% if medium.title %}<span class="text-xs text-shelf-muted">· {{ medium.title }}</span>{% endif %}
             </div>
             {% if medium.tracks %}
-            <div class="divide-y divide-shelf-border/60 border border-shelf-border rounded-lg overflow-hidden">
+            <div class="divide-y border border-shelf-border rounded-lg overflow-hidden">
                 {% for track in medium.tracks %}
-                <div class="grid grid-cols-[3.5rem_1fr_auto] gap-3 items-center px-3 py-2 text-sm bg-shelf-bg/40">
-                    <span class="font-mono text-xs text-shelf-muted">{{ track.number or track.position }}</span>
-                    <div class="min-w-0">
+                <div class="flex gap-3 items-center px-3 py-2 text-sm bg-shelf-bg">
+                    <span class="w-12 shrink-0 font-mono text-xs text-shelf-muted">{{ track.number or track.position }}</span>
+                    <div class="flex-1 min-w-0">
                         <span>{{ track.title }}</span>
                         {% if track.artist_credit and track.artist_credit != release.artist_credit %}<span class="text-xs text-shelf-muted ml-2">{{ track.artist_credit }}</span>{% endif %}
                     </div>
-                    {% if track.duration_ms %}<span class="text-xs text-shelf-muted tabular-nums">{{ '%d:%02d'|format((track.duration_ms // 1000) // 60, (track.duration_ms // 1000) % 60) }}</span>{% endif %}
+                    {% if track.duration_ms %}<span class="text-xs text-shelf-muted">{{ '%d:%02d'|format((track.duration_ms // 1000) // 60, (track.duration_ms // 1000) % 60) }}</span>{% endif %}
                 </div>
                 {% endfor %}
             </div>
@@ -76,8 +76,11 @@
     <p class="mt-4 text-xs text-shelf-muted">MusicBrainz release: <a class="text-shelf-accent2 hover:text-shelf-accent font-mono" target="_blank" rel="noopener" href="https://musicbrainz.org/release/{{ release.musicbrainz_release_id }}">{{ release.musicbrainz_release_id }}</a></p>
     {% endif %}
     {% else %}
-    <div class="bg-shelf-warning/10 border border-shelf-warning/30 rounded-lg p-3 text-sm text-shelf-muted">
-        This music item has no release metadata yet. Use Music search to add exact releases; legacy CDs can be enriched in a later scan pass.
+    <div class="bg-shelf-warning/10 border border-shelf-warning/30 rounded-lg p-4 text-sm">
+        <p class="text-shelf-muted mb-3">This music item was catalogued without an exact release match. Shelf can use its scanned barcode first, then fall back to title and artist.</p>
+        {% if user and user.role in ('admin', 'editor') %}
+        <a href="/music?item_id={{ item.id }}" class="inline-flex px-3 py-2 bg-shelf-accent text-white rounded-lg text-sm hover:bg-shelf-accent2 transition-colors">Find exact release</a>
+        {% endif %}
     </div>
     {% endif %}
 </section>
