@@ -34,9 +34,11 @@
         </div>
 
         <div class="flex items-center gap-2 shrink-0">
+            {% if series.browse_url %}
             <a href="{{ series.browse_url }}"
                class="px-3 py-1.5 bg-shelf-accent/20 text-shelf-accent2 rounded-lg text-xs hover:bg-shelf-accent/30 transition-colors"
                data-testid="series-detail-browse">Browse items</a>
+            {% endif %}
             <a href="/series"
                class="px-3 py-1.5 bg-shelf-card border border-shelf-border text-shelf-muted rounded-lg text-xs hover:text-shelf-text hover:border-shelf-accent/50 transition-colors">Manage series</a>
         </div>
