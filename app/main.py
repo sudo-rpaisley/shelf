@@ -314,7 +314,7 @@ async def _periodic_komga_sync():
             logger.exception("Periodic Komga sync failed")
 
 
-async def _periodic_hardcover_sync():async def _periodic_hardcover_sync():
+async def _periodic_hardcover_sync():
     """Background task: pull reading status changes from Hardcover on schedule."""
     from app.services import hardcover as hc_svc
 
