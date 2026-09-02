@@ -1,6 +1,7 @@
 {% extends "base.html" %}
 {% block title %}{{ item.title }} — Shelf{% endblock %}
 {% block content %}
+{% set is_music = item.media_type in ('vinyl', 'cassette', 'cd', 'digital_music', 'music_other') %}
 <div class="max-w-4xl mx-auto">
     <!-- Back link -->
     <a href="{{ back.path }}" class="text-shelf-muted hover:text-shelf-text text-sm mb-4 inline-block">&larr; {{ back.label }}</a>
@@ -12,11 +13,11 @@
                picker's controls below have a real budget to lay out inside. #}
             <div class="w-48 shrink-0">
                 {% if item.cover_path %}
-                <img src="/{{ item.cover_path }}" alt="{{ item.title }}" class="w-48 rounded-lg shadow-lg">
+                <img src="/{{ item.cover_path }}" alt="{{ item.title }}" class="w-48 {% if is_music %}aspect-square object-cover{% endif %} rounded-lg shadow-lg">
                 {% else %}
-                <div class="h-72 bg-shelf-hover rounded-lg flex flex-col items-center justify-center text-shelf-muted gap-2">
+                <div class="{% if is_music %}h-48{% else %}h-72{% endif %} bg-shelf-hover rounded-lg flex flex-col items-center justify-center text-shelf-muted gap-2">
                     <span>No Cover</span>
-                    {% if user and user.role in ('admin', 'editor') %}
+                    {% if user and user.role in ('admin', 'editor') and not is_music %}
                     {# Retry ISBN re-runs the automatic download chain, so it means
                        nothing once a cover exists — it alone stays missing-only. #}
                     <button hx-post="/api/items/{{ item.id }}/retry-cover" hx-swap="none"
@@ -28,7 +29,7 @@
                 </div>
                 {% endif %}
 
-                {% if user and user.role in ('admin', 'editor') %}
+                {% if user and user.role in ('admin', 'editor') and not is_music %}
                 <div class="flex flex-col gap-1 mt-2" data-testid="cover-controls">
                     <button hx-get="/api/items/{{ item.id }}/cover-search" hx-target="#cover-candidates" hx-swap="innerHTML"
                             class="text-xs px-3 py-1 bg-shelf-accent/20 text-shelf-accent2 rounded hover:bg-shelf-accent/30 transition-colors">
@@ -49,25 +50,25 @@
                     {% if item.media_type %}
                     <div><span class="text-shelf-muted">Type:</span> {{ media_types.get(item.media_type, item.media_type) }}</div>
                     {% endif %}
-                    {% if item.language %}
+                    {% if item.language and not is_music %}
                     <div><span class="text-shelf-muted">Language:</span> {{ search_langs.get(item.language, item.language) }}</div>
                     {% endif %}
                     {% if item.platform %}
                     <div><span class="text-shelf-muted">Platform:</span> {{ game_platforms.get(item.platform, item.platform) }}</div>
                     {% endif %}
                     {% if item.publisher %}
-                    <div><span class="text-shelf-muted">Publisher:</span> {{ item.publisher }}</div>
+                    <div><span class="text-shelf-muted">{% if is_music %}Label{% else %}Publisher{% endif %}:</span> {{ item.publisher }}</div>
                     {% endif %}
                     {% if item.publish_year %}
                     <div><span class="text-shelf-muted">Year:</span> {{ item.publish_year }}</div>
                     {% endif %}
-                    {% if item.page_count %}
+                    {% if item.page_count and not is_music %}
                     <div><span class="text-shelf-muted">Pages:</span> {{ item.page_count }}</div>
                     {% endif %}
-                    {% if item.isbn %}
+                    {% if item.isbn and not is_music %}
                     <div><span class="text-shelf-muted">ISBN:</span> <span class="font-mono">{{ item.isbn }}</span></div>
                     {% endif %}
-                    {% if item.series_name %}
+                    {% if item.series_name and not is_music %}
                     <div><span class="text-shelf-muted">Series:</span>
                         <a href="/series" class="text-shelf-accent2 hover:text-shelf-accent transition-colors">{{ item.series_name }}</a>{% if item.series_position is not none %} #{{ item.series_position|int if item.series_position == item.series_position|int else item.series_position }}{% endif %}
                         {% if series_progress %}<span class="text-xs text-shelf-muted" data-testid="series-progress">
@@ -76,10 +77,10 @@
                         </span>{% endif %}
                     </div>
                     {% endif %}
-                    {% if item.narrator %}
+                    {% if item.narrator and not is_music %}
                     <div><span class="text-shelf-muted">Narrator:</span> <a href="/browse?q={{ item.narrator|urlencode }}" class="text-shelf-accent2 hover:text-shelf-accent transition-colors">{{ item.narrator }}</a></div>
                     {% endif %}
-                    {% if item.duration_mins %}
+                    {% if item.duration_mins and not is_music %}
                     <div><span class="text-shelf-muted">Duration:</span> {{ (item.duration_mins // 60) }}h {{ item.duration_mins % 60 }}m</div>
                     {% endif %}
                     {% if item.location_name %}
@@ -94,7 +95,7 @@
 
                 {% if item.description %}
                 <div class="mb-6" x-data="{ expanded: false }">
-                    <h3 class="text-xs font-semibold uppercase tracking-wider text-shelf-muted mb-2">Synopsis</h3>
+                    <h3 class="text-xs font-semibold uppercase tracking-wider text-shelf-muted mb-2">{% if is_music %}Description{% else %}Synopsis{% endif %}</h3>
                     {% set clean_desc = item.description|strip_html %}
                     <div class="text-sm text-shelf-text leading-relaxed whitespace-pre-line"
                          :class="expanded ? '' : 'line-clamp-5'">{{ clean_desc }}</div>
@@ -156,7 +157,7 @@
                 {% endif %}
 
                 <!-- Hardcover Sync -->
-                {% if has_hardcover and user and user.role in ('admin', 'editor') %}
+                {% if has_hardcover and item.media_type in ('book', 'ebook', 'audiobook', 'kids_book', 'comic', 'digital_comic') and user and user.role in ('admin', 'editor') %}
                 <div class="mb-4" x-data="hardcoverPush" data-item-id="{{ item.id }}">
                     <button @click="push"
                             :disabled="hcPushing"
@@ -226,11 +227,17 @@
                 </div>
                 {% endif %}
 
+                {% if is_music %}
+                <div hx-get="/api/music/items/{{ item.id }}/detail" hx-trigger="load" hx-swap="outerHTML">
+                    <div class="mt-6 pt-6 border-t border-shelf-border text-sm text-shelf-muted">Loading release metadata…</div>
+                </div>
+                {% else %}
                 <!-- Reading Status -->
                 <div class="mb-6">
                     <p class="text-sm font-medium text-shelf-muted mb-2">Reading Status</p>
                     {% include "fragments/reading_status.html" %}
                 </div>
+                {% endif %}
 
                 <!-- Lending -->
                 {% if (user and user.role in ('admin', 'editor')) or current_checkout or checkout_history %}

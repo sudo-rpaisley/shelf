@@ -23,10 +23,13 @@ ALLOWED_COVER_DOMAINS = {
     "images.igdb.com",
     "image.tmdb.org",  # TMDb posters (tmdb.TMDB_IMAGE_BASE)
     "portal.dnb.de",  # DNB/MVB cover service for German (978-3) ISBNs
+    "coverartarchive.org",  # MusicBrainz release artwork
+    "archive.org",  # Cover Art Archive redirect target
 }
 
-# Suffix-matched domains (subdomain rotates): covers.openlibrary.org serves
-# images via redirects to Internet Archive hosts like ia800505.us.archive.org.
+# Suffix-matched domains (subdomain rotates): covers.openlibrary.org and the
+# Cover Art Archive serve images via Internet Archive hosts such as
+# ia800505.us.archive.org.
 ALLOWED_COVER_SUFFIXES = (".us.archive.org",)
 
 

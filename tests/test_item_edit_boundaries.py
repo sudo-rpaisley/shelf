@@ -54,7 +54,7 @@ def test_edit_rejects_unknown_media_type_without_mutation(editor_client, db):
     db.commit()
 
     response = editor_client.post(
-        f"/api/items/{item_id}", data={"media_type": "vinyl"}
+        f"/api/items/{item_id}", data={"media_type": "laserdisc"}
     )
 
     assert response.status_code == 400
