@@ -181,14 +181,11 @@ def test_q_truncation(admin_client, db, monkeypatch):
     resp = admin_client.get(f"/browse?q={long_q}")
     html = resp.text
 
-    # Both the desktop and the mobile search input must carry the truncated
-    # value.
+    # The single responsive search control must carry the truncated value.
     values = re.findall(
-        r'<input type="search" name="q"[^>]*value="([^"]*)"', html
+        r'<input[^>]*type="search"[^>]*name="q"[^>]*value="([^"]*)"', html
     )
-    assert len(values) == 2, values
-    for v in values:
-        assert v == truncated, v
+    assert values == [truncated], values
 
     # The load-more URL's q= must also be truncated.
     load_more_urls = re.findall(r'hx-get="(/api/search\?[^"]*)"', html)
