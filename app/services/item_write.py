@@ -13,6 +13,11 @@ to `SCHEMA` and `MIGRATIONS` (still both — see G1) and passing it wherever it
 is actually known; no site can silently drop it, because an unknown field name
 raises instead of being ignored.
 
+It is also the common hook for related-media discovery on ordinary inserts.
+Provider batch syncs (Audiobookshelf, Komga and RomM) defer grouping until the
+end of their batch for efficiency; manual/scanned/catalogue additions can join
+an existing safe same-work group immediately.
+
 **Call it inside an existing `with get_db() as db:` block**, never around one.
 The caller owns the transaction: several sites need the insert and their
 follow-up writes (tags, scan log, cover path) to commit together, and
@@ -108,4 +113,13 @@ def insert_item(db, fields: Mapping[str, Any] | None = None, **kwargs) -> int:
         f"INSERT INTO items ({', '.join(names)}) VALUES ({placeholders})",
         [values[n] for n in names],
     )
-    return cursor.lastrowid
+    item_id = cursor.lastrowid
+
+    # A normal add should become part of an existing same-work group right
+    # away. Integration syncs insert many rows at once and group once at the
+    # end of the batch instead, avoiding repeated collection-wide scans.
+    from app.services import media_groups
+    if media_groups.should_autolink_on_insert(values.get("source")):
+        media_groups.auto_link_item(db, item_id)
+
+    return item_id
