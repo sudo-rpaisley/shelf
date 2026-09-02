@@ -28,7 +28,7 @@
             <input type="password" id="discogs_token" name="discogs_token" autocomplete="new-password"
                    placeholder="{% if secrets_saved['discogs_token'] %}Saved — leave blank to keep{% elif secrets_present['discogs_token'] %}Configured by DISCOGS_TOKEN{% else %}Discogs developer token{% endif %}"
                    class="w-full bg-shelf-bg border border-shelf-border rounded-lg px-3 py-2 text-shelf-text focus:ring-2 focus:ring-shelf-accent outline-none">
-            <p class="text-xs text-shelf-muted mt-1">Stored encrypted at rest. You can alternatively set <span class="font-mono">DISCOGS_TOKEN</span>.</p>
+            <p class="text-xs text-shelf-muted mt-1">Stored encrypted at rest. Alternatively, set <span class="font-mono">DISCOGS_TOKEN</span>.</p>
         </div>
         {% if secrets_saved['discogs_token'] %}
         <label class="flex items-center gap-2 text-xs text-shelf-muted">
