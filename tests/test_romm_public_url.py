@@ -5,6 +5,7 @@ import httpx
 import respx
 
 from app.database import get_setting
+from app.services import sync_jobs
 from app.services.romm import get_browser_url
 from tests.conftest import _insert_item
 
@@ -40,6 +41,8 @@ def test_settings_renders_romm_fields_without_echoing_token(admin_client, db):
     assert 'name="romm_url"' in response.text
     assert 'name="romm_api_token"' in response.text
     assert "RomM Browser / Public URL" in response.text
+    assert "http://romm:8080" in response.text
+    assert ':disabled="cleaning || !hasExcluded || syncing"' in response.text
     assert TOKEN not in response.text
 
 
@@ -57,12 +60,24 @@ def test_generic_settings_saves_normalized_url_and_encrypted_token(admin_client,
 
 @respx.mock
 def test_connection_test_uses_bearer_token(admin_client):
-    route = respx.get(f"{ROMM}/api/platforms").mock(
+    platforms_route = respx.get(f"{ROMM}/api/platforms").mock(
         return_value=httpx.Response(200, json=_platforms()))
+    roms_route = respx.get(f"{ROMM}/api/roms").mock(side_effect=[
+        httpx.Response(200, json={"items": [], "total": 0}),
+        httpx.Response(403, json={"detail": "Forbidden"}),
+    ])
+
     response = admin_client.post(
         "/api/sync/romm/test", json={"url": ROMM, "token": TOKEN})
     assert response.json()["ok"] is True
-    assert route.calls[0].request.headers["Authorization"] == f"Bearer {TOKEN}"
+    assert platforms_route.calls[0].request.headers["Authorization"] == f"Bearer {TOKEN}"
+    assert roms_route.calls[0].request.headers["Authorization"] == f"Bearer {TOKEN}"
+    assert roms_route.calls[0].request.url.params["limit"] == "1"
+
+    missing_scope = admin_client.post(
+        "/api/sync/romm/test", json={"url": ROMM, "token": TOKEN})
+    assert missing_scope.json()["ok"] is False
+    assert "roms.read" in missing_scope.json()["message"]
 
 
 def test_public_url_normalizes_and_blank_restores_fallback(admin_client, db):
@@ -108,7 +123,7 @@ def test_platform_selection_validates_and_saves(admin_client, db):
     assert json.loads(get_setting(db, "romm_excluded_platforms")) == ["1", "2"]
 
 
-def test_cleanup_deletes_romm_owned_and_detaches_adopted(admin_client, db):
+def test_cleanup_deletes_romm_owned_and_detaches_adopted(admin_client, db, monkeypatch):
     db.execute("INSERT INTO settings (key, value) VALUES ('romm_excluded_platforms', '[\"2\"]')")
     owned = _insert_item(db, title="Owned", isbn=None, media_type="digital_game",
                          source="romm", romm_id="10", romm_platform_id="2")
@@ -116,6 +131,15 @@ def test_cleanup_deletes_romm_owned_and_detaches_adopted(admin_client, db):
                            media_type="digital_game", source="manual",
                            romm_id="11", romm_platform_id="2")
     db.execute("COMMIT")
+
+    monkeypatch.setattr(sync_jobs, "is_running", lambda provider: provider == "romm")
+    blocked = admin_client.post("/api/sync/romm/platforms/cleanup")
+    assert blocked.status_code == 409
+    assert blocked.json()["ok"] is False
+    assert "wait for it to finish" in blocked.json()["message"]
+    assert db.execute("SELECT 1 FROM items WHERE id=?", (owned,)).fetchone() is not None
+
+    monkeypatch.setattr(sync_jobs, "is_running", lambda provider: False)
     result = admin_client.post("/api/sync/romm/platforms/cleanup").json()
     assert result == {"ok": True, "deleted": 1, "detached": 1}
     assert db.execute("SELECT 1 FROM items WHERE id=?", (owned,)).fetchone() is None
