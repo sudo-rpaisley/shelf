@@ -48,14 +48,39 @@ jobs:
             conflicts="$(git diff --name-only --diff-filter=U)"
             echo "Conflicts:"
             printf '%s\n' "$conflicts"
-            unexpected="$(printf '%s\n' "$conflicts" | grep -v '^README.md$' || true)"
+            allowed='^(README\.md|app/main\.py|static/css/app\.css|static/sw\.js)$'
+            unexpected="$(printf '%s\n' "$conflicts" | grep -Ev "$allowed" || true)"
             if [ -n "$unexpected" ]; then
-              echo "::error::Real source conflicts need manual review:"
+              echo "::error::Unexpected source conflicts need manual review:"
               printf '%s\n' "$unexpected"
               exit 1
             fi
-            git checkout --ours README.md
-            git add README.md
+
+            # Generated outputs are rebuilt below, so use current main as the
+            # temporary conflict resolution rather than preserving stale bytes.
+            git checkout --theirs README.md static/css/app.css static/sw.js
+
+            # app/main.py has one semantic overlap: current main added music,
+            # while the feature branch added related-media routing. Start from
+            # current main and add only the related router registration.
+            git checkout --theirs app/main.py
+            python - <<'PY'
+          from pathlib import Path
+          p = Path('app/main.py')
+          text = p.read_text()
+          old = 'from app.routers import pages, items, items_covers, items_csv, items_catalog, locations, platforms, settings, sync, komga, romm, checkouts, valuation, hardcover, store, series, share, tags, intake, archive, music\n'
+          new = 'from app.routers import pages, items, items_covers, items_csv, items_catalog, locations, platforms, settings, sync, komga, romm, related, checkouts, valuation, hardcover, store, series, share, tags, intake, archive, music\n'
+          if old not in text:
+              raise SystemExit('current main router import changed unexpectedly')
+          text = text.replace(old, new, 1)
+          old_include = 'app.include_router(romm.router)\napp.include_router(checkouts.router)'
+          new_include = 'app.include_router(romm.router)\napp.include_router(related.router)\napp.include_router(checkouts.router)'
+          if old_include not in text:
+              raise SystemExit('current main router registration changed unexpectedly')
+          text = text.replace(old_include, new_include, 1)
+          p.write_text(text)
+          PY
+            git add README.md app/main.py static/css/app.css static/sw.js
           fi
 
       - name: Regenerate derived files
