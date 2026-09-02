@@ -19,7 +19,7 @@
             <h3 class="text-lg font-bold mb-3">Connecting to RomM</h3>
             <ol class="space-y-2 text-sm text-shelf-muted list-decimal list-inside">
                 <li>Create a RomM Client API Token with <span class="text-shelf-text">roms.read</span> and <span class="text-shelf-text">platforms.read</span> scopes</li>
-                <li>Enter the RomM address Shelf can reach, for example <span class="text-shelf-accent2">http://romm:80</span></li>
+                <li>Enter the RomM address Shelf can reach, for example <span class="text-shelf-accent2">http://romm:8080</span></li>
                 <li>Paste the <span class="text-shelf-text">rmm_…</span> token and use Test</li>
                 <li>If your browser uses another domain, set the Browser / Public URL below</li>
             </ol>
@@ -35,7 +35,7 @@
         <div>
             <label for="romm_url" class="block text-sm font-medium text-shelf-muted mb-1">RomM Internal / API URL</label>
             <input type="url" id="romm_url" name="romm_url" x-model="rommUrl"
-                   value="{{ settings.get('romm_url', '') }}" placeholder="http://romm:80"
+                   value="{{ settings.get('romm_url', '') }}" placeholder="http://romm:8080"
                    class="w-full bg-shelf-bg border border-shelf-border rounded-lg px-3 py-2 text-shelf-text focus:ring-2 focus:ring-shelf-accent outline-none">
             <p class="text-xs text-shelf-muted mt-1">Server-side address Shelf uses for API, metadata and cover traffic.</p>
         </div>
@@ -129,10 +129,11 @@
                     </template>
                     <div class="flex items-center gap-2 pt-2">
                         <button @click="savePlatforms" :disabled="saving" class="px-3 py-1.5 bg-shelf-accent text-white rounded-lg text-xs hover:bg-shelf-accent2 transition-colors disabled:opacity-50"><span x-show="!saving">Save Selection</span><span x-show="saving" x-cloak>Saving&hellip;</span></button>
-                        <button @click="cleanup" :disabled="cleaning || !hasExcluded" class="px-3 py-1.5 bg-shelf-error/20 text-shelf-error rounded-lg text-xs hover:bg-shelf-error/30 transition-colors disabled:opacity-50"><span x-show="!cleaning">Remove Excluded Items from Shelf</span><span x-show="cleaning" x-cloak>Removing&hellip;</span></button>
+                        <button @click="cleanup" :disabled="cleaning || !hasExcluded || syncing" class="px-3 py-1.5 bg-shelf-error/20 text-shelf-error rounded-lg text-xs hover:bg-shelf-error/30 transition-colors disabled:opacity-50"><span x-show="!cleaning">Remove Excluded Items from Shelf</span><span x-show="cleaning" x-cloak>Removing&hellip;</span></button>
                     </div>
                     <p class="text-xs text-shelf-muted">Cleanup never changes RomM. Existing Shelf Digital Games adopted by sync are detached rather than deleted.</p>
                     <template x-if="cleanResult && cleanResult.ok"><p class="text-xs text-shelf-success" x-text="cleanResultLabel"></p></template>
+                    <template x-if="cleanResult && !cleanResult.ok"><p class="text-xs text-shelf-error" x-text="cleanResult.message"></p></template>
                 </div>
             </template>
         </div>
