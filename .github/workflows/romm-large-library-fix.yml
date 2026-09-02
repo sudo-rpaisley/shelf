@@ -1,0 +1,56 @@
+name: RomM large-library reliability fix
+
+on:
+  push:
+    branches: [feature/media-groups]
+    paths:
+      - '.github/workflows/romm-large-library-fix.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: feature/media-groups
+          fetch-depth: 0
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+          cache: pip
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+
+      - name: Install dependencies
+        run: |
+          pip install -r requirements-dev.txt
+          npm ci
+
+      - name: Apply large-library reliability fix
+        run: python scripts/romm_large_library_patch.py
+
+      - name: Regenerate derived files
+        run: |
+          make badges
+          make css
+
+      - name: Run focused RomM and related-media checks
+        run: |
+          pytest -q tests/test_romm_sync.py tests/test_romm_progress_ui.py tests/test_romm_public_url.py tests/test_related_media_ui.py tests/test_media_groups.py
+          make checks-fast
+
+      - name: Remove temporary patch machinery and commit
+        run: |
+          rm -f scripts/romm_large_library_patch.py .github/workflows/romm-large-library-fix.yml
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add -A
+          git commit -m 'Make RomM sync resilient on large libraries'
+          git push origin HEAD:feature/media-groups
