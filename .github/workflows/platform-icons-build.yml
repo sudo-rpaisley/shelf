@@ -1,0 +1,58 @@
+name: Related media platform icon build
+
+on:
+  push:
+    branches: [feature/media-groups]
+    paths:
+      - '.github/scripts/apply_platform_icons.py'
+      - '.github/workflows/platform-icons-build.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: feature/media-groups
+          fetch-depth: 0
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+          cache: pip
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+
+      - name: Install dependencies
+        run: |
+          pip install -r requirements-dev.txt
+          npm ci
+
+      - name: Apply platform icon changes
+        run: python .github/scripts/apply_platform_icons.py
+
+      - name: Validate platform icon behaviour
+        run: |
+          python -m pytest tests/test_related_media_ui.py tests/test_romm_sync.py tests/test_romm_public_url.py -q
+          make checks-fast
+
+      - name: Regenerate committed derived files
+        run: |
+          make badges
+          make css
+
+      - name: Commit feature tree
+        run: |
+          rm .github/scripts/apply_platform_icons.py .github/workflows/platform-icons-build.yml
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add -A
+          git diff --cached --quiet && exit 0
+          git commit -m 'Show platform icons in related media groups'
+          git push origin HEAD:feature/media-groups
