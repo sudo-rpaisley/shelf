@@ -1,4 +1,5 @@
 from app.services import media_groups
+from app.services.item_write import insert_item
 from tests.conftest import _insert_item
 
 
@@ -92,3 +93,47 @@ def test_search_candidates_excludes_current_connected_group(db):
     assert audio not in ids
     assert game in ids
     assert other in ids
+
+
+def test_normal_insert_joins_existing_same_work_group_immediately(db):
+    book = insert_item(
+        db,
+        title="Dune",
+        authors="Frank Herbert",
+        media_type="book",
+        isbn="9780441172719",
+        source="manual",
+    )
+    audio = insert_item(
+        db,
+        title="Dune",
+        authors="Frank Herbert",
+        media_type="audiobook",
+        isbn="9781427201432",
+        source="manual",
+    )
+
+    assert media_groups.related_ids(db, book) == [audio]
+
+
+def test_provider_batch_insert_defers_grouping_until_batch_end(db):
+    book = insert_item(
+        db,
+        title="Dune",
+        authors="Frank Herbert",
+        media_type="book",
+        isbn="9780441172719",
+        source="manual",
+    )
+    audio = insert_item(
+        db,
+        title="Dune",
+        authors="Frank Herbert",
+        media_type="audiobook",
+        isbn="9781427201432",
+        source="audiobookshelf",
+    )
+
+    assert media_groups.related_ids(db, book) == []
+    media_groups.auto_link_family(db, "book")
+    assert media_groups.related_ids(db, book) == [audio]
