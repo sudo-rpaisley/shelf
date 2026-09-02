@@ -16,6 +16,7 @@ logger = logging.getLogger(__name__)
 
 NAV_TABS = [
     {"key": "browse", "label": "Browse", "path": "/browse"},
+    {"key": "music", "label": "Music", "path": "/music"},
     {"key": "scan", "label": "Scan", "path": "/scan", "roles": ("admin", "editor")},
     {"key": "intake", "label": "Intake", "path": "/intake", "roles": ("admin", "editor"),
      "requires": "vision"},
@@ -170,6 +171,7 @@ def visible_tabs(user: dict | None) -> list[dict]:
 # here — including anything crafted to look like a URL or path — silently
 # degrades to the default with no `from=` param emitted at all.
 BACK_TARGETS = {
+    "music": ("/music", "Back to music"),
     "series": ("/series", "Back to series"),
     "stats": ("/stats", "Back to stats"),
 }
