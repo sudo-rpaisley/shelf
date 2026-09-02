@@ -1,0 +1,86 @@
+{% extends "base.html" %}
+{% block title %}Edit music copy — {{ item.title }} — Shelf{% endblock %}
+{% block content %}
+<div class="max-w-3xl mx-auto">
+    <a href="/item/{{ item.id }}?from=music" class="text-shelf-muted hover:text-shelf-text text-sm mb-4 inline-block">&larr; Back to release</a>
+    <h1 class="text-2xl font-bold mb-1">Edit music copy</h1>
+    <p class="text-shelf-muted mb-6">{{ release.artist_credit }}{% if release.artist_credit %} — {% endif %}{{ item.title }}</p>
+
+    <form method="post" action="/api/music/items/{{ item.id }}/copy" class="bg-shelf-card border border-shelf-border rounded-xl p-6 space-y-4 mb-6">
+        <div>
+            <label for="edition-notes" class="block text-sm font-medium text-shelf-muted mb-1">Edition / pressing notes</label>
+            <textarea id="edition-notes" name="edition_notes" rows="3" placeholder="First pressing, red translucent vinyl, Record Store Day edition…"
+                      class="w-full bg-shelf-bg border border-shelf-border rounded-lg px-3 py-2 text-shelf-text focus:ring-2 focus:ring-shelf-accent outline-none">{{ release.edition_notes or '' }}</textarea>
+            <p class="text-xs text-shelf-muted mt-1">Information about this specific edition or variant that is not reliably represented by the metadata provider.</p>
+        </div>
+
+        <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            <div>
+                <label for="media-condition" class="block text-sm font-medium text-shelf-muted mb-1">Media condition</label>
+                <input id="media-condition" name="media_condition" value="{{ release.media_condition or '' }}" placeholder="Near Mint, VG+, Good…"
+                       class="w-full bg-shelf-bg border border-shelf-border rounded-lg px-3 py-2 text-shelf-text focus:ring-2 focus:ring-shelf-accent outline-none">
+            </div>
+            <div>
+                <label for="packaging-condition" class="block text-sm font-medium text-shelf-muted mb-1">Sleeve / packaging condition</label>
+                <input id="packaging-condition" name="packaging_condition" value="{{ release.packaging_condition or '' }}" placeholder="VG+, worn spine…"
+                       class="w-full bg-shelf-bg border border-shelf-border rounded-lg px-3 py-2 text-shelf-text focus:ring-2 focus:ring-shelf-accent outline-none">
+            </div>
+        </div>
+
+        <div>
+            <label for="condition-notes" class="block text-sm font-medium text-shelf-muted mb-1">Condition notes</label>
+            <textarea id="condition-notes" name="condition_notes" rows="3" placeholder="Light surface noise on side B; sleeve has small corner crease…"
+                      class="w-full bg-shelf-bg border border-shelf-border rounded-lg px-3 py-2 text-shelf-text focus:ring-2 focus:ring-shelf-accent outline-none">{{ release.condition_notes or '' }}</textarea>
+        </div>
+
+        <div class="flex gap-3">
+            <button type="submit" class="px-5 py-2 bg-shelf-accent text-white rounded-lg text-sm hover:bg-shelf-accent2 transition-colors">Save copy details</button>
+            <a href="/item/{{ item.id }}?from=music" class="px-5 py-2 bg-shelf-hover text-shelf-muted rounded-lg text-sm hover:text-white transition-colors">Cancel</a>
+        </div>
+    </form>
+
+    <div class="bg-shelf-card border border-shelf-border rounded-xl p-6">
+        <h2 class="text-lg font-semibold mb-1">Pressing identifiers</h2>
+        <p class="text-sm text-shelf-muted mb-4">Use these for matrix/runout strings, label codes, pressing-plant marks and other identifiers printed or etched on the physical copy.</p>
+
+        {% if release.identifiers %}
+        <div class="space-y-2 mb-5">
+            {% for identifier in release.identifiers %}
+            <div class="flex items-center gap-3 bg-shelf-bg rounded-lg p-3 text-sm">
+                <div class="flex-1 min-w-0">
+                    <span class="text-shelf-muted">{{ identifier.identifier_type }}:</span>
+                    <span class="font-mono break-all">{{ identifier.value }}</span>
+                    {% if identifier.description %}<span class="text-shelf-muted"> · {{ identifier.description }}</span>{% endif %}
+                </div>
+                <form method="post" action="/api/music/items/{{ item.id }}/identifiers/{{ identifier.id }}/delete">
+                    <button type="submit" class="text-xs text-shelf-error hover:underline">Remove</button>
+                </form>
+            </div>
+            {% endfor %}
+        </div>
+        {% endif %}
+
+        <form method="post" action="/api/music/items/{{ item.id }}/identifiers" class="grid grid-cols-1 md:grid-cols-[10rem_1fr_1fr_auto] gap-3 items-end">
+            <div>
+                <label class="block text-xs text-shelf-muted mb-1" for="identifier-type">Type</label>
+                <select id="identifier-type" name="identifier_type" class="w-full bg-shelf-bg border border-shelf-border rounded-lg px-2 py-2 text-sm">
+                    <option value="matrix_runout">Matrix / runout</option>
+                    <option value="label_code">Label code</option>
+                    <option value="pressing_plant">Pressing plant</option>
+                    <option value="catalog_number">Additional catalogue #</option>
+                    <option value="other">Other</option>
+                </select>
+            </div>
+            <div>
+                <label class="block text-xs text-shelf-muted mb-1" for="identifier-value">Value</label>
+                <input id="identifier-value" name="value" required class="w-full bg-shelf-bg border border-shelf-border rounded-lg px-3 py-2 text-sm font-mono">
+            </div>
+            <div>
+                <label class="block text-xs text-shelf-muted mb-1" for="identifier-description">Description</label>
+                <input id="identifier-description" name="description" placeholder="Side A, stamped…" class="w-full bg-shelf-bg border border-shelf-border rounded-lg px-3 py-2 text-sm">
+            </div>
+            <button type="submit" class="px-4 py-2 bg-shelf-hover text-shelf-text rounded-lg text-sm hover:bg-shelf-border transition-colors">Add</button>
+        </form>
+    </div>
+</div>
+{% endblock %}
