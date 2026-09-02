@@ -31,6 +31,26 @@ document.addEventListener('alpine:init', function () {
         };
     });
 
+    // base.html — account dropdown and its secondary profile/password modal.
+    Alpine.data('accountMenu', function () {
+        return {
+            open: false,
+            showAccount: false,
+            toggle() { this.open = !this.open },
+            close() { this.open = false },
+            openAccount() {
+                this.open = false;
+                this.showAccount = true;
+            },
+            closeAccount() { this.showAccount = false },
+            openShortcuts() {
+                this.open = false;
+                const modal = document.getElementById('shortcut-modal');
+                if (modal) modal.classList.remove('hidden');
+            }
+        };
+    });
+
     // base.html — account modal (display name + password)
     Alpine.data('accountModal', function () {
         return {
