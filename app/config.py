@@ -162,6 +162,10 @@ HOST_RATE_LIMITS: dict[str, float] = {
     # one-request rule, but album-art fetches are never latency critical, so
     # pace them conservatively and serially alongside other metadata sources.
     "coverartarchive.org": 1.0,
+    # Discogs publishes request ceilings through response headers. Shelf
+    # does not need bursty collector lookups, so one request/second is a
+    # deliberately conservative client-side pace.
+    "api.discogs.com": 1.0,
     # EXPLORER (the keyless trial tier this client uses) allows 6 lookups per
     # minute and 100 per day; faster than the burst rate is declined with 429
     # (https://www.upcitemdb.com/wp/docs/main/development/api-rate-limits/).
@@ -195,6 +199,7 @@ SECRET_ENV_VARS = {
     "tmdb_api_key": "TMDB_API_KEY",
     "igdb_client_id": "IGDB_CLIENT_ID",
     "igdb_client_secret": "IGDB_CLIENT_SECRET",
+    "discogs_token": "DISCOGS_TOKEN",
 }
 
 

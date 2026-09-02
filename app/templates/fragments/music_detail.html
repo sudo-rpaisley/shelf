@@ -44,6 +44,46 @@
     </div>
     {% endif %}
 
+    {% if release.discogs_release_id %}
+    <div class="mb-5 bg-shelf-bg rounded-lg p-4" data-testid="discogs-release-detail">
+        <div class="flex items-start justify-between gap-3">
+            <div>
+                <h3 class="text-xs font-semibold uppercase tracking-wider text-shelf-muted mb-2">Discogs pressing</h3>
+                {% if release.discogs_fresh %}
+                <div class="text-sm space-y-1">
+                    {% if release.discogs_label %}<div><span class="text-shelf-muted">Label:</span> {{ release.discogs_label }}</div>{% endif %}
+                    {% if release.discogs_catalog_number %}<div><span class="text-shelf-muted">Catalogue #:</span> <span class="font-mono">{{ release.discogs_catalog_number }}</span></div>{% endif %}
+                    {% if release.discogs_format_summary %}<div><span class="text-shelf-muted">Exact format:</span> {{ release.discogs_format_summary }}</div>{% endif %}
+                    {% if release.discogs_genres %}<div><span class="text-shelf-muted">Genres:</span> {{ release.discogs_genres|join(', ') }}</div>{% endif %}
+                    {% if release.discogs_styles %}<div><span class="text-shelf-muted">Styles:</span> {{ release.discogs_styles|join(', ') }}</div>{% endif %}
+                </div>
+                {% if release.discogs_identifiers %}
+                <div class="flex flex-wrap gap-2 mt-3">
+                    {% for identifier in release.discogs_identifiers %}
+                    <span class="px-2 py-1 bg-shelf-hover rounded text-xs"><span class="text-shelf-muted">{{ identifier.identifier_type|replace('_', ' ')|title }}:</span> <span class="font-mono">{{ identifier.value }}</span>{% if identifier.description %} · {{ identifier.description }}{% endif %}</span>
+                    {% endfor %}
+                </div>
+                {% endif %}
+                {% if release.discogs_notes %}<p class="text-xs text-shelf-muted mt-3 whitespace-pre-line">{{ release.discogs_notes }}</p>{% endif %}
+                {% else %}
+                <p class="text-sm text-shelf-muted">Cached Discogs data is older than six hours and is hidden until refreshed.</p>
+                {% endif %}
+                <p class="mt-3 text-xs"><a class="text-shelf-accent2 hover:text-shelf-accent" target="_blank" rel="noopener" href="https://www.discogs.com/release/{{ release.discogs_release_id }}">Data provided by Discogs.</a> <span class="text-shelf-muted">Release #{{ release.discogs_release_id }}</span></p>
+                {% if release.discogs_master_id %}<p class="text-xs text-shelf-muted mt-1">Master: <a class="text-shelf-accent2 hover:text-shelf-accent" target="_blank" rel="noopener" href="https://www.discogs.com/master/{{ release.discogs_master_id }}">{{ release.discogs_master_id }}</a></p>{% endif %}
+            </div>
+            {% if user and user.role in ('admin', 'editor') %}
+            <div class="flex flex-col gap-2 shrink-0">
+                <form method="post" action="/api/music/items/{{ item.id }}/discogs/refresh"><button type="submit" class="text-xs px-3 py-1.5 bg-shelf-hover text-shelf-muted rounded hover:text-white transition-colors">Refresh Discogs</button></form>
+                <a href="/music/item/{{ item.id }}/discogs" class="text-xs px-3 py-1.5 bg-shelf-hover text-shelf-muted rounded hover:text-white transition-colors text-center">Change match</a>
+                <form method="post" action="/api/music/items/{{ item.id }}/discogs/clear" data-confirm="Remove this Discogs pressing match?"><button type="submit" class="text-xs px-3 py-1.5 bg-shelf-error/20 text-shelf-error rounded hover:bg-shelf-error/30 transition-colors w-full">Remove match</button></form>
+            </div>
+            {% endif %}
+        </div>
+    </div>
+    {% elif user and user.role in ('admin', 'editor') %}
+    <div class="mb-5"><a href="/music/item/{{ item.id }}/discogs" class="inline-flex px-3 py-2 bg-shelf-hover text-shelf-text rounded-lg text-sm hover:bg-shelf-border transition-colors">Find Discogs pressing</a></div>
+    {% endif %}
+
     {% if release.media %}
     <div class="space-y-5">
         {% for medium in release.media %}

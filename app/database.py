@@ -144,6 +144,15 @@ MIGRATIONS: Sequence[tuple[int, str, str]] = (
     (28, "Add romm_id column", "ALTER TABLE items ADD COLUMN romm_id TEXT DEFAULT NULL"),
     (29, "Add romm_platform_id column", "ALTER TABLE items ADD COLUMN romm_platform_id TEXT DEFAULT NULL"),
     (30, "Index RomM item IDs", "CREATE INDEX IF NOT EXISTS idx_items_romm_id ON items(romm_id)"),
+    (31, "Add Discogs master ID", "ALTER TABLE music_releases ADD COLUMN discogs_master_id INTEGER DEFAULT NULL"),
+    (32, "Add Discogs label", "ALTER TABLE music_releases ADD COLUMN discogs_label TEXT DEFAULT NULL"),
+    (33, "Add Discogs catalogue number", "ALTER TABLE music_releases ADD COLUMN discogs_catalog_number TEXT DEFAULT NULL"),
+    (34, "Add Discogs format summary", "ALTER TABLE music_releases ADD COLUMN discogs_format_summary TEXT DEFAULT NULL"),
+    (35, "Add Discogs genres", "ALTER TABLE music_releases ADD COLUMN discogs_genres TEXT DEFAULT NULL"),
+    (36, "Add Discogs styles", "ALTER TABLE music_releases ADD COLUMN discogs_styles TEXT DEFAULT NULL"),
+    (37, "Add Discogs notes", "ALTER TABLE music_releases ADD COLUMN discogs_notes TEXT DEFAULT NULL"),
+    (38, "Add Discogs cache timestamp", "ALTER TABLE music_releases ADD COLUMN discogs_updated_at TEXT DEFAULT NULL"),
+    (39, "Add music identifier source", "ALTER TABLE music_identifiers ADD COLUMN source TEXT NOT NULL DEFAULT 'manual'"),
 )
 
 MIGRATION_TABLES = """
@@ -279,6 +288,14 @@ CREATE TABLE IF NOT EXISTS music_releases (
     musicbrainz_release_id        TEXT UNIQUE,
     musicbrainz_release_group_id  TEXT,
     discogs_release_id            INTEGER,
+    discogs_master_id             INTEGER,
+    discogs_label                 TEXT,
+    discogs_catalog_number        TEXT,
+    discogs_format_summary        TEXT,
+    discogs_genres                TEXT,
+    discogs_styles                TEXT,
+    discogs_notes                 TEXT,
+    discogs_updated_at            TEXT,
     release_type                  TEXT,
     release_status                TEXT,
     release_date                  TEXT,
@@ -300,6 +317,7 @@ CREATE INDEX IF NOT EXISTS idx_music_releases_artist ON music_releases(artist_cr
 CREATE INDEX IF NOT EXISTS idx_music_releases_group ON music_releases(musicbrainz_release_group_id);
 CREATE INDEX IF NOT EXISTS idx_music_releases_catalog ON music_releases(catalog_number COLLATE NOCASE);
 CREATE INDEX IF NOT EXISTS idx_music_releases_discogs ON music_releases(discogs_release_id);
+CREATE INDEX IF NOT EXISTS idx_music_releases_discogs_master ON music_releases(discogs_master_id);
 
 CREATE TABLE IF NOT EXISTS music_media (
     id          INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -332,6 +350,7 @@ CREATE TABLE IF NOT EXISTS music_identifiers (
     identifier_type  TEXT NOT NULL,
     value            TEXT NOT NULL,
     description      TEXT,
+    source           TEXT NOT NULL DEFAULT 'manual',
     UNIQUE(item_id, identifier_type, value)
 );
 CREATE INDEX IF NOT EXISTS idx_music_identifiers_item ON music_identifiers(item_id);
