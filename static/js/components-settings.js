@@ -325,6 +325,99 @@ document.addEventListener('alpine:init', function () {
         };
     });
 
+
+    // settings.html — RomM sync card
+    Alpine.data('rommSync', function () {
+        return {
+            syncing: false, result: false, status: false, testing: false, showHelp: false,
+            rommUrl: '', rommToken: '', rommSaved: false, rommUrlPresent: false,
+            syncCurrent: 0, syncTotal: 0, syncLastTitle: '', syncLog: [], showSyncLog: false,
+            init() {
+                this.rommUrl = this.$el.dataset.rommUrl || '';
+                this.rommUrlPresent = this.$el.dataset.rommUrlPresent === '1';
+                this.rommSaved = this.$el.dataset.rommSaved === '1';
+                applyBackgroundSyncState(this, {
+                    state: this.$el.dataset.syncState || 'idle',
+                    current: Number(this.$el.dataset.syncCurrent || 0),
+                    total: Number(this.$el.dataset.syncTotal || 0),
+                    title: this.$el.dataset.syncTitle || '', recent: []
+                });
+                pollBackgroundSync(this, '/api/sync/romm/job');
+            },
+            get testReady() { return Boolean((this.rommUrl || this.rommUrlPresent) && (this.rommToken || this.rommSaved)); },
+            get syncReady() { return Boolean(this.rommUrlPresent && this.rommSaved); },
+            get syncLabel() {
+                if (this.syncReady) return 'Sync Now';
+                if (this.rommUrl || this.rommToken) return 'Save your settings to sync';
+                return 'Enter URL and token to sync';
+            },
+            get syncPct() { return (this.syncTotal ? Math.round(this.syncCurrent / this.syncTotal * 100) : 0) + '%'; },
+            get syncProgress() { return this.syncCurrent + ' / ' + this.syncTotal; },
+            get syncWidth() { return 'width:' + (this.syncTotal ? (this.syncCurrent / this.syncTotal * 100) : 0) + '%'; },
+            get syncLogLabel() { return this.showSyncLog ? 'Hide details' : 'Show details (' + this.syncLog.length + ' items)'; },
+            statusClass(status) {
+                if (status === 'added') return 'text-shelf-success';
+                if (status === 'updated') return 'text-shelf-accent2';
+                return 'text-shelf-muted';
+            },
+            testRomm() {
+                if (!this.testReady) return;
+                this.testing = true; this.status = false;
+                fetch('/api/sync/romm/test', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': window.csrfToken() },
+                    body: JSON.stringify({ url: this.rommUrl, token: this.rommToken })
+                }).then(r => r.json())
+                  .then(d => { this.status = d; this.testing = false; })
+                  .catch(() => { this.status = { ok: false, message: 'Connection failed' }; this.testing = false; });
+            },
+            startSync() {
+                if (!this.syncReady) return;
+                startBackgroundSync(this, '/api/sync/romm/job');
+            }
+        };
+    });
+
+    Alpine.data('rommPlatforms', function () {
+        return {
+            platforms: false, loading: false, error: false, saving: false,
+            cleaning: false, cleanResult: false,
+            excludedIds() { return this.platforms.filter(p => !p.included).map(p => p.id); },
+            get hasExcluded() { return Boolean(this.platforms && this.excludedIds().length); },
+            get cleanResultLabel() {
+                if (!this.cleanResult) return '';
+                return 'Removed ' + this.cleanResult.deleted + ' synced items; detached ' + this.cleanResult.detached + ' existing Shelf items.';
+            },
+            platformCountLabel(platform) {
+                return '(Digital Game · ' + platform.rom_count + ' ROM' + (platform.rom_count === 1 ? '' : 's') + ')';
+            },
+            togglePlatform(id) {
+                var platform = this.platforms.find(p => p.id === id);
+                if (platform) platform.included = !platform.included;
+            },
+            loadPlatforms() {
+                this.loading = true; this.error = false;
+                fetch('/api/sync/romm/platforms').then(r => r.json())
+                    .then(d => { if (d.ok) this.platforms = d.platforms; else this.error = d.message; this.loading = false; })
+                    .catch(() => { this.error = 'Failed to load platforms'; this.loading = false; });
+            },
+            savePlatforms() {
+                this.saving = true;
+                fetch('/api/sync/romm/platforms', {method: 'POST', headers: {'Content-Type': 'application/json', 'X-CSRF-Token': window.csrfToken()}, body: JSON.stringify({excluded: this.excludedIds()})})
+                    .then(r => r.json()).then(d => { this.saving = false; if (d.ok) showToast('Platform selection saved'); else showToast(d.message || 'Save failed', 'error'); })
+                    .catch(() => { this.saving = false; showToast('Save failed', 'error'); });
+            },
+            cleanup() {
+                if (!confirm('Remove RomM-synced Shelf items from unchecked platforms? RomM itself is not touched.')) return;
+                this.cleaning = true; this.cleanResult = false;
+                fetch('/api/sync/romm/platforms', {method: 'POST', headers: {'Content-Type': 'application/json', 'X-CSRF-Token': window.csrfToken()}, body: JSON.stringify({excluded: this.excludedIds()})})
+                    .then(() => fetch('/api/sync/romm/platforms/cleanup', {method: 'POST', headers: {'X-CSRF-Token': window.csrfToken()}}))
+                    .then(r => r.json()).then(d => { this.cleaning = false; this.cleanResult = d; if (d.ok) showToast('RomM cleanup complete'); })
+                    .catch(() => { this.cleaning = false; showToast('Cleanup failed', 'error'); });
+            }
+        };
+    });
+
     // settings.html — Hardcover card (test / import / export)
     Alpine.data('hardcoverPanel', function () {
         return {

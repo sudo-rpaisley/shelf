@@ -20,6 +20,8 @@ _INTEGRATION_KEYS = (
     "abs_token",
     "komga_url",
     "komga_api_key",
+    "romm_url",
+    "romm_api_token",
     "isbndb_api_key",
     "tmdb_api_key",
     "hardcover_token",
@@ -60,7 +62,7 @@ async def update_settings(request: Request):
             if key not in form:
                 continue
             value = (form.get(key) or "").strip()
-            if key in ("abs_url", "komga_url"):
+            if key in ("abs_url", "komga_url", "romm_url"):
                 value = value.rstrip("/")
             _upsert_setting(db, key, value, cleared=form.get(f"clear_{key}") == "on")
     invalidate_nav_cache()  # hardcover_token gates the Discover tab

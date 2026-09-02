@@ -41,7 +41,7 @@ from app.config import COVERS_DIR, DATA_DIR, MEDIA_TYPES, get_client_ip
 from app.currency import CURRENCIES, format_money, get_currency
 from app.services.national import SEARCH_LANGS
 from app.database import init_db, get_db
-from app.routers import pages, items, items_covers, items_csv, items_catalog, locations, platforms, settings, sync, komga, checkouts, valuation, hardcover, store, series, share, tags, intake, archive
+from app.routers import pages, items, items_covers, items_csv, items_catalog, locations, platforms, settings, sync, komga, romm, checkouts, valuation, hardcover, store, series, share, tags, intake, archive
 from app.routers import auth_routes
 
 
@@ -329,6 +329,60 @@ async def _periodic_komga_sync():
             logger.exception("Periodic Komga sync failed")
 
 
+async def _periodic_romm_sync():
+    """Background task: run RomM sync on schedule if configured."""
+    from app.services import romm as romm_service, sync_jobs
+    from app.database import get_setting
+
+    intervals = {"daily": 86400, "weekly": 604800}
+
+    while True:
+        await asyncio.sleep(300)
+        try:
+            with get_db() as db:
+                row = db.execute(
+                    "SELECT value FROM settings WHERE key = 'romm_sync_interval'"
+                ).fetchone()
+                interval = row["value"] if row else "off"
+                if interval == "off":
+                    continue
+                last = db.execute(
+                    "SELECT value FROM settings WHERE key = 'romm_last_sync'"
+                ).fetchone()
+                now = time.time()
+                if last and last["value"]:
+                    if now - float(last["value"]) < intervals.get(interval, 86400):
+                        continue
+                romm_url_val = get_setting(db, "romm_url")
+                romm_token = get_setting(db, "romm_api_token")
+
+            if romm_url_val and romm_token:
+                async def runner(on_progress):
+                    return await romm_service.sync(
+                        romm_url_val, romm_token, on_progress=on_progress
+                    )
+                started = sync_jobs.start("romm", runner, source="scheduled")
+                if not started.get("started"):
+                    continue
+                final = await sync_jobs.wait("romm")
+                if final["state"] != "completed":
+                    logger.warning(
+                        "Periodic RomM sync did not complete: %s",
+                        final.get("error") or final["state"],
+                    )
+                    continue
+                finished = str(time.time())
+                with get_db() as db:
+                    db.execute(
+                        "INSERT INTO settings (key, value) VALUES ('romm_last_sync', ?) "
+                        "ON CONFLICT(key) DO UPDATE SET value = ?",
+                        (finished, finished),
+                    )
+                logger.info("Periodic RomM sync completed")
+        except Exception:
+            logger.exception("Periodic RomM sync failed")
+
+
 async def _periodic_hardcover_sync():
     """Background task: pull reading status changes from Hardcover on schedule."""
     from app.services import hardcover as hc_svc
@@ -434,6 +488,7 @@ async def lifespan(app: FastAPI):
     migrate_sensitive_settings()
     task = asyncio.create_task(_periodic_abs_sync())
     komga_task = asyncio.create_task(_periodic_komga_sync())
+    romm_task = asyncio.create_task(_periodic_romm_sync())
     hc_task = asyncio.create_task(_periodic_hardcover_sync())
     loan_task = asyncio.create_task(_periodic_loan_reminders())
     from app.services import cover_queue
@@ -441,6 +496,7 @@ async def lifespan(app: FastAPI):
     yield
     task.cancel()
     komga_task.cancel()
+    romm_task.cancel()
     hc_task.cancel()
     loan_task.cancel()
     if cover_task is not None:
@@ -571,6 +627,7 @@ app.include_router(platforms.router)
 app.include_router(settings.router)
 app.include_router(sync.router)
 app.include_router(komga.router)
+app.include_router(romm.router)
 app.include_router(checkouts.router)
 app.include_router(valuation.router)
 app.include_router(hardcover.router)

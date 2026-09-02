@@ -15,6 +15,7 @@ MEDIA_TYPES = {
     "comic": "Comic / Graphic Novel",
     "digital_comic": "Digital Comic",
     "video_game": "Video Game",
+    "digital_game": "Digital Game",
 }
 
 # Seed data — runtime platform list comes from game_platforms table
@@ -163,6 +164,8 @@ SECRET_ENV_VARS = {
     "abs_token": "ABS_TOKEN",
     "komga_url": "KOMGA_URL",
     "komga_api_key": "KOMGA_API_KEY",
+    "romm_url": "ROMM_URL",
+    "romm_api_token": "ROMM_API_TOKEN",
     "hardcover_token": "HARDCOVER_TOKEN",
     "google_books_api_key": "GOOGLE_BOOKS_API_KEY",
     "isbndb_api_key": "ISBNDB_API_KEY",
