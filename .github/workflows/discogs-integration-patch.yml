@@ -1,0 +1,44 @@
+name: Apply Discogs integration patch
+
+on:
+  push:
+    branches:
+      - feat/music-discogs
+
+jobs:
+  patch:
+    if: github.event.head_commit.message == 'chore: apply Discogs integration patch'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: feat/music-discogs
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+          cache: pip
+
+      - name: Apply repository patch
+        run: python .github/apply_discogs_patch.py
+
+      - name: Install dependencies
+        run: pip install -r requirements-dev.txt
+
+      - name: Run focused Discogs regression suite
+        run: python -m pytest tests/test_discogs.py tests/test_music.py tests/test_settings.py -q --tb=short
+
+      - name: Restamp generated test badges
+        run: python scripts/stamp_test_badges.py
+
+      - name: Remove one-shot helpers and commit
+        run: |
+          rm .github/apply_discogs_patch.py
+          rm .github/workflows/discogs-integration-patch.yml
+          git config user.name 'Robert J Paisley'
+          git config user.email '56076332+sudo-rpaisley@users.noreply.github.com'
+          git add -A
+          git commit -m 'feat: wire Discogs collector enrichment'
+          git push origin HEAD:feat/music-discogs
