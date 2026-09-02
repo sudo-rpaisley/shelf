@@ -1,0 +1,81 @@
+name: Update media groups from main
+
+on:
+  push:
+    branches: [feature/media-groups]
+    paths:
+      - '.github/workflows/update-media-groups-base.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  merge-main:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: feature/media-groups
+          fetch-depth: 0
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+          cache: pip
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+
+      - name: Install dependencies
+        run: |
+          pip install -r requirements-dev.txt
+          npm ci
+
+      - name: Merge current main safely
+        run: |
+          set -e
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git fetch origin main
+
+          set +e
+          git merge --no-ff --no-commit origin/main
+          merge_rc=$?
+          set -e
+
+          if [ "$merge_rc" -ne 0 ]; then
+            conflicts="$(git diff --name-only --diff-filter=U)"
+            echo "Merge conflicts:"
+            printf '%s\n' "$conflicts"
+            if [ "$conflicts" != "README.md" ]; then
+              echo '::error::Real source conflicts need manual review; refusing to auto-resolve.'
+              exit 1
+            fi
+            git checkout --ours README.md
+            git add README.md
+          fi
+
+          unresolved="$(git diff --name-only --diff-filter=U)"
+          if [ -n "$unresolved" ]; then
+            echo "::error::Unresolved conflicts remain: $unresolved"
+            exit 1
+          fi
+
+      - name: Regenerate derived files
+        run: |
+          make css
+          make badges
+
+      - name: Run focused related-media and RomM checks
+        run: |
+          pytest -q tests/test_romm_public_url.py tests/test_romm_progress_ui.py tests/test_romm_sync.py tests/test_media_groups.py tests/test_related_media_ui.py
+          make checks-fast
+
+      - name: Commit merged tree
+        run: |
+          rm .github/workflows/update-media-groups-base.yml
+          git add -A
+          git commit -m 'Merge current main into related media work'
+          git push origin HEAD:feature/media-groups
