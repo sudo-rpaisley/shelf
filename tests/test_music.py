@@ -249,6 +249,7 @@ class TestMusicRoutes:
     def test_music_item_detail_does_not_render_reading_status(self, viewer_client, db):
         item_id = insert_item(db, title="Album", authors="Artist", media_type="vinyl")
         music_catalog.save_release(db, item_id, _SAMPLE_RELEASE)
+        db.commit()
         response = viewer_client.get(f"/item/{item_id}?from=music")
         assert response.status_code == 200
         assert "Reading Status" not in response.text
@@ -257,6 +258,7 @@ class TestMusicRoutes:
     def test_music_detail_fragment_renders_tracks(self, viewer_client, db):
         item_id = insert_item(db, title="Album", authors="Pink Floyd", media_type="vinyl")
         music_catalog.save_release(db, item_id, _SAMPLE_RELEASE)
+        db.commit()
         response = viewer_client.get(f"/api/music/items/{item_id}/detail")
         assert response.status_code == 200
         assert "SHVL 804" in response.text

@@ -55,6 +55,7 @@ def test_existing_scanned_item_prefills_release_search_from_barcode(
         upc="0012345678905",  # Shelf's canonical EAN-13 storage shape
         source="upc",
     )
+    db.commit()
 
     async def fake_search(query, client, **kwargs):
         assert query == ""
