@@ -37,6 +37,7 @@ def test_item_detail_shows_group_platforms_and_related_entries(admin_client, db)
     # The current SNES item has its own Open in RomM action; both other
     # platform versions retain independent RomM deep links in the group.
     assert response.text.count("Also in RomM (Digital Game)") == 2
+    # Every represented RomM platform keeps its own console icon as well as text.
     assert "https://romm.example/assets/platforms/snes.ico" in response.text
     assert "https://romm.example/assets/platforms/gba.ico" in response.text
     assert "https://romm.example/assets/platforms/windows.ico" in response.text
