@@ -15,6 +15,7 @@ MEDIA_TYPES = {
     "comic": "Comic / Graphic Novel",
     "digital_comic": "Digital Comic",
     "video_game": "Video Game",
+    "digital_game": "Digital Game",
 }
 
 # The book family: media types that are read, carry ISBNs, and belong to a
