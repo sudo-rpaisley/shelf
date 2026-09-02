@@ -4,6 +4,7 @@ on:
   push:
     branches: [upstream/komga-integration]
 
+# Temporary pre-PR validation; removed before opening the upstream pull request.
 jobs:
   test:
     runs-on: ubuntu-latest
