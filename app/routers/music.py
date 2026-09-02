@@ -10,8 +10,8 @@ from fastapi.responses import HTMLResponse, RedirectResponse
 
 from app.auth import require_role
 from app.config import HTTP_TIMEOUT, MEDIA_TYPES, MUSIC_MEDIA_TYPES
-from app.database import get_db
-from app.services import covers, music_catalog, musicbrainz
+from app.database import get_db, get_setting
+from app.services import covers, discogs, music_catalog, musicbrainz
 from app.services import upc as upc_svc
 from app.services.item_write import insert_item
 from app.services.write_targets import UnknownLocationError, validated_location_id
@@ -56,6 +56,18 @@ def _search_error(result) -> str | None:
         "rejected": "MusicBrainz rejected the request.",
         "no_match": "No matching releases were found.",
     }.get(result.outcome, "MusicBrainz search failed.")
+
+
+def _discogs_error(result) -> str | None:
+    if result is None or result.found:
+        return None
+    return {
+        "no_credential": "Configure a Discogs API token in Settings first.",
+        "rate_limited": "Discogs is rate-limiting requests. Try again shortly.",
+        "transport_failed": "Discogs could not be reached.",
+        "rejected": "Discogs rejected the configured token.",
+        "no_match": "No matching Discogs releases were found.",
+    }.get(result.outcome, "Discogs search failed.")
 
 
 def _music_item(db, item_id: int | None):
@@ -397,4 +409,136 @@ async def refresh_music_metadata(
             ),
         )
     await _apply_release_artwork(item_id, release_id)
+    return RedirectResponse(f"/item/{item_id}?from=music", status_code=303)
+
+
+
+@router.get("/music/item/{item_id}/discogs")
+async def match_discogs_release(
+    request: Request,
+    item_id: int,
+    q: str = Query(""),
+    artist: str = Query(""),
+    barcode: str = Query(""),
+    catalog_number: str = Query(""),
+    _=Depends(require_role("editor")),
+):
+    """Pick the exact Discogs Release that represents this physical pressing."""
+    q = q.strip()[:200]
+    artist = artist.strip()[:200]
+    barcode = upc_svc.normalize_barcode(barcode)[:32]
+    catalog_number = catalog_number.strip()[:100]
+
+    with get_db() as db:
+        item = _music_item(db, item_id)
+        release = music_catalog.get_release(db, item_id) if item else None
+        token = get_setting(db, "discogs_token")
+    if not item:
+        return RedirectResponse("/music", status_code=303)
+    if not release:
+        return RedirectResponse(f"/music?item_id={item_id}", status_code=303)
+
+    if not (q or artist or barcode or catalog_number):
+        q = item["title"] or ""
+        artist = release.get("artist_credit") or item["authors"] or ""
+        barcode = item["upc"] or ""
+        catalog_number = release.get("catalog_number") or ""
+
+    results: list[dict] = []
+    error = None
+    if not token:
+        error = "Configure a Discogs API token in Settings before matching a pressing."
+    else:
+        async with httpx.AsyncClient(timeout=HTTP_TIMEOUT) as client:
+            if barcode:
+                result = await discogs.search_releases("", client, token=token, barcode=barcode, limit=30)
+            elif catalog_number:
+                result = await discogs.search_releases(
+                    "", client, token=token, artist=artist or None,
+                    catalog_number=catalog_number, limit=30,
+                )
+            else:
+                result = await discogs.search_releases(
+                    q, client, token=token, artist=artist or None, limit=30,
+                )
+        if result.found:
+            results = result.payload or []
+        else:
+            error = _discogs_error(result)
+
+    return request.app.state.templates.TemplateResponse(
+        request,
+        "discogs_match.html",
+        {
+            "item": item,
+            "release": release,
+            "results": results,
+            "error": error,
+            "discogs_configured": bool(token),
+            "q": q,
+            "artist": artist,
+            "barcode": barcode,
+            "catalog_number": catalog_number,
+        },
+    )
+
+
+@router.post("/api/music/items/{item_id}/discogs")
+async def attach_discogs_release(
+    item_id: int,
+    release_id: int = Form(...),
+    _=Depends(require_role("editor")),
+):
+    with get_db() as db:
+        item = _music_item(db, item_id)
+        current = music_catalog.get_release(db, item_id) if item else None
+        token = get_setting(db, "discogs_token")
+    if not item or not current:
+        return HTMLResponse("This item needs an exact MusicBrainz release first", status_code=400)
+    if not token:
+        return HTMLResponse("Discogs API token is not configured", status_code=400)
+
+    async with httpx.AsyncClient(timeout=HTTP_TIMEOUT) as client:
+        result = await discogs.lookup_release(release_id, client, token=token)
+    if not result.found:
+        return HTMLResponse(_discogs_error(result) or "Discogs release lookup failed", status_code=502)
+
+    with get_db() as db:
+        if not music_catalog.save_discogs_enrichment(db, item_id, result.payload):
+            return HTMLResponse("Music release no longer exists", status_code=404)
+    return RedirectResponse(f"/item/{item_id}?from=music", status_code=303)
+
+
+@router.post("/api/music/items/{item_id}/discogs/refresh")
+async def refresh_discogs_release(
+    item_id: int,
+    _=Depends(require_role("editor")),
+):
+    with get_db() as db:
+        row = db.execute(
+            "SELECT discogs_release_id FROM music_releases WHERE item_id = ?",
+            (item_id,),
+        ).fetchone()
+        token = get_setting(db, "discogs_token")
+    if not row or not row["discogs_release_id"]:
+        return HTMLResponse("This copy has no Discogs release match", status_code=400)
+    if not token:
+        return HTMLResponse("Discogs API token is not configured", status_code=400)
+
+    async with httpx.AsyncClient(timeout=HTTP_TIMEOUT) as client:
+        result = await discogs.lookup_release(row["discogs_release_id"], client, token=token)
+    if not result.found:
+        return HTMLResponse(_discogs_error(result) or "Discogs refresh failed", status_code=502)
+    with get_db() as db:
+        music_catalog.save_discogs_enrichment(db, item_id, result.payload)
+    return RedirectResponse(f"/item/{item_id}?from=music", status_code=303)
+
+
+@router.post("/api/music/items/{item_id}/discogs/clear")
+async def clear_discogs_release(
+    item_id: int,
+    _=Depends(require_role("editor")),
+):
+    with get_db() as db:
+        music_catalog.clear_discogs_enrichment(db, item_id)
     return RedirectResponse(f"/item/{item_id}?from=music", status_code=303)

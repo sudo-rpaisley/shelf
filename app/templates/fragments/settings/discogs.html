@@ -1,0 +1,44 @@
+<!-- Discogs collector enrichment -->
+<div class="bg-shelf-card rounded-xl border border-shelf-border p-6" data-testid="discogs-settings-card">
+    <div class="flex items-center justify-between mb-4">
+        <div>
+            <h2 class="text-lg font-semibold">Discogs</h2>
+            <p class="text-xs text-shelf-muted mt-1">Optional collector metadata for exact music pressings. It supplements MusicBrainz, which remains Shelf's primary music identity source.</p>
+        </div>
+        <a href="https://www.discogs.com/settings/developers" target="_blank" rel="noopener"
+           class="text-xs text-shelf-accent2 hover:text-shelf-accent transition-colors">Create API token</a>
+    </div>
+
+    {% set discogs_test = request.query_params.get('discogs_test') %}
+    {% if discogs_test in ('ok', 'missing', 'rejected', 'rate_limited', 'unavailable', 'invalid') %}
+    <div class="mb-3 text-xs {% if discogs_test == 'ok' %}text-shelf-success{% else %}text-shelf-error{% endif %}" data-testid="discogs-test-result">
+        {% if discogs_test == 'ok' %}Discogs connection successful.
+        {% elif discogs_test == 'missing' %}Enter or configure a Discogs API token first.
+        {% elif discogs_test == 'rejected' %}Discogs rejected that token.
+        {% elif discogs_test == 'rate_limited' %}Discogs is rate-limiting requests; try again later.
+        {% elif discogs_test == 'unavailable' %}Discogs could not be reached.
+        {% else %}Discogs did not return a valid identity for that token.
+        {% endif %}
+    </div>
+    {% endif %}
+
+    <form action="/api/settings" method="post" class="space-y-3">
+        <div>
+            <label for="discogs_token" class="block text-sm font-medium text-shelf-muted mb-1">Personal access token</label>
+            <input type="password" id="discogs_token" name="discogs_token" autocomplete="new-password"
+                   placeholder="{% if secrets_saved['discogs_token'] %}Saved — leave blank to keep{% elif secrets_present['discogs_token'] %}Configured by DISCOGS_TOKEN{% else %}Discogs developer token{% endif %}"
+                   class="w-full bg-shelf-bg border border-shelf-border rounded-lg px-3 py-2 text-shelf-text focus:ring-2 focus:ring-shelf-accent outline-none">
+            <p class="text-xs text-shelf-muted mt-1">Stored encrypted at rest. Alternatively, set <span class="font-mono">DISCOGS_TOKEN</span>.</p>
+        </div>
+        {% if secrets_saved['discogs_token'] %}
+        <label class="flex items-center gap-2 text-xs text-shelf-muted">
+            <input type="checkbox" name="clear_discogs_token" class="rounded border-shelf-border"> Remove saved token
+        </label>
+        {% endif %}
+        <div class="flex items-center gap-2">
+            <button type="submit" class="px-4 py-2 bg-shelf-accent text-white rounded-lg text-sm hover:bg-shelf-accent2 transition-colors">Save</button>
+            <button type="submit" formaction="/api/settings/discogs/test"
+                    class="px-4 py-2 bg-shelf-hover text-shelf-text rounded-lg text-sm hover:bg-shelf-border transition-colors">Test</button>
+        </div>
+    </form>
+</div>
