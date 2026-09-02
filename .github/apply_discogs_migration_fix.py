@@ -28,7 +28,31 @@ replace_once(
     if "duplicate column name" in msg:
         return version <= _PRE_ATOMIC_MAX_VERSION
 ''',
-    '''def _is_benign_migration_error(
+    '''def _migration_table_has_column(table_name: str, column_name: str) -> bool:
+    """Whether G1 deliberately bakes *column_name* into this managed table.
+
+    A post-atomic duplicate ALTER is only recoverable when the same column is
+    present in that table's ``MIGRATION_TABLES`` CREATE definition. A column
+    that merely happens to exist in SCHEMA or from unrelated SQL is still a
+    migration defect and must propagate.
+    """
+    table = re.search(
+        rf"CREATE TABLE IF NOT EXISTS\\s+{re.escape(table_name)}\\s*\\((.*?)\\n\\);",
+        MIGRATION_TABLES,
+        re.IGNORECASE | re.DOTALL,
+    )
+    if not table:
+        return False
+    return bool(
+        re.search(
+            rf"^\\s*{re.escape(column_name)}\\s+",
+            table.group(1),
+            re.IGNORECASE | re.MULTILINE,
+        )
+    )
+
+
+def _is_benign_migration_error(
     version: int,
     exc: sqlite3.OperationalError,
     *,
@@ -38,12 +62,10 @@ replace_once(
     """True only when a failed migration is already present by construction.
 
     Pre-atomic migrations retain their historical duplicate-column recovery.
-    For newer migrations we do *not* trust the exception text alone: the SQL
-    must be a simple ``ALTER TABLE ... ADD COLUMN``, the duplicate named by
-    SQLite must be that same column, and PRAGMA must confirm it already exists
-    on that exact table. This lets a baked-in MIGRATION_TABLES schema self-heal
-    a missing version row without turning arbitrary post-atomic SQL errors into
-    recorded successes.
+    A newer duplicate is recoverable only under G1: its exact table/column is
+    explicitly baked into ``MIGRATION_TABLES`` and SQLite confirms that column
+    is already present. This heals missing version bookkeeping without hiding
+    arbitrary post-atomic migration defects.
     """
     msg = str(exc)
     if "duplicate column name" in msg:
@@ -62,6 +84,8 @@ replace_once(
             return False
         table_name, column_name = alter.groups()
         if duplicate.group(1).casefold() != column_name.casefold():
+            return False
+        if not _migration_table_has_column(table_name, column_name):
             return False
         # table_name is restricted to an SQL identifier by the regex above,
         # so quoting it here is sufficient and no user-controlled SQL enters
