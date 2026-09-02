@@ -1,4 +1,4 @@
-"""First-class music catalogue: release search, add, detail and copy metadata."""
+"""First-class music catalogue: release search, add, enrich and copy metadata."""
 
 from __future__ import annotations
 
@@ -58,6 +58,19 @@ def _search_error(result) -> str | None:
     }.get(result.outcome, "MusicBrainz search failed.")
 
 
+def _music_item(db, item_id: int | None):
+    if not item_id:
+        return None
+    row = db.execute(
+        "SELECT id, title, authors, media_type, upc, location_id, cover_path, owned "
+        "FROM items WHERE id = ?",
+        (item_id,),
+    ).fetchone()
+    if not row or row["media_type"] not in MUSIC_MEDIA_TYPES:
+        return None
+    return row
+
+
 @router.get("/music")
 async def music_page(
     request: Request,
@@ -65,16 +78,36 @@ async def music_page(
     artist: str = Query(""),
     barcode: str = Query(""),
     catalog_number: str = Query(""),
+    item_id: int | None = Query(None),
     _=Depends(require_role("viewer")),
 ):
-    """Search MusicBrainz exact releases and add the chosen edition to Shelf."""
+    """Search exact MusicBrainz releases, optionally for an existing scan.
+
+    A UPC scan can create a valid music item even when no music metadata
+    provider runs on the scan request itself. Passing ``item_id`` turns this
+    page into an in-place enrichment picker: barcode is preferred because it
+    identifies the physical release more strongly than a cleaned retail title.
+    """
     q = q.strip()[:200]
     artist = artist.strip()[:200]
     barcode = upc_svc.normalize_barcode(barcode)[:32]
     catalog_number = catalog_number.strip()[:100]
+
+    with get_db() as db:
+        target_item = _music_item(db, item_id)
+        locations = db.execute(
+            "SELECT * FROM locations ORDER BY sort_order, name"
+        ).fetchall()
+
+    if target_item and not (q or artist or barcode or catalog_number):
+        if target_item["upc"]:
+            barcode = target_item["upc"]
+        else:
+            q = target_item["title"] or ""
+            artist = target_item["authors"] or ""
+
     results: list[dict] = []
     error = None
-
     if q or artist or barcode or catalog_number:
         async with httpx.AsyncClient(timeout=HTTP_TIMEOUT) as client:
             result = await musicbrainz.search_releases(
@@ -93,11 +126,6 @@ async def music_page(
         else:
             error = _search_error(result)
 
-    with get_db() as db:
-        locations = db.execute(
-            "SELECT * FROM locations ORDER BY sort_order, name"
-        ).fetchall()
-
     return request.app.state.templates.TemplateResponse(
         request,
         "music.html",
@@ -109,11 +137,35 @@ async def music_page(
             "barcode": barcode,
             "catalog_number": catalog_number,
             "locations": locations,
+            "target_item": target_item,
             "music_media_types": {
                 key: MEDIA_TYPES[key] for key in MEDIA_TYPES if key in MUSIC_MEDIA_TYPES
             },
         },
     )
+
+
+async def _apply_release_artwork(item_id: int, release_id: str) -> None:
+    """Fill a missing cover from the exact release without overwriting uploads."""
+    with get_db() as db:
+        row = db.execute("SELECT cover_path FROM items WHERE id = ?", (item_id,)).fetchone()
+    if not row or row["cover_path"]:
+        return
+
+    async with httpx.AsyncClient(timeout=HTTP_TIMEOUT) as client:
+        art_result = await musicbrainz.cover_art(release_id, client)
+        candidates = art_result.payload if art_result.found else []
+        front = next((c for c in candidates if c.get("front")), None)
+        chosen = front or (candidates[0] if candidates else None)
+        if not chosen:
+            return
+        cover_path = await covers._download_to_item(item_id, chosen["url"], client)
+    if cover_path:
+        with get_db() as db:
+            db.execute(
+                "UPDATE items SET cover_path = ?, updated_at = datetime('now') WHERE id = ?",
+                (cover_path, item_id),
+            )
 
 
 @router.post("/api/music/add")
@@ -123,15 +175,24 @@ async def add_music_release(
     media_type: str = Form(""),
     location_id: int | None = Form(None),
     owned: int = Form(1),
+    target_item_id: int | None = Form(None),
     _=Depends(require_role("editor")),
 ):
+    """Add a new exact release or attach it to a title-only scanned music item."""
     release_id = release_id.strip()
     if not release_id:
         return RedirectResponse("/music", status_code=303)
 
     try:
         with get_db() as db:
-            loc_id = validated_location_id(db, location_id)
+            target_item = _music_item(db, target_item_id)
+            if target_item_id and not target_item:
+                return HTMLResponse("The target item is not a music item", status_code=400)
+            loc_id = (
+                target_item["location_id"]
+                if target_item
+                else validated_location_id(db, location_id)
+            )
             existing = db.execute(
                 "SELECT item_id FROM music_releases WHERE musicbrainz_release_id = ?",
                 (release_id,),
@@ -139,7 +200,7 @@ async def add_music_release(
     except UnknownLocationError:
         return HTMLResponse("Selected location no longer exists", status_code=400)
 
-    if existing:
+    if existing and (not target_item or existing["item_id"] != target_item["id"]):
         return RedirectResponse(f"/item/{existing['item_id']}?from=music", status_code=303)
 
     async with httpx.AsyncClient(timeout=HTTP_TIMEOUT) as client:
@@ -150,25 +211,53 @@ async def add_music_release(
 
     if media_type not in MUSIC_MEDIA_TYPES:
         media_type = _infer_media_type(release)
-
-    barcode = upc_svc.normalize_upc(release.get("barcode") or "") or None
     publish_year = _year(release.get("release_date")) or _year(release.get("first_release_date"))
+    provider_barcode = upc_svc.normalize_upc(release.get("barcode") or "") or None
 
     try:
         with get_db() as db:
-            item_id = insert_item(
-                db,
-                title=release["title"],
-                authors=release.get("artist_credit"),
-                upc=barcode,
-                media_type=media_type,
-                publisher=release.get("label"),
-                publish_year=publish_year,
-                location_id=loc_id,
-                owned=1 if owned else 0,
-                source="musicbrainz",
-            )
-            music_catalog.save_release(db, item_id, release)
+            if target_item:
+                item_id = target_item["id"]
+                # Preserve the barcode the user actually scanned. Only fill a
+                # blank barcode from MusicBrainz when it will not collide with
+                # Shelf's existing unique (upc, media_type) identity.
+                item_barcode = target_item["upc"]
+                if not item_barcode and provider_barcode:
+                    collision = db.execute(
+                        "SELECT 1 FROM items WHERE upc = ? AND media_type = ? AND id != ?",
+                        (provider_barcode, media_type, item_id),
+                    ).fetchone()
+                    if not collision:
+                        item_barcode = provider_barcode
+                db.execute(
+                    "UPDATE items SET title = ?, authors = ?, upc = ?, media_type = ?, "
+                    "publisher = ?, publish_year = ?, source = 'musicbrainz', "
+                    "updated_at = datetime('now') WHERE id = ?",
+                    (
+                        release["title"],
+                        release.get("artist_credit"),
+                        item_barcode,
+                        media_type,
+                        release.get("label"),
+                        publish_year,
+                        item_id,
+                    ),
+                )
+                music_catalog.save_release(db, item_id, release)
+            else:
+                item_id = insert_item(
+                    db,
+                    title=release["title"],
+                    authors=release.get("artist_credit"),
+                    upc=provider_barcode,
+                    media_type=media_type,
+                    publisher=release.get("label"),
+                    publish_year=publish_year,
+                    location_id=loc_id,
+                    owned=1 if owned else 0,
+                    source="musicbrainz",
+                )
+                music_catalog.save_release(db, item_id, release)
     except sqlite3.IntegrityError:
         with get_db() as db:
             existing = db.execute(
@@ -179,22 +268,8 @@ async def add_music_release(
             return RedirectResponse(f"/item/{existing['item_id']}?from=music", status_code=303)
         raise
 
-    # Artwork is deliberately outside the insert transaction: a slow or absent
-    # Cover Art Archive response must not roll back valid catalogue metadata.
-    async with httpx.AsyncClient(timeout=HTTP_TIMEOUT) as client:
-        art_result = await musicbrainz.cover_art(release_id, client)
-        candidates = art_result.payload if art_result.found else []
-        front = next((c for c in candidates if c.get("front")), None)
-        chosen = front or (candidates[0] if candidates else None)
-        if chosen:
-            cover_path = await covers._download_to_item(item_id, chosen["url"], client)
-            if cover_path:
-                with get_db() as db:
-                    db.execute(
-                        "UPDATE items SET cover_path = ?, updated_at = datetime('now') WHERE id = ?",
-                        (cover_path, item_id),
-                    )
-
+    # Network artwork work is outside the catalogue write transaction.
+    await _apply_release_artwork(item_id, release_id)
     return RedirectResponse(f"/item/{item_id}?from=music", status_code=303)
 
 
@@ -206,7 +281,8 @@ async def music_item_detail(
 ):
     with get_db() as db:
         item = db.execute(
-            "SELECT id, title, media_type, upc FROM items WHERE id = ?", (item_id,)
+            "SELECT id, title, authors, media_type, upc FROM items WHERE id = ?",
+            (item_id,),
         ).fetchone()
         if not item or item["media_type"] not in MUSIC_MEDIA_TYPES:
             return HTMLResponse("")
@@ -320,4 +396,5 @@ async def refresh_music_metadata(
                 item_id,
             ),
         )
+    await _apply_release_artwork(item_id, release_id)
     return RedirectResponse(f"/item/{item_id}?from=music", status_code=303)
