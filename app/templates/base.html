@@ -42,7 +42,7 @@
                             <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 12h16M4 18h16"/></svg>
                         </button>
                         <div x-show="open" x-cloak data-testid="nav-menu-panel"
-                             class="absolute left-0 top-full mt-2 w-56 bg-shelf-card border border-shelf-border rounded-xl shadow-xl py-1 z-50 overflow-hidden">
+                             class="absolute left-0 top-full mt-2 w-52 bg-shelf-card border border-shelf-border rounded-xl shadow-xl py-1 z-50 overflow-hidden">
                             {% for tab in primary_tabs %}
                             <a href="{{ tab.path }}" data-nav-menu-tab="{{ tab.key }}" class="block px-4 py-2.5 text-sm font-medium {% if request.url.path == tab.path %}bg-shelf-hover text-white{% else %}text-shelf-muted hover:text-white hover:bg-shelf-hover{% endif %} transition-colors">
                                 {{ tab.label }}
@@ -51,7 +51,7 @@
 
                             {% if add_tabs %}
                             <div class="border-t border-shelf-border py-1">
-                                <p class="px-4 pt-1.5 pb-1 text-[10px] uppercase tracking-widest text-shelf-muted">Add</p>
+                                <p class="px-4 pt-2 pb-2 text-[10px] uppercase tracking-wider text-shelf-muted">Add</p>
                                 {% for tab in add_tabs %}
                                 <a href="{{ tab.path }}" data-nav-menu-tab="{{ tab.key }}" class="block px-4 py-2.5 text-sm font-medium {% if request.url.path == tab.path %}bg-shelf-hover text-white{% else %}text-shelf-muted hover:text-white hover:bg-shelf-hover{% endif %} transition-colors">
                                     {{ tab.label }}
@@ -62,7 +62,7 @@
 
                             {% if more_tabs %}
                             <div class="border-t border-shelf-border py-1">
-                                <p class="px-4 pt-1.5 pb-1 text-[10px] uppercase tracking-widest text-shelf-muted">More</p>
+                                <p class="px-4 pt-2 pb-2 text-[10px] uppercase tracking-wider text-shelf-muted">More</p>
                                 {% for tab in more_tabs %}
                                 <a href="{{ tab.path }}" data-nav-menu-tab="{{ tab.key }}" class="block px-4 py-2.5 text-sm font-medium {% if request.url.path == tab.path %}bg-shelf-hover text-white{% else %}text-shelf-muted hover:text-white hover:bg-shelf-hover{% endif %} transition-colors">
                                     {{ tab.label }}
@@ -126,11 +126,11 @@
                             <span class="block text-sm font-medium text-shelf-text">{{ user.display_name or user.username }}</span>
                             <span class="block text-[10px] uppercase tracking-wider text-shelf-muted">{{ user.role }}</span>
                         </span>
-                        <svg class="hidden sm:block w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/></svg>
+                        <svg class="hidden sm:block w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/></svg>
                     </button>
 
                     <div x-show="open" x-cloak data-testid="account-menu-panel" role="menu"
-                         class="absolute right-0 top-full mt-2 w-64 bg-shelf-card border border-shelf-border rounded-xl shadow-2xl z-50 overflow-hidden">
+                         class="absolute right-0 top-full mt-2 w-52 bg-shelf-card border border-shelf-border rounded-xl shadow-2xl z-50 overflow-hidden">
                         <div class="px-4 py-3 border-b border-shelf-border">
                             <p class="text-sm font-medium text-shelf-text truncate">{{ user.display_name or user.username }}</p>
                             <p class="text-xs text-shelf-muted truncate">{{ user.username }} · {{ user.role|capitalize }}</p>
@@ -149,7 +149,7 @@
 
                         {% if account_tabs %}
                         <div class="py-1 border-t border-shelf-border">
-                            <p class="px-4 pt-1.5 pb-1 text-[10px] uppercase tracking-widest text-shelf-muted">Administration</p>
+                            <p class="px-4 pt-2 pb-2 text-[10px] uppercase tracking-wider text-shelf-muted">Administration</p>
                             {% for tab in account_tabs %}
                             <a href="{{ tab.path }}" data-nav-tab="{{ tab.key }}" data-nav-menu-tab="{{ tab.key }}" role="menuitem"
                                class="flex items-center gap-3 px-4 py-2.5 text-sm {% if request.url.path == tab.path %}bg-shelf-hover text-white{% else %}text-shelf-muted hover:text-white hover:bg-shelf-hover{% endif %} transition-colors">
