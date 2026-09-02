@@ -1,0 +1,48 @@
+name: Multiple provider links build
+
+on:
+  push:
+    branches: [feature/media-groups]
+    paths:
+      - scripts/provider_links_patch.py
+      - .github/workflows/provider-links-build.yml
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: feature/media-groups
+          fetch-depth: 0
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+      - name: Install dependencies
+        run: |
+          pip install -r requirements-dev.txt
+          npm ci
+      - name: Apply provider-link changes
+        run: python scripts/provider_links_patch.py
+      - name: Validate provider-link behaviour
+        run: |
+          python -m compileall -q app
+          pytest -q tests/test_related_media_ui.py tests/test_abs_links.py tests/test_abs_public_url.py tests/test_romm_public_url.py tests/test_romm_sync.py
+          python scripts/check_alpine_csp.py
+          python scripts/check_csrf_fetch.py
+      - name: Regenerate committed derived files
+        run: make css
+      - name: Commit feature tree
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git commit -m "Keep multiple provider links in media groups"
+          git push origin HEAD:feature/media-groups
