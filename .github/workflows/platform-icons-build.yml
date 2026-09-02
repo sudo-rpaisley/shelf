@@ -38,14 +38,15 @@ jobs:
         run: python .github/scripts/apply_platform_icons.py
 
       - name: Validate platform icon behaviour
-        run: |
-          python -m pytest tests/test_related_media_ui.py tests/test_romm_sync.py tests/test_romm_public_url.py -q
-          make checks-fast
+        run: python -m pytest tests/test_related_media_ui.py tests/test_romm_sync.py tests/test_romm_public_url.py -q
 
       - name: Regenerate committed derived files
         run: |
           make badges
           make css
+
+      - name: Validate generated files and security checks
+        run: make checks-fast
 
       - name: Commit feature tree
         run: |
