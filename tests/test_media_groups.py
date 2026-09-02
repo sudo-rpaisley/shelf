@@ -37,28 +37,42 @@ def test_book_family_groups_formats_and_multiple_audiobook_editions(db):
     assert set(media_groups.related_ids(db, book)) == {ebook, audio_one, audio_two}
 
 
-def test_game_family_groups_platform_versions_but_not_distant_remake(db):
+def test_game_family_groups_platform_versions_across_release_years(db):
     snes = _insert_item(
         db, title="Example Quest", isbn=None, media_type="digital_game",
         platform="snes", publish_year=1994,
     )
     gba = _insert_item(
         db, title="Example Quest", isbn=None, media_type="digital_game",
-        platform="gba", publish_year=1995,
+        platform="gba", publish_year=2001,
     )
     pc = _insert_item(
         db, title="Example Quest", isbn=None, media_type="video_game",
-        platform="pc", publish_year=1996,
+        platform="pc", publish_year=2004,
     )
-    remake = _insert_item(
+    later_port = _insert_item(
         db, title="Example Quest", isbn=None, media_type="digital_game",
         platform="ps5", publish_year=2025,
     )
 
     media_groups.auto_link_family(db, "game")
 
-    assert set(media_groups.related_ids(db, snes)) == {gba, pc}
-    assert remake not in media_groups.related_ids(db, snes)
+    assert set(media_groups.related_ids(db, snes)) == {gba, pc, later_port}
+
+
+def test_game_family_keeps_distinct_subtitles_separate(db):
+    ocarina = _insert_item(
+        db, title="The Legend of Zelda: Ocarina of Time", isbn=None,
+        media_type="digital_game", platform="n64",
+    )
+    majora = _insert_item(
+        db, title="The Legend of Zelda: Majora's Mask", isbn=None,
+        media_type="digital_game", platform="n64",
+    )
+
+    media_groups.auto_link_family(db, "game")
+
+    assert majora not in media_groups.related_ids(db, ocarina)
 
 
 def test_manual_link_can_join_different_media_families(db):
