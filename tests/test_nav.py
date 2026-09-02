@@ -37,25 +37,31 @@ VIEWER = {"id": 3, "username": "viewer", "role": "viewer"}
 
 # --- Registry shape ---------------------------------------------------------
 
-def test_registry_covers_the_ten_tabs():
+def test_registry_covers_the_eleven_destinations():
     assert [t["key"] for t in NAV_TABS] == [
-        "browse", "music", "scan", "intake", "store", "series", "discover",
-        "stats", "settings", "logs",
+        "home", "browse", "series", "discover", "scan", "intake", "music",
+        "store", "stats", "settings", "logs",
     ]
     for tab in NAV_TABS:
         assert tab["label"] and tab["path"].startswith("/")
+        assert tab["group"] in {"primary", "add", "more", "account"}
 
 
-def test_browse_and_settings_are_not_hideable():
-    assert set(ALWAYS_VISIBLE) == {"browse", "settings"}
+def test_home_collection_and_settings_are_not_hideable():
+    assert set(ALWAYS_VISIBLE) == {"home", "browse", "settings"}
     assert not HIDEABLE_KEYS & set(ALWAYS_VISIBLE)
+
+
+def test_primary_group_is_the_small_top_level_navigation():
+    primary = [t["key"] for t in NAV_TABS if t["group"] == "primary"]
+    assert primary == ["home", "browse", "series", "discover"]
 
 
 # --- Role gating ------------------------------------------------------------
 
 def test_viewer_sees_no_scan_intake_settings_or_logs(db):
     keys = _keys(VIEWER)
-    assert "browse" in keys and "store" in keys and "stats" in keys
+    assert "home" in keys and "browse" in keys and "store" in keys and "stats" in keys
     for gated in ("scan", "intake", "settings", "logs"):
         assert gated not in keys
 
@@ -73,7 +79,7 @@ def test_admin_sees_settings_and_logs(db):
 
 def test_anonymous_sees_only_ungated_tabs(db):
     keys = _keys(None)
-    assert keys == ["browse", "music", "store", "series", "stats"]
+    assert keys == ["home", "browse", "series", "music", "store", "stats"]
 
 
 # --- Integration requirements ----------------------------------------------
@@ -126,13 +132,13 @@ def test_hidden_tabs_are_dropped(db):
     _set(db, "nav_hidden_tabs", json.dumps(["stats", "store"]))
     keys = _keys(ADMIN)
     assert "stats" not in keys and "store" not in keys
-    assert "browse" in keys and "settings" in keys
+    assert "home" in keys and "browse" in keys and "settings" in keys
 
 
-def test_browse_and_settings_survive_a_forged_hidden_list(db):
-    _set(db, "nav_hidden_tabs", json.dumps(["browse", "settings"]))
+def test_always_visible_tabs_survive_a_forged_hidden_list(db):
+    _set(db, "nav_hidden_tabs", json.dumps(["home", "browse", "settings"]))
     keys = _keys(ADMIN)
-    assert "browse" in keys and "settings" in keys
+    assert "home" in keys and "browse" in keys and "settings" in keys
 
 
 @pytest.mark.parametrize("stored", ["not json", "{}", '"stats"', "[1, 2]", "null", ""])
@@ -212,6 +218,7 @@ def test_wrapper_injects_nav_tabs_with_keyword_context(monkeypatch, db):
     ctx = _captured_context(monkeypatch, ADMIN, context={})
     assert ctx["user"] == ADMIN
     assert [t["key"] for t in ctx["nav_tabs"]] == _keys(ADMIN)
+    assert all("group" in tab for tab in ctx["nav_tabs"])
 
 
 def test_wrapper_injects_nav_tabs_with_positional_context(monkeypatch, db):
@@ -228,8 +235,9 @@ def test_wrapper_does_not_override_an_explicit_nav_tabs(monkeypatch, db):
 # --- Rendered nav -----------------------------------------------------------
 
 def test_rendered_nav_follows_the_registry(admin_client, db):
-    """The nav bar itself renders from `nav_tabs`, not from hardcoded anchors."""
+    """The nav shell renders primary, grouped, and account destinations from `nav_tabs`."""
     html = admin_client.get("/browse").text
+    assert 'data-nav-tab="home"' in html
     assert 'data-nav-tab="browse"' in html
     assert 'data-nav-tab="settings"' in html
     assert 'data-nav-tab="discover"' not in html  # no token configured
@@ -239,9 +247,15 @@ def test_rendered_nav_follows_the_registry(admin_client, db):
 
 def test_rendered_nav_respects_role(viewer_client, db):
     html = viewer_client.get("/browse").text
+    assert 'data-nav-tab="home"' in html
     assert 'data-nav-tab="browse"' in html
     for gated in ("scan", "settings", "logs"):
         assert f'data-nav-tab="{gated}"' not in html
+
+
+def test_shelf_brand_links_home(admin_client, db):
+    html = admin_client.get("/browse").text
+    assert '<a href="/" class="text-lg font-bold text-shelf-accent2 tracking-tight mr-6">Shelf</a>' in html
 
 
 def test_active_tab_is_highlighted(admin_client, db):
@@ -272,17 +286,17 @@ def test_hiding_a_tab_then_unhiding_round_trips(admin_client, db):
     assert "stats" in _keys(ADMIN)
 
 
-def test_browse_and_settings_cannot_be_hidden_via_forged_form(admin_client, db):
-    # Submit nothing checked at all, plus forged unchecks for browse/settings —
-    # neither key is hideable, so nothing can remove them from the nav.
+def test_always_visible_tabs_cannot_be_hidden_via_forged_form(admin_client, db):
+    # Submit forged unchecks for the non-hideable destinations. None of these
+    # keys belongs to HIDEABLE_KEYS, so they cannot be removed from the nav.
     r = admin_client.post(
         "/api/settings/nav",
-        data={"browse": "", "settings": ""},
+        data={"home": "", "browse": "", "settings": ""},
         follow_redirects=False,
     )
     assert r.status_code == 303
     keys = _keys(ADMIN)
-    assert "browse" in keys and "settings" in keys
+    assert "home" in keys and "browse" in keys and "settings" in keys
 
 
 def test_unknown_keys_in_the_form_are_not_stored(admin_client, db):
@@ -470,7 +484,7 @@ def test_intake_available_ollama_on_defaults_is_true(db):
     assert _state(hideable_tab_states(), "intake")["available"] is True
 
 
-@pytest.mark.parametrize("key", ["stats", "store"])
+@pytest.mark.parametrize("key", ["stats", "store", "music"])
 def test_tabs_without_requires_are_always_available(db, key):
     state = _state(hideable_tab_states(), key)
     assert state["available"] is True
