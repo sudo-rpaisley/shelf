@@ -1,6 +1,7 @@
 """RomM settings progress UI regressions.
 
 The progress panel must be visible from job start, before RomM discovery knows the final total.
+This also pins the final related-media branch after rebasing on the current main tree.
 """
 
 from pathlib import Path
