@@ -216,7 +216,7 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
 
 async def _periodic_abs_sync():
     """Background task: run ABS sync on schedule if configured."""
-    from app.services import audiobookshelf, sync_jobs
+    from app.services import audiobookshelf
 
     intervals = {"daily": 86400, "weekly": 604800}
 
@@ -242,33 +242,18 @@ async def _periodic_abs_sync():
                 abs_token_val = get_setting(db, "abs_token")
 
             if abs_url_val and abs_token_val:
-                async def runner(on_progress):
-                    return await audiobookshelf.sync(
-                        abs_url_val, abs_token_val, on_progress=on_progress
-                    )
-
-                started = sync_jobs.start(
-                    "audiobookshelf", runner, source="scheduled"
-                )
-                if not started.get("started"):
-                    continue
-                final = await sync_jobs.wait("audiobookshelf")
-                if final["state"] != "completed":
-                    logger.warning(
-                        "Periodic Audiobookshelf sync did not complete: %s",
-                        final.get("error") or final["state"],
-                    )
-                    continue
-                finished = str(time.time())
+                await audiobookshelf.sync(abs_url_val, abs_token_val)
                 with get_db() as db:
                     db.execute(
                         "INSERT INTO settings (key, value) VALUES ('abs_last_sync', ?) "
                         "ON CONFLICT(key) DO UPDATE SET value = ?",
-                        (finished, finished),
+                        (str(now), str(now)),
                     )
                 logger.info("Periodic Audiobookshelf sync completed")
         except Exception:
             logger.exception("Periodic Audiobookshelf sync failed")
+
+
 
 
 async def _periodic_komga_sync():
@@ -329,7 +314,7 @@ async def _periodic_komga_sync():
             logger.exception("Periodic Komga sync failed")
 
 
-async def _periodic_hardcover_sync():
+async def _periodic_hardcover_sync():async def _periodic_hardcover_sync():
     """Background task: pull reading status changes from Hardcover on schedule."""
     from app.services import hardcover as hc_svc
 

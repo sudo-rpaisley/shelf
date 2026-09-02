@@ -571,7 +571,6 @@ async def settings(request: Request, _=Depends(require_role("admin"))):
     # Seed detached integration-sync progress into the first Settings render.
     # The browser still polls for fresh values, but a transient failed/429
     # reconnect can no longer make an active job look idle after navigation.
-    abs_sync_job = sync_jobs.get_status("audiobookshelf")
     komga_sync_job = sync_jobs.get_status("komga")
 
     return request.app.state.templates.TemplateResponse(
@@ -585,5 +584,5 @@ async def settings(request: Request, _=Depends(require_role("admin"))):
          "hideable_nav_tab_states": hideable_nav_tab_states,
          "borrower_error_message": borrower_error_message,
          "missing_covers": missing_covers, "cover_queue_stats": cover_queue_stats,
-         "abs_sync_job": abs_sync_job, "komga_sync_job": komga_sync_job},
+         "komga_sync_job": komga_sync_job},
     )
