@@ -263,17 +263,29 @@ async def item_detail(
                 game_platforms.get(data["platform"], data["platform"])
                 if data.get("platform") else None
             )
-            data["provider_url"] = None
-            data["provider_name"] = None
+            # A related item may legitimately be represented in more than one
+            # external service. Keep every deep link rather than choosing the first.
+            data["provider_links"] = []
             if data["id"] in abs_link_map:
-                data["provider_url"] = abs_link_map[data["id"]]
-                data["provider_name"] = "Audiobookshelf"
-            elif data["id"] in komga_link_map:
-                data["provider_url"] = komga_link_map[data["id"]]
-                data["provider_name"] = "Komga"
-            elif data["id"] in romm_link_map:
-                data["provider_url"] = romm_link_map[data["id"]]
-                data["provider_name"] = "RomM"
+                data["provider_links"].append({
+                    "name": "Audiobookshelf", "url": abs_link_map[data["id"]]
+                })
+            if data["id"] in komga_link_map:
+                data["provider_links"].append({
+                    "name": "Komga", "url": komga_link_map[data["id"]]
+                })
+            if data["id"] in romm_link_map:
+                data["provider_links"].append({
+                    "name": "RomM", "url": romm_link_map[data["id"]]
+                })
+            # Preserve the old singular fields for any downstream template/plugin
+            # code while the built-in UI consumes provider_links.
+            data["provider_url"] = (
+                data["provider_links"][0]["url"] if data["provider_links"] else None
+            )
+            data["provider_name"] = (
+                data["provider_links"][0]["name"] if data["provider_links"] else None
+            )
             data["manual_linked"] = media_groups.has_manual_group_edge(
                 db, item_id, data["id"]
             )

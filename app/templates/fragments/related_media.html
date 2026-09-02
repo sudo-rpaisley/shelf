@@ -43,12 +43,12 @@
                 </p>
             </a>
             <div class="flex items-center gap-1 shrink-0">
-                {% if related.provider_url %}
-                <a href="{{ related.provider_url }}" target="_blank" rel="noopener"
+                {% for provider in related.provider_links %}
+                <a href="{{ provider.url }}" target="_blank" rel="noopener"
                    class="px-2 py-1 bg-shelf-accent/15 text-shelf-accent2 rounded text-xs hover:bg-shelf-accent/25 transition-colors">
-                    Also in {{ related.provider_name }} ({{ related.media_label }})
+                    Also in {{ provider.name }} ({{ related.media_label }})
                 </a>
-                {% endif %}
+                {% endfor %}
                 {% if user and user.role in ('admin', 'editor') and related.manual_linked %}
                 <form action="/api/items/{{ item.id }}/related/{{ related.id }}/remove" method="post">
                     <input type="hidden" name="_csrf" value="{{ request.cookies.get('csrf_token', '') }}">

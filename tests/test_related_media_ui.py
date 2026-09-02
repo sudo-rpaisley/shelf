@@ -12,8 +12,8 @@ def test_item_detail_shows_group_platforms_and_related_entries(admin_client, db)
         platform="gba", publish_year=1995, romm_id="12",
     )
     pc = _insert_item(
-        db, title="Example Quest", isbn=None, media_type="video_game",
-        platform="pc", publish_year=1996,
+        db, title="Example Quest", isbn=None, media_type="digital_game",
+        platform="pc", publish_year=1996, romm_id="13",
     )
     media_groups.auto_link_family(db, "game")
     db.execute(
@@ -29,7 +29,37 @@ def test_item_detail_shows_group_platforms_and_related_entries(admin_client, db)
     assert "Game Boy Advance" in response.text
     assert "PC" in response.text
     assert response.text.count('data-testid="related-media-item"') == 2
-    assert "Also in RomM" in response.text
+    # The current SNES item has its own Open in RomM action; both other
+    # platform versions retain independent RomM deep links in the group.
+    assert response.text.count("Also in RomM (Digital Game)") == 2
+
+
+def test_multiple_abs_narrator_editions_keep_separate_links(admin_client, db):
+    book = _insert_item(
+        db, title="Example Novel", isbn=None, media_type="book",
+        authors="Example Author",
+    )
+    _insert_item(
+        db, title="Example Novel", isbn=None, media_type="audiobook",
+        authors="Example Author", narrator="Narrator One", abs_id="abs-one",
+    )
+    _insert_item(
+        db, title="Example Novel", isbn=None, media_type="audiobook",
+        authors="Example Author", narrator="Narrator Two", abs_id="abs-two",
+    )
+    media_groups.auto_link_family(db, "book")
+    db.execute(
+        "INSERT INTO settings (key, value) VALUES ('abs_url', 'http://abs:13378')"
+    )
+    db.execute("COMMIT")
+
+    response = admin_client.get(f"/item/{book}")
+    assert response.status_code == 200
+    assert "Narrator One" in response.text
+    assert "Narrator Two" in response.text
+    assert response.text.count("Also in Audiobookshelf (Audiobook)") == 2
+    assert "abs-one" in response.text
+    assert "abs-two" in response.text
 
 
 def test_cross_media_manual_group_renders_formats(admin_client, db):
