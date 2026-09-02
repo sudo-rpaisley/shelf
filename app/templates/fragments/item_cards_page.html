@@ -1,5 +1,11 @@
 {% for item in items %}
+{% if item.browse_series_group|default(false) %}
+{% include "fragments/series_card.html" %}
+{% elif item.browse_media_group|default(false) %}
+{% include "fragments/media_group_card.html" %}
+{% else %}
 {% include "fragments/item_card.html" %}
+{% endif %}
 {% endfor %}
 {% if has_more is defined and has_more %}
 <div id="load-more" class="col-span-full text-center py-4"
