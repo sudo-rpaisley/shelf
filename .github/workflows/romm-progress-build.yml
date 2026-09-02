@@ -1,0 +1,60 @@
+name: RomM progress build
+
+on:
+  push:
+    branches: [feature/media-groups]
+    paths:
+      - '.github/scripts/apply_romm_progress.py'
+      - '.github/workflows/romm-progress-build.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: feature/media-groups
+          fetch-depth: 0
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+          cache: pip
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+
+      - name: Install dependencies
+        run: |
+          pip install -r requirements-dev.txt
+          npm ci
+
+      - name: Apply RomM progress UI
+        run: python .github/scripts/apply_romm_progress.py
+
+      - name: Run focused regression and CSP checks
+        run: |
+          python -m pytest tests/test_romm_progress_ui.py tests/test_alpine_csp_lint.py -q
+
+      - name: Regenerate committed derived files
+        run: |
+          make badges
+          make css
+
+      - name: Validate generated files and security checks
+        run: make checks-fast
+
+      - name: Commit feature tree
+        run: |
+          rm .github/scripts/apply_romm_progress.py .github/workflows/romm-progress-build.yml
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add -A
+          git diff --cached --quiet && exit 0
+          git commit -m 'Show RomM sync progress immediately'
+          git push origin HEAD:feature/media-groups
