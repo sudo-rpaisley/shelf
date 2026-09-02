@@ -1,0 +1,84 @@
+name: Sync main into media groups
+
+on:
+  push:
+    branches: [sync-main-into-media-groups]
+    paths: [.github/workflows/sync-main-media-groups.yml]
+
+permissions:
+  contents: write
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+          cache: pip
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+
+      - name: Install dependencies
+        run: |
+          pip install -r requirements-dev.txt
+          npm ci
+
+      - name: Merge current main safely
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git fetch origin main
+
+          set +e
+          git merge --no-commit --no-ff origin/main
+          rc=$?
+          set -e
+
+          if [ "$rc" -ne 0 ]; then
+            conflicts="$(git diff --name-only --diff-filter=U)"
+            echo "Conflicts:"
+            printf '%s\n' "$conflicts"
+            unexpected="$(printf '%s\n' "$conflicts" | grep -v '^README.md$' || true)"
+            if [ -n "$unexpected" ]; then
+              echo "::error::Real source conflicts need manual review:"
+              printf '%s\n' "$unexpected"
+              exit 1
+            fi
+            git checkout --ours README.md
+            git add README.md
+          fi
+
+      - name: Regenerate derived files
+        run: |
+          make badges
+          make css
+
+      - name: Run focused media-group and RomM checks
+        run: |
+          python -m pytest \
+            tests/test_media_groups.py \
+            tests/test_related_media_ui.py \
+            tests/test_romm_sync.py \
+            tests/test_romm_progress_ui.py \
+            tests/test_romm_public_url.py \
+            -q --tb=short
+          make checks-fast
+
+      - name: Commit merged tree
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm .github/workflows/sync-main-media-groups.yml
+          git add -A
+          git commit -m "Merge current main into media groups"
+          git push origin HEAD:sync-main-into-media-groups
