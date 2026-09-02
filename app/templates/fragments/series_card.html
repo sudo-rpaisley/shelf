@@ -1,9 +1,9 @@
 {# One collapsed Digital Comic series in Browse grid view. The item supplied by
    browse_grouping is only a sort representative; cover_path is deliberately
    replaced with the earliest issue's cover and the card itself is not an item
-   selection target.  Count wording stays source-neutral here; the focused
-   detail page has all members available and can distinguish issues/volumes. #}
-<a href="/series/detail?name={{ item.series_name|urlencode }}&amp;media_type=digital_comic" class="group relative"
+   selection target. Count wording stays source-neutral here; the focused
+   detail page has all members available and can choose precise terminology. #}
+<a href="{{ item.browse_series_url }}" class="group relative"
    data-series-group="{{ item.series_name }}">
     <div class="cover-card bg-shelf-card rounded-lg overflow-hidden border border-shelf-border group-hover:border-shelf-accent/50 transition-colors shadow-lg">
         <span class="absolute top-2 right-2 z-10 px-2 py-1 rounded-md text-[10px] font-semibold bg-shelf-card/95 text-shelf-text border border-shelf-border shadow">
