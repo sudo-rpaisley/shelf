@@ -6,6 +6,7 @@ import httpx
 import respx
 
 from app.services import covers
+from app.services import romm as romm_service
 from app.services.romm import PAGE_SIZE, get_excluded_platforms, sync
 from tests.conftest import _insert_item
 
@@ -210,3 +211,72 @@ def test_paginates_romm_platform(db):
     assert stats["added"] == PAGE_SIZE + 1
     assert route.call_count == 2
     assert route.calls[1].request.url.params["offset"] == str(PAGE_SIZE)
+
+
+@respx.mock
+def test_transient_page_timeout_is_retried_without_dropping_platform(db, monkeypatch):
+    monkeypatch.setattr(romm_service, "PAGE_RETRY_BACKOFF", 0)
+    respx.get(f"{ROMM}/api/platforms").mock(
+        return_value=httpx.Response(200, json=[_platform(count=PAGE_SIZE + 1)]))
+    first = [_rom(rid=i + 1, title=f"Game {i + 1}", cover=None)
+             for i in range(PAGE_SIZE)]
+    last = _rom(rid=PAGE_SIZE + 1, title="Last Game", cover=None)
+    route = respx.get(f"{ROMM}/api/roms").mock(side_effect=[
+        _page(*first, total=PAGE_SIZE + 1, offset=0),
+        httpx.ReadTimeout("temporary RomM timeout"),
+        _page(last, total=PAGE_SIZE + 1, offset=PAGE_SIZE),
+    ])
+
+    stats = asyncio.run(sync(ROMM, TOKEN))
+
+    assert stats["added"] == PAGE_SIZE + 1
+    assert stats["incomplete_platforms"] == 0
+    assert route.call_count == 3
+
+
+@respx.mock
+def test_exhausted_page_retries_preserve_partial_platform(db, monkeypatch):
+    monkeypatch.setattr(romm_service, "PAGE_RETRY_BACKOFF", 0)
+    respx.get(f"{ROMM}/api/platforms").mock(
+        return_value=httpx.Response(200, json=[_platform(count=PAGE_SIZE + 50)]))
+    first = [_rom(rid=i + 1, title=f"Game {i + 1}", cover=None)
+             for i in range(PAGE_SIZE)]
+    route = respx.get(f"{ROMM}/api/roms").mock(side_effect=[
+        _page(*first, total=PAGE_SIZE + 50, offset=0),
+        *[httpx.ReadTimeout("RomM stayed unavailable") for _ in range(romm_service.PAGE_RETRIES + 1)],
+    ])
+
+    stats = asyncio.run(sync(ROMM, TOKEN))
+
+    assert stats["added"] == PAGE_SIZE
+    assert stats["errors"] == 1
+    assert stats["incomplete_platforms"] == 1
+    assert route.call_count == romm_service.PAGE_RETRIES + 2
+
+
+@respx.mock
+def test_discovery_reports_page_progress_before_import(db):
+    respx.get(f"{ROMM}/api/platforms").mock(
+        return_value=httpx.Response(200, json=[_platform(count=PAGE_SIZE + 1)]))
+    first = [_rom(rid=i + 1, title=f"Game {i + 1}", cover=None)
+             for i in range(PAGE_SIZE)]
+    last = _rom(rid=PAGE_SIZE + 1, title="Last Game", cover=None)
+    respx.get(f"{ROMM}/api/roms").mock(side_effect=[
+        _page(*first, total=PAGE_SIZE + 1, offset=0),
+        _page(last, total=PAGE_SIZE + 1, offset=PAGE_SIZE),
+    ])
+    progress = []
+
+    async def on_progress(current, total, title, status):
+        progress.append((current, total, title, status))
+
+    stats = asyncio.run(sync(ROMM, TOKEN, on_progress=on_progress))
+
+    assert stats["added"] == PAGE_SIZE + 1
+    assert any(
+        current == PAGE_SIZE and total >= PAGE_SIZE + 1
+        and title.startswith("Discovering ") and status == "discovering"
+        for current, total, title, status in progress
+    )
+    importing = next(entry for entry in progress if entry[3] == "importing")
+    assert importing[:2] == (0, PAGE_SIZE + 1)

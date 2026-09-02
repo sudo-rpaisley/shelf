@@ -88,8 +88,9 @@
             <template x-if="result && result.error"><p class="text-shelf-error" x-text="result.error"></p></template>
             <template x-if="result && !result.error">
                 <div>
-                    <p class="text-shelf-success">Added: <span x-text="result.added"></span>, Updated: <span x-text="result.updated"></span>, Unchanged: <span x-text="result.unchanged"></span>, Skipped: <span x-text="result.skipped"></span></p>
+                    <p class="text-shelf-success">Added: <span x-text="result.added"></span>, Updated: <span x-text="result.updated"></span>, Unchanged: <span x-text="result.unchanged"></span>, Skipped: <span x-text="result.skipped"></span>, Errors: <span x-text="result.errors"></span></p>
                     <p class="text-xs text-shelf-muted mt-1">Covers imported: <span x-text="result.covers"></span> · Cover errors: <span x-text="result.cover_errors"></span></p>
+                    <p x-show="result.incomplete_platforms" class="text-xs text-shelf-warning mt-1">Incomplete RomM platforms: <span x-text="result.incomplete_platforms"></span>. Re-run sync to retry the missing pages.</p>
                 </div>
             </template>
         </div>
