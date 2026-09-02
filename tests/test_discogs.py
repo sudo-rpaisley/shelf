@@ -1,6 +1,6 @@
 """Discogs collector-enrichment regression tests."""
 
-from app.database import get_setting
+from app.database import _run_migrations, get_setting
 from app.services import discogs, music_catalog, provider_result
 from app.services.item_write import insert_item
 
@@ -58,6 +58,20 @@ def _seed(db):
     item_id = insert_item(db, title="Test Album", authors="Test Artist", media_type="vinyl")
     music_catalog.save_release(db, item_id, _music_release())
     return item_id
+
+
+class TestDiscogsMigrationRecovery:
+    def test_baked_discogs_column_self_heals_missing_version_row(self, db):
+        # Reproduce a restored/constructed DB where the complete table schema
+        # is present but migration 31's bookkeeping row is missing.
+        db.execute("DELETE FROM schema_version WHERE version = 31")
+        db.commit()
+
+        _run_migrations(db)
+
+        assert db.execute(
+            "SELECT 1 FROM schema_version WHERE version = 31"
+        ).fetchone() is not None
 
 
 class TestDiscogsNormalisation:

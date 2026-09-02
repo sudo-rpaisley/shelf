@@ -5,46 +5,7 @@ on:
     branches: [main]
   pull_request:
 
-permissions:
-  contents: write
-
 jobs:
-  fix-discogs-migrations:
-    if: github.event_name == 'pull_request' && github.head_ref == 'feat/music-discogs'
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v7
-        with:
-          ref: feat/music-discogs
-          fetch-depth: 0
-
-      - uses: actions/setup-python@v6
-        with:
-          python-version: '3.12'
-          cache: pip
-
-      - name: Apply migration recovery patch
-        run: python .github/apply_discogs_migration_fix.py
-
-      - name: Install dependencies
-        run: pip install -r requirements-dev.txt
-
-      - name: Run migration and Discogs regressions
-        run: python -m pytest tests/test_discogs.py tests/test_items.py -q --tb=short
-
-      - name: Restamp unit-test badge
-        run: python scripts/stamp_test_badges.py
-
-      - name: Restore normal CI and commit validated fix
-        run: |
-          git show origin/feat/music-catalog:.github/workflows/test.yml > .github/workflows/test.yml
-          rm .github/apply_discogs_migration_fix.py
-          git config user.name 'Robert J Paisley'
-          git config user.email '56076332+sudo-rpaisley@users.noreply.github.com'
-          git add -A
-          git commit -m 'fix: self-heal baked Discogs migrations'
-          git push origin HEAD:feat/music-discogs
-
   # Unit/integration suite plus the offline lints. These are the cheap gates and
   # they run together because they share one dependency install.
   test:
