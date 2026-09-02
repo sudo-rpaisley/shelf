@@ -88,7 +88,9 @@ def test_maps_romm_rom_to_digital_game(db):
     }
     req = listing.calls[0].request
     assert req.headers["Authorization"] == f"Bearer {TOKEN}"
-    assert req.url.params["platform_id"] == "1"
+    assert req.url.params["platform_ids"] == "1"
+    assert req.url.params["with_total"] == "true"
+    assert req.url.params["order_by"] == "id"
     assert req.url.params["limit"] == str(PAGE_SIZE)
     assert req.url.params["group_by_meta_id"] == "true"
     assert req.url.params["with_char_index"] == "false"
@@ -255,28 +257,31 @@ def test_exhausted_page_retries_preserve_partial_platform(db, monkeypatch):
 
 
 @respx.mock
-def test_discovery_reports_page_progress_before_import(db):
+def test_streams_first_page_before_fetching_second_page(db):
     respx.get(f"{ROMM}/api/platforms").mock(
         return_value=httpx.Response(200, json=[_platform(count=PAGE_SIZE + 1)]))
     first = [_rom(rid=i + 1, title=f"Game {i + 1}", cover=None)
              for i in range(PAGE_SIZE)]
     last = _rom(rid=PAGE_SIZE + 1, title="Last Game", cover=None)
-    respx.get(f"{ROMM}/api/roms").mock(side_effect=[
-        _page(*first, total=PAGE_SIZE + 1, offset=0),
-        _page(last, total=PAGE_SIZE + 1, offset=PAGE_SIZE),
-    ])
-    progress = []
+    observed_before_second = []
 
-    async def on_progress(current, total, title, status):
-        progress.append((current, total, title, status))
+    def responder(request):
+        offset = int(request.url.params.get("offset", "0"))
+        if offset == 0:
+            return _page(*first, total=PAGE_SIZE + 1, offset=0)
+        from app.database import get_db
+        with get_db() as check_db:
+            observed_before_second.append(
+                check_db.execute("SELECT COUNT(*) FROM items WHERE source='romm'").fetchone()[0]
+            )
+        return _page(last, total=None, offset=PAGE_SIZE)
 
-    stats = asyncio.run(sync(ROMM, TOKEN, on_progress=on_progress))
+    route = respx.get(f"{ROMM}/api/roms").mock(side_effect=responder)
+    stats = asyncio.run(sync(ROMM, TOKEN))
 
     assert stats["added"] == PAGE_SIZE + 1
-    assert any(
-        current == PAGE_SIZE and total >= PAGE_SIZE + 1
-        and title.startswith("Discovering ") and status == "discovering"
-        for current, total, title, status in progress
-    )
-    importing = next(entry for entry in progress if entry[3] == "importing")
-    assert importing[:2] == (0, PAGE_SIZE + 1)
+    assert observed_before_second == [PAGE_SIZE]
+    assert route.calls[0].request.url.params["platform_ids"] == "1"
+    assert route.calls[0].request.url.params["with_total"] == "true"
+    assert route.calls[1].request.url.params["with_total"] == "false"
+    assert PAGE_SIZE == 500
