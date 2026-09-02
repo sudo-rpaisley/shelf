@@ -28,29 +28,47 @@ responsive web interface.
 - **Eight scan modes** — Add, Wishlist, Lend, Return, Move, Inventory, Lookup
   and Quick Rate.
 - **Photo Intake** — photograph a shelf or stack of books, review the detected
-  titles and ISBNs, then add them in bulk.
-- **Metadata and covers** — Open Library, Google Books, national libraries,
-  Hardcover, TMDb and IGDB provide metadata, with multiple cover fallbacks.
-- **Series tracking** — progress, gaps, completion status and Hardcover-powered
-  series completeness checks.
-- **Reading history** — TBR / Reading / Read / DNF status with dates and a
-  per-item history.
-- **Lending** — borrowers, due dates, overdue reminders and loan history.
-- **Collection valuation** — ISBNdb estimates, manual overrides and value
-  history.
-- **Audiobookshelf integration** — import audiobooks and ebooks, including
-  metadata, covers and linked physical/digital formats.
-- **Komga integration** — import comics and graphic novels as Digital Comics,
-  including metadata, covers and browser links back to Komga.
-- **RomM integration** — import ROM libraries as Digital Games, including
-  platform mapping, covers and browser links back to RomM.
-- **Multi-user roles** — Admin, Editor and Viewer permissions.
-- **Offline/PWA support** — installable app, cached browse data and a dedicated
-  offline bookstore/store mode.
+  titles, then import them in bulk.
+- **Automatic metadata and covers** — book metadata can cascade through Open
+  Library, Hardcover, Google Books and DNB; games and films can use IGDB and
+  TMDb.
+- **More than books** — catalogue audiobooks, eBooks, DVDs/Blu-rays, CDs,
+  comics, children's books and video games alongside physical books.
+- **Collection management** — locations, tags, bulk editing, series tracking,
+  reading status, lending, wishlist management and collection statistics.
+- **Import, export and backup** — CSV migration, Goodreads/StoryGraph import,
+  portable collection archives and database backup/restore.
+- **Offline Store Mode** — a PWA workflow for checking your collection while
+  shopping without a network connection.
+- **Multi-user** — admin, editor and viewer roles for a shared household
+  catalogue.
 
-## Quick Start
+Shelf itself runs on your network in a single Docker container with SQLite and
+does not require a Shelf-hosted account or service. Optional metadata, cover,
+sync and vision features contact the providers you configure. Metadata lookups
+send identifiers or search terms to those providers; Photo Intake sends the
+selected image to a remote vision provider unless you use a local backend such
+as Ollama or a local OpenAI-compatible endpoint.
 
-### Docker Compose
+## Screenshots
+
+| Browse | Scan |
+|---|---|
+| ![Browse](screenshots/browse.png) | ![Scan](screenshots/scan.png) |
+
+| Item detail | Photo Intake |
+|---|---|
+| ![Detail](screenshots/detail.png) | ![Photo Intake](screenshots/photo-intake.png) |
+
+| Series | Stats |
+|---|---|
+| ![Series](screenshots/series.png) | ![Stats](screenshots/stats.png) |
+
+## Quick start
+
+### Stable upstream image
+
+For a normal installation, run the published image:
 
 ```yaml
 services:
@@ -58,50 +76,127 @@ services:
     image: dangahagan/shelf:latest
     container_name: shelf
     ports:
-      - "18889:18889"
+      - "18888:18888"
+    environment:
+      - CERT_SAN=${CERT_SAN:-DNS:shelf,DNS:localhost}
     volumes:
-      - ./shelf-data:/data
+      - ./data:/data:z
     restart: unless-stopped
 ```
 
-Shelf serves HTTPS directly on port `18889`. On first run, open the site and
-complete the setup wizard to create the initial Admin account.
+Save that as `compose.yaml`, then run:
 
-For local development from this fork, see [Development](#development).
+```bash
+docker compose up -d
+```
 
-## Reverse Proxy
+Open `https://localhost:18888` and create the first admin account with the
+setup wizard. Browsers will initially warn about Shelf's self-signed
+certificate; see [HTTPS & reverse proxy](docs/https-and-reverse-proxy.md) for
+production options.
 
-If Shelf is behind a reverse proxy, set `SHELF_TRUST_PROXY=1` **only** when the
-proxy overwrites `CF-Connecting-IP` / `X-Forwarded-For`. This lets Shelf use the
-real client IP for rate limiting without trusting spoofable headers from direct
-clients.
+If you access Shelf by IP address or another hostname, add it to `CERT_SAN` in
+an `.env` file beside the Compose file, for example:
 
-The repository includes examples for Traefik and other deployment details in
-[`docs/installation.md`](docs/installation.md).
+```bash
+CERT_SAN=IP:192.168.1.100,DNS:shelf,DNS:localhost
+```
 
-## Development
+See [Installation](docs/installation.md) for `docker run`, image tags and the
+full setup guide.
+
+### Run this repository from source
+
+The root `docker-compose.yml` is a **development Compose file**. It builds the
+local source, uses host networking, stores data in `./data-dev` by default and
+listens on port `18889` unless overridden.
 
 ```bash
 git clone https://github.com/sudo-rpaisley/shelf.git
 cd shelf
-cp .env.example .env
-# edit .env as needed
-docker compose up --build
+docker compose up -d --build
 ```
 
-For tests:
+Open `https://localhost:18889`.
+
+## Persistent data
+
+A normal container installation keeps persistent state under `/data`:
+
+```text
+data/
+  shelf.db        SQLite database
+  covers/         cached cover images
+  certs/          generated TLS certificate and key
+  encryption.key  credential-encryption key when not supplied by environment
+```
+
+Back up the whole data directory, or use Shelf's backup/export tools. Keep
+`encryption.key` private: it is needed to decrypt credentials stored in the
+database when `SHELF_ENCRYPTION_KEY` is not provided separately.
+
+## Documentation
+
+Full documentation lives in [`docs/`](docs/README.md).
+
+| Area | Documentation |
+|---|---|
+| Install and operate | [Installation](docs/installation.md) · [Configuration](docs/configuration.md) · [HTTPS & reverse proxy](docs/https-and-reverse-proxy.md) · [Upgrading & backups](docs/upgrading-and-backups.md) |
+| Use Shelf | [Getting started](docs/user-guide/getting-started.md) · [Scanning](docs/user-guide/scanning.md) · [Photo Intake](docs/user-guide/photo-intake.md) · [Browse & search](docs/user-guide/browse-and-search.md) · [Items](docs/user-guide/items.md) · [Series](docs/user-guide/series.md) |
+| Collection workflows | [Lending](docs/user-guide/lending.md) · [Wishlist & Store Mode](docs/user-guide/wishlist-and-store-mode.md) · [Sharing](docs/user-guide/sharing.md) · [Stats & valuation](docs/user-guide/stats-and-valuation.md) · [Import & export](docs/user-guide/import-and-export.md) |
+| Administration | [Integrations](docs/user-guide/integrations.md) · [Users & roles](docs/user-guide/users-and-roles.md) · [Troubleshooting](docs/troubleshooting.md) · [FAQ](docs/faq.md) |
+| Development | [Development](docs/development.md) · [Architecture](docs/architecture.md) · [Contributing](CONTRIBUTING.md) · [Security](SECURITY.md) |
+
+## Integrations
+
+Core book cataloguing works without paid API keys. Optional integrations add
+richer metadata or additional workflows.
+
+| Service | Purpose |
+|---|---|
+| Open Library | Book metadata, covers and title search |
+| Google Books | Fallback metadata, covers and synopses; optional API key |
+| Hardcover | Richer book metadata, series information and reading sync |
+| DNB | German ISBN metadata |
+| IGDB | Video-game metadata, covers and platforms |
+| TMDb | Film/DVD/Blu-ray metadata and title search |
+| ISBNdb | Collection valuation |
+| Audiobookshelf | Link and sync selected audiobook libraries |
+| Anthropic / OpenAI-compatible / Ollama | Photo Intake vision backends |
+
+See [Integrations](docs/user-guide/integrations.md) for configuration and what
+data each integration uses.
+
+## Development
+
+The development guide documents the project layout, local environment, tests,
+lints and generated assets:
 
 ```bash
-python -m pytest
+python -m venv .venv
+source .venv/bin/activate
+make setup
+make dev
 ```
 
-For the browser suite:
+Common checks are:
 
 ```bash
-python -m pytest tests/e2e -m e2e
+make test
+make test-e2e
+make checks
+make css
 ```
+
+See [docs/development.md](docs/development.md) before making changes and
+[CONTRIBUTING.md](CONTRIBUTING.md) before opening a pull request.
+
+The test-count badges above are generated from pytest collection. Use
+`make badges` after adding or removing tests; CI verifies that the committed
+counts are current.
 
 ## License
 
-Shelf is licensed under the GNU Affero General Public License v3.0. See
-[`LICENSE`](LICENSE).
+[AGPL-3.0](LICENSE) — free to use, self-host and modify. If you offer a
+modified version of Shelf as a network service, you must make the corresponding
+source available under the same licence.
