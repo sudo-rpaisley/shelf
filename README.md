@@ -3,7 +3,7 @@
 [![Release](https://img.shields.io/github/v/release/dgahagan/shelf)](https://github.com/dgahagan/shelf/releases)
 [![Docker Pulls](https://img.shields.io/docker/pulls/dangahagan/shelf)](https://hub.docker.com/r/dangahagan/shelf)
 [![CI](https://github.com/sudo-rpaisley/shelf/actions/workflows/test.yml/badge.svg)](https://github.com/sudo-rpaisley/shelf/actions/workflows/test.yml)
-[![Unit tests](https://img.shields.io/badge/unit%20tests-2325%20passing-brightgreen)](https://github.com/sudo-rpaisley/shelf/actions/workflows/test.yml)
+[![Unit tests](https://img.shields.io/badge/unit%20tests-2375%20passing-brightgreen)](https://github.com/sudo-rpaisley/shelf/actions/workflows/test.yml)
 [![E2E tests](https://img.shields.io/badge/e2e%20tests-210%20passing-brightgreen)](https://github.com/sudo-rpaisley/shelf/actions/workflows/test.yml)
 [![License: AGPL-3.0](https://img.shields.io/github/license/sudo-rpaisley/shelf)](LICENSE)
 
@@ -31,9 +31,10 @@ responsive web interface.
   titles, then import them in bulk.
 - **Automatic metadata and covers** — book metadata can cascade through Open
   Library, Hardcover, Google Books and DNB; games and films can use IGDB and
-  TMDb.
-- **More than books** — catalogue audiobooks, eBooks, DVDs/Blu-rays, CDs,
-  comics, children's books and video games alongside physical books.
+  TMDb; music releases can use MusicBrainz and the Cover Art Archive.
+- **More than books** — catalogue audiobooks, eBooks, DVDs/Blu-rays, vinyl,
+  cassettes, CDs, digital music, comics, children's books and video games
+  alongside physical books.
 - **Collection management** — locations, tags, bulk editing, series tracking,
   reading status, lending, wishlist management and collection statistics.
 - **Import, export and backup** — CSV migration, Goodreads/StoryGraph import,
@@ -160,6 +161,8 @@ richer metadata or additional workflows.
 | DNB | German ISBN metadata |
 | IGDB | Video-game metadata, covers and platforms |
 | TMDb | Film/DVD/Blu-ray metadata and title search |
+| MusicBrainz | Exact music release/pressing metadata, track listings and release-group identity |
+| Cover Art Archive | Release-specific music cover artwork |
 | ISBNdb | Collection valuation |
 | Audiobookshelf | Link and sync selected audiobook libraries |
 | Anthropic / OpenAI-compatible / Ollama | Photo Intake vision backends |

@@ -11,12 +11,27 @@ MEDIA_TYPES = {
     "audiobook": "Audiobook",
     "ebook": "eBook",
     "dvd": "DVD / Blu-ray",
+    "vinyl": "Vinyl",
+    "cassette": "Cassette",
     "cd": "CD",
+    "digital_music": "Digital Music",
+    "music_other": "Other Music Format",
     "comic": "Comic / Graphic Novel",
     "digital_comic": "Digital Comic",
     "video_game": "Video Game",
     "digital_game": "Digital Game",
 }
+
+# Music is a first-class media family. Keep this declaration beside
+# MEDIA_TYPES so routes/templates/services can share one membership test
+# instead of scattering near-identical tuples across the application.
+MUSIC_MEDIA_TYPES = frozenset({
+    "vinyl",
+    "cassette",
+    "cd",
+    "digital_music",
+    "music_other",
+})
 
 # Seed data — runtime platform list comes from game_platforms table
 GAME_PLATFORMS = {
@@ -139,6 +154,18 @@ HOST_RATE_LIMITS: dict[str, float] = {
     "images-na.ssl-images-amazon.com": 0.5,  # image CDN; politeness only
     "api.igdb.com": 0.25,  # IGDB publishes 4 req/s
     "api.themoviedb.org": 0.1,  # no hard per-second cap
+    # MusicBrainz requires ordinary clients to stay at or below one request
+    # per second. Give the limiter a little margin rather than sitting exactly
+    # on the boundary; musicbrainz.py also sends the required identifying UA.
+    "musicbrainz.org": 1.05,
+    # Cover Art Archive is a separate host. It does not publish the same hard
+    # one-request rule, but album-art fetches are never latency critical, so
+    # pace them conservatively and serially alongside other metadata sources.
+    "coverartarchive.org": 1.0,
+    # Discogs publishes request ceilings through response headers. Shelf
+    # does not need bursty collector lookups, so one request/second is a
+    # deliberately conservative client-side pace.
+    "api.discogs.com": 1.0,
     # EXPLORER (the keyless trial tier this client uses) allows 6 lookups per
     # minute and 100 per day; faster than the burst rate is declined with 429
     # (https://www.upcitemdb.com/wp/docs/main/development/api-rate-limits/).
@@ -172,6 +199,7 @@ SECRET_ENV_VARS = {
     "tmdb_api_key": "TMDB_API_KEY",
     "igdb_client_id": "IGDB_CLIENT_ID",
     "igdb_client_secret": "IGDB_CLIENT_SECRET",
+    "discogs_token": "DISCOGS_TOKEN",
 }
 
 

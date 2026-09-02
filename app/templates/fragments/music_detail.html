@@ -1,0 +1,126 @@
+<section class="mt-6 pt-6 border-t border-shelf-border" data-testid="music-release-detail">
+    <div class="flex items-center justify-between gap-3 mb-4">
+        <h2 class="text-sm font-semibold uppercase tracking-wider text-shelf-muted">Music release</h2>
+        {% if release and user and user.role in ('admin', 'editor') %}
+        <div class="flex items-center gap-2">
+            <form method="post" action="/api/music/items/{{ item.id }}/refresh">
+                <button type="submit" class="text-xs px-3 py-1.5 bg-shelf-hover text-shelf-muted rounded hover:text-white transition-colors">Refresh metadata</button>
+            </form>
+            <a href="/music/item/{{ item.id }}/edit" class="text-xs px-3 py-1.5 bg-shelf-accent/20 text-shelf-accent2 rounded hover:bg-shelf-accent/30 transition-colors">Edit copy</a>
+        </div>
+        {% endif %}
+    </div>
+
+    {% if release %}
+    <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-x-8 gap-y-2 text-sm mb-5">
+        {% if release.artist_credit %}<div><span class="text-shelf-muted">Artist:</span> {{ release.artist_credit }}</div>{% endif %}
+        {% if release.release_type %}<div><span class="text-shelf-muted">Release:</span> {{ release.release_type }}</div>{% endif %}
+        {% if release.release_date %}<div><span class="text-shelf-muted">Date:</span> {{ release.release_date }}</div>{% endif %}
+        {% if release.country %}<div><span class="text-shelf-muted">Country:</span> {{ release.country }}</div>{% endif %}
+        {% if release.label %}<div><span class="text-shelf-muted">Label:</span> {{ release.label }}</div>{% endif %}
+        {% if release.catalog_number %}<div><span class="text-shelf-muted">Catalogue #:</span> <span class="font-mono">{{ release.catalog_number }}</span></div>{% endif %}
+        {% if release.format_summary %}<div><span class="text-shelf-muted">Format:</span> {{ release.format_summary }}</div>{% endif %}
+        {% if release.packaging %}<div><span class="text-shelf-muted">Packaging:</span> {{ release.packaging }}</div>{% endif %}
+        {% if item.upc %}<div><span class="text-shelf-muted">Barcode:</span> <span class="font-mono">{{ item.upc }}</span></div>{% endif %}
+        {% if release.media_condition %}<div><span class="text-shelf-muted">Media condition:</span> {{ release.media_condition }}</div>{% endif %}
+        {% if release.packaging_condition %}<div><span class="text-shelf-muted">Sleeve/package:</span> {{ release.packaging_condition }}</div>{% endif %}
+    </div>
+
+    {% if release.edition_notes or release.condition_notes %}
+    <div class="grid grid-cols-1 md:grid-cols-2 gap-3 mb-5 text-sm">
+        {% if release.edition_notes %}<div class="bg-shelf-bg rounded-lg p-3"><span class="text-shelf-muted">Edition notes:</span> {{ release.edition_notes }}</div>{% endif %}
+        {% if release.condition_notes %}<div class="bg-shelf-bg rounded-lg p-3"><span class="text-shelf-muted">Condition notes:</span> {{ release.condition_notes }}</div>{% endif %}
+    </div>
+    {% endif %}
+
+    {% if release.identifiers %}
+    <div class="mb-5">
+        <h3 class="text-xs font-semibold uppercase tracking-wider text-shelf-muted mb-2">Identifiers</h3>
+        <div class="flex flex-wrap gap-2">
+            {% for identifier in release.identifiers %}
+            <span class="px-2 py-1 bg-shelf-hover rounded text-xs"><span class="text-shelf-muted">{{ identifier.identifier_type }}:</span> <span class="font-mono">{{ identifier.value }}</span>{% if identifier.description %} · {{ identifier.description }}{% endif %}</span>
+            {% endfor %}
+        </div>
+    </div>
+    {% endif %}
+
+    {% if release.discogs_release_id %}
+    <div class="mb-5 bg-shelf-bg rounded-lg p-4" data-testid="discogs-release-detail">
+        <div class="flex items-start justify-between gap-3">
+            <div>
+                <h3 class="text-xs font-semibold uppercase tracking-wider text-shelf-muted mb-2">Discogs pressing</h3>
+                {% if release.discogs_fresh %}
+                <div class="text-sm space-y-1">
+                    {% if release.discogs_label %}<div><span class="text-shelf-muted">Label:</span> {{ release.discogs_label }}</div>{% endif %}
+                    {% if release.discogs_catalog_number %}<div><span class="text-shelf-muted">Catalogue #:</span> <span class="font-mono">{{ release.discogs_catalog_number }}</span></div>{% endif %}
+                    {% if release.discogs_format_summary %}<div><span class="text-shelf-muted">Exact format:</span> {{ release.discogs_format_summary }}</div>{% endif %}
+                    {% if release.discogs_genres %}<div><span class="text-shelf-muted">Genres:</span> {{ release.discogs_genres|join(', ') }}</div>{% endif %}
+                    {% if release.discogs_styles %}<div><span class="text-shelf-muted">Styles:</span> {{ release.discogs_styles|join(', ') }}</div>{% endif %}
+                </div>
+                {% if release.discogs_identifiers %}
+                <div class="flex flex-wrap gap-2 mt-3">
+                    {% for identifier in release.discogs_identifiers %}
+                    <span class="px-2 py-1 bg-shelf-hover rounded text-xs"><span class="text-shelf-muted">{{ identifier.identifier_type|replace('_', ' ')|title }}:</span> <span class="font-mono">{{ identifier.value }}</span>{% if identifier.description %} · {{ identifier.description }}{% endif %}</span>
+                    {% endfor %}
+                </div>
+                {% endif %}
+                {% if release.discogs_notes %}<p class="text-xs text-shelf-muted mt-3 whitespace-pre-line">{{ release.discogs_notes }}</p>{% endif %}
+                {% else %}
+                <p class="text-sm text-shelf-muted">Cached Discogs data is older than six hours and is hidden until refreshed.</p>
+                {% endif %}
+                <p class="mt-3 text-xs"><a class="text-shelf-accent2 hover:text-shelf-accent" target="_blank" rel="noopener" href="https://www.discogs.com/release/{{ release.discogs_release_id }}">Data provided by Discogs.</a> <span class="text-shelf-muted">Release #{{ release.discogs_release_id }}</span></p>
+                {% if release.discogs_master_id %}<p class="text-xs text-shelf-muted mt-1">Master: <a class="text-shelf-accent2 hover:text-shelf-accent" target="_blank" rel="noopener" href="https://www.discogs.com/master/{{ release.discogs_master_id }}">{{ release.discogs_master_id }}</a></p>{% endif %}
+            </div>
+            {% if user and user.role in ('admin', 'editor') %}
+            <div class="flex flex-col gap-2 shrink-0">
+                <form method="post" action="/api/music/items/{{ item.id }}/discogs/refresh"><button type="submit" class="text-xs px-3 py-1.5 bg-shelf-hover text-shelf-muted rounded hover:text-white transition-colors">Refresh Discogs</button></form>
+                <a href="/music/item/{{ item.id }}/discogs" class="text-xs px-3 py-1.5 bg-shelf-hover text-shelf-muted rounded hover:text-white transition-colors text-center">Change match</a>
+                <form method="post" action="/api/music/items/{{ item.id }}/discogs/clear" data-confirm="Remove this Discogs pressing match?"><button type="submit" class="text-xs px-3 py-1.5 bg-shelf-error/20 text-shelf-error rounded hover:bg-shelf-error/30 transition-colors w-full">Remove match</button></form>
+            </div>
+            {% endif %}
+        </div>
+    </div>
+    {% elif user and user.role in ('admin', 'editor') %}
+    <div class="mb-5"><a href="/music/item/{{ item.id }}/discogs" class="inline-flex px-3 py-2 bg-shelf-hover text-shelf-text rounded-lg text-sm hover:bg-shelf-border transition-colors">Find Discogs pressing</a></div>
+    {% endif %}
+
+    {% if release.media %}
+    <div class="space-y-5">
+        {% for medium in release.media %}
+        <div>
+            <div class="flex items-center gap-2 mb-2">
+                <h3 class="font-medium">{% if release.media|length > 1 %}Disc / medium {{ medium.position }}{% else %}Track listing{% endif %}</h3>
+                {% if medium.format %}<span class="text-xs text-shelf-muted">{{ medium.format }}</span>{% endif %}
+                {% if medium.title %}<span class="text-xs text-shelf-muted">· {{ medium.title }}</span>{% endif %}
+            </div>
+            {% if medium.tracks %}
+            <div class="divide-y border border-shelf-border rounded-lg overflow-hidden">
+                {% for track in medium.tracks %}
+                <div class="flex gap-3 items-center px-3 py-2 text-sm bg-shelf-bg">
+                    <span class="w-12 shrink-0 font-mono text-xs text-shelf-muted">{{ track.number or track.position }}</span>
+                    <div class="flex-1 min-w-0">
+                        <span>{{ track.title }}</span>
+                        {% if track.artist_credit and track.artist_credit != release.artist_credit %}<span class="text-xs text-shelf-muted ml-2">{{ track.artist_credit }}</span>{% endif %}
+                    </div>
+                    {% if track.duration_ms %}<span class="text-xs text-shelf-muted">{{ '%d:%02d'|format((track.duration_ms // 1000) // 60, (track.duration_ms // 1000) % 60) }}</span>{% endif %}
+                </div>
+                {% endfor %}
+            </div>
+            {% endif %}
+        </div>
+        {% endfor %}
+    </div>
+    {% endif %}
+
+    {% if release.musicbrainz_release_id %}
+    <p class="mt-4 text-xs text-shelf-muted">MusicBrainz release: <a class="text-shelf-accent2 hover:text-shelf-accent font-mono" target="_blank" rel="noopener" href="https://musicbrainz.org/release/{{ release.musicbrainz_release_id }}">{{ release.musicbrainz_release_id }}</a></p>
+    {% endif %}
+    {% else %}
+    <div class="bg-shelf-warning/10 border border-shelf-warning/30 rounded-lg p-4 text-sm">
+        <p class="text-shelf-muted mb-3">This music item was catalogued without an exact release match. Shelf can use its scanned barcode first, then fall back to title and artist.</p>
+        {% if user and user.role in ('admin', 'editor') %}
+        <a href="/music?item_id={{ item.id }}" class="inline-flex px-3 py-2 bg-shelf-accent text-white rounded-lg text-sm hover:bg-shelf-accent2 transition-colors">Find exact release</a>
+        {% endif %}
+    </div>
+    {% endif %}
+</section>

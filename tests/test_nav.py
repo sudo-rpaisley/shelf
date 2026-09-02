@@ -37,9 +37,9 @@ VIEWER = {"id": 3, "username": "viewer", "role": "viewer"}
 
 # --- Registry shape ---------------------------------------------------------
 
-def test_registry_covers_the_nine_tabs():
+def test_registry_covers_the_ten_tabs():
     assert [t["key"] for t in NAV_TABS] == [
-        "browse", "scan", "intake", "store", "series", "discover",
+        "browse", "music", "scan", "intake", "store", "series", "discover",
         "stats", "settings", "logs",
     ]
     for tab in NAV_TABS:
@@ -73,7 +73,7 @@ def test_admin_sees_settings_and_logs(db):
 
 def test_anonymous_sees_only_ungated_tabs(db):
     keys = _keys(None)
-    assert keys == ["browse", "store", "series", "stats"]
+    assert keys == ["browse", "music", "store", "series", "stats"]
 
 
 # --- Integration requirements ----------------------------------------------

@@ -28,6 +28,7 @@ _INTEGRATION_KEYS = (
     "google_books_api_key",
     "igdb_client_id",
     "igdb_client_secret",
+    "discogs_token",
 )
 
 
@@ -91,6 +92,34 @@ async def test_google_books(request: Request):
     if not api_key:
         return {"ok": False, "message": "No API key configured"}
     return await googlebooks.test_connection(api_key)
+
+
+@router.post("/discogs/test")
+async def test_discogs_token(discogs_token: str = Form("")):
+    """Test a typed Discogs token, falling back to the configured token."""
+    import httpx
+
+    from app.config import HTTP_TIMEOUT
+    from app.services import discogs
+
+    token = discogs_token.strip()
+    if not token:
+        with get_db() as db:
+            token = get_setting(db, "discogs_token")
+    if not token:
+        code = "missing"
+    else:
+        async with httpx.AsyncClient(timeout=HTTP_TIMEOUT) as client:
+            result = await discogs.test_connection(token, client)
+        code = {
+            "found": "ok",
+            "rejected": "rejected",
+            "rate_limited": "rate_limited",
+            "transport_failed": "unavailable",
+            "no_match": "invalid",
+            "no_credential": "missing",
+        }.get(result.outcome, "invalid")
+    return RedirectResponse(url=f"/settings?discogs_test={code}", status_code=303)
 
 
 @router.post("/vision")

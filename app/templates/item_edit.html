@@ -1,10 +1,17 @@
 {% extends "base.html" %}
 {% block title %}Edit {{ item.title }} — Shelf{% endblock %}
 {% block content %}
+{% set is_music = item.media_type in ('vinyl', 'cassette', 'cd', 'digital_music', 'music_other') %}
+{% set is_book_family = item.media_type in ('book', 'kids_book', 'audiobook', 'ebook', 'comic', 'digital_comic') %}
 <div class="max-w-2xl mx-auto">
     <a href="/item/{{ item.id }}{% if back.key %}?from={{ back.key }}{% endif %}" class="text-shelf-muted hover:text-shelf-text text-sm mb-4 inline-block">&larr; Back to item</a>
 
-    <h1 class="text-2xl font-bold mb-6">Edit Item</h1>
+    <div class="flex items-center justify-between gap-4 mb-6">
+        <h1 class="text-2xl font-bold">Edit Item</h1>
+        {% if is_music %}
+        <a href="/music/item/{{ item.id }}/edit" class="text-sm px-3 py-2 bg-shelf-accent/20 text-shelf-accent2 rounded-lg hover:bg-shelf-accent/30 transition-colors">Pressing &amp; condition details</a>
+        {% endif %}
+    </div>
 
     <form action="/api/items/{{ item.id }}" method="post" enctype="multipart/form-data" class="bg-shelf-card rounded-xl border border-shelf-border p-6 space-y-4">
         <input type="hidden" name="from" value="{{ back.key }}">
@@ -17,10 +24,10 @@
         </div>
         {% endmacro %}
 
-        {{ field("title", "Title", item.title) }}
-        {{ field("subtitle", "Subtitle", item.subtitle) }}
-        {{ field("authors", "Authors", item.authors) }}
-        {{ field("isbn", "ISBN", item.isbn, placeholder="ISBN-13") }}
+        {{ field("title", "Release Title" if is_music else "Title", item.title) }}
+        {% if not is_music %}{{ field("subtitle", "Subtitle", item.subtitle) }}{% endif %}
+        {{ field("authors", "Artist" if is_music else "Authors", item.authors) }}
+        {% if not is_music %}{{ field("isbn", "ISBN", item.isbn, placeholder="ISBN-13") }}{% endif %}
 
         <div>
             <label for="media_type" class="block text-sm font-medium text-shelf-muted mb-1">Media Type</label>
@@ -55,16 +62,19 @@
         </div>
 
         <div class="grid grid-cols-2 gap-4">
-            {{ field("publisher", "Publisher", item.publisher) }}
-            {{ field("publish_year", "Year", item.publish_year, type="number") }}
+            {{ field("publisher", "Label" if is_music else "Publisher", item.publisher) }}
+            {{ field("publish_year", "Release Year" if is_music else "Year", item.publish_year, type="number") }}
         </div>
 
+        {% if not is_music %}
         <div class="grid grid-cols-1 sm:grid-cols-3 gap-4">
             {{ field("page_count", "Pages", item.page_count, type="number") }}
             {{ field("series_name", "Series", item.series_name) }}
             {{ field("series_position", "Series #", item.series_position, type="number", step="any") }}
         </div>
+        {% endif %}
 
+        {% if is_book_family %}
         <div>
             <label for="language" class="block text-sm font-medium text-shelf-muted mb-1">Language</label>
             <select id="language" name="language"
@@ -78,14 +88,16 @@
                 {% endif %}
             </select>
         </div>
+        {% endif %}
 
         <div>
             <label for="manual_value" class="block text-sm font-medium text-shelf-muted mb-1">Value ({{ currency().symbol }})</label>
             <input type="number" id="manual_value" name="manual_value" value="{{ item.manual_value if item.manual_value is not none else '' }}" step="0.01" min="0"
                    class="w-full bg-shelf-bg border border-shelf-border rounded-lg px-3 py-2 text-shelf-text focus:ring-2 focus:ring-shelf-accent focus:border-transparent outline-none">
-            <p class="text-xs text-shelf-muted mt-1">Overrides the ISBNdb estimate everywhere it's shown{% if item.estimated_value %} &mdash; ISBNdb estimate: {{ item.estimated_value|money }}{% endif %}</p>
+            <p class="text-xs text-shelf-muted mt-1">Overrides the automatic estimate everywhere it's shown{% if item.estimated_value %} &mdash; current estimate: {{ item.estimated_value|money }}{% endif %}</p>
         </div>
 
+        {% if item.media_type in ('video_game', 'digital_game') %}
         <div>
             <label for="platform" class="block text-sm font-medium text-shelf-muted mb-1">Platform</label>
             <select id="platform" name="platform"
@@ -96,12 +108,16 @@
                 {% endfor %}
             </select>
         </div>
+        {% endif %}
 
+        {% if item.media_type == 'audiobook' %}
         <div class="grid grid-cols-2 gap-4">
             {{ field("narrator", "Narrator", item.narrator) }}
             {{ field("duration_mins", "Duration (min)", item.duration_mins, type="number") }}
         </div>
+        {% endif %}
 
+        {% if is_book_family %}
         <!-- Reading Status -->
         <div>
             <label for="reading_status" class="block text-sm font-medium text-shelf-muted mb-1">Reading Status</label>
@@ -117,6 +133,7 @@
             {{ field("date_started", "Date Started", item.date_started, type="date") }}
             {{ field("date_finished", "Date Finished", item.date_finished, type="date") }}
         </div>
+        {% endif %}
 
         <div>
             <label for="description" class="block text-sm font-medium text-shelf-muted mb-1">Description</label>
@@ -134,10 +151,10 @@
             <label class="block text-sm font-medium text-shelf-muted mb-1">Cover Image</label>
             <div class="flex items-center gap-4">
                 {% if item.cover_path %}
-                <img :src="preview || '/{{ item.cover_path }}'" class="w-16 h-24 object-cover rounded" alt="">
+                <img :src="preview || '/{{ item.cover_path }}'" class="w-16 {% if is_music %}h-16{% else %}h-24{% endif %} object-cover rounded" alt="">
                 {% else %}
-                <img x-show="preview" :src="preview" class="w-16 h-24 object-cover rounded" alt="" style="display:none">
-                <div x-show="!preview" class="w-16 h-24 bg-shelf-hover rounded flex items-center justify-center text-shelf-muted text-xs">None</div>
+                <img x-show="preview" :src="preview" class="w-16 {% if is_music %}h-16{% else %}h-24{% endif %} object-cover rounded" alt="" style="display:none">
+                <div x-show="!preview" class="w-16 {% if is_music %}h-16{% else %}h-24{% endif %} bg-shelf-hover rounded flex items-center justify-center text-shelf-muted text-xs">None</div>
                 {% endif %}
                 <div class="flex-1">
                     <div @dragover.prevent="dragging = true" @dragleave="dragging = false"
