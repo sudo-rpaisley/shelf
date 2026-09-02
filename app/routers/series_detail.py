@@ -1,8 +1,12 @@
 """Focused series drill-down used by grouped Browse cards.
 
-The existing ``/series`` page remains the management overview.  This route is
-purposefully read-only and gives one series enough space for ordered covers,
-local gap hints and source-aware issue/volume wording.
+The existing ``/series`` page remains the management overview. This route is
+purposefully read-only and gives one series enough space for ordered covers and
+local gap hints.
+
+For Komga-backed Digital Comics, ``komga_series_id`` is the authoritative
+series identity. The human-readable title remains display metadata and is not
+used to merge distinct Komga series.
 """
 
 from __future__ import annotations
@@ -23,21 +27,30 @@ async def series_detail_page(
     request: Request,
     name: str = Query(...),
     media_type: str | None = Query(default=None),
+    komga_series_id: str | None = Query(default=None),
     _=Depends(require_role("viewer")),
 ):
     """Render one series with members ordered by ``series_position``.
 
-    ``media_type`` is optional so the route can later become the common series
-    detail surface for mixed-format collections.  Grouped Digital Comic cards
-    currently pass ``digital_comic`` to avoid counting a separately catalogued
-    physical copy as another issue/volume before Shelf gains first-class
-    work/holding modelling.
+    A Komga series ID, when supplied, takes precedence over ``name`` for
+    membership. That mirrors Komga even if two source series share a title.
+    Non-Komga callers keep Shelf's case-insensitive name-based behaviour.
     """
     requested_name = name.strip()
-    if not requested_name:
+    requested_komga_id = str(komga_series_id or "").strip() or None
+    if not requested_name and not requested_komga_id:
         raise HTTPException(status_code=404, detail="Series not found")
 
-    params: list[object] = [requested_name]
+    params: list[object]
+    if requested_komga_id:
+        identity_clause = (
+            "LOWER(COALESCE(source, '')) = 'komga' AND komga_series_id = ?"
+        )
+        params = [requested_komga_id]
+    else:
+        identity_clause = "series_name = ? COLLATE NOCASE"
+        params = [requested_name]
+
     media_clause = ""
     if media_type:
         media_clause = " AND media_type = ?"
@@ -47,7 +60,7 @@ async def series_detail_page(
         rows = db.execute(
             "SELECT id, title, authors, cover_path, series_name, series_position, "
             "publish_year, owned, reading_status, media_type, source, komga_series_id "
-            "FROM items WHERE series_name = ? COLLATE NOCASE"
+            f"FROM items WHERE {identity_clause}"
             f"{media_clause} "
             "ORDER BY (series_position IS NULL), series_position ASC, "
             "(publish_year IS NULL), publish_year ASC, title COLLATE NOCASE, id ASC",
@@ -56,23 +69,30 @@ async def series_detail_page(
         if not rows:
             raise HTTPException(status_code=404, detail="Series not found")
 
+    items = [dict(row) for row in rows]
+    spellings = Counter(str(item["series_name"] or requested_name) for item in items)
+    display_name = min(spellings.items(), key=lambda pair: (-pair[1], pair[0]))[0]
+
+    with get_db() as db:
         meta = db.execute(
             "SELECT description, complete, hc_total, hc_missing, hc_checked_at "
             "FROM series_meta WHERE name = ? COLLATE NOCASE",
-            (requested_name,),
+            (display_name,),
         ).fetchone()
 
-    items = [dict(row) for row in rows]
-    spellings = Counter(str(item["series_name"]) for item in items)
-    display_name = min(spellings.items(), key=lambda pair: (-pair[1], pair[0]))[0]
     unit = infer_series_unit(items)
     gaps = find_gaps(item.get("series_position") for item in items)
     owned_count = sum(1 for item in items if item.get("owned"))
     wishlist_count = len(items) - owned_count
 
-    browse_params: dict[str, str] = {"series": display_name}
-    if media_type:
-        browse_params["media_type_filter"] = media_type
+    # Name-based Browse filtering cannot faithfully isolate two Komga series
+    # with the same title, so omit that shortcut for source-ID scoped views.
+    browse_url = None
+    if not requested_komga_id:
+        browse_params: dict[str, str] = {"series": display_name}
+        if media_type:
+            browse_params["media_type_filter"] = media_type
+        browse_url = "/browse?" + urlencode(browse_params)
 
     series = {
         "name": display_name,
@@ -89,7 +109,8 @@ async def series_detail_page(
         "hc_checked_at": meta["hc_checked_at"] if meta else None,
         "unit": unit,
         "media_type": media_type,
-        "browse_url": "/browse?" + urlencode(browse_params),
+        "komga_series_id": requested_komga_id,
+        "browse_url": browse_url,
     }
 
     return request.app.state.templates.TemplateResponse(
