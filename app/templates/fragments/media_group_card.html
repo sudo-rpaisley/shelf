@@ -1,0 +1,32 @@
+{# One collapsed linked-media component in Browse grid view. The catalogue
+   items remain separate underneath; this is only a navigation/display stack.
+   Like series cards, stacks are deliberately not bulk-selection targets. #}
+<a href="{{ item.browse_media_url }}" class="group relative"
+   data-media-group="{{ item.browse_media_root }}">
+    {% if item.browse_media_count > 1 %}
+    <div class="absolute inset-0 translate-x-1.5 -translate-y-1.5 rounded-lg border border-shelf-border bg-shelf-hover shadow-sm"></div>
+    <div class="absolute inset-0 translate-x-0.5 -translate-y-0.5 rounded-lg border border-shelf-border bg-shelf-card shadow-sm"></div>
+    {% endif %}
+    <div class="cover-card relative z-10 bg-shelf-card rounded-lg overflow-hidden border border-shelf-border group-hover:border-shelf-accent/50 transition-colors shadow-lg">
+        <span class="absolute top-2 right-2 z-20 inline-flex items-center gap-1 px-2 py-1 rounded-md text-[10px] font-semibold bg-shelf-card/95 text-shelf-text border border-shelf-border shadow">
+            <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.7" d="M8 7h8a4 4 0 010 8h-3m-2 2H8a4 4 0 010-8h3"/></svg>
+            {{ item.browse_media_count }} linked
+        </span>
+        {% if item.browse_media_cover_path %}
+        <img src="/{{ item.browse_media_cover_path }}" alt="{{ item.browse_media_title }}" loading="lazy">
+        {% else %}
+        <div class="w-full h-full flex flex-col items-center justify-center p-4 text-center bg-gradient-to-br from-shelf-card to-shelf-hover">
+            <svg class="w-9 h-9 mb-2 text-shelf-muted" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M8 7h8a4 4 0 010 8h-3m-2 2H8a4 4 0 010-8h3"/></svg>
+            <p class="text-shelf-text text-sm font-medium leading-tight mb-1">{{ item.browse_media_title[:60] }}</p>
+            {% if item.browse_media_authors %}<p class="text-shelf-muted text-xs">{{ item.browse_media_authors[:40] }}</p>{% endif %}
+        </div>
+        {% endif %}
+    </div>
+    <div class="absolute inset-0 z-20 bg-gradient-to-t from-black/85 via-transparent to-transparent rounded-lg opacity-0 group-hover:opacity-100 transition-opacity flex items-end p-3 pointer-events-none">
+        <div class="min-w-0">
+            <p class="text-white text-sm font-semibold leading-tight line-clamp-2">{{ item.browse_media_title }}</p>
+            {% if item.browse_media_authors %}<p class="text-gray-300 text-xs truncate mt-0.5">{{ item.browse_media_authors }}</p>{% endif %}
+            <p class="text-white/70 text-[10px] mt-1 line-clamp-2">{{ item.browse_media_labels | join(' · ') }}</p>
+        </div>
+    </div>
+</a>
