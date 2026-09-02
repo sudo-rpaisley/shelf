@@ -63,12 +63,18 @@ jobs:
           for sha in "${commits[@]}"; do
             echo "==> cherry-pick $sha"
             if ! git cherry-pick -X theirs "$sha"; then
-              if git diff --quiet && git diff --cached --quiet; then
+              unresolved="$(git diff --name-only --diff-filter=U)"
+              if [ "$unresolved" = "app/templates/fragments/settings/abs_public_url.html" ]; then
+                # Upstream replaced this old ABS fragment with the routed Settings UI.
+                git rm -f app/templates/fragments/settings/abs_public_url.html
+                git add -A
+                git cherry-pick --continue
+              elif git diff --quiet && git diff --cached --quiet; then
                 git cherry-pick --skip
               else
                 echo "Unresolved conflict while applying $sha"
                 git status --short
-                git diff --name-only --diff-filter=U
+                printf '%s\n' "$unresolved"
                 exit 1
               fi
             fi
