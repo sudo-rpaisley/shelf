@@ -5,42 +5,7 @@ on:
     branches: [main]
   pull_request:
 
-permissions:
-  contents: write
-
 jobs:
-  fix-discogs-assets:
-    if: github.event_name == 'pull_request' && github.head_ref == 'feat/music-discogs'
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v7
-        with:
-          ref: feat/music-discogs
-          fetch-depth: 0
-
-      - uses: actions/setup-node@v4
-        with:
-          node-version: '20'
-          cache: npm
-
-      - uses: actions/setup-python@v5
-        with:
-          python-version: '3.13'
-
-      - name: Rebuild generated assets
-        run: |
-          npm ci
-          make css
-
-      - name: Restore normal CI and commit generated output
-        run: |
-          git show origin/feat/music-catalog:.github/workflows/test.yml > .github/workflows/test.yml
-          git config user.name 'Robert J Paisley'
-          git config user.email '56076332+sudo-rpaisley@users.noreply.github.com'
-          git add .github/workflows/test.yml static/css/app.css static/sw.js
-          git commit -m 'build: regenerate Discogs assets'
-          git push origin HEAD:feat/music-discogs
-
   # Unit/integration suite plus the offline lints. These are the cheap gates and
   # they run together because they share one dependency install.
   test:
