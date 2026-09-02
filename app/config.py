@@ -33,6 +33,37 @@ MUSIC_MEDIA_TYPES = frozenset({
     "music_other",
 })
 
+# Shelf's user-facing library sections are broader than storage formats.
+# Keep family membership here so Home, Collection filters, statistics and
+# future integrations all agree on where a media type belongs. Tuples are
+# deliberately ordered for predictable display and query construction.
+MEDIA_FAMILIES = {
+    "books": {
+        "label": "Books",
+        "types": ("book", "kids_book", "ebook"),
+    },
+    "comics": {
+        "label": "Comics",
+        "types": ("comic", "digital_comic"),
+    },
+    "music": {
+        "label": "Music",
+        "types": ("vinyl", "cassette", "cd", "digital_music", "music_other"),
+    },
+    "film": {
+        "label": "Film & TV",
+        "types": ("dvd",),
+    },
+    "games": {
+        "label": "Games",
+        "types": ("video_game", "digital_game"),
+    },
+    "audiobooks": {
+        "label": "Audiobooks",
+        "types": ("audiobook",),
+    },
+}
+
 # Seed data — runtime platform list comes from game_platforms table
 GAME_PLATFORMS = {
     "atari2600": "Atari 2600",
