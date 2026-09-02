@@ -1,12 +1,13 @@
 {# One collapsed Digital Comic series in Browse grid view. The item supplied by
    browse_grouping is only a sort representative; cover_path is deliberately
    replaced with the earliest issue's cover and the card itself is not an item
-   selection target. #}
-<a href="{{ item.browse_series_url }}" class="group relative"
+   selection target.  Count wording stays source-neutral here; the focused
+   detail page has all members available and can distinguish issues/volumes. #}
+<a href="/series/detail?name={{ item.series_name|urlencode }}&amp;media_type=digital_comic" class="group relative"
    data-series-group="{{ item.series_name }}">
     <div class="cover-card bg-shelf-card rounded-lg overflow-hidden border border-shelf-border group-hover:border-shelf-accent/50 transition-colors shadow-lg">
         <span class="absolute top-2 right-2 z-10 px-2 py-1 rounded-md text-[10px] font-semibold bg-shelf-card/95 text-shelf-text border border-shelf-border shadow">
-            {{ item.browse_series_count }} issue{% if item.browse_series_count != 1 %}s{% endif %}
+            {{ item.browse_series_count }} in series
         </span>
         {% if item.cover_path %}
         <img src="/{{ item.cover_path }}" alt="{{ item.series_name }}" loading="lazy">
@@ -21,6 +22,6 @@
     </div>
     <div class="absolute bottom-0 left-0 right-0 p-3 pt-10 bg-gradient-to-t from-black/90 via-black/55 to-transparent rounded-b-lg opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none">
         <p class="text-white text-sm font-semibold leading-tight line-clamp-2">{{ item.series_name }}</p>
-        <p class="text-white/70 text-xs mt-0.5">{{ item.browse_series_count }} issue{% if item.browse_series_count != 1 %}s{% endif %} &middot; Digital Comic series</p>
+        <p class="text-white/70 text-xs mt-0.5">{{ item.browse_series_count }} in series &middot; Open series view</p>
     </div>
 </a>
