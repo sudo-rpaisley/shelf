@@ -249,6 +249,10 @@ async def item_detail(
         has_hardcover = bool(get_setting(db, "hardcover_token"))
 
         game_platforms = get_game_platforms(db)
+        from app.services.romm import get_platform_icon_kind, get_platform_icon_urls
+        romm_platform_icon_urls = (
+            get_platform_icon_urls(romm_url_val) if romm_url_val else {}
+        )
 
         # Enrich related rows once for the unified Related media panel. Provider
         # deep links still use each integration's public/browser URL setting.
@@ -261,6 +265,14 @@ async def item_detail(
             data["media_label"] = MEDIA_TYPES.get(data["media_type"], data["media_type"])
             data["platform_label"] = (
                 game_platforms.get(data["platform"], data["platform"])
+                if data.get("platform") else None
+            )
+            data["platform_icon_url"] = (
+                romm_platform_icon_urls.get(data["platform"])
+                if data.get("platform") else None
+            )
+            data["platform_icon_kind"] = (
+                get_platform_icon_kind(data["platform"])
                 if data.get("platform") else None
             )
             # A related item may legitimately be represented in more than one
@@ -294,6 +306,7 @@ async def item_detail(
         all_group_items = [dict(item)] + [dict(row) for row in linked_items]
         related_formats = []
         related_game_platforms = []
+        seen_game_platforms: set[str] = set()
         for group_item in all_group_items:
             label = MEDIA_TYPES.get(group_item["media_type"], group_item["media_type"])
             if label not in related_formats:
@@ -302,11 +315,16 @@ async def item_detail(
                 group_item["media_type"] in ("video_game", "digital_game")
                 and group_item.get("platform")
             ):
-                platform_label = game_platforms.get(
-                    group_item["platform"], group_item["platform"]
-                )
-                if platform_label not in related_game_platforms:
-                    related_game_platforms.append(platform_label)
+                platform_slug = group_item["platform"]
+                platform_label = game_platforms.get(platform_slug, platform_slug)
+                if platform_slug not in seen_game_platforms:
+                    seen_game_platforms.add(platform_slug)
+                    related_game_platforms.append({
+                        "slug": platform_slug,
+                        "label": platform_label,
+                        "icon_url": romm_platform_icon_urls.get(platform_slug),
+                        "icon_kind": get_platform_icon_kind(platform_slug),
+                    })
 
         from app.routers.tags import get_item_tags, get_all_tags
         item_tags = get_item_tags(db, item_id)

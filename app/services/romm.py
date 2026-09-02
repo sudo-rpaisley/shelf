@@ -90,6 +90,66 @@ def get_browser_url(romm_url: str, romm_id: str) -> str:
     return f"{base}/rom/{romm_id}"
 
 
+def _platform_icon_slug(platform: dict) -> str | None:
+    """RomM's icon filename stem for a platform, if it is path-safe."""
+    raw = str(platform.get("slug") or platform.get("fs_slug") or "").strip().lower()
+    if re.fullmatch(r"[a-z0-9][a-z0-9-]*", raw):
+        return raw
+    return None
+
+
+def get_platform_icon_urls(romm_url: str) -> dict[str, str]:
+    """Browser-safe RomM platform icon URLs keyed by Shelf platform slug.
+
+    RomM serves built-in and custom platform icons from /assets/platforms.
+    Shelf only uses an HTTPS browser-facing root here: internal Docker/LAN HTTP
+    URLs would be blocked as mixed content by Shelf's CSP and by modern browsers.
+    """
+    with get_db() as db:
+        public_url = get_setting(db, "romm_public_url")
+        raw_map = get_setting(db, "romm_platform_icon_slugs")
+    base = (public_url or romm_url or "").rstrip("/")
+    if urlparse(base).scheme.lower() != "https":
+        return {}
+    try:
+        mapping = json.loads(raw_map or "{}")
+    except (json.JSONDecodeError, TypeError):
+        return {}
+    if not isinstance(mapping, dict):
+        return {}
+
+    urls: dict[str, str] = {}
+    for shelf_slug, icon_slug in mapping.items():
+        if not isinstance(shelf_slug, str) or not isinstance(icon_slug, str):
+            continue
+        if not re.fullmatch(r"[a-z0-9][a-z0-9-]*", icon_slug):
+            continue
+        urls[shelf_slug] = f"{base}/assets/platforms/{icon_slug}.ico"
+    return urls
+
+
+_HANDHELD_PLATFORMS = frozenset({
+    "gb", "gbc", "gameboy", "gba", "nds", "3ds", "switch", "psp", "vita",
+    "gamegear", "lynx", "ngp", "ngpc", "wonderswan", "wonderswancolor",
+})
+_COMPUTER_PLATFORMS = frozenset({
+    "pc", "windows", "linux", "mac", "macos", "dos", "amiga", "c64",
+    "c128", "msx", "spectrum", "acpc", "atarist", "x68000", "pc98",
+})
+
+
+def get_platform_icon_kind(platform: str | None) -> str:
+    """Local fallback glyph when no RomM-specific icon can be displayed."""
+    slug = (platform or "").casefold().replace("-", "").replace("_", "")
+    if slug in {value.replace("-", "").replace("_", "") for value in _HANDHELD_PLATFORMS}:
+        return "handheld"
+    if slug in {value.replace("-", "").replace("_", "") for value in _COMPUTER_PLATFORMS}:
+        return "computer"
+    if "arcade" in slug or slug in {"mame", "fbneo", "finalburnneo"}:
+        return "arcade"
+    return "gamepad"
+
+
 def _headers(token: str) -> dict[str, str]:
     return {"Authorization": f"Bearer {token}", "Accept": "application/json"}
 
@@ -381,27 +441,39 @@ async def sync(romm_url: str, token: str, on_progress=None) -> dict:
         if not isinstance(raw_platforms, list):
             return {"error": "RomM returned an invalid platform response"}
 
-        platform_roms: list[tuple[dict, list[dict]]] = []
+        platform_roms: list[tuple[dict, list[dict], str]] = []
+        platform_icon_slugs: dict[str, str] = {}
         for platform in raw_platforms:
             if not isinstance(platform, dict) or platform.get("id") is None:
                 continue
             platform_id = str(platform["id"])
             if platform_id in excluded:
                 continue
+            with get_db() as db:
+                shelf_platform = _platform_slug(db, platform)
+            icon_slug = _platform_icon_slug(platform)
+            if icon_slug:
+                platform_icon_slugs[shelf_platform] = icon_slug
             roms = await _fetch_platform_roms(client, romm_url, token, platform_id)
             if roms is None:
                 stats["errors"] += 1
                 continue
-            platform_roms.append((platform, roms))
+            platform_roms.append((platform, roms, shelf_platform))
 
-        total = sum(len(roms) for _, roms in platform_roms)
+        with get_db() as db:
+            icon_map_json = json.dumps(platform_icon_slugs, sort_keys=True)
+            db.execute(
+                "INSERT INTO settings (key, value) VALUES ('romm_platform_icon_slugs', ?) "
+                "ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+                (icon_map_json,),
+            )
+
+        total = sum(len(roms) for _, roms, _ in platform_roms)
         current = 0
         cover_batch: list[tuple] = []
 
-        for platform, roms in platform_roms:
+        for platform, roms, shelf_platform in platform_roms:
             platform_id = str(platform["id"])
-            with get_db() as db:
-                shelf_platform = _platform_slug(db, platform)
 
             for rom in roms:
                 current += 1

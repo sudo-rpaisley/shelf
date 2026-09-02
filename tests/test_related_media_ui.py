@@ -16,8 +16,13 @@ def test_item_detail_shows_group_platforms_and_related_entries(admin_client, db)
         platform="pc", publish_year=1996, romm_id="13",
     )
     media_groups.auto_link_family(db, "game")
-    db.execute(
-        "INSERT INTO settings (key, value) VALUES ('romm_url', 'http://romm:8080')"
+    db.executemany(
+        "INSERT INTO settings (key, value) VALUES (?, ?)",
+        [
+            ("romm_url", "http://romm:8080"),
+            ("romm_public_url", "https://romm.example"),
+            ("romm_platform_icon_slugs", '{"snes":"snes","gba":"gba","pc":"windows"}'),
+        ],
     )
     db.execute("COMMIT")
 
@@ -32,6 +37,10 @@ def test_item_detail_shows_group_platforms_and_related_entries(admin_client, db)
     # The current SNES item has its own Open in RomM action; both other
     # platform versions retain independent RomM deep links in the group.
     assert response.text.count("Also in RomM (Digital Game)") == 2
+    assert "https://romm.example/assets/platforms/snes.ico" in response.text
+    assert "https://romm.example/assets/platforms/gba.ico" in response.text
+    assert "https://romm.example/assets/platforms/windows.ico" in response.text
+    assert response.text.count('data-platform-icon-source="romm"') >= 3
 
 
 def test_multiple_abs_narrator_editions_keep_separate_links(admin_client, db):
@@ -85,6 +94,7 @@ def test_cross_media_manual_group_renders_formats(admin_client, db):
     assert "Book" in response.text
     assert "Audiobook" in response.text
     assert "Video Game" in response.text
+    assert 'data-platform-icon="computer"' in response.text
     assert "Stephen Fry" in response.text
     assert "Add related media" in response.text
 

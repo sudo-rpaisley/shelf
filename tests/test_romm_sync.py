@@ -92,6 +92,12 @@ def test_maps_romm_rom_to_digital_game(db):
     assert req.url.params["group_by_meta_id"] == "true"
     assert req.url.params["with_char_index"] == "false"
     assert cover.calls[0].request.headers["Authorization"] == f"Bearer {TOKEN}"
+    icon_map = json.loads(
+        db.execute(
+            "SELECT value FROM settings WHERE key='romm_platform_icon_slugs'"
+        ).fetchone()["value"]
+    )
+    assert icon_map == {"snes": "snes"}
 
 
 @respx.mock

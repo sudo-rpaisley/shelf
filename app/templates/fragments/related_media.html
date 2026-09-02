@@ -9,9 +9,17 @@
             </p>
             {% endif %}
             {% if related_game_platforms|length > 1 %}
-            <p class="text-xs text-shelf-muted mt-1" data-testid="related-platforms">
-                Platforms: {{ related_game_platforms | join(' · ') }}
-            </p>
+            <div class="flex flex-wrap items-center gap-1.5 text-xs text-shelf-muted mt-1" data-testid="related-platforms">
+                <span>Platforms:</span>
+                {% for platform in related_game_platforms %}
+                <span class="inline-flex items-center gap-1 rounded bg-shelf-hover px-1.5 py-0.5">
+                    {% with platform_icon_url=platform.icon_url, platform_icon_kind=platform.icon_kind %}
+                    {% include "fragments/platform_icon.html" %}
+                    {% endwith %}
+                    {{ platform.label }}
+                </span>
+                {% endfor %}
+            </div>
             {% endif %}
         </div>
         {% if related_media %}
@@ -32,7 +40,12 @@
                 <div class="flex flex-wrap items-center gap-1.5">
                     <span class="text-[10px] uppercase tracking-wide px-1.5 py-0.5 rounded bg-shelf-hover text-shelf-muted">{{ related.media_label }}</span>
                     {% if related.platform_label %}
-                    <span class="text-[10px] px-1.5 py-0.5 rounded bg-shelf-accent/15 text-shelf-accent2">{{ related.platform_label }}</span>
+                    <span class="inline-flex items-center gap-1 text-[10px] px-1.5 py-0.5 rounded bg-shelf-accent/15 text-shelf-accent2">
+                        {% with platform_icon_url=related.platform_icon_url, platform_icon_kind=related.platform_icon_kind %}
+                        {% include "fragments/platform_icon.html" %}
+                        {% endwith %}
+                        {{ related.platform_label }}
+                    </span>
                     {% endif %}
                 </div>
                 <p class="text-sm text-shelf-text group-hover:text-shelf-accent2 truncate mt-1">{{ related.title }}</p>
