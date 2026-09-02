@@ -46,3 +46,17 @@ def test_account_menu_uses_csp_registered_component(admin_client, db):
     html = admin_client.get("/browse").text
     assert 'x-data="accountMenu"' in html
     assert "Alpine.data('accountMenu'" in open("static/js/components.js", encoding="utf-8").read()
+
+    desktop = _section(html, '<!-- Desktop navigation', '<!-- Account actions')
+    assert 'data-testid="nav-add-button"' in desktop
+    assert 'data-testid="nav-add-panel"' in desktop
+    assert 'data-testid="nav-more-button"' in desktop
+    assert 'data-testid="nav-more-panel"' in desktop
+    assert '<details' not in desktop
+    assert desktop.count('x-data="navMenu"') == 2
+
+    account = _section(html, 'data-testid="account-menu-panel"', '<!-- Account Modal -->')
+    assert 'data-testid="account-shortcuts-action"' in account
+    assert 'title="Keyboard shortcuts (?)"' not in html
+    assert 'id="shortcut-modal" role="dialog"' in html
+    assert 'hidden flex items-center justify-center' in html
