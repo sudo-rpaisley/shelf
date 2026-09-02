@@ -1,0 +1,82 @@
+{% if related_media or (user and user.role in ('admin', 'editor')) %}
+<div id="related-media-panel" class="mb-6 rounded-xl border border-shelf-border bg-shelf-bg/50 p-4" data-testid="related-media-panel">
+    <div class="flex items-start justify-between gap-3 mb-3">
+        <div>
+            <h3 class="text-sm font-semibold text-shelf-text">Related media</h3>
+            {% if related_formats|length > 1 %}
+            <p class="text-xs text-shelf-muted mt-1">
+                Formats: {{ related_formats | join(' · ') }}
+            </p>
+            {% endif %}
+            {% if related_game_platforms|length > 1 %}
+            <p class="text-xs text-shelf-muted mt-1" data-testid="related-platforms">
+                Platforms: {{ related_game_platforms | join(' · ') }}
+            </p>
+            {% endif %}
+        </div>
+        {% if related_media %}
+        <span class="text-xs text-shelf-muted">{{ related_media|length + 1 }} items</span>
+        {% endif %}
+    </div>
+
+    {% if related_media %}
+    <div class="space-y-2">
+        {% for related in related_media %}
+        <div class="flex items-center gap-3 rounded-lg bg-shelf-card border border-shelf-border p-2.5" data-testid="related-media-item">
+            {% if related.cover_path %}
+            <a href="/item/{{ related.id }}{% if back.key %}?from={{ back.key }}{% endif %}" class="shrink-0">
+                <img src="/{{ related.cover_path }}" alt="" class="h-14 w-10 object-cover rounded">
+            </a>
+            {% endif %}
+            <a href="/item/{{ related.id }}{% if back.key %}?from={{ back.key }}{% endif %}" class="min-w-0 flex-1 group">
+                <div class="flex flex-wrap items-center gap-1.5">
+                    <span class="text-[10px] uppercase tracking-wide px-1.5 py-0.5 rounded bg-shelf-hover text-shelf-muted">{{ related.media_label }}</span>
+                    {% if related.platform_label %}
+                    <span class="text-[10px] px-1.5 py-0.5 rounded bg-shelf-accent/15 text-shelf-accent2">{{ related.platform_label }}</span>
+                    {% endif %}
+                </div>
+                <p class="text-sm text-shelf-text group-hover:text-shelf-accent2 truncate mt-1">{{ related.title }}</p>
+                <p class="text-xs text-shelf-muted truncate">
+                    {% if related.narrator %}Narrated by {{ related.narrator }}{% if related.publish_year %} · {% endif %}{% endif %}
+                    {% if related.publish_year %}{{ related.publish_year }}{% endif %}
+                    {% if related.authors and not related.narrator %}{{ related.authors }}{% endif %}
+                </p>
+            </a>
+            <div class="flex items-center gap-1 shrink-0">
+                {% if related.provider_url %}
+                <a href="{{ related.provider_url }}" target="_blank" rel="noopener"
+                   class="px-2 py-1 bg-shelf-accent/15 text-shelf-accent2 rounded text-xs hover:bg-shelf-accent/25 transition-colors">
+                    Also in {{ related.provider_name }}
+                </a>
+                {% endif %}
+                {% if user and user.role in ('admin', 'editor') and related.manual_linked %}
+                <form action="/api/items/{{ item.id }}/related/{{ related.id }}/remove" method="post">
+                    <input type="hidden" name="_csrf" value="{{ request.cookies.get('csrf_token', '') }}">
+                    <button type="submit" title="Remove manual relation"
+                            class="px-2 py-1 text-shelf-muted hover:text-shelf-error text-xs transition-colors">&times;</button>
+                </form>
+                {% endif %}
+            </div>
+        </div>
+        {% endfor %}
+    </div>
+    {% else %}
+    <p class="text-xs text-shelf-muted">No related editions, formats or adaptations are linked yet.</p>
+    {% endif %}
+
+    {% if user and user.role in ('admin', 'editor') %}
+    <details class="mt-3 pt-3 border-t border-shelf-border">
+        <summary class="cursor-pointer text-xs text-shelf-accent2 hover:text-shelf-accent">Add related media</summary>
+        <p class="text-xs text-shelf-muted mt-2 mb-2">Search the Shelf library to join another edition, format, platform version or adaptation to this group.</p>
+        <input type="search" name="q" autocomplete="off"
+               placeholder="Search title, author or series…"
+               hx-get="/api/items/{{ item.id }}/related/search"
+               hx-trigger="input changed delay:250ms, focus"
+               hx-target="#related-search-results"
+               hx-swap="innerHTML"
+               class="w-full bg-shelf-card border border-shelf-border rounded-lg px-3 py-2 text-sm text-shelf-text focus:ring-2 focus:ring-shelf-accent outline-none">
+        <div id="related-search-results" class="mt-2"></div>
+    </details>
+    {% endif %}
+</div>
+{% endif %}
