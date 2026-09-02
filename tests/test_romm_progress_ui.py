@@ -1,4 +1,7 @@
-"""RomM settings progress UI regressions."""
+"""RomM settings progress UI regressions.
+
+The progress panel must be visible from job start, before RomM discovery knows the final total.
+"""
 
 from pathlib import Path
 
