@@ -10,7 +10,7 @@ permissions:
 
 jobs:
   patch-discogs:
-    if: github.event_name == 'pull_request' && github.head_ref == 'feat/music-discogs' && github.event.pull_request.head.sha == '32a59287209160116a6b719379c7d2dc63f3bdb7'
+    if: github.event_name == 'pull_request' && github.head_ref == 'feat/music-discogs'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
