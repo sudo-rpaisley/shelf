@@ -22,6 +22,8 @@ from app.services.item_write import insert_item
 logger = logging.getLogger(__name__)
 
 PAGE_SIZE = 200
+PAGE_RETRIES = 3
+PAGE_RETRY_BACKOFF = 1.0
 COVER_TIMEOUT = httpx.Timeout(10.0, connect=5.0)
 COVER_RETRIES = 1
 COVER_BATCH_SIZE = 8
@@ -88,6 +90,66 @@ def get_browser_url(romm_url: str, romm_id: str) -> str:
         public_url = get_setting(db, "romm_public_url")
     base = (public_url or romm_url).rstrip("/")
     return f"{base}/rom/{romm_id}"
+
+
+def _platform_icon_slug(platform: dict) -> str | None:
+    """RomM's icon filename stem for a platform, if it is path-safe."""
+    raw = str(platform.get("slug") or platform.get("fs_slug") or "").strip().lower()
+    if re.fullmatch(r"[a-z0-9][a-z0-9-]*", raw):
+        return raw
+    return None
+
+
+def get_platform_icon_urls(romm_url: str) -> dict[str, str]:
+    """Browser-safe RomM platform icon URLs keyed by Shelf platform slug.
+
+    RomM serves built-in and custom platform icons from /assets/platforms.
+    Shelf only uses an HTTPS browser-facing root here: internal Docker/LAN HTTP
+    URLs would be blocked as mixed content by Shelf's CSP and by modern browsers.
+    """
+    with get_db() as db:
+        public_url = get_setting(db, "romm_public_url")
+        raw_map = get_setting(db, "romm_platform_icon_slugs")
+    base = (public_url or romm_url or "").rstrip("/")
+    if urlparse(base).scheme.lower() != "https":
+        return {}
+    try:
+        mapping = json.loads(raw_map or "{}")
+    except (json.JSONDecodeError, TypeError):
+        return {}
+    if not isinstance(mapping, dict):
+        return {}
+
+    urls: dict[str, str] = {}
+    for shelf_slug, icon_slug in mapping.items():
+        if not isinstance(shelf_slug, str) or not isinstance(icon_slug, str):
+            continue
+        if not re.fullmatch(r"[a-z0-9][a-z0-9-]*", icon_slug):
+            continue
+        urls[shelf_slug] = f"{base}/assets/platforms/{icon_slug}.ico"
+    return urls
+
+
+_HANDHELD_PLATFORMS = frozenset({
+    "gb", "gbc", "gameboy", "gba", "nds", "3ds", "switch", "psp", "vita",
+    "gamegear", "lynx", "ngp", "ngpc", "wonderswan", "wonderswancolor",
+})
+_COMPUTER_PLATFORMS = frozenset({
+    "pc", "windows", "linux", "mac", "macos", "dos", "amiga", "c64",
+    "c128", "msx", "spectrum", "acpc", "atarist", "x68000", "pc98",
+})
+
+
+def get_platform_icon_kind(platform: str | None) -> str:
+    """Local fallback glyph when no RomM-specific icon can be displayed."""
+    slug = (platform or "").casefold().replace("-", "").replace("_", "")
+    if slug in {value.replace("-", "").replace("_", "") for value in _HANDHELD_PLATFORMS}:
+        return "handheld"
+    if slug in {value.replace("-", "").replace("_", "") for value in _COMPUTER_PLATFORMS}:
+        return "computer"
+    if "arcade" in slug or slug in {"mame", "fbneo", "finalburnneo"}:
+        return "arcade"
+    return "gamepad"
 
 
 def _headers(token: str) -> dict[str, str]:
@@ -182,8 +244,16 @@ async def _fetch_platform_roms(
     romm_url: str,
     token: str,
     platform_id: str,
-) -> list[dict] | None:
-    """Fetch all ROM groups for one platform with a no-progress guard."""
+    on_page=None,
+) -> tuple[list[dict] | None, bool]:
+    """Fetch one platform with retries and preserve already-fetched pages.
+
+    Large RomM libraries can require dozens of 200-row requests.  A single
+    transient timeout late in that walk must not discard every page already
+    collected.  Retry transient failures with bounded exponential backoff; if
+    retries are exhausted, return the partial platform marked incomplete so
+    Shelf can import the durable work and tell the user to re-run the sync.
+    """
     offset = 0
     roms: list[dict] = []
     seen: set[str] = set()
@@ -198,27 +268,64 @@ async def _fetch_platform_roms(
             "with_filter_values": "false",
             "with_rom_id_index": "false",
         }
-        try:
-            response = await client.get(
-                f"{romm_url}/api/roms", headers=_headers(token), params=params
-            )
-        except httpx.TimeoutException:
-            logger.warning("Timed out fetching RomM platform %s at offset %s", platform_id, offset)
-            return None
-        except httpx.HTTPError:
-            logger.warning("Failed fetching RomM platform %s", platform_id, exc_info=True)
-            return None
+        response = None
+        for attempt in range(PAGE_RETRIES + 1):
+            try:
+                response = await client.get(
+                    f"{romm_url}/api/roms", headers=_headers(token), params=params
+                )
+            except (httpx.TimeoutException, httpx.TransportError):
+                if attempt < PAGE_RETRIES:
+                    delay = PAGE_RETRY_BACKOFF * (2 ** attempt)
+                    logger.warning(
+                        "RomM platform %s offset %s timed out; retry %s/%s in %.1fs",
+                        platform_id,
+                        offset,
+                        attempt + 1,
+                        PAGE_RETRIES,
+                        delay,
+                    )
+                    await asyncio.sleep(delay)
+                    continue
+                logger.warning(
+                    "RomM platform %s offset %s failed after %s retries",
+                    platform_id,
+                    offset,
+                    PAGE_RETRIES,
+                )
+                return (roms or None), False
 
-        if response.status_code != 200:
+            if response.status_code == 200:
+                break
+            if response.status_code in (408, 429) or response.status_code >= 500:
+                if attempt < PAGE_RETRIES:
+                    delay = PAGE_RETRY_BACKOFF * (2 ** attempt)
+                    logger.warning(
+                        "RomM platform %s offset %s returned HTTP %s; retry %s/%s in %.1fs",
+                        platform_id,
+                        offset,
+                        response.status_code,
+                        attempt + 1,
+                        PAGE_RETRIES,
+                        delay,
+                    )
+                    await asyncio.sleep(delay)
+                    continue
             logger.warning(
-                "RomM platform %s returned HTTP %s", platform_id, response.status_code
+                "RomM platform %s returned HTTP %s at offset %s",
+                platform_id,
+                response.status_code,
+                offset,
             )
-            return None
+            return (roms or None), False
+
+        if response is None or response.status_code != 200:
+            return (roms or None), False
         try:
             data = response.json()
         except ValueError:
             logger.warning("RomM platform %s returned invalid JSON", platform_id)
-            return None
+            return (roms or None), False
 
         if isinstance(data, list):
             page = data
@@ -227,9 +334,9 @@ async def _fetch_platform_roms(
             page = data.get("items") or []
             total = data.get("total")
         else:
-            return None
+            return (roms or None), False
         if not isinstance(page, list):
-            return None
+            return (roms or None), False
 
         added = 0
         for rom in page:
@@ -241,6 +348,9 @@ async def _fetch_platform_roms(
             seen.add(rom_id)
             roms.append(rom)
             added += 1
+
+        if on_page:
+            await on_page(len(roms), total if isinstance(total, int) else None)
 
         if not page or len(page) < PAGE_SIZE:
             break
@@ -255,8 +365,7 @@ async def _fetch_platform_roms(
             break
         offset += len(page)
 
-    return roms
-
+    return roms, True
 
 def _cover_url(romm_url: str, rom: dict) -> str | None:
     value = (
@@ -355,6 +464,7 @@ async def sync(romm_url: str, token: str, on_progress=None) -> dict:
         "unchanged": 0,
         "skipped": 0,
         "errors": 0,
+        "incomplete_platforms": 0,
         "covers": 0,
         "cover_errors": 0,
     }
@@ -381,27 +491,85 @@ async def sync(romm_url: str, token: str, on_progress=None) -> dict:
         if not isinstance(raw_platforms, list):
             return {"error": "RomM returned an invalid platform response"}
 
-        platform_roms: list[tuple[dict, list[dict]]] = []
-        for platform in raw_platforms:
-            if not isinstance(platform, dict) or platform.get("id") is None:
-                continue
-            platform_id = str(platform["id"])
-            if platform_id in excluded:
-                continue
-            roms = await _fetch_platform_roms(client, romm_url, token, platform_id)
-            if roms is None:
-                stats["errors"] += 1
-                continue
-            platform_roms.append((platform, roms))
+        platform_roms: list[tuple[dict, list[dict], str]] = []
+        platform_icon_slugs: dict[str, str] = {}
+        selected_platforms = [
+            platform
+            for platform in raw_platforms
+            if isinstance(platform, dict)
+            and platform.get("id") is not None
+            and str(platform["id"]) not in excluded
+        ]
+        discovery_estimate = sum(
+            max(0, int(platform.get("rom_count") or 0))
+            for platform in selected_platforms
+            if str(platform.get("rom_count") or "0").isdigit()
+        )
+        discovered = 0
+        if on_progress and discovery_estimate:
+            await on_progress(0, discovery_estimate, "Discovering RomM library…", "discovering")
 
-        total = sum(len(roms) for _, roms in platform_roms)
-        current = 0
-        cover_batch: list[tuple] = []
-
-        for platform, roms in platform_roms:
+        for platform in selected_platforms:
             platform_id = str(platform["id"])
             with get_db() as db:
                 shelf_platform = _platform_slug(db, platform)
+            icon_slug = _platform_icon_slug(platform)
+            if icon_slug:
+                platform_icon_slugs[shelf_platform] = icon_slug
+            platform_name = str(
+                platform.get("display_name")
+                or platform.get("custom_name")
+                or platform.get("name")
+                or platform.get("slug")
+                or platform_id
+            ).strip()
+            discovery_base = discovered
+
+            async def report_page(platform_current, platform_total, *, base=discovery_base, name=platform_name):
+                if not on_progress:
+                    return
+                global_current = base + platform_current
+                global_total = max(
+                    discovery_estimate,
+                    global_current,
+                    base + (platform_total or platform_current),
+                )
+                await on_progress(
+                    global_current,
+                    global_total,
+                    f"Discovering {name}",
+                    "discovering",
+                )
+
+            roms, complete = await _fetch_platform_roms(
+                client, romm_url, token, platform_id, report_page
+            )
+            if roms is None:
+                stats["errors"] += 1
+                stats["incomplete_platforms"] += 1
+                continue
+            discovered += len(roms)
+            if not complete:
+                stats["errors"] += 1
+                stats["incomplete_platforms"] += 1
+            platform_roms.append((platform, roms, shelf_platform))
+
+        with get_db() as db:
+            icon_map_json = json.dumps(platform_icon_slugs, sort_keys=True)
+            db.execute(
+                "INSERT INTO settings (key, value) VALUES ('romm_platform_icon_slugs', ?) "
+                "ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+                (icon_map_json,),
+            )
+
+        total = sum(len(roms) for _, roms, _ in platform_roms)
+        current = 0
+        cover_batch: list[tuple] = []
+        if on_progress and total:
+            await on_progress(0, total, "Importing RomM library…", "importing")
+
+        for platform, roms, shelf_platform in platform_roms:
+            platform_id = str(platform["id"])
 
             for rom in roms:
                 current += 1
@@ -521,31 +689,7 @@ async def sync(romm_url: str, token: str, on_progress=None) -> dict:
 
 
 def _auto_link_items() -> None:
-    """Link RomM Digital Games to physical Video Games on title + platform."""
+    """Group same-title game representations across platforms and formats."""
+    from app.services import media_groups
     with get_db() as db:
-        digital = db.execute(
-            """SELECT id, title, platform FROM items
-               WHERE romm_id IS NOT NULL AND media_type = 'digital_game'"""
-        ).fetchall()
-        physical = db.execute(
-            """SELECT id, title, platform FROM items
-               WHERE media_type = 'video_game'"""
-        ).fetchall()
-
-        index: dict[tuple[str, str], list] = {}
-        for item in physical:
-            if not item["platform"]:
-                continue
-            key = (_normal_title(item["title"]), item["platform"])
-            index.setdefault(key, []).append(item)
-
-        for item in digital:
-            if not item["platform"]:
-                continue
-            for match in index.get((_normal_title(item["title"]), item["platform"]), []):
-                a_id, b_id = sorted((item["id"], match["id"]))
-                db.execute(
-                    """INSERT OR IGNORE INTO item_links (item_a_id, item_b_id)
-                       VALUES (?, ?)""",
-                    (a_id, b_id),
-                )
+        media_groups.auto_link_family(db, "game")

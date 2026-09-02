@@ -331,45 +331,7 @@ def _authors_compatible(a: str | None, b: str | None) -> bool:
 
 
 def _auto_link_items():
-    """Create item_links between items that appear to be the same work in different formats."""
+    """Group book, ebook and audiobook representations of the same work."""
+    from app.services import media_groups
     with get_db() as db:
-        abs_items = db.execute(
-            "SELECT id, title, authors, isbn, media_type FROM items WHERE abs_id IS NOT NULL"
-        ).fetchall()
-
-        for abs_item in abs_items:
-            norm_title = _normalize_title(abs_item["title"])
-
-            # Match by ISBN
-            if abs_item["isbn"]:
-                matches = db.execute(
-                    "SELECT id FROM items WHERE isbn = ? AND id != ? AND media_type != ?",
-                    (abs_item["isbn"], abs_item["id"], abs_item["media_type"]),
-                ).fetchall()
-            else:
-                matches = []
-
-            # Match by normalized title + compatible authors if no ISBN match
-            if not matches:
-                all_items = db.execute(
-                    "SELECT id, title, authors, media_type FROM items WHERE id != ? AND abs_id IS NULL",
-                    (abs_item["id"],),
-                ).fetchall()
-                matches = [
-                    i for i in all_items
-                    if _normalize_title(i["title"]) == norm_title
-                    and i["media_type"] != abs_item["media_type"]
-                    and _authors_compatible(abs_item["authors"], i["authors"])
-                ]
-
-            for match in matches:
-                match_id = match["id"] if isinstance(match, dict) else match[0]
-                a_id = min(abs_item["id"], match_id)
-                b_id = max(abs_item["id"], match_id)
-                try:
-                    db.execute(
-                        "INSERT OR IGNORE INTO item_links (item_a_id, item_b_id) VALUES (?, ?)",
-                        (a_id, b_id),
-                    )
-                except Exception:
-                    pass
+        media_groups.auto_link_family(db, "book")

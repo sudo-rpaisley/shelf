@@ -176,56 +176,7 @@
                 </div>
                 {% endif %}
 
-                <!-- Also in Audiobookshelf (linked digital copy, direct deep link) -->
-                {% if not abs_url and linked_abs_items %}
-                <div class="mb-4">
-                    {% for la in linked_abs_items %}
-                    <a href="{{ la.abs_url }}" target="_blank" rel="noopener"
-                       class="inline-flex items-center gap-1 px-3 py-1.5 bg-shelf-accent/20 text-shelf-accent2 rounded-lg text-sm hover:bg-shelf-accent/30 transition-colors mr-2">
-                        {% if la.media_type == 'ebook' %}&#128214;{% else %}&#9654;{% endif %} Also in Audiobookshelf ({{ media_types.get(la.media_type, la.media_type) }})
-                    </a>
-                    {% endfor %}
-                </div>
-                {% endif %}
-
-                <!-- Also in Komga (linked copy) -->
-                {% if not komga_url and linked_komga_items %}
-                <div class="mb-4">
-                    {% for lk in linked_komga_items %}
-                    <a href="{{ lk.komga_url }}" target="_blank" rel="noopener"
-                       class="inline-flex items-center gap-1 px-3 py-1.5 bg-shelf-accent/20 text-shelf-accent2 rounded-lg text-sm hover:bg-shelf-accent/30 transition-colors mr-2">
-                        &#128214; Also in Komga ({{ media_types.get(lk.media_type, lk.media_type) }})
-                    </a>
-                    {% endfor %}
-                </div>
-                {% endif %}
-
-
-                <!-- Also in RomM (linked digital copy) -->
-                {% if not romm_url and linked_romm_items %}
-                <div class="mb-4">
-                    {% for lr in linked_romm_items %}
-                    <a href="{{ lr.romm_url }}" target="_blank" rel="noopener"
-                       class="inline-flex items-center gap-1 px-3 py-1.5 bg-shelf-accent/20 text-shelf-accent2 rounded-lg text-sm hover:bg-shelf-accent/30 transition-colors mr-2">
-                        &#127918; Also in RomM ({{ media_types.get(lr.media_type, lr.media_type) }})
-                    </a>
-                    {% endfor %}
-                </div>
-                {% endif %}
-
-                <!-- Linked Items (other formats) -->
-                {% if linked_items %}
-                <div class="mb-4">
-                    <p class="text-xs text-shelf-muted mb-1">Also available as:</p>
-                    <div class="flex flex-wrap gap-2">
-                        {% for li in linked_items %}
-                        <a href="/item/{{ li.id }}{% if back.key %}?from={{ back.key }}{% endif %}" class="px-2 py-1 bg-shelf-hover rounded text-xs text-shelf-text hover:bg-shelf-border transition-colors">
-                            {{ media_types.get(li.media_type, li.media_type) }}
-                        </a>
-                        {% endfor %}
-                    </div>
-                </div>
-                {% endif %}
+                {% include "fragments/related_media.html" %}
 
                 {% if is_music %}
                 <div hx-get="/api/music/items/{{ item.id }}/detail" hx-trigger="load" hx-swap="outerHTML">

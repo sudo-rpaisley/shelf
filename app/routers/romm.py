@@ -68,19 +68,61 @@ async def test_romm(request: Request):
 
     try:
         async with httpx.AsyncClient(timeout=HTTP_TIMEOUT) as client:
-            response = await client.get(f"{url}/api/platforms", headers=_headers(token))
+            platforms_response = await client.get(
+                f"{url}/api/platforms", headers=_headers(token)
+            )
+            if platforms_response.status_code == 401:
+                return {"ok": False, "message": "RomM rejected the Client API Token"}
+            if platforms_response.status_code == 403:
+                return {
+                    "ok": False,
+                    "message": "Client API Token is missing platforms.read permission",
+                }
+            if platforms_response.status_code != 200:
+                return {
+                    "ok": False,
+                    "message": f"Unexpected platform response: HTTP {platforms_response.status_code}",
+                }
+            try:
+                platforms = platforms_response.json()
+            except ValueError:
+                return {"ok": False, "message": "RomM returned an invalid platform response"}
+            if not isinstance(platforms, list):
+                return {"ok": False, "message": "RomM returned an invalid platform response"}
+
+            # A token can read /api/platforms but still lack roms.read. Probe the
+            # ROM endpoint too so Test cannot report success for credentials that
+            # the actual sync will immediately reject.
+            roms_response = await client.get(
+                f"{url}/api/roms",
+                headers=_headers(token),
+                params={"limit": 1, "offset": 0},
+            )
     except httpx.ConnectError:
         return {"ok": False, "message": f"Cannot connect to {url}"}
     except httpx.HTTPError:
         return {"ok": False, "message": "Connection failed — check URL and network"}
 
-    if response.status_code == 200:
-        platforms = response.json()
-        count = len(platforms) if isinstance(platforms, list) else 0
-        return {"ok": True, "message": f"Connected — {count} platform(s) found"}
-    if response.status_code in (401, 403):
-        return {"ok": False, "message": "Invalid token or missing RomM read scopes"}
-    return {"ok": False, "message": f"Unexpected response: HTTP {response.status_code}"}
+    if roms_response.status_code == 401:
+        return {"ok": False, "message": "RomM rejected the Client API Token"}
+    if roms_response.status_code == 403:
+        return {
+            "ok": False,
+            "message": "Client API Token is missing roms.read permission",
+        }
+    if roms_response.status_code != 200:
+        return {
+            "ok": False,
+            "message": f"Unexpected ROM response: HTTP {roms_response.status_code}",
+        }
+    try:
+        roms_payload = roms_response.json()
+    except ValueError:
+        return {"ok": False, "message": "RomM returned an invalid ROM response"}
+    if not isinstance(roms_payload, (list, dict)):
+        return {"ok": False, "message": "RomM returned an invalid ROM response"}
+
+    return {"ok": True, "message": f"Connected — {len(platforms)} platform(s) found"}
 
 
 @router.post("/public-url")
@@ -172,6 +214,15 @@ async def save_platforms(request: Request):
 
 @router.post("/platforms/cleanup")
 async def cleanup_platforms():
+    if sync_jobs.is_running("romm"):
+        return JSONResponse(
+            {
+                "ok": False,
+                "message": "RomM sync is running — wait for it to finish before cleanup",
+            },
+            status_code=409,
+        )
+
     excluded = romm.get_excluded_platforms()
     if not excluded:
         return {"ok": True, "deleted": 0, "detached": 0}
