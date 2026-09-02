@@ -1,0 +1,513 @@
+name: Build streaming RomM sync
+
+on:
+  push:
+    branches: [feature/romm-streaming-sync]
+    paths: [.github/workflows/build-romm-streaming.yml]
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+          cache: pip
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+
+      - name: Install dependencies
+        run: |
+          pip install -r requirements-dev.txt
+          npm ci
+
+      - name: Refactor RomM sync to stream pages
+        shell: bash
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          path = Path('app/services/romm.py')
+          text = path.read_text()
+          text = text.replace('PAGE_SIZE = 200', 'PAGE_SIZE = 500')
+          text = text.replace('COVER_BATCH_SIZE = 8', 'COVER_BATCH_SIZE = 16')
+
+          fetch_start = text.index('async def _fetch_platform_roms(')
+          fetch_end = text.index('def _cover_url', fetch_start)
+          fetch_block = '''async def _fetch_rom_page(
+              client: httpx.AsyncClient,
+              romm_url: str,
+              token: str,
+              platform_id: str,
+              offset: int,
+              *,
+              with_total: bool,
+          ) -> tuple[list[dict] | None, int | None, bool]:
+              """Fetch one bounded RomM page with retry protection.
+
+              RomM 5.x filters /api/roms with ``platform_ids`` (plural).  Using
+              the old singular parameter silently widens the query on current
+              RomM releases, which can make Shelf walk the whole library once per
+              selected platform.  Only ask RomM to calculate the result count on
+              the first page; later pages reuse that count and avoid repeated
+              COUNT work on large libraries.
+              """
+              params = {
+                  "platform_ids": platform_id,
+                  "limit": PAGE_SIZE,
+                  "offset": offset,
+                  "group_by_meta_id": "true",
+                  "with_char_index": "false",
+                  "with_filter_values": "false",
+                  "with_rom_id_index": "false",
+                  "with_total": "true" if with_total else "false",
+                  "order_by": "id",
+                  "order_dir": "asc",
+              }
+              response = None
+              for attempt in range(PAGE_RETRIES + 1):
+                  try:
+                      response = await client.get(
+                          f"{romm_url}/api/roms", headers=_headers(token), params=params
+                      )
+                  except (httpx.TimeoutException, httpx.TransportError):
+                      if attempt < PAGE_RETRIES:
+                          delay = PAGE_RETRY_BACKOFF * (2 ** attempt)
+                          logger.warning(
+                              "RomM platform %s offset %s timed out; retry %s/%s in %.1fs",
+                              platform_id,
+                              offset,
+                              attempt + 1,
+                              PAGE_RETRIES,
+                              delay,
+                          )
+                          await asyncio.sleep(delay)
+                          continue
+                      logger.warning(
+                          "RomM platform %s offset %s failed after %s retries",
+                          platform_id,
+                          offset,
+                          PAGE_RETRIES,
+                      )
+                      return None, None, False
+
+                  if response.status_code == 200:
+                      break
+                  if response.status_code in (408, 429) or response.status_code >= 500:
+                      if attempt < PAGE_RETRIES:
+                          delay = PAGE_RETRY_BACKOFF * (2 ** attempt)
+                          logger.warning(
+                              "RomM platform %s offset %s returned HTTP %s; retry %s/%s in %.1fs",
+                              platform_id,
+                              offset,
+                              response.status_code,
+                              attempt + 1,
+                              PAGE_RETRIES,
+                              delay,
+                          )
+                          await asyncio.sleep(delay)
+                          continue
+                  logger.warning(
+                      "RomM platform %s returned HTTP %s at offset %s",
+                      platform_id,
+                      response.status_code,
+                      offset,
+                  )
+                  return None, None, False
+
+              if response is None or response.status_code != 200:
+                  return None, None, False
+              try:
+                  data = response.json()
+              except ValueError:
+                  logger.warning("RomM platform %s returned invalid JSON", platform_id)
+                  return None, None, False
+
+              if isinstance(data, list):
+                  page = data
+                  total = None
+              elif isinstance(data, dict):
+                  page = data.get("items") or []
+                  raw_total = data.get("total")
+                  total = raw_total if isinstance(raw_total, int) else None
+              else:
+                  return None, None, False
+              if not isinstance(page, list):
+                  return None, None, False
+              return page, total, True
+
+
+          '''
+          text = text[:fetch_start] + fetch_block + text[fetch_end:]
+
+          sync_start = text.index('async def sync(romm_url: str, token: str, on_progress=None) -> dict:')
+          sync_end = text.index('\ndef _auto_link_items()', sync_start)
+          sync_block = '''async def sync(romm_url: str, token: str, on_progress=None) -> dict:
+              """Stream selected RomM platforms into Shelf as Digital Games.
+
+              A page is fetched, committed to SQLite, and then released before the
+              next page is requested.  Existing RomM IDs and unclaimed titles are
+              indexed once instead of re-querying the same platform for every ROM.
+              This keeps memory bounded and turns matching from repeated table
+              scans into dictionary lookups.
+              """
+              stats = {
+                  "added": 0,
+                  "updated": 0,
+                  "unchanged": 0,
+                  "skipped": 0,
+                  "errors": 0,
+                  "incomplete_platforms": 0,
+                  "covers": 0,
+                  "cover_errors": 0,
+              }
+              excluded = get_excluded_platforms()
+
+              async with httpx.AsyncClient(timeout=30) as client:
+                  try:
+                      response = await client.get(
+                          f"{romm_url}/api/platforms", headers=_headers(token)
+                      )
+                  except httpx.TimeoutException:
+                      return {"error": "Timed out connecting to RomM"}
+                  except httpx.HTTPError:
+                      return {"error": "Failed to connect to RomM"}
+
+                  if response.status_code in (401, 403):
+                      return {"error": "RomM rejected the Client API Token"}
+                  if response.status_code != 200:
+                      return {"error": f"Failed to connect: HTTP {response.status_code}"}
+                  try:
+                      raw_platforms = response.json()
+                  except ValueError:
+                      return {"error": "RomM returned an invalid platform response"}
+                  if not isinstance(raw_platforms, list):
+                      return {"error": "RomM returned an invalid platform response"}
+
+                  selected_platforms = [
+                      platform
+                      for platform in raw_platforms
+                      if isinstance(platform, dict)
+                      and platform.get("id") is not None
+                      and str(platform["id"]) not in excluded
+                  ]
+
+                  prepared_platforms: list[tuple[dict, str, str]] = []
+                  platform_icon_slugs: dict[str, str] = {}
+                  expected_counts: dict[str, int] = {}
+                  for platform in selected_platforms:
+                      platform_id = str(platform["id"])
+                      with get_db() as db:
+                          shelf_platform = _platform_slug(db, platform)
+                      icon_slug = _platform_icon_slug(platform)
+                      if icon_slug:
+                          platform_icon_slugs[shelf_platform] = icon_slug
+                      platform_name = str(
+                          platform.get("display_name")
+                          or platform.get("custom_name")
+                          or platform.get("name")
+                          or platform.get("slug")
+                          or platform_id
+                      ).strip()
+                      try:
+                          expected_counts[platform_id] = max(
+                              0, int(platform.get("rom_count") or 0)
+                          )
+                      except (TypeError, ValueError):
+                          expected_counts[platform_id] = 0
+                      prepared_platforms.append((platform, shelf_platform, platform_name))
+
+                  with get_db() as db:
+                      icon_map_json = json.dumps(platform_icon_slugs, sort_keys=True)
+                      db.execute(
+                          "INSERT INTO settings (key, value) VALUES ('romm_platform_icon_slugs', ?) "
+                          "ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+                          (icon_map_json,),
+                      )
+                      existing_rows = db.execute(
+                          """SELECT id, title, media_type, platform, publisher,
+                                    publish_year, description, romm_id,
+                                    romm_platform_id, cover_path, source
+                             FROM items WHERE romm_id IS NOT NULL"""
+                      ).fetchall()
+                  existing_by_romm_id = {
+                      str(row["romm_id"]): dict(row)
+                      for row in existing_rows
+                      if row["romm_id"] is not None
+                  }
+
+                  current = 0
+                  total = sum(expected_counts.values())
+                  if on_progress:
+                      await on_progress(
+                          0,
+                          total,
+                          "Discovering RomM library…",
+                          "discovering",
+                      )
+
+                  for platform, shelf_platform, platform_name in prepared_platforms:
+                      platform_id = str(platform["id"])
+                      with get_db() as db:
+                          rows = db.execute(
+                              """SELECT id, title, media_type, platform, publisher,
+                                        publish_year, description, romm_id,
+                                        romm_platform_id, cover_path, source
+                                 FROM items
+                                 WHERE media_type = 'digital_game'
+                                   AND platform = ? AND romm_id IS NULL""",
+                              (shelf_platform,),
+                          ).fetchall()
+                      unclaimed_by_title: dict[str, dict] = {}
+                      for row in rows:
+                          normal = _normal_title(row["title"])
+                          if normal and normal not in unclaimed_by_title:
+                              unclaimed_by_title[normal] = dict(row)
+
+                      offset = 0
+                      first_page = True
+                      seen: set[str] = set()
+                      platform_incomplete = False
+
+                      while True:
+                          page, page_total, ok = await _fetch_rom_page(
+                              client,
+                              romm_url,
+                              token,
+                              platform_id,
+                              offset,
+                              with_total=first_page,
+                          )
+                          if not ok or page is None:
+                              stats["errors"] += 1
+                              stats["incomplete_platforms"] += 1
+                              platform_incomplete = True
+                              break
+
+                          if first_page and page_total is not None:
+                              expected_counts[platform_id] = page_total
+                              total = max(current, sum(expected_counts.values()))
+                          first_page = False
+
+                          page_roms: list[dict] = []
+                          new_ids = 0
+                          for rom in page:
+                              if not isinstance(rom, dict):
+                                  continue
+                              romm_id = str(rom.get("id") or "").strip()
+                              if romm_id:
+                                  if romm_id in seen:
+                                      continue
+                                  seen.add(romm_id)
+                                  new_ids += 1
+                              page_roms.append(rom)
+
+                          if on_progress:
+                              await on_progress(
+                                  current,
+                                  max(total, current + len(page_roms)),
+                                  f"Importing {platform_name}",
+                                  "importing",
+                              )
+
+                          cover_jobs: list[tuple] = []
+                          with get_db() as db:
+                              for rom in page_roms:
+                                  current += 1
+                                  romm_id = str(rom.get("id") or "").strip()
+                                  title = str(
+                                      rom.get("name")
+                                      or rom.get("fs_name_no_tags")
+                                      or rom.get("fs_name_no_ext")
+                                      or ""
+                                  ).strip()
+                                  if not romm_id or not title:
+                                      stats["skipped"] += 1
+                                      if on_progress:
+                                          await on_progress(
+                                              current,
+                                              max(total, current),
+                                              title or romm_id or "Unknown ROM",
+                                              "skipped",
+                                          )
+                                      continue
+
+                                  metadata = rom.get("metadatum") or {}
+                                  if not isinstance(metadata, dict):
+                                      metadata = {}
+                                  publisher = _publisher(metadata)
+                                  publish_year = _publish_year(
+                                      metadata.get("first_release_date")
+                                  )
+                                  description = str(rom.get("summary") or "").strip() or None
+                                  cover_url = _cover_url(romm_url, rom)
+
+                                  existing = existing_by_romm_id.get(romm_id)
+                                  normal = _normal_title(title)
+                                  if not existing and normal:
+                                      existing = unclaimed_by_title.pop(normal, None)
+
+                                  desired = {
+                                      "title": title,
+                                      "media_type": "digital_game",
+                                      "platform": shelf_platform,
+                                      "publisher": publisher,
+                                      "publish_year": publish_year,
+                                      "description": description,
+                                      "romm_id": romm_id,
+                                      "romm_platform_id": platform_id,
+                                  }
+
+                                  if existing:
+                                      changed = any(
+                                          existing.get(key) != value
+                                          for key, value in desired.items()
+                                      )
+                                      if changed:
+                                          db.execute(
+                                              """UPDATE items SET title=?, media_type='digital_game',
+                                                 platform=?, publisher=?, publish_year=?,
+                                                 description=?, romm_id=?, romm_platform_id=?,
+                                                 updated_at=datetime('now') WHERE id=?""",
+                                              (
+                                                  title,
+                                                  shelf_platform,
+                                                  publisher,
+                                                  publish_year,
+                                                  description,
+                                                  romm_id,
+                                                  platform_id,
+                                                  existing["id"],
+                                              ),
+                                          )
+                                          stats["updated"] += 1
+                                          status = "updated"
+                                      else:
+                                          stats["unchanged"] += 1
+                                          status = "unchanged"
+                                      item_id = existing["id"]
+                                      fetch_cover = not existing.get("cover_path") and bool(cover_url)
+                                      snapshot = dict(existing)
+                                      snapshot.update(desired)
+                                  else:
+                                      item_id = insert_item(
+                                          db,
+                                          title=title,
+                                          media_type="digital_game",
+                                          platform=shelf_platform,
+                                          publisher=publisher,
+                                          publish_year=publish_year,
+                                          description=description,
+                                          romm_id=romm_id,
+                                          romm_platform_id=platform_id,
+                                          source="romm",
+                                      )
+                                      stats["added"] += 1
+                                      status = "added"
+                                      fetch_cover = bool(cover_url)
+                                      snapshot = {
+                                          "id": item_id,
+                                          **desired,
+                                          "cover_path": None,
+                                          "source": "romm",
+                                      }
+
+                                  existing_by_romm_id[romm_id] = snapshot
+                                  if fetch_cover and cover_url:
+                                      cover_jobs.append(
+                                          (client, romm_url, token, cover_url, item_id)
+                                      )
+
+                                  if on_progress:
+                                      await on_progress(
+                                          current,
+                                          max(total, current),
+                                          title,
+                                          status,
+                                      )
+
+                          # Never hold a SQLite write transaction open while waiting
+                          # on artwork HTTP.  Drain this page after its commit, in
+                          # bounded concurrent batches, then release the page JSON.
+                          while cover_jobs:
+                              batch = cover_jobs[:COVER_BATCH_SIZE]
+                              del cover_jobs[:COVER_BATCH_SIZE]
+                              await _drain_cover_batch(batch, stats)
+
+                          if not page or len(page) < PAGE_SIZE:
+                              break
+                          if page_total is not None and offset + len(page) >= page_total:
+                              break
+                          if new_ids == 0:
+                              logger.warning(
+                                  "RomM platform %s pagination made no progress at offset %s",
+                                  platform_id,
+                                  offset,
+                              )
+                              stats["errors"] += 1
+                              stats["incomplete_platforms"] += 1
+                              platform_incomplete = True
+                              break
+                          offset += len(page)
+
+                      if platform_incomplete:
+                          continue
+
+              _auto_link_items()
+              return stats
+
+          '''
+          text = text[:sync_start] + sync_block + text[sync_end:]
+          path.write_text(text)
+
+          test_path = Path('tests/test_romm_sync.py')
+          tests = test_path.read_text()
+          tests = tests.replace(
+              'assert req.url.params["platform_id"] == "1"',
+              'assert req.url.params["platform_ids"] == "1"\n'
+              '    assert req.url.params["with_total"] == "true"\n'
+              '    assert req.url.params["order_by"] == "id"'
+          )
+          old = '''@respx.mock\ndef test_discovery_reports_page_progress_before_import(db):\n    respx.get(f"{ROMM}/api/platforms").mock(\n        return_value=httpx.Response(200, json=[_platform(count=PAGE_SIZE + 1)]))\n    first = [_rom(rid=i + 1, title=f"Game {i + 1}", cover=None)\n             for i in range(PAGE_SIZE)]\n    last = _rom(rid=PAGE_SIZE + 1, title="Last Game", cover=None)\n    respx.get(f"{ROMM}/api/roms").mock(side_effect=[\n        _page(*first, total=PAGE_SIZE + 1, offset=0),\n        _page(last, total=PAGE_SIZE + 1, offset=PAGE_SIZE),\n    ])\n    progress = []\n\n    async def on_progress(current, total, title, status):\n        progress.append((current, total, title, status))\n\n    stats = asyncio.run(sync(ROMM, TOKEN, on_progress=on_progress))\n\n    assert stats["added"] == PAGE_SIZE + 1\n    assert any(\n        current == PAGE_SIZE and total >= PAGE_SIZE + 1\n        and title.startswith("Discovering ") and status == "discovering"\n        for current, total, title, status in progress\n    )\n    importing = next(entry for entry in progress if entry[3] == "importing")\n    assert importing[:2] == (0, PAGE_SIZE + 1)\n'''
+          new = '''@respx.mock\ndef test_streams_first_page_before_fetching_second_page(db):\n    respx.get(f"{ROMM}/api/platforms").mock(\n        return_value=httpx.Response(200, json=[_platform(count=PAGE_SIZE + 1)]))\n    first = [_rom(rid=i + 1, title=f"Game {i + 1}", cover=None)\n             for i in range(PAGE_SIZE)]\n    last = _rom(rid=PAGE_SIZE + 1, title="Last Game", cover=None)\n    observed_before_second = []\n\n    def responder(request):\n        offset = int(request.url.params.get("offset", "0"))\n        if offset == 0:\n            return _page(*first, total=PAGE_SIZE + 1, offset=0)\n        from app.database import get_db\n        with get_db() as check_db:\n            observed_before_second.append(\n                check_db.execute("SELECT COUNT(*) FROM items WHERE source='romm'").fetchone()[0]\n            )\n        return _page(last, total=None, offset=PAGE_SIZE)\n\n    route = respx.get(f"{ROMM}/api/roms").mock(side_effect=responder)\n    stats = asyncio.run(sync(ROMM, TOKEN))\n\n    assert stats["added"] == PAGE_SIZE + 1\n    assert observed_before_second == [PAGE_SIZE]\n    assert route.calls[0].request.url.params["platform_ids"] == "1"\n    assert route.calls[0].request.url.params["with_total"] == "true"\n    assert route.calls[1].request.url.params["with_total"] == "false"\n    assert PAGE_SIZE == 500\n'''
+          if old not in tests:
+              raise SystemExit('expected progress test block not found')
+          tests = tests.replace(old, new)
+          test_path.write_text(tests)
+          PY
+
+      - name: Refresh generated badge
+        run: make badges
+
+      - name: Run focused RomM and related-media tests
+        run: |
+          python -m pytest \
+            tests/test_romm_sync.py \
+            tests/test_romm_progress_ui.py \
+            tests/test_romm_public_url.py \
+            tests/test_media_groups.py \
+            tests/test_related_media_ui.py \
+            -q --tb=short
+          make checks-fast
+
+      - name: Commit implementation
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          rm .github/workflows/build-romm-streaming.yml
+          git add -A
+          git commit -m "Stream and accelerate RomM sync"
+          git push origin HEAD:feature/romm-streaming-sync
