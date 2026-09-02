@@ -10,6 +10,14 @@ from tests.e2e.conftest import assert_page_clean, attach_page_guard, insert_item
 pytestmark = pytest.mark.e2e
 
 
+def _open_filters(page):
+    """Open the specialist-filter disclosure when it is collapsed."""
+    panel = page.get_by_test_id("filters-panel")
+    if not panel.is_visible():
+        page.get_by_test_id("filters-toggle").click()
+    expect(panel).to_be_visible()
+
+
 def test_browse_empty_state(live_server, authed_page):
     """With no items, browse page shows an empty state message."""
     authed_page.goto(f"{live_server['url']}/browse")
@@ -41,8 +49,8 @@ def test_browse_search(live_server, authed_page):
     authed_page.goto(f"{live_server['url']}/browse")
     authed_page.wait_for_load_state("networkidle")
 
-    # Two search inputs exist (mobile hidden, desktop visible) — use the visible one
-    search = authed_page.locator("input[name=q]:visible").first
+    search = authed_page.locator("input[name=q]")
+    expect(search).to_be_visible()
     search.fill("Foundation")
     search.press("Enter")
     authed_page.wait_for_load_state("networkidle")
@@ -56,11 +64,10 @@ def test_browse_media_type_filter(live_server, authed_page):
     authed_page.goto(f"{live_server['url']}/browse")
     authed_page.wait_for_load_state("networkidle")
 
-    # The media type filter is a <select> dropdown
+    _open_filters(authed_page)
     filter_el = authed_page.locator("select#type-filter")
     filter_el.select_option("book")
     authed_page.wait_for_load_state("networkidle")
-    # Page should still be on /browse (with query params)
     assert "/browse" in authed_page.url
 
 
@@ -69,12 +76,10 @@ def test_browse_grid_list_toggle(live_server, authed_page):
     authed_page.goto(f"{live_server['url']}/browse")
     authed_page.wait_for_load_state("networkidle")
 
-    # Click the list-view toggle button
     authed_page.locator("[data-testid='view-list']").click()
     authed_page.wait_for_load_state("networkidle")
     assert authed_page.locator("body").is_visible()
 
-    # Click back to grid view
     authed_page.locator("[data-testid='view-grid']").click()
     authed_page.wait_for_load_state("networkidle")
     assert authed_page.locator("body").is_visible()
@@ -88,6 +93,7 @@ def test_browse_filters_restored_on_return(live_server, authed_page):
 
     authed_page.goto(f"{live_server['url']}/browse")
     authed_page.wait_for_load_state("networkidle")
+    _open_filters(authed_page)
     authed_page.locator("select#type-filter").select_option("dvd")
     expect(authed_page.locator("#item-grid")).not_to_contain_text("Restorable Novel")
     # The URL gaining the filter is the observable signal that updateUrl() ran
@@ -95,15 +101,12 @@ def test_browse_filters_restored_on_return(live_server, authed_page):
     # than on the swap alone) keeps the test off htmx's settle timing.
     expect(authed_page).to_have_url(re.compile(r"media_type_filter=dvd"))
 
-    # Leave Browse, then return via a bare /browse URL (no query params).
     authed_page.goto(f"{live_server['url']}/series")
     authed_page.wait_for_load_state("networkidle")
     authed_page.goto(f"{live_server['url']}/browse")
     authed_page.wait_for_load_state("networkidle")
 
-    # Control repopulated...
     expect(authed_page.locator("select#type-filter")).to_have_value("dvd")
-    # ...and actually applied to the results.
     expect(authed_page.locator("#item-grid")).to_contain_text("Restorable Disc")
     expect(authed_page.locator("#item-grid")).not_to_contain_text("Restorable Novel")
 
@@ -116,6 +119,7 @@ def test_browse_clear_all_filters_drops_restore(live_server, authed_page):
 
     authed_page.goto(f"{live_server['url']}/browse")
     authed_page.wait_for_load_state("networkidle")
+    _open_filters(authed_page)
     authed_page.locator("select#type-filter").select_option("dvd")
     expect(authed_page).to_have_url(re.compile(r"media_type_filter=dvd"))
     authed_page.get_by_role("button", name="Clear all", exact=True).click()
@@ -128,13 +132,8 @@ def test_browse_clear_all_filters_drops_restore(live_server, authed_page):
 
 
 def test_browse_search_survives_other_filter_change_on_narrow_viewport(live_server, authed_page):
-    """Issue #8 defect 3: the mobile and desktop search boxes both use name='q'.
-    A q input's own hx-include omits [name='q'], so typing alone is fine — but
-    every OTHER control's hx-include matches BOTH inputs, sending 'q=typed&q='.
-    Starlette's QueryParams.get() returns the LAST duplicate, so on a narrow
-    viewport (where the user types into the mobile box and the desktop box stays
-    empty) changing any other filter silently wiped the search. Both inputs are
-    now x-model bound to one value, so the duplicates always agree."""
+    """The single responsive search value must survive an unrelated filter
+    change on a narrow viewport."""
     insert_item(live_server["data_dir"], title="Narrow Foundation", media_type="book", isbn="9780000999005")
     insert_item(live_server["data_dir"], title="Narrow Neuromancer", media_type="book", isbn="9780000999006")
 
@@ -142,7 +141,7 @@ def test_browse_search_survives_other_filter_change_on_narrow_viewport(live_serv
     authed_page.goto(f"{live_server['url']}/browse")
     authed_page.wait_for_load_state("networkidle")
 
-    search = authed_page.locator("input[name=q]:visible").first
+    search = authed_page.locator("input[name=q]")
     search.fill("Narrow Foundation")
     search.press("Enter")
     authed_page.wait_for_load_state("networkidle")
@@ -151,9 +150,7 @@ def test_browse_search_survives_other_filter_change_on_narrow_viewport(live_serv
     expect(grid).to_contain_text("Narrow Foundation")
     expect(grid).not_to_contain_text("Narrow Neuromancer")
 
-    # Now change a different filter — its hx-include picks up both q inputs.
-    # On a narrow viewport the filter panel is collapsed behind a toggle.
-    authed_page.get_by_role("button", name="Filters").click()
+    _open_filters(authed_page)
     authed_page.locator("select#type-filter").select_option("book")
     authed_page.wait_for_load_state("networkidle")
 
@@ -196,7 +193,6 @@ def test_infinite_scroll_appends_rows_in_list_view(live_server, authed_page):
     assert rows.count() > before, "list view did not append more rows"
     assert authed_page.locator("a[data-item-id] .cover-card").count() == 0, \
         "list view appended cover cards instead of rows (#7)"
-    # Rows swapped into the sentinel <tr> instead of <tbody> would nest.
     assert authed_page.evaluate("document.querySelectorAll('tr tr').length") == 0, \
         "rows were swapped inside a <tr> — wrong sentinel swap target"
 
@@ -302,7 +298,6 @@ def test_reset_restores_defaults(live_server, authed_page):
 
     authed_page.locator("[data-testid='column-picker']").click()
     expect(authed_page.locator("[data-testid='column-menu']")).to_be_visible()
-    # Hide two default-on columns, enable a default-off one.
     authed_page.locator("input[type=checkbox][data-col=author]").uncheck()
     authed_page.locator("input[type=checkbox][data-col=location]").uncheck()
     authed_page.locator("input[type=checkbox][data-col=value]").check()
@@ -334,11 +329,8 @@ def test_stale_storage_is_ignored(live_server, browser, setup_admin):
     ctx, pg = _login_with_seeded_storage(browser, live_server, setup_admin, storage)
     pg.wait_for_load_state("networkidle")
 
-    # Locked column wins over the hand-edited blob.
     expect(pg.locator("td[data-col=title]").first).to_be_visible()
-    # Explicitly turned off in the blob.
     expect(pg.locator("td[data-col=author]").first).to_be_hidden()
-    # Not mentioned in the blob at all — falls back to its registry default (on).
     expect(pg.locator("td[data-col=media_type]").first).to_be_visible()
 
     assert_page_clean(pg)
@@ -361,20 +353,16 @@ def test_two_tabs_do_not_overwrite_each_others_columns(live_server, browser, set
     page_a.wait_for_load_state("networkidle")
     expect(page_a.locator("td[data-col=title]").first).to_be_visible()
 
-    # Tab B mounts from the same defaults, BEFORE A changes anything — this is
-    # what makes its snapshot stale a moment later.
     page_b = attach_page_guard(ctx.new_page())
     page_b.goto(f"{live_server['url']}/browse")
     page_b.wait_for_load_state("networkidle")
     expect(page_b.locator("td[data-col=title]").first).to_be_visible()
 
-    # A hides a default-on column.
     page_a.locator("[data-testid='column-picker']").click()
     expect(page_a.locator("[data-testid='column-menu']")).to_be_visible()
     page_a.locator("input[type=checkbox][data-col=author]").uncheck()
     expect(page_a.locator("th[data-col=author]")).to_be_hidden()
 
-    # B enables a default-off column, still holding its pre-A snapshot.
     page_b.locator("[data-testid='column-picker']").click()
     expect(page_b.locator("[data-testid='column-menu']")).to_be_visible()
     page_b.locator("input[type=checkbox][data-col=value]").check()
@@ -385,12 +373,10 @@ def test_two_tabs_do_not_overwrite_each_others_columns(live_server, browser, set
         "tab B's write resurrected the column tab A hid (lost update)"
     assert stored.get("value") is True, "tab B's own change was not persisted"
 
-    # The reload is the point: it is where a user would discover the loss.
     page_a.reload()
     page_a.wait_for_load_state("networkidle")
     expect(page_a.locator("td[data-col=title]").first).to_be_visible()
     author_cells = page_a.locator("td[data-col=author]")
-    # to_be_hidden() passes on a locator matching nothing (G31).
     assert author_cells.count() > 0
     for i in range(author_cells.count()):
         expect(author_cells.nth(i)).to_be_hidden()
@@ -444,7 +430,6 @@ def test_infinite_scroll_appends_rows_with_custom_columns(live_server, browser, 
     assert pg.evaluate("document.querySelectorAll('tr tr').length") == 0, \
         "rows were swapped inside a <tr> — wrong sentinel swap target"
 
-    # The custom column set must apply to rows appended after mount too.
     author_cells = pg.locator("td[data-col=author]")
     after_count = author_cells.count()
     assert after_count > 0
@@ -502,9 +487,6 @@ def test_browse_sort_restored_in_new_session(live_server, authed_page):
     value but fired the request with htmx.trigger, which is unreliable at init
     time. The dropdown showed the saved sort while the rows stayed in the
     server's default newest-first order. Both must now agree."""
-    # 'Zza' / 'Zzb' keep both items on page 1 under title_desc, and they stay on
-    # page 1 under the default order too — so a single pairwise comparison is
-    # valid under either ordering.
     insert_item(live_server["data_dir"], title="Zza Sortprobe Alpha", media_type="book", isbn="9780000999011")
     insert_item(live_server["data_dir"], title="Zzb Sortprobe Beta", media_type="book", isbn="9780000999012")
 
@@ -512,17 +494,12 @@ def test_browse_sort_restored_in_new_session(live_server, authed_page):
     authed_page.goto(f"{live_server['url']}/browse")
     authed_page.wait_for_load_state("networkidle")
 
-    # Baseline: the unsorted default. Asserted via the control and URL rather
-    # than row order, because 'newest' ties on created_at for rows inserted in
-    # the same second and the tie-break is not defined.
     grid = authed_page.locator("#item-grid")
     expect(authed_page.locator("select[name=sort]")).to_have_value("newest")
     assert "sort=" not in authed_page.url
     default_text = grid.inner_text()
     default_alpha_first = default_text.index("Zza Sortprobe Alpha") < default_text.index("Zzb Sortprobe Beta")
 
-    # title_desc is deterministic (Z->A) and, on this data, the opposite of
-    # whatever the default produced — so a stale default order is detectable.
     authed_page.locator("select[name=sort]").select_option("title_desc")
     expect(authed_page).to_have_url(re.compile(r"sort=title_desc"))
     text = grid.inner_text()
@@ -531,16 +508,11 @@ def test_browse_sort_restored_in_new_session(live_server, authed_page):
         "test needs the default order to differ from title_desc to be meaningful"
     )
 
-    # Simulate a new tab: sessionStorage (the filter querystring) is per-tab and
-    # starts empty, while localStorage (the sort preference) persists. This is
-    # the branch restoreFilters() declines and restoreSort() must handle.
     authed_page.evaluate("() => sessionStorage.removeItem('shelf-browse-qs')")
     authed_page.goto(f"{live_server['url']}/browse")
     authed_page.wait_for_load_state("networkidle")
 
-    # Control repopulated...
     expect(authed_page.locator("select[name=sort]")).to_have_value("title_desc")
-    # ...and, the actual regression, applied to the rows.
     expect(authed_page).to_have_url(re.compile(r"sort=title_desc"))
     text = authed_page.locator("#item-grid").inner_text()
     assert text.index("Zzb Sortprobe Beta") < text.index("Zza Sortprobe Alpha"), (
@@ -559,8 +531,6 @@ def test_browse_sort_restore_keeps_list_view(live_server, authed_page):
     authed_page.wait_for_load_state("networkidle")
     authed_page.locator("[data-testid='view-list']").click()
     expect(authed_page.locator("#item-grid table")).to_have_count(1)
-    # title_desc, not title_asc: ascending happens to match the server's default
-    # row order here, so it could not tell a restored sort from a stale one.
     authed_page.locator("select[name=sort]").select_option("title_desc")
     expect(authed_page).to_have_url(re.compile(r"sort=title_desc"))
 
@@ -568,9 +538,7 @@ def test_browse_sort_restore_keeps_list_view(live_server, authed_page):
     authed_page.goto(f"{live_server['url']}/browse")
     authed_page.wait_for_load_state("networkidle")
 
-    # Still a list, not grid cards stuffed into a table...
     expect(authed_page.locator("#item-grid table")).to_have_count(1)
-    # ...and the sort survived alongside the view.
     text = authed_page.locator("#item-grid").inner_text()
     assert text.index("Zzd Listprobe Beta") < text.index("Zzc Listprobe Alpha")
 
@@ -614,7 +582,7 @@ def test_browse_language_filter_narrows_and_composes(live_server, authed_page):
     authed_page.goto(f"{live_server['url']}/browse")
     authed_page.wait_for_load_state("networkidle")
 
-    # Select renders (library now contains languages) and narrows to German
+    _open_filters(authed_page)
     lang_el = authed_page.locator("select#language-filter")
     expect(lang_el).to_be_visible()
     lang_el.select_option("de")
@@ -622,8 +590,6 @@ def test_browse_language_filter_narrows_and_composes(live_server, authed_page):
     expect(authed_page.locator("body")).to_contain_text("Sprachprobe Deutsch")
     expect(authed_page.locator("body")).not_to_contain_text("Sprachprobe English")
 
-    # Compose with media type ON THE SWAPPED SELECT (exercises the OOB
-    # fragment's hx-include carrying [name='language'] — R1)
     type_el = authed_page.locator("select#type-filter")
     type_el.select_option("book")
     authed_page.wait_for_load_state("networkidle")
