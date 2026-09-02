@@ -1,0 +1,106 @@
+{% extends "base.html" %}
+{% block title %}{{ series.name }} — Series — Shelf{% endblock %}
+{% block content %}
+<div class="mb-6">
+    <div class="flex items-center gap-2 text-xs text-shelf-muted mb-3">
+        <a href="/browse" class="hover:text-shelf-text">Browse</a>
+        <span>/</span>
+        <a href="/series" class="hover:text-shelf-text">Series</a>
+        <span>/</span>
+        <span class="text-shelf-text truncate">{{ series.name }}</span>
+    </div>
+
+    <div class="flex items-start justify-between gap-4 flex-wrap">
+        <div class="min-w-0">
+            <h1 class="text-2xl font-bold leading-tight" data-testid="series-detail-title">{{ series.name }}</h1>
+            <div class="flex flex-wrap items-center gap-2 mt-2 text-xs">
+                <span class="px-2 py-1 rounded-full bg-shelf-hover text-shelf-text border border-shelf-border"
+                      data-testid="series-detail-count">{{ series.count_label }}</span>
+                <span class="text-shelf-muted">{{ series.owned_count }} owned{% if series.wishlist_count %} · {{ series.wishlist_count }} wishlisted{% endif %}</span>
+                {% if series.complete %}
+                <span class="px-2 py-1 rounded-full bg-shelf-success/20 text-shelf-success font-medium"
+                      data-testid="series-detail-complete">&check; Complete</span>
+                {% elif series.hc_missing is not none %}
+                    {% if series.hc_missing == 0 %}
+                    <span class="px-2 py-1 rounded-full bg-shelf-success/20 text-shelf-success font-medium">&check; Complete</span>
+                    {% else %}
+                    <span class="px-2 py-1 rounded-full bg-shelf-warning/20 text-shelf-warning font-medium">{{ series.hc_missing }} missing</span>
+                    {% endif %}
+                {% elif series.gaps %}
+                <span class="px-2 py-1 rounded-full bg-shelf-warning/20 text-shelf-warning font-medium"
+                      data-testid="series-detail-gaps">{{ series.gaps|length }} possibly missing</span>
+                {% endif %}
+            </div>
+        </div>
+
+        <div class="flex items-center gap-2 shrink-0">
+            <a href="{{ series.browse_url }}"
+               class="px-3 py-1.5 rounded-lg bg-shelf-accent/20 text-shelf-accent2 text-xs hover:bg-shelf-accent/30 transition-colors"
+               data-testid="series-detail-browse">Browse items</a>
+            <a href="/series"
+               class="px-3 py-1.5 rounded-lg bg-shelf-card border border-shelf-border text-shelf-muted text-xs hover:text-shelf-text hover:border-shelf-accent/50 transition-colors">Manage series</a>
+        </div>
+    </div>
+
+    {% if series.description %}
+    <p class="text-sm text-shelf-muted leading-relaxed whitespace-pre-line mt-4 max-w-4xl"
+       data-testid="series-detail-description">{{ series.description }}</p>
+    {% endif %}
+</div>
+
+{% if series.gaps and not series.complete and series.hc_missing is none %}
+<div class="bg-shelf-card rounded-xl border border-shelf-border p-4 mb-6" data-testid="series-detail-gap-list">
+    <div class="flex items-center gap-3 flex-wrap">
+        <span class="text-sm font-medium text-shelf-warning">Possible gaps</span>
+        <div class="flex flex-wrap gap-1.5">
+            {% for gap in series.gaps %}
+            <span class="px-2 py-0.5 rounded bg-shelf-warning/10 text-shelf-warning text-xs">
+                {{ series.unit.position_prefix }}{{ gap }}
+            </span>
+            {% endfor %}
+        </div>
+        <span class="text-[11px] text-shelf-muted">Inferred from the numbering already in your library.</span>
+    </div>
+</div>
+{% endif %}
+
+<div class="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 xl:grid-cols-8 gap-4"
+     data-testid="series-detail-grid">
+    {% for item in series['items'] %}
+    <a href="/item/{{ item.id }}?from=series"
+       class="group min-w-0"
+       data-series-position="{{ item.series_position if item.series_position is not none else '' }}">
+        <div class="relative aspect-[2/3] rounded-lg overflow-hidden bg-shelf-card border border-shelf-border group-hover:border-shelf-accent/50 transition-colors shadow-lg">
+            {% if item.cover_path %}
+            <img src="/{{ item.cover_path }}" alt="{{ item.title }}" class="w-full h-full object-cover" loading="lazy">
+            {% else %}
+            <div class="w-full h-full flex items-center justify-center p-3 text-center bg-gradient-to-br from-shelf-card to-shelf-hover">
+                <span class="text-xs text-shelf-muted leading-tight">{{ item.title[:60] }}</span>
+            </div>
+            {% endif %}
+
+            {% if item.series_position is not none %}
+            <span class="absolute top-2 left-2 px-1.5 py-0.5 rounded bg-black/75 text-white text-[10px] font-medium shadow">
+                {{ series.unit.position_prefix }}{{ item.series_position|int if item.series_position == item.series_position|int else item.series_position }}
+            </span>
+            {% endif %}
+            {% if not item.owned %}
+            <span class="absolute top-2 right-2 px-1.5 py-0.5 rounded bg-shelf-warning/90 text-black text-[10px] font-medium shadow">Wishlist</span>
+            {% endif %}
+        </div>
+        <div class="mt-2 min-w-0">
+            <p class="text-sm text-shelf-text font-medium truncate group-hover:text-shelf-accent2" title="{{ item.title }}">{{ item.title }}</p>
+            <p class="text-[11px] text-shelf-muted truncate">
+                {% if item.series_position is not none %}
+                {{ series.unit.position_prefix }}{{ item.series_position|int if item.series_position == item.series_position|int else item.series_position }}
+                {% else %}
+                Unnumbered
+                {% endif %}
+                {% if item.publish_year %} · {{ item.publish_year }}{% endif %}
+                {% if item.media_type == 'digital_comic' %} · Digital{% elif item.media_type == 'comic' %} · Physical{% endif %}
+            </p>
+        </div>
+    </a>
+    {% endfor %}
+</div>
+{% endblock %}
