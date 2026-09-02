@@ -74,4 +74,12 @@ regex_replace(
     '''def _auto_link_items() -> None:\n    """Group same-title game representations across platforms and formats."""\n    from app.services import media_groups\n    with get_db() as db:\n        media_groups.auto_link_family(db, "game")\n''',
 )
 
+# RomM previously pinned same-title, different-platform games as unrelated.
+# Cross-platform variants are now intentionally one media group.
+replace(
+    "tests/test_romm_sync.py",
+    '''@respx.mock\ndef test_same_title_different_platform_is_not_linked(db):\n    _insert_item(db, title="Chrono Trigger", isbn=None,\n                 media_type="video_game", platform="ps1")\n    db.execute("COMMIT")\n    _mock_library()\n    respx.get(f"{ROMM}/assets/romm/resources/snes/cover/chrono.jpg").mock(\n        return_value=httpx.Response(404))\n    asyncio.run(sync(ROMM, TOKEN))\n    assert db.execute("SELECT COUNT(*) AS c FROM item_links").fetchone()["c"] == 0\n''',
+    '''@respx.mock\ndef test_same_title_different_platform_is_grouped(db):\n    physical_id = _insert_item(db, title="Chrono Trigger", isbn=None,\n                               media_type="video_game", platform="ps1")\n    db.execute("COMMIT")\n    _mock_library()\n    respx.get(f"{ROMM}/assets/romm/resources/snes/cover/chrono.jpg").mock(\n        return_value=httpx.Response(404))\n    asyncio.run(sync(ROMM, TOKEN))\n    digital_id = db.execute(\n        "SELECT id FROM items WHERE media_type='digital_game'"\n    ).fetchone()["id"]\n    link = db.execute("SELECT item_a_id, item_b_id FROM item_links").fetchone()\n    assert {link["item_a_id"], link["item_b_id"]} == {physical_id, digital_id}\n''',
+)
+
 print("Media-group wiring applied")
