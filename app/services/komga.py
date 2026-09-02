@@ -1,7 +1,6 @@
 import asyncio
 import json
 import logging
-import re
 
 import httpx
 
@@ -21,35 +20,6 @@ COVER_RETRIES = 1
 # thumbnail; httpx's read timeout is an inactivity timeout, not a total one.
 COVER_BATCH_SIZE = 8
 COVER_WALL_TIMEOUT = 15.0
-
-# With ComicInfo metadata Komga can append the Volume field to a series title,
-# for example ``One Piece (21)``. Shelf's Browse view groups Digital Comics by
-# ``series_name``; storing those generated volume suffixes would therefore turn
-# one manga into dozens of one-issue groups. Four-digit year suffixes are kept
-# because titles such as ``Batman (2016)`` commonly identify distinct runs.
-_VOLUME_SERIES_RE = re.compile(r"^(?P<name>.+?)\s+\((?P<number>\d+)\)$")
-
-
-def _canonical_series_name(value) -> str | None:
-    """Return the Shelf series name for a Komga ``seriesTitle``.
-
-    Komga derives a series title from ComicInfo ``Series`` and ``Volume`` as
-    ``<Series> (<Volume>)`` when its append-volume option is enabled. The
-    volume belongs on the individual item, not in Shelf's grouping identity,
-    so numeric suffixes are removed here. A four-digit year in the normal
-    publication-era range is deliberately preserved because it is frequently
-    part of a comic run's actual title.
-    """
-    text = str(value or "").strip()
-    if not text:
-        return None
-    match = _VOLUME_SERIES_RE.fullmatch(text)
-    if not match:
-        return text
-    number = match.group("number")
-    if len(number) == 4 and 1800 <= int(number) <= 2199:
-        return text
-    return match.group("name").strip() or text
 
 
 def get_excluded_libraries() -> set[str]:
@@ -393,7 +363,7 @@ async def sync(komga_url: str, api_key: str, on_progress=None) -> dict:
                     continue
 
                 isbn = str(metadata.get("isbn") or "").strip() or None
-                series_name = _canonical_series_name(book.get("seriesTitle"))
+                series_name = str(book.get("seriesTitle") or "").strip() or None
                 authors = _authors(metadata)
                 publish_year = _publish_year(metadata.get("releaseDate"))
                 description = str(metadata.get("summary") or "").strip() or None
@@ -577,6 +547,8 @@ async def sync(komga_url: str, api_key: str, on_progress=None) -> dict:
 
 
 def _normalize_title(title: str) -> str:
+    import re
+
     value = title.lower().strip()
     value = re.sub(r"^(the|a|an)\s+", "", value)
     value = re.sub(r"\s*[:—–-]\s.*$", "", value)
