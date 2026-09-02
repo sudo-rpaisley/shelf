@@ -10,11 +10,7 @@
          x-data="absSync"
          data-abs-url="{{ settings.get('abs_url', '') }}"
          data-abs-url-present="{{ '1' if abs_url_present else '' }}"
-         data-abs-saved="{{ '1' if secrets_present['abs_token'] else '' }}"
-         data-sync-state="{{ abs_sync_job.get('state', 'idle') }}"
-         data-sync-current="{{ abs_sync_job.get('current', 0) }}"
-         data-sync-total="{{ abs_sync_job.get('total', 0) }}"
-         data-sync-title="{{ abs_sync_job.get('title', '') | e }}">
+         data-abs-saved="{{ '1' if secrets_present['abs_token'] else '' }}">
         <div class="flex items-center justify-between mb-4">
             <h2 class="text-lg font-semibold">Audiobookshelf Sync</h2>
             <button @click="showAbsHelp = true" class="text-xs text-shelf-accent2 hover:text-shelf-accent transition-colors">Setup guide</button>
@@ -40,10 +36,9 @@
 
         <form action="/api/settings" method="post" class="space-y-3 mb-4">
             <div>
-                <label for="abs_url" class="block text-sm font-medium text-shelf-muted mb-1">Audiobookshelf Internal / API URL</label>
-                <input type="url" id="abs_url" name="abs_url" x-model="absUrl" value="{{ settings.get('abs_url', '') }}" placeholder="http://audiobookshelf:80"
+                <label for="abs_url" class="block text-sm font-medium text-shelf-muted mb-1">Audiobookshelf URL</label>
+                <input type="url" id="abs_url" name="abs_url" x-model="absUrl" value="{{ settings.get('abs_url', '') }}" placeholder="http://localhost:13378"
                        class="w-full bg-shelf-bg border border-shelf-border rounded-lg px-3 py-2 text-shelf-text focus:ring-2 focus:ring-shelf-accent outline-none">
-                <p class="text-xs text-shelf-muted mt-1">Server-side address Shelf uses for API and sync traffic. Docker/LAN hostnames are fine here.</p>
             </div>
             <div>
                 <label for="abs_token" class="block text-sm font-medium text-shelf-muted mb-1">API Token</label>
@@ -84,14 +79,12 @@
             </button>
         </form>
 
-        {% include "fragments/settings/abs_public_url.html" %}
-
-        <div class="border-t border-shelf-border pt-4 mt-4">
+        <div class="border-t border-shelf-border pt-4">
             <button @click="startSync()"
                     :disabled="syncing || !absSyncReady"
                     class="px-4 py-2 bg-shelf-hover text-shelf-text rounded-lg text-sm hover:bg-shelf-border transition-colors disabled:opacity-50">
                 <span x-show="!syncing" x-text="syncLabel"></span>
-                <span x-show="syncing">Syncing in background...</span>
+                <span x-show="syncing">Syncing...</span>
             </button>
 
             <!-- Progress bar -->

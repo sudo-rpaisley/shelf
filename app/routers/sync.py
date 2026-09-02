@@ -11,7 +11,7 @@ from starlette.responses import StreamingResponse
 from app.auth import require_role
 from app.config import HTTP_TIMEOUT
 from app.database import get_db, get_setting
-from app.services import audiobookshelf, sync_jobs
+from app.services import audiobookshelf
 
 logger = logging.getLogger(__name__)
 
@@ -194,33 +194,6 @@ async def cleanup_excluded_libraries():
 
     logger.info("Removed %d items from %d excluded ABS libraries", deleted, len(excluded))
     return {"ok": True, "deleted": deleted}
-
-
-@router.get("/audiobookshelf/job")
-async def audiobookshelf_job_status():
-    """Return the current/most recent detached Audiobookshelf sync job."""
-    return sync_jobs.get_status("audiobookshelf")
-
-
-@router.post("/audiobookshelf/job")
-async def start_audiobookshelf_job():
-    """Start ABS sync on the server and return without holding the browser open."""
-    with get_db() as db:
-        abs_url_val = get_setting(db, "abs_url")
-        abs_token_val = get_setting(db, "abs_token")
-
-    if not abs_url_val or not abs_token_val:
-        return {"state": "error", "error": "Audiobookshelf URL and API token must be configured in Settings"}
-    url_err = _validate_abs_url(abs_url_val)
-    if url_err:
-        return {"state": "error", "error": url_err}
-
-    async def runner(on_progress):
-        return await audiobookshelf.sync(
-            abs_url_val, abs_token_val, on_progress=on_progress
-        )
-
-    return sync_jobs.start("audiobookshelf", runner, source="manual")
 
 
 @router.post("/audiobookshelf")

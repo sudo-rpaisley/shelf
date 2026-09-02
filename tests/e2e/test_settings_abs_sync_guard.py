@@ -3,7 +3,7 @@
 
 Sync Now and Test do not share a readiness question. `/api/sync/audiobookshelf/
 test` reads the POST body first, falling back to `get_setting` — it gates on
-*typed-or-available*. `/api/sync/audiobookshelf/job` reads only
+*typed-or-available*. `/api/sync/audiobookshelf/stream` reads only
 `get_setting(db, "abs_url")` / `get_setting(db, "abs_token")` and never looks
 at the request — it gates on *availability alone*. `absSync`'s `absSyncReady`
 getter (static/js/components-settings.js) and `:disabled="syncing ||
@@ -14,7 +14,7 @@ credentials.
 The `:disabled` attribute and `startSync()`'s early return are two layers
 over one property, and a disabled button cannot be clicked — so the two
 "reaches sync" cases below don't stop at asserting the button renders
-enabled. Each wraps the click in `page.expect_request(...)`, with the job
+enabled. Each wraps the click in `page.expect_request(...)`, with the stream
 route aborted first so the click assertion still exercises `startSync()`
 without the test reaching `app/services/audiobookshelf.py`'s real
 `httpx.AsyncClient` against a made-up ABS URL.
@@ -96,7 +96,7 @@ def _save_abs_form(page, base_url, url="", token=""):
 def test_sync_now_enabled_for_db_saved_credentials(browser, server_factory):
     """1. DB-saved reaches sync: URL + token saved through Settings makes
     Sync Now enabled, labeled exactly "Sync Now", and clicking it actually
-    issues the background-job request."""
+    issues the stream request."""
     server = server_factory()
     creds = _run_setup_wizard(browser, server["url"])
     ctx, page = _login(browser, server["url"], creds)
@@ -110,8 +110,8 @@ def test_sync_now_enabled_for_db_saved_credentials(browser, server_factory):
     expect(sync_btn).to_be_enabled()
     expect(_sync_label(page)).to_have_text("Sync Now")
 
-    page.route("**/api/sync/audiobookshelf/job", lambda route: route.abort())
-    with page.expect_request("**/api/sync/audiobookshelf/job"):
+    page.route("**/api/sync/audiobookshelf/stream", lambda route: route.abort())
+    with page.expect_request("**/api/sync/audiobookshelf/stream"):
         sync_btn.click()
 
     assert_page_clean(page)
@@ -134,8 +134,8 @@ def test_sync_now_enabled_for_env_only_credentials(browser, server_factory):
     expect(sync_btn).to_be_enabled()
     expect(_sync_label(page)).to_have_text("Sync Now")
 
-    page.route("**/api/sync/audiobookshelf/job", lambda route: route.abort())
-    with page.expect_request("**/api/sync/audiobookshelf/job"):
+    page.route("**/api/sync/audiobookshelf/stream", lambda route: route.abort())
+    with page.expect_request("**/api/sync/audiobookshelf/stream"):
         sync_btn.click()
 
     assert_page_clean(page)

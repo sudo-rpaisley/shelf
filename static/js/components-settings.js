@@ -139,14 +139,6 @@ document.addEventListener('alpine:init', function () {
                 this.absUrl = this.$el.dataset.absUrl || '';
                 this.absUrlPresent = this.$el.dataset.absUrlPresent === '1';
                 this.absSaved = this.$el.dataset.absSaved === '1';
-                applyBackgroundSyncState(this, {
-                    state: this.$el.dataset.syncState || 'idle',
-                    current: Number(this.$el.dataset.syncCurrent || 0),
-                    total: Number(this.$el.dataset.syncTotal || 0),
-                    title: this.$el.dataset.syncTitle || '',
-                    recent: []
-                });
-                pollBackgroundSync(this, '/api/sync/audiobookshelf/job');
             },
             get syncPct() { return Math.round(this.syncCurrent / this.syncTotal * 100) + '%'; },
             // One source for "Test has something to send". The template's
@@ -184,7 +176,24 @@ document.addEventListener('alpine:init', function () {
             },
             startSync() {
                 if (!this.absSyncReady) return;
-                startBackgroundSync(this, '/api/sync/audiobookshelf/job');
+                this.syncing = true; this.result = false; this.syncCurrent = 0; this.syncTotal = 0;
+                this.syncLastTitle = ''; this.syncLog = []; this.showSyncLog = false;
+                var self = this;
+                var es = new EventSource('/api/sync/audiobookshelf/stream');
+                es.onmessage = function (e) {
+                    var d = JSON.parse(e.data);
+                    if (d.type === 'progress') {
+                        self.syncCurrent = d.current;
+                        self.syncTotal = d.total;
+                        self.syncLastTitle = d.title;
+                        self.syncLog.push({i: d.current, t: d.title, s: d.status});
+                    } else if (d.type === 'done') {
+                        self.result = d; self.syncing = false; es.close();
+                    } else if (d.type === 'error') {
+                        self.result = {error: d.message}; self.syncing = false; es.close();
+                    }
+                };
+                es.onerror = function () { self.result = {error: 'Connection lost'}; self.syncing = false; es.close(); };
             }
         };
     });
