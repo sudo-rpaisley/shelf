@@ -1,8 +1,7 @@
 """Digital Comic Browse grouping regressions.
 
 Komga can add thousands of individual issues. Browse groups those issues by
-series by default; grouped cards open a focused, numerically ordered series
-view while the ordinary Browse series filter still exposes raw item rows.
+series by default, but opening a series must reveal ordinary individual items.
 The cases also pin grouped pagination and representative-cover behaviour.
 """
 
@@ -65,9 +64,7 @@ def test_browse_groups_digital_comics_by_default_and_uses_earliest_cover(db, adm
     # once as a card and once as a row, never as its three individual issues.
     assert html.count('data-series-group="Saga Alpha"') == 2
     assert "covers/saga1.jpg" in html
-    assert "3 in series" in html
-    assert "/series/detail?name=Saga%20Alpha" in html
-    assert "media_type=digital_comic" in html
+    assert "3 issues" in html
     assert f'data-item-id="{physical}"' in html
     assert f'data-item-id="{issue1}"' not in html
     assert f'data-item-id="{issue2}"' not in html
@@ -78,22 +75,6 @@ def test_series_drilldown_shows_individual_digital_issues(db, admin_client):
     issue1, issue2, issue3 = _add_saga(db)
     db.commit()
 
-    # Grouped Browse cards now land on a focused series view. It uses series
-    # position rather than the user's generic Browse sort and keeps ordinary
-    # comic terminology when there is no Komga volume-split signal.
-    detail = admin_client.get(
-        "/series/detail?name=Saga%20Alpha&media_type=digital_comic"
-    )
-    assert detail.status_code == 200
-    detail_html = detail.text
-    assert "3 issues" in detail_html
-    assert detail_html.index("Saga Alpha #1") < detail_html.index("Saga Alpha #2") < detail_html.index("Saga Alpha #3")
-    assert 'data-series-position="1.0"' in detail_html
-    assert 'data-series-position="2.0"' in detail_html
-    assert 'data-series-position="3.0"' in detail_html
-
-    # The raw Browse series filter still exists for filtering/bulk workflows,
-    # and an explicit series filter continues to disable grouped cards.
     html = admin_client.get(
         "/browse?media_type_filter=digital_comic&series=Saga%20Alpha"
     ).text
@@ -159,33 +140,9 @@ def test_grouping_happens_before_pagination(db):
 
 
 def test_api_search_uses_the_same_series_grouping(db, admin_client):
-    issue1, issue2, issue3 = _add_saga(db)
-
-    # Distinct Komga series IDs under one canonical Shelf name are the signal
-    # created by ComicInfo Volume splitting (e.g. One Piece (1), (2), (3)).
-    # The focused view should call those entries volumes and expose number gaps.
-    for item_id, source_series_id in (
-        (issue1, "komga-vol-1"),
-        (issue2, "komga-vol-3"),
-        (issue3, "komga-vol-4"),
-    ):
-        db.execute(
-            "UPDATE items SET source = 'komga', komga_series_id = ? WHERE id = ?",
-            (source_series_id, item_id),
-        )
-    db.execute("UPDATE items SET series_position = 3 WHERE id = ?", (issue2,))
-    db.execute("UPDATE items SET series_position = 4 WHERE id = ?", (issue3,))
+    _add_saga(db)
     db.commit()
 
     html = admin_client.get("/api/search?media_type_filter=digital_comic").text
     assert html.count('data-series-group="Saga Alpha"') == 2
     assert "covers/saga1.jpg" in html
-    assert "3 in series" in html
-
-    detail_html = admin_client.get(
-        "/series/detail?name=Saga%20Alpha&media_type=digital_comic"
-    ).text
-    assert "3 volumes" in detail_html
-    assert "1 possibly missing" in detail_html
-    assert "Vol. 2" in detail_html
-    assert detail_html.index("Saga Alpha #1") < detail_html.index("Saga Alpha #2") < detail_html.index("Saga Alpha #3")
