@@ -1,0 +1,100 @@
+name: Port Komga integration
+
+on:
+  push:
+    branches: [upstream/komga-integration]
+    paths: [.github/workflows/port-komga.yml]
+
+permissions:
+  contents: write
+
+jobs:
+  port:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: upstream/komga-integration
+          fetch-depth: 0
+      - name: Port Komga changes onto current upstream base
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+          commits=(
+            580e3d3c3e60a37e1b89006aedd2d7541b204656
+            0359a3f0acdec4bb9cbac09980c90c013ebe0c89
+            16aa28f594c0f5ea0005463c5caee517de8f5864
+            2acb047fc63cb622e87a7db7f470b44af7fc33c7
+            7e11f9ac6aa53cd57f5e938fcaa261286efe9aa1
+            4ac0b8c10c148b74dfe73dbec5e36f122f1ac82e
+            8d57556387d5a557d190218f9a4fed149ad8256b
+            df24f53cbcfb5ae33436442736d54c05ebf56388
+            4a21a1e542cdb782303836f87766099e406d4dc1
+            abbd707d9c91bdb3c2fe274172352ed56c262186
+            4bc4ac18de421d5203bffc9b696205584554f103
+            d397d2af12813a408dad808726b4b4967a03528c
+            4412b7cb7e246cc4664ba719aae837d7cb319c61
+            e239663fe1f8701d24b2558ba50b0616f8121613
+            523be1ea6e631cd98b78689f8cf5d2a499ca8a35
+            85e3cf257e87494cfc7ba390ec5139f67734a057
+            00bb69272367d31cb3f1ac4927efe3bfd989cf8b
+            b44a9152e5372e99dc84aa56241530b294960226
+            04ebfd5077c61b6ab0b9204b9bbcfbcbffc5def0
+            cca3326edec69f0fc85be09d17102d4f2aab0dd2
+            f229b0b53f9ccc96577227d34b1ad2b641335e67
+            2aede539e9f7b4c42331da2c22d94cff59487a7a
+            6f5b5f2828e41c4e7ac39f97af26202f8fc8587e
+            10c2d877a6f425a221a2108f29ffff0667a7e595
+            63c0f6a450e286b2f5622ad538db95285feec734
+            1c3d0fb09a4417c26d9eed095976eb370105c37b
+            3f5011972e904e5afd1d24068c8b120f51694c95
+            d0184d54f041b8c216ae1bcdb3a8a0ae6bd6f4c7
+            09bb11e8fb11d271ad4c226ff3d7507bc43bb29c
+            74a1b98e18765f7455ad2ce96e711ec5ae02ee0f
+            06e848636176148f3e3dbd54a8a47ba606d02a35
+            c15b3aa57ce7c26645deb23f7704be47d88ee450
+            2af3605f95af20bdf1d4b6eb950e100b76207ecd
+          )
+
+          for sha in "${commits[@]}"; do
+            echo "==> cherry-pick $sha"
+            if ! git cherry-pick -X theirs "$sha"; then
+              if git diff --quiet && git diff --cached --quiet; then
+                git cherry-pick --skip
+              else
+                echo "Unresolved conflict while applying $sha"
+                git status --short
+                git diff --name-only --diff-filter=U
+                exit 1
+              fi
+            fi
+          done
+
+          # #57's title canonicalisation was intentionally superseded. Copy the
+          # final source-aware series implementation from the fork after #58.
+          final=78fce966518599774979c3b0a969183c27a4d22a
+          git checkout "$final" -- \
+            app/services/komga.py \
+            app/services/browse_grouping.py \
+            app/routers/series_detail.py \
+            app/services/series_display.py \
+            app/templates/fragments/series_card.html \
+            app/templates/fragments/series_row.html \
+            app/templates/series_detail.html \
+            tests/test_komga_series_identity.py \
+            tests/test_series_detail.py
+
+          # Keep this upstream PR Komga-focused. Shared job infrastructure stays,
+          # but do not carry the fork's Audiobookshelf behavioural rewrites.
+          git checkout 556386f8952be82741f01ebad3488466fae4f4b7 -- \
+            app/routers/audiobookshelf.py \
+            app/services/audiobookshelf.py || true
+
+          git rm -f .github/workflows/port-komga.yml
+          git add -A
+          git commit -m "Add Komga library integration"
+          git push origin HEAD:upstream/komga-integration
