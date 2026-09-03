@@ -1,0 +1,102 @@
+<div class="bg-shelf-card border border-shelf-border rounded-xl p-5 mb-6" data-testid="integration-directory">
+    <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-4">
+        <div>
+            <h2 class="text-lg font-semibold">Integration directory</h2>
+            <p class="text-sm text-shelf-muted mt-1">Jump straight to the service you want to configure or manage.</p>
+        </div>
+        <span class="text-xs text-shelf-muted">Configured services are marked below.</span>
+    </div>
+
+    <div class="grid grid-cols-2 md:grid-cols-3 gap-3">
+        <a href="#abs_url" class="bg-shelf-bg border border-shelf-border rounded-lg p-3 hover:border-shelf-accent/50 transition-colors">
+            <div class="flex items-start justify-between gap-2">
+                <div>
+                    <p class="text-sm font-medium text-shelf-text">Audiobookshelf</p>
+                    <p class="text-xs text-shelf-muted mt-1">Audiobooks &amp; ebooks</p>
+                </div>
+                {% if abs_url_present and secrets_present['abs_token'] %}<span class="text-[10px] text-shelf-success">Configured</span>{% endif %}
+            </div>
+        </a>
+        <a href="#komga_url" class="bg-shelf-bg border border-shelf-border rounded-lg p-3 hover:border-shelf-accent/50 transition-colors">
+            <div class="flex items-start justify-between gap-2">
+                <div>
+                    <p class="text-sm font-medium text-shelf-text">Komga</p>
+                    <p class="text-xs text-shelf-muted mt-1">Digital comics</p>
+                </div>
+                {% if komga_url_present and secrets_present['komga_api_key'] %}<span class="text-[10px] text-shelf-success">Configured</span>{% endif %}
+            </div>
+        </a>
+        <a href="#romm_url" class="bg-shelf-bg border border-shelf-border rounded-lg p-3 hover:border-shelf-accent/50 transition-colors">
+            <div class="flex items-start justify-between gap-2">
+                <div>
+                    <p class="text-sm font-medium text-shelf-text">RomM</p>
+                    <p class="text-xs text-shelf-muted mt-1">Digital games</p>
+                </div>
+                {% if romm_url_present and secrets_present['romm_api_token'] %}<span class="text-[10px] text-shelf-success">Configured</span>{% endif %}
+            </div>
+        </a>
+        <a href="#discogs_token" class="bg-shelf-bg border border-shelf-border rounded-lg p-3 hover:border-shelf-accent/50 transition-colors">
+            <div class="flex items-start justify-between gap-2">
+                <div>
+                    <p class="text-sm font-medium text-shelf-text">Discogs</p>
+                    <p class="text-xs text-shelf-muted mt-1">Music pressing data</p>
+                </div>
+                {% if secrets_present['discogs_token'] %}<span class="text-[10px] text-shelf-success">Configured</span>{% endif %}
+            </div>
+        </a>
+        <a href="#hardcover_token" class="bg-shelf-bg border border-shelf-border rounded-lg p-3 hover:border-shelf-accent/50 transition-colors">
+            <div class="flex items-start justify-between gap-2">
+                <div>
+                    <p class="text-sm font-medium text-shelf-text">Hardcover</p>
+                    <p class="text-xs text-shelf-muted mt-1">Books &amp; reading sync</p>
+                </div>
+                {% if secrets_present['hardcover_token'] %}<span class="text-[10px] text-shelf-success">Configured</span>{% endif %}
+            </div>
+        </a>
+        <a href="#isbndb_api_key" class="bg-shelf-bg border border-shelf-border rounded-lg p-3 hover:border-shelf-accent/50 transition-colors">
+            <div class="flex items-start justify-between gap-2">
+                <div>
+                    <p class="text-sm font-medium text-shelf-text">ISBNdb</p>
+                    <p class="text-xs text-shelf-muted mt-1">Collection valuation</p>
+                </div>
+                {% if secrets_present['isbndb_api_key'] %}<span class="text-[10px] text-shelf-success">Configured</span>{% endif %}
+            </div>
+        </a>
+        <a href="#google_books_api_key" class="bg-shelf-bg border border-shelf-border rounded-lg p-3 hover:border-shelf-accent/50 transition-colors">
+            <div class="flex items-start justify-between gap-2">
+                <div>
+                    <p class="text-sm font-medium text-shelf-text">Google Books</p>
+                    <p class="text-xs text-shelf-muted mt-1">Book metadata</p>
+                </div>
+                {% if secrets_present['google_books_api_key'] %}<span class="text-[10px] text-shelf-success">Configured</span>{% endif %}
+            </div>
+        </a>
+        <a href="#tmdb_api_key" class="bg-shelf-bg border border-shelf-border rounded-lg p-3 hover:border-shelf-accent/50 transition-colors">
+            <div class="flex items-start justify-between gap-2">
+                <div>
+                    <p class="text-sm font-medium text-shelf-text">TMDb</p>
+                    <p class="text-xs text-shelf-muted mt-1">Film &amp; TV metadata</p>
+                </div>
+                {% if secrets_present['tmdb_api_key'] %}<span class="text-[10px] text-shelf-success">Configured</span>{% endif %}
+            </div>
+        </a>
+        <a href="#vision_provider" class="bg-shelf-bg border border-shelf-border rounded-lg p-3 hover:border-shelf-accent/50 transition-colors">
+            <div class="flex items-start justify-between gap-2">
+                <div>
+                    <p class="text-sm font-medium text-shelf-text">Photo Intake</p>
+                    <p class="text-xs text-shelf-muted mt-1">Vision provider</p>
+                </div>
+                {% if settings.get('vision_provider', '') %}<span class="text-[10px] text-shelf-success">Configured</span>{% endif %}
+            </div>
+        </a>
+        <a href="#igdb_client_id" class="bg-shelf-bg border border-shelf-border rounded-lg p-3 hover:border-shelf-accent/50 transition-colors">
+            <div class="flex items-start justify-between gap-2">
+                <div>
+                    <p class="text-sm font-medium text-shelf-text">IGDB</p>
+                    <p class="text-xs text-shelf-muted mt-1">Video game metadata</p>
+                </div>
+                {% if secrets_present['igdb_client_id'] and secrets_present['igdb_client_secret'] %}<span class="text-[10px] text-shelf-success">Configured</span>{% endif %}
+            </div>
+        </a>
+    </div>
+</div>

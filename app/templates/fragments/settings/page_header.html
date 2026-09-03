@@ -1,0 +1,48 @@
+<div class="mb-6">
+    <p class="text-shelf-accent2 text-sm font-medium mb-1">Administration</p>
+    <h1 class="text-3xl font-bold">Settings</h1>
+    <p class="text-shelf-muted mt-2">Manage your library, connected services, data, and user access.</p>
+</div>
+
+{# Known codes only: never reflect arbitrary query-string text. #}
+{% set location_error = request.query_params.get('location_error') %}
+{% if location_error in ('blank', 'duplicate', 'missing') %}
+<div data-testid="location-error-banner"
+     class="bg-shelf-bg text-shelf-error border border-shelf-border rounded-lg px-4 py-2 text-sm mb-6">
+    {% if location_error == 'blank' %}
+    Location name is required.
+    {% elif location_error == 'duplicate' %}
+    A location with that name already exists.
+    {% else %}
+    That location no longer exists.
+    {% endif %}
+</div>
+{% endif %}
+
+{% set platform_error = request.query_params.get('platform_error') %}
+{% if platform_error in ('blank', 'duplicate', 'missing') %}
+<div data-testid="platform-error-banner"
+     class="bg-shelf-bg text-shelf-error border border-shelf-border rounded-lg px-4 py-2 text-sm mb-6">
+    {% if platform_error == 'blank' %}
+    Platform name is required.
+    {% elif platform_error == 'duplicate' %}
+    A platform with that name or identifier already exists.
+    {% else %}
+    That platform no longer exists.
+    {% endif %}
+</div>
+{% endif %}
+
+{% set borrower_error = request.query_params.get('borrower_error') %}
+{% if borrower_error in ('blank', 'duplicate', 'missing') %}
+<div data-testid="borrower-mutation-error-banner"
+     class="bg-shelf-bg text-shelf-error border border-shelf-border rounded-lg px-4 py-2 text-sm mb-6">
+    {% if borrower_error == 'blank' %}
+    Borrower name is required.
+    {% elif borrower_error == 'duplicate' %}
+    A borrower with that name already exists.
+    {% else %}
+    That borrower no longer exists.
+    {% endif %}
+</div>
+{% endif %}
