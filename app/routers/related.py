@@ -5,6 +5,7 @@ from app.auth import require_role
 from app.config import MEDIA_TYPES
 from app.database import get_db, get_game_platforms
 from app.services import media_groups
+from app.services import series_memberships as series_memberships_svc
 
 router = APIRouter(prefix="/api/items")
 
@@ -14,13 +15,17 @@ async def rebuild_connected_items(
     request: Request,
     _=Depends(require_role("admin")),
 ):
-    """Retroactively create safe automatic format connections.
+    """Retroactively create safe automatic connections and series rows.
 
-    Uses the same conservative matching rules as normal inserts and provider
-    syncs, so this is safe to run repeatedly against an existing library.
+    Connected-item matching uses the same conservative rules as normal inserts
+    and provider syncs. Series reconciliation is metadata-only: any existing
+    ``series_name``/``series_position`` values are promoted into ``item_series``
+    so the Series page and item rows appear immediately. Neither operation
+    contacts a metadata provider, and both are safe to run repeatedly.
     """
     with get_db() as db:
         result = media_groups.rebuild_automatic_connections(db)
+        result["series_sync"] = series_memberships_svc.sync_all_legacy(db)
     return request.app.state.templates.TemplateResponse(
         request,
         "fragments/settings/connection_rebuild.html",
