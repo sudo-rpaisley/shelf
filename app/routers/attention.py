@@ -1,15 +1,14 @@
-"""Catalogue data-quality workflow.
+"""Catalogue data-quality workflow attached to the existing pages router.
 
 This is intentionally read-only: it tells a user what needs work and sends
 them to the existing item editor rather than inventing a second mutation path.
 """
 
-from fastapi import APIRouter, Depends, Query, Request
+from fastapi import Depends, Query, Request
 
 from app.auth import require_role
 from app.database import get_db
-
-router = APIRouter()
+from app.routers import pages
 
 _PHYSICAL_MEDIA_TYPES = (
     "book", "kids_book", "magazine", "dvd", "vinyl", "cassette", "cd",
@@ -66,7 +65,7 @@ def attention_counts(db) -> dict[str, int]:
     return counts
 
 
-@router.get("/attention")
+@pages.router.get("/attention")
 async def attention_page(
     request: Request,
     category: str = Query("cover"),
