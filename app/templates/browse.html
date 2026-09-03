@@ -60,8 +60,8 @@
             <p class="text-xs uppercase tracking-wider text-shelf-muted mb-1">Library</p>
             <h1 class="text-2xl font-bold whitespace-nowrap">Collection <span id="collection-count" class="text-shelf-muted text-lg font-normal">({{ filtered_total }})</span></h1>
         </div>
-        {% if can_select and selectMode %}
-        <div class="flex items-center gap-1">
+        {% if can_select %}
+        <div x-show="selectMode" x-cloak class="flex items-center gap-1">
             <button @click="selectAll()" data-testid="select-all" class="px-2 py-1 rounded text-xs text-shelf-muted hover:text-shelf-accent2 transition-colors">Select All</button>
             <button @click="deselectAll()" x-show="selectedIds.length > 0" class="px-2 py-1 rounded text-xs text-shelf-muted hover:text-shelf-accent2 transition-colors">Deselect All</button>
         </div>
