@@ -1,0 +1,56 @@
+<section data-testid="home-dashboard" class="space-y-4">
+    <div class="flex items-center justify-between">
+        <div>
+            <h2 class="text-xl font-bold">At a glance</h2>
+            <p class="text-sm text-shelf-muted mt-1">Ownership, lending and catalogue health.</p>
+        </div>
+    </div>
+
+    <div class="grid grid-cols-2 md:grid-cols-3 gap-3">
+        <div class="bg-shelf-card border border-shelf-border rounded-xl p-4">
+            <p class="text-sm text-shelf-muted">Owned</p>
+            <p class="text-xl font-bold mt-1">{{ owned_count }}</p>
+        </div>
+        <div class="bg-shelf-card border border-shelf-border rounded-xl p-4">
+            <p class="text-sm text-shelf-muted">Lent out</p>
+            <p class="text-xl font-bold mt-1">{{ lent_out_count }}</p>
+            {% if overdue_count %}<p class="text-xs text-shelf-muted mt-1">{{ overdue_count }} overdue</p>{% endif %}
+        </div>
+        <div class="bg-shelf-card border border-shelf-border rounded-xl p-4">
+            <p class="text-sm text-shelf-muted">Wishlist</p>
+            <p class="text-xl font-bold mt-1">{{ wishlist_count }}</p>
+        </div>
+        <div class="bg-shelf-card border border-shelf-border rounded-xl p-4">
+            <p class="text-sm text-shelf-muted">Needs attention</p>
+            <p class="text-xl font-bold mt-1">{{ attention_count }}</p>
+        </div>
+        <div class="bg-shelf-card border border-shelf-border rounded-xl p-4">
+            <p class="text-sm text-shelf-muted">Missing covers</p>
+            <p class="text-xl font-bold mt-1">{{ missing_cover_count }}</p>
+        </div>
+        <div class="bg-shelf-card border border-shelf-border rounded-xl p-4">
+            <p class="text-sm text-shelf-muted">Physical items without a location</p>
+            <p class="text-xl font-bold mt-1">{{ unlocated_count }}</p>
+        </div>
+    </div>
+
+    {% if dashboard_locations %}
+    <div>
+        <div class="flex items-center justify-between mb-4">
+            <div>
+                <h2 class="text-xl font-bold">Your shelves</h2>
+                <p class="text-sm text-shelf-muted mt-1">Where your physical collection currently lives.</p>
+            </div>
+        </div>
+        <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+            {% for location in dashboard_locations %}
+            <a href="/browse?location_filter={{ location.id }}"
+               class="bg-shelf-card border border-shelf-border rounded-xl p-4 hover:border-shelf-accent/50 hover:bg-shelf-hover transition-colors">
+                <p class="font-medium truncate">{{ location.name }}</p>
+                <p class="text-sm text-shelf-muted mt-1">{{ location.item_count }} item{{ '' if location.item_count == 1 else 's' }}</p>
+            </a>
+            {% endfor %}
+        </div>
+    </div>
+    {% endif %}
+</section>
