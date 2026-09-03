@@ -103,4 +103,46 @@ if source.count(items_common_needle) != 1:
     raise RuntimeError("Could not locate the items_common series-save patch")
 source = source.replace(items_common_needle, items_common_replacement, 1)
 
+komga_needle = '''replace(
+    "app/services/komga.py",
+    \'\'\'                        stats["added"] += 1
+                        status = "added"
+                        fetch_cover = True
+
+                # Metadata progress is independent of cover I/O.
+\'\'\',
+    \'\'\'                        stats["added"] += 1
+                        status = "added"
+                        fetch_cover = True
+
+                    series_memberships_svc.add_metadata_memberships(
+                        db,
+                        item_id,
+                        [{"name": series_name, "position": series_position}] if series_name else [],
+                    )
+
+                # Metadata progress is independent of cover I/O.
+\'\'\',
+)
+'''
+
+komga_replacement = '''replace(
+    "app/services/komga.py",
+    \'\'\'                # Metadata progress is independent of cover I/O. Queue the cover
+\'\'\',
+    \'\'\'                series_memberships_svc.add_metadata_memberships(
+                    db,
+                    item_id,
+                    [{"name": series_name, "position": series_position}] if series_name else [],
+                )
+
+                # Metadata progress is independent of cover I/O. Queue the cover
+\'\'\',
+)
+'''
+
+if source.count(komga_needle) != 1:
+    raise RuntimeError("Could not locate the Komga series reconciliation patch")
+source = source.replace(komga_needle, komga_replacement, 1)
+
 exec(compile(source, str(source_path), "exec"), {"__name__": "__main__", "__file__": str(source_path)})
