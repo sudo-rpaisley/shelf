@@ -13,10 +13,13 @@ to `SCHEMA` and `MIGRATIONS` (still both — see G1) and passing it wherever it
 is actually known; no site can silently drop it, because an unknown field name
 raises instead of being ignored.
 
-It is also the common hook for related-media discovery on ordinary inserts.
-Provider batch syncs (Audiobookshelf, Komga and RomM) defer grouping until the
-end of their batch for efficiency; manual/scanned/catalogue additions can join
-an existing safe same-work group immediately.
+It is also the common hook for related-media discovery on ordinary inserts and
+for automatic series membership persistence. Provider batch syncs
+(Audiobookshelf, Komga and RomM) defer related-media grouping until the end of
+their batch for efficiency; manual/scanned/catalogue additions can join an
+existing safe same-work group immediately. Explicit provider series are stored
+in ``item_series`` at insert time so Series rows do not depend on first opening
+the item-detail page.
 
 **Call it inside an existing `with get_db() as db:` block**, never around one.
 The caller owns the transaction: several sites need the insert and their
@@ -29,6 +32,10 @@ from typing import Any, Mapping
 
 #: Columns a caller may never set — the database owns them.
 _MANAGED = frozenset({"id"})
+
+# ``series_memberships`` is a richer metadata input rather than an items-table
+# column. It is consumed after the item insert by the shared membership helper.
+_PSEUDO_FIELDS = frozenset({"series_memberships"})
 
 # Cached column set for the `items` table. Read from the live schema rather
 # than hardcoded, so this cannot drift from SCHEMA/MIGRATIONS the way a
@@ -71,12 +78,17 @@ def insert_item(db, fields: Mapping[str, Any] | None = None, **kwargs) -> int:
     `media_type` becomes 'book', and `created_at`/`updated_at` are stamped by
     SQLite. That means the defaults live in exactly one place too.
 
-    Raises `ValueError` on an unknown or database-managed field rather than
-    dropping it. A typo in a column name is the failure this module exists to
-    make impossible, so it must be loud.
+    ``series_memberships`` is the one deliberate non-column input: providers
+    that know more than one explicit series can pass a list of name/position
+    records and Shelf will persist them after the item row exists.
+
+    Raises `ValueError` on any other unknown or database-managed field rather
+    than dropping it. A typo in a column name is the failure this module exists
+    to make impossible, so it must be loud.
     """
     values: dict[str, Any] = dict(fields or {})
     values.update(kwargs)
+    series_values = values.pop("series_memberships", None)
 
     if not values.get("title"):
         raise ValueError(
@@ -114,6 +126,15 @@ def insert_item(db, fields: Mapping[str, Any] | None = None, **kwargs) -> int:
         [values[n] for n in names],
     )
     item_id = cursor.lastrowid
+
+    # Persist the primary legacy series immediately and add any additional
+    # explicit memberships supplied by a richer metadata provider. This makes
+    # new books/comics/games appear in Series without waiting for a later page
+    # load to reconcile the compatibility fields.
+    if values.get("series_name") or series_values:
+        from app.services import series_memberships as series_svc
+
+        series_svc.add_metadata_memberships(db, item_id, series_values)
 
     # A normal add should become part of an existing same-work group right
     # away. Integration syncs insert many rows at once and group once at the
