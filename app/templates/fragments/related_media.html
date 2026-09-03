@@ -13,6 +13,7 @@
             <p class="text-xs text-shelf-muted mt-1">Other editions, formats, platform releases and adaptations of this work.</p>
             {% if related_formats|length > 1 %}
             <div class="flex flex-wrap items-center gap-1.5 mt-2" data-testid="related-formats">
+                <span class="text-xs text-shelf-muted">Formats:</span>
                 {% for format in related_formats %}
                 <span class="inline-flex items-center rounded-full bg-shelf-hover px-2 py-1 text-[10px] uppercase tracking-wide text-shelf-muted">
                     {{ format }}
@@ -22,6 +23,7 @@
             {% endif %}
             {% if related_game_platforms|length > 1 %}
             <div class="flex flex-wrap items-center gap-1.5 mt-2" data-testid="related-platforms">
+                <span class="text-xs text-shelf-muted">Platforms:</span>
                 {% for platform in related_game_platforms %}
                 <span class="inline-flex items-center gap-1 rounded-full bg-shelf-accent/10 px-2 py-1 text-[10px] text-shelf-accent2">
                     {% with platform_icon_url=platform.icon_url, platform_icon_kind=platform.icon_kind %}
@@ -92,7 +94,7 @@
                 {% for provider in related.provider_links %}
                 <a href="{{ provider.url }}" target="_blank" rel="noopener"
                    class="inline-flex items-center gap-1 px-2 py-1 bg-shelf-accent/15 text-shelf-accent2 rounded-md text-xs hover:bg-shelf-accent/25 transition-colors">
-                    {{ provider.name }} <span aria-hidden="true">↗</span>
+                    Also in {{ provider.name }} ({{ related.media_label }}) <span aria-hidden="true">↗</span>
                 </a>
                 {% endfor %}
             </div>
