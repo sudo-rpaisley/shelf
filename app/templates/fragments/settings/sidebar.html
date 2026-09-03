@@ -1,25 +1,25 @@
-<aside class="flex flex-wrap lg:w-64 shrink-0 gap-2" aria-label="Settings sections">
+<aside class="flex flex-wrap lg:w-64 shrink-0 gap-2 lg:self-start lg:content-start" aria-label="Settings sections">
     <button @click="setTab('library')" data-testid="tab-library"
             :class="tab === 'library' ? 'bg-shelf-hover text-white border-shelf-accent/40' : 'bg-shelf-card text-shelf-muted border-shelf-border hover:text-white hover:bg-shelf-hover'"
-            class="w-32 lg:w-64 shrink-0 text-left border rounded-xl p-4 transition-colors">
+            class="w-32 lg:w-64 lg:h-24 shrink-0 text-left border rounded-xl p-4 transition-colors">
         <span class="block text-sm font-semibold">Library</span>
         <span class="hidden lg:flex text-xs mt-1">Display, navigation, locations and lending.</span>
     </button>
     <button @click="setTab('integrations')" data-testid="tab-integrations"
             :class="tab === 'integrations' ? 'bg-shelf-hover text-white border-shelf-accent/40' : 'bg-shelf-card text-shelf-muted border-shelf-border hover:text-white hover:bg-shelf-hover'"
-            class="w-32 lg:w-64 shrink-0 text-left border rounded-xl p-4 transition-colors">
+            class="w-32 lg:w-64 lg:h-24 shrink-0 text-left border rounded-xl p-4 transition-colors">
         <span class="block text-sm font-semibold">Integrations</span>
         <span class="hidden lg:flex text-xs mt-1">Sync services, connected providers and external APIs.</span>
     </button>
     <button @click="setTab('data')" data-testid="tab-data"
             :class="tab === 'data' ? 'bg-shelf-hover text-white border-shelf-accent/40' : 'bg-shelf-card text-shelf-muted border-shelf-border hover:text-white hover:bg-shelf-hover'"
-            class="w-32 lg:w-64 shrink-0 text-left border rounded-xl p-4 transition-colors">
+            class="w-32 lg:w-64 lg:h-24 shrink-0 text-left border rounded-xl p-4 transition-colors">
         <span class="block text-sm font-semibold">Data</span>
         <span class="hidden lg:flex text-xs mt-1">Import, export, backups and maintenance.</span>
     </button>
     <button @click="setTab('users')" data-testid="tab-users"
             :class="tab === 'users' ? 'bg-shelf-hover text-white border-shelf-accent/40' : 'bg-shelf-card text-shelf-muted border-shelf-border hover:text-white hover:bg-shelf-hover'"
-            class="w-32 lg:w-64 shrink-0 text-left border rounded-xl p-4 transition-colors">
+            class="w-32 lg:w-64 lg:h-24 shrink-0 text-left border rounded-xl p-4 transition-colors">
         <span class="block text-sm font-semibold">Users</span>
         <span class="hidden lg:flex text-xs mt-1">Accounts, roles and access.</span>
     </button>
