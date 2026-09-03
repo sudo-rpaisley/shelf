@@ -20,6 +20,8 @@ def test_valid_977_ean_decodes_to_periodical_identity():
     assert serial.ean13 == POPULAR_SCIENCE_EAN
     assert serial.issn == "0161-7370"
     assert serial.variant == "00"
+    assert serial.supplement is None
+    assert serial.full_code == POPULAR_SCIENCE_EAN
 
 
 def test_invalid_ean_check_digit_is_not_treated_as_a_periodical():
@@ -30,8 +32,19 @@ def test_non_977_ean_is_not_treated_as_a_periodical():
     assert periodicals.parse_barcode("4006381333931") is None
 
 
-def test_supplemental_digits_are_not_silently_folded_into_the_main_barcode():
-    # The browser scanner currently reports the carrier symbol separately; a
-    # future supplemental-code feature must model that explicitly rather than
-    # accidentally accepting a 15/18-digit concatenation here.
-    assert periodicals.parse_barcode(POPULAR_SCIENCE_EAN + "05") is None
+def test_two_digit_supplement_is_preserved_without_guessing_its_meaning():
+    serial = periodicals.parse_barcode(POPULAR_SCIENCE_EAN + "05")
+    assert serial is not None
+    assert serial.ean13 == POPULAR_SCIENCE_EAN
+    assert serial.supplement == "05"
+    assert serial.full_code == POPULAR_SCIENCE_EAN + "05"
+
+
+def test_five_digit_supplement_is_preserved():
+    serial = periodicals.parse_barcode(POPULAR_SCIENCE_EAN + "12345")
+    assert serial is not None
+    assert serial.supplement == "12345"
+
+
+def test_other_concatenated_lengths_are_rejected():
+    assert periodicals.parse_barcode(POPULAR_SCIENCE_EAN + "123") is None
