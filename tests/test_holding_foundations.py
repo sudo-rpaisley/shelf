@@ -9,6 +9,7 @@ from app.services import holdings
 
 
 def test_location_tree_allows_same_child_name_under_different_parents(db):
+    holdings.install_schema(db)
     living = db.execute(
         "INSERT INTO location_nodes (name, sort_order) VALUES ('Living Room', 0)"
     ).lastrowid
@@ -132,6 +133,7 @@ def test_provider_identifiers_are_synced_into_digital_holdings(db):
 
 
 def test_periodical_publication_can_own_multiple_issue_items(db):
+    holdings.install_schema(db)
     publication_id = db.execute(
         "INSERT INTO periodical_publications (title, issn, publisher) "
         "VALUES ('Example Monthly', '1234-567X', 'Example Press')"
