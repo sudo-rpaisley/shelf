@@ -123,27 +123,27 @@ document.addEventListener('keydown', function(e) {
     else if (e.key === '?') { document.getElementById('shortcut-modal').classList.toggle('hidden'); }
 });
 
-// The visible shortcut-help controls used inline onclick handlers. Shelf's
-// script-src 'self' CSP refuses those handlers, so the button and both close
-// surfaces looked clickable but did nothing. Bind the same behaviour from this
-// external script instead. Remove the inert inline attributes before a user can
-// click them so browsers do not report a CSP violation for the dead handler.
+// Keyboard-shortcut dialog controls live in this external script so they work
+// under Shelf's no-inline CSP. The old floating trigger is optional: newer
+// navigation opens the same dialog from the account-menu Alpine component.
 (function() {
     var modal = document.getElementById('shortcut-modal');
-    var trigger = document.querySelector('[title="Keyboard shortcuts (?)"]');
-    if (!modal || !trigger) return;
+    if (!modal) return;
 
-    trigger.removeAttribute('onclick');
-    trigger.addEventListener('click', function() {
-        modal.classList.toggle('hidden');
-    });
+    var trigger = document.querySelector('[title="Keyboard shortcuts (?)"]');
+    if (trigger) {
+        trigger.removeAttribute('onclick');
+        trigger.addEventListener('click', function() {
+            modal.classList.toggle('hidden');
+        });
+    }
 
     modal.removeAttribute('onclick');
     modal.addEventListener('click', function(e) {
         if (e.target === modal) modal.classList.add('hidden');
     });
 
-    var close = modal.querySelector('button[onclick]');
+    var close = modal.querySelector('[data-shortcut-close], button[onclick]');
     if (close) {
         close.removeAttribute('onclick');
         close.addEventListener('click', function() {
