@@ -1,7 +1,10 @@
 """Magazine issue search and add workflows.
 
 The routes attach to the existing catalogue router so the main application does
-not gain another top-level router solely for periodicals.
+not gain another top-level router solely for periodicals. The scan page keeps
+using its long-standing /api/title-search URL; this extension replaces only
+that route registration and delegates every non-magazine request to the
+original handler.
 """
 
 from datetime import date
@@ -20,6 +23,14 @@ from app.services.item_write import insert_item
 from app.services.write_targets import UnknownLocationError, validated_location_id
 
 router = items_catalog.router
+_legacy_title_search = items_catalog.title_search
+# This module is imported before main includes items_catalog.router, so it is
+# safe to replace the one route registration while retaining the original
+# function for book/DVD/game delegation below.
+router.routes[:] = [
+    route for route in router.routes
+    if getattr(route, "path", None) != "/api/title-search"
+]
 _PARTIAL_DATE_RE = re.compile(r"^\d{4}(?:-\d{2}(?:-\d{2})?)?$")
 
 
@@ -80,7 +91,7 @@ async def search_magazines(
     )
 
 
-@router.get("/catalogue-title-search")
+@router.get("/title-search")
 async def catalogue_title_search(
     request: Request,
     q: str = "",
@@ -90,7 +101,7 @@ async def catalogue_title_search(
     mode: str = "add",
     _=Depends(require_role("editor")),
 ):
-    """Scan-page title search with a first-class magazine issue arm."""
+    """Existing scan-page title search plus exact magazine issue results."""
     if media_type == "magazine":
         return await search_magazines(
             request,
@@ -99,7 +110,7 @@ async def catalogue_title_search(
             mode=mode,
             _=_,
         )
-    return await items_catalog.title_search(
+    return await _legacy_title_search(
         request,
         q=q,
         media_type=media_type,
