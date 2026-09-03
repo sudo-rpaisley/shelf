@@ -10,6 +10,7 @@ MEDIA_TYPES = {
     "kids_book": "Kids Book",
     "audiobook": "Audiobook",
     "ebook": "eBook",
+    "magazine": "Magazine",
     "dvd": "DVD / Blu-ray",
     "vinyl": "Vinyl",
     "cassette": "Cassette",
@@ -41,6 +42,10 @@ MEDIA_FAMILIES = {
     "books": {
         "label": "Books",
         "types": ("book", "kids_book", "ebook"),
+    },
+    "magazines": {
+        "label": "Magazines",
+        "types": ("magazine",),
     },
     "comics": {
         "label": "Comics",
