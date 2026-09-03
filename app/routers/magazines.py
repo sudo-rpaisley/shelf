@@ -1,21 +1,25 @@
-"""Magazine issue search and add workflows."""
+"""Magazine issue search and add workflows.
+
+The routes attach to the existing catalogue router so the main application does
+not gain another top-level router solely for periodicals.
+"""
 
 from datetime import date
 import re
 
 import httpx
-from fastapi import APIRouter, Depends, Form, Request
+from fastapi import Depends, Form, Request
 from fastapi.responses import HTMLResponse
 
 from app.auth import require_role
 from app.config import HTTP_TIMEOUT, MEDIA_TYPES
 from app.database import get_db, get_setting
-from app.routers import items_common
+from app.routers import items_catalog, items_common
 from app.services import covers, magazine_google, periodical_records, periodicals, scan_outcome
 from app.services.item_write import insert_item
 from app.services.write_targets import UnknownLocationError, validated_location_id
 
-router = APIRouter(prefix="/api")
+router = items_catalog.router
 _PARTIAL_DATE_RE = re.compile(r"^\d{4}(?:-\d{2}(?:-\d{2})?)?$")
 
 
@@ -49,6 +53,8 @@ def _issue_label(issue_number: str | None, issue_date: str | None) -> str:
 async def search_magazines(
     request: Request,
     q: str = "",
+    location_id: int | None = None,
+    mode: str = "add",
     _=Depends(require_role("editor")),
 ):
     templates = request.app.state.templates
@@ -66,9 +72,39 @@ async def search_magazines(
         {
             "results": result.payload or [],
             "query": q.strip(),
+            "selected_location_id": location_id,
+            "mode": mode if mode in ("add", "wishlist") else "add",
             "search_status": scan_outcome.not_found_status(result),
             "search_provider": scan_outcome.provider_label(result),
         },
+    )
+
+
+@router.get("/catalogue-title-search")
+async def catalogue_title_search(
+    request: Request,
+    q: str = "",
+    media_type: str = "book",
+    platform: str = "",
+    location_id: int | None = None,
+    mode: str = "add",
+    _=Depends(require_role("editor")),
+):
+    """Scan-page title search with a first-class magazine issue arm."""
+    if media_type == "magazine":
+        return await search_magazines(
+            request,
+            q=q,
+            location_id=location_id,
+            mode=mode,
+            _=_,
+        )
+    return await items_catalog.title_search(
+        request,
+        q=q,
+        media_type=media_type,
+        platform=platform,
+        _=_,
     )
 
 
