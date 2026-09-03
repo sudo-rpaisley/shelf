@@ -26,6 +26,12 @@ def _parent_exists(db, parent_id: int | None) -> bool:
     ).fetchone() is not None
 
 
+def _parse_parent(value: str | int | None) -> int | None:
+    if value is None or str(value).strip() == "":
+        return None
+    return int(value)
+
+
 @pages.router.get("/locations")
 async def locations_index(request: Request, _=Depends(require_role("viewer"))):
     with get_db() as db:
@@ -76,24 +82,28 @@ async def location_detail(
 @pages.router.post("/api/location-tree")
 async def create_location_node(
     name: str = Form(...),
-    parent_id: int | None = Form(None),
+    parent_id: str = Form(""),
     sort_order: int = Form(0),
     _=Depends(require_role("admin")),
 ):
     clean_name = name.strip()
+    try:
+        parent = _parse_parent(parent_id)
+    except ValueError:
+        return _redirect(error="parent_missing")
     if not clean_name:
-        return _redirect(parent_id, error="blank")
+        return _redirect(parent, error="blank")
     try:
         with get_db() as db:
-            if not _parent_exists(db, parent_id):
+            if not _parent_exists(db, parent):
                 return _redirect(error="parent_missing")
             cursor = db.execute(
                 "INSERT INTO location_nodes (parent_id, name, sort_order) VALUES (?, ?, ?)",
-                (parent_id, clean_name, sort_order),
+                (parent, clean_name, sort_order),
             )
             new_id = cursor.lastrowid
     except sqlite3.IntegrityError:
-        return _redirect(parent_id, error="duplicate")
+        return _redirect(parent, error="duplicate")
     return _redirect(new_id)
 
 
@@ -101,14 +111,18 @@ async def create_location_node(
 async def update_location_node(
     location_id: int,
     name: str = Form(...),
-    parent_id: int | None = Form(None),
+    parent_id: str = Form(""),
     sort_order: int = Form(0),
     _=Depends(require_role("admin")),
 ):
     clean_name = name.strip()
+    try:
+        parent = _parse_parent(parent_id)
+    except ValueError:
+        return _redirect(location_id, error="parent_missing")
     if not clean_name:
         return _redirect(location_id, error="blank")
-    if parent_id == location_id:
+    if parent == location_id:
         return _redirect(location_id, error="cycle")
 
     try:
@@ -119,9 +133,9 @@ async def update_location_node(
             ).fetchone()
             if not node:
                 return _redirect(error="missing")
-            if not _parent_exists(db, parent_id):
+            if not _parent_exists(db, parent):
                 return _redirect(location_id, error="parent_missing")
-            if parent_id is not None and parent_id in location_svc.descendant_ids(
+            if parent is not None and parent in location_svc.descendant_ids(
                 db, location_id, include_self=False
             ):
                 return _redirect(location_id, error="cycle")
@@ -136,7 +150,7 @@ async def update_location_node(
             db.execute(
                 "UPDATE location_nodes SET parent_id = ?, name = ?, sort_order = ?, "
                 "updated_at = datetime('now') WHERE id = ?",
-                (parent_id, clean_name, sort_order, location_id),
+                (parent, clean_name, sort_order, location_id),
             )
     except sqlite3.IntegrityError:
         return _redirect(location_id, error="duplicate")
@@ -171,8 +185,8 @@ async def delete_location_node(
             db.execute("UPDATE items SET location_id = NULL WHERE location_id = ?", (legacy_id,))
             db.execute("DELETE FROM locations WHERE id = ?", (legacy_id,))
         db.execute("DELETE FROM location_nodes WHERE id = ?", (location_id,))
-        parent_id = node["parent_id"]
-    return _redirect(parent_id)
+        parent = node["parent_id"]
+    return _redirect(parent)
 
 
 @pages.router.post("/api/location-tree/{location_id}/order")
@@ -232,18 +246,20 @@ async def move_copy(
         ).fetchone()
         if not copy:
             return _redirect(location_id, error="copy_missing")
-        db.execute(
-            "UPDATE item_copies SET location_id = ?, position_order = NULL, "
-            "updated_at = datetime('now') WHERE id = ?",
-            (location_id, copy_id),
-        )
-        # The legacy item field can only name a flat root. Resolve the nearest
-        # compatibility ancestor so moving Living Room/Shelf 1 -> Bedroom/Shelf 1
-        # updates legacy Browse/scan views to Bedroom rather than leaving the old room.
+
+        # Legacy item.location_id can name only a flat root. Update it first;
+        # its compatibility trigger may temporarily place the primary copy on
+        # that root. The explicit copy update below then restores the precise
+        # nested destination and is the final source of truth.
         if copy["is_primary"]:
             legacy = location_svc.nearest_legacy_location(db, location_id)
             db.execute(
                 "UPDATE items SET location_id = ? WHERE id = ?",
                 (legacy, copy["item_id"]),
             )
+        db.execute(
+            "UPDATE item_copies SET location_id = ?, position_order = NULL, "
+            "updated_at = datetime('now') WHERE id = ?",
+            (location_id, copy_id),
+        )
     return _redirect(location_id)
