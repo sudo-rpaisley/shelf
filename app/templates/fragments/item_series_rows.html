@@ -12,7 +12,7 @@
             </div>
 
             <div class="flex gap-3 overflow-x-auto snap-x snap-mandatory pb-2 -mb-2">
-                {% for member in series.items %}
+                {% for member in series["items"] %}
                 <a href="/item/{{ member.id }}"
                    class="group relative w-28 sm:w-32 shrink-0 snap-start"
                    {% if member.id == item.id %}aria-current="page"{% endif %}>
