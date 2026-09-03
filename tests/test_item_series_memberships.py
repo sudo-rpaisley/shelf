@@ -184,3 +184,89 @@ def test_viewer_cannot_change_series_memberships(viewer_client, db):
     )
 
     assert response.status_code == 403
+
+
+def test_global_series_page_includes_secondary_memberships(admin_client, db):
+    book = _insert_item(
+        db, title="Half-Blood Prince", isbn="9780907001106", media_type="book",
+        series_name="Harry Potter", series_position=6,
+    )
+    _insert_item(
+        db, title="Fantastic Beasts", isbn="9780907001113", media_type="book",
+        series_name="Wizarding World", series_position=1,
+    )
+    db.commit()
+    admin_client.get("/series")
+    db.execute(
+        "INSERT INTO item_series (item_id, series_name, position, is_primary) "
+        "VALUES (?, 'Wizarding World', 8, 0)", (book,),
+    )
+    db.commit()
+
+    html = admin_client.get("/series").text
+    assert "Harry Potter" in html
+    assert "Wizarding World" in html
+    assert "Half-Blood Prince" in html
+    assert "Fantastic Beasts" in html
+
+
+def test_global_series_rename_updates_secondary_and_primary_memberships(admin_client, db):
+    primary = _insert_item(
+        db, title="Primary", isbn="9780907001120", media_type="book",
+        series_name="Old Name", series_position=1,
+    )
+    secondary = _insert_item(
+        db, title="Secondary", isbn="9780907001137", media_type="book",
+        series_name="Other", series_position=1,
+    )
+    db.commit()
+    admin_client.get("/series")
+    db.execute(
+        "INSERT INTO item_series (item_id, series_name, position, is_primary) "
+        "VALUES (?, 'Old Name', 2, 0)", (secondary,),
+    )
+    db.commit()
+
+    response = admin_client.post("/api/series/Old%20Name/rename", data={"new_name": "New Name"})
+    assert response.status_code == 200
+    rows = db.execute(
+        "SELECT item_id, series_name, position, is_primary FROM item_series "
+        "WHERE series_name = 'New Name' COLLATE NOCASE ORDER BY item_id"
+    ).fetchall()
+    assert {row["item_id"] for row in rows} == {primary, secondary}
+    assert not db.execute(
+        "SELECT 1 FROM item_series WHERE series_name = 'Old Name' COLLATE NOCASE"
+    ).fetchone()
+    legacy = db.execute(
+        "SELECT series_name, series_position FROM items WHERE id = ?", (primary,)
+    ).fetchone()
+    assert legacy["series_name"] == "New Name"
+    assert legacy["series_position"] == 1
+
+
+def test_remove_all_promotes_remaining_secondary_membership(admin_client, db):
+    item = _insert_item(
+        db, title="Multi Series", isbn="9780907001144", media_type="book",
+        series_name="Primary Series", series_position=3,
+    )
+    db.commit()
+    admin_client.get("/series")
+    db.execute(
+        "INSERT INTO item_series (item_id, series_name, position, is_primary) "
+        "VALUES (?, 'Secondary Series', 7, 0)", (item,),
+    )
+    db.commit()
+
+    response = admin_client.post("/api/series/Primary%20Series/remove-all")
+    assert response.status_code == 200
+    remaining = db.execute(
+        "SELECT series_name, position, is_primary FROM item_series WHERE item_id = ?", (item,)
+    ).fetchone()
+    assert remaining["series_name"] == "Secondary Series"
+    assert remaining["position"] == 7
+    assert remaining["is_primary"] == 1
+    legacy = db.execute(
+        "SELECT series_name, series_position FROM items WHERE id = ?", (item,)
+    ).fetchone()
+    assert legacy["series_name"] == "Secondary Series"
+    assert legacy["series_position"] == 7

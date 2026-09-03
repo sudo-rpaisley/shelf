@@ -83,8 +83,10 @@ def test_logout(live_server, authed_page):
     """Logout clears session and redirects to /login."""
     authed_page.goto(f"{live_server['url']}/browse")
     authed_page.wait_for_load_state("networkidle")
-    # Submit logout form
-    authed_page.locator("form[action='/logout'] button, button:has-text('Logout'), button:has-text('Log out')").first.click()
+    authed_page.locator('[data-testid="account-menu-button"]').click()
+    panel = authed_page.locator('[data-testid="account-menu-panel"]')
+    expect(panel).to_be_visible()
+    panel.locator("form[action='/logout'] button").click()
     authed_page.wait_for_url(f"{live_server['url']}/login", timeout=5_000)
     expect(authed_page).to_have_url(f"{live_server['url']}/login")
 

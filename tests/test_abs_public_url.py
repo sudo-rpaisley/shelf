@@ -115,5 +115,6 @@ def test_linked_digital_copy_uses_public_browser_root(admin_client, db):
 
     html = admin_client.get(f"/item/{book}").text
 
-    assert "Also in Audiobookshelf (Audiobook)" in html
+    assert "Available in" in html
+    assert "Audiobookshelf" in html
     assert 'href="https://audiobooks.example.com/item/li_linked"' in html
