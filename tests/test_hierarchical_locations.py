@@ -1,8 +1,12 @@
 """Product coverage for hierarchical locations and physical shelf ordering."""
 
+from app.services import holdings
+from app.services.item_write import insert_item
+
 
 def _legacy_root(db, name):
     legacy_id = db.execute("INSERT INTO locations (name) VALUES (?)", (name,)).lastrowid
+    holdings.ensure_legacy_location_nodes(db)
     node = db.execute(
         "SELECT id FROM location_nodes WHERE legacy_location_id = ?", (legacy_id,)
     ).fetchone()
@@ -10,6 +14,7 @@ def _legacy_root(db, name):
 
 
 def _child(db, parent_id, name):
+    holdings.install_schema(db)
     return db.execute(
         "INSERT INTO location_nodes (parent_id, name) VALUES (?, ?)",
         (parent_id, name),
@@ -25,12 +30,7 @@ def _physical_item(db, title, legacy_location_id, **kwargs):
         "location_id": legacy_location_id,
     }
     fields.update(kwargs)
-    columns = ", ".join(fields)
-    values = list(fields.values())
-    placeholders = ", ".join("?" for _ in values)
-    return db.execute(
-        f"INSERT INTO items ({columns}) VALUES ({placeholders})", values
-    ).lastrowid
+    return insert_item(db, fields)
 
 
 def test_location_tree_renders_same_shelf_name_under_different_rooms(viewer_client, db):
