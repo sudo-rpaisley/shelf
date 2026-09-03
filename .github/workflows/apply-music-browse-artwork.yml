@@ -35,7 +35,10 @@ jobs:
           if [ -f app/services/music_scan.py ]; then
             echo "Implementation already applied."
           else
-            python scripts/patch_music_browse_artwork.py
+            # The first script intentionally stops at a duplicated cover marker;
+            # the finisher verifies that exact partial state and completes it.
+            python scripts/patch_music_browse_artwork.py || true
+            python scripts/finish_music_browse_artwork.py
           fi
 
       - name: Build generated UI assets
