@@ -119,6 +119,10 @@ def test_repeat_scan_is_duplicate_without_any_provider_call(
         "INSERT INTO items (title, media_type, upc, source) VALUES (?, ?, ?, ?)",
         ("Popular Science", "magazine", MAGAZINE_EAN, "test"),
     )
+    # The request handler uses its own database connection.  Commit the seeded
+    # row so the duplicate pre-check sees the same durable state a real prior
+    # scan would have created.
+    db.commit()
 
     async def _never(*args, **kwargs):
         raise AssertionError("duplicate 977 scan should not perform a metadata lookup")
