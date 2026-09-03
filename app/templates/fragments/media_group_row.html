@@ -1,0 +1,49 @@
+{# One collapsed linked-media component in Browse list view. A stack represents
+   multiple catalogue records, so ambiguous per-item columns intentionally show
+   an em dash and the selection cell stays empty. #}
+{% set col_class = {
+    'author': 'text-shelf-muted text-sm truncate max-w-[200px]',
+    'status': '',
+    'value': 'text-shelf-success text-sm',
+    'series': 'text-shelf-muted text-xs truncate max-w-[200px]',
+    'publisher': 'text-shelf-muted text-xs truncate max-w-[200px]',
+    'identifier': 'text-shelf-muted text-xs font-mono',
+} %}
+<tr class="border-b border-shelf-border hover:bg-shelf-hover/50 transition-colors"
+    data-media-group="{{ item.browse_media_root }}">
+    {% for col in browse_columns %}
+    {%- if col.name == 'select' %}
+    <td x-show="selectMode" data-col="select" class="px-3 py-2 w-8"></td>
+    {%- elif col.name == 'cover' %}
+    <td data-col="cover" class="px-3 py-2 w-10">
+        <a href="{{ item.browse_media_url }}" aria-label="Open linked media for {{ item.browse_media_title }}">
+            {% if item.browse_media_cover_path %}
+            <img src="/{{ item.browse_media_cover_path }}" alt="" class="w-8 h-12 object-cover rounded" loading="lazy">
+            {% else %}
+            <div class="w-8 h-12 bg-shelf-hover rounded flex items-center justify-center">
+                <svg class="w-4 h-4 text-shelf-muted" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M8 7h8a4 4 0 010 8h-3m-2 2H8a4 4 0 010-8h3"/></svg>
+            </div>
+            {% endif %}
+        </a>
+    </td>
+    {%- elif col.name == 'title' %}
+    <td data-col="title" class="px-3 py-2">
+        <div class="flex items-center gap-2">
+            <a href="{{ item.browse_media_url }}"
+               class="text-shelf-text text-sm font-medium truncate max-w-xs hover:underline">{{ item.browse_media_title }}</a>
+            <span class="px-1.5 py-0.5 rounded text-[10px] font-medium bg-shelf-hover text-shelf-muted shrink-0">
+                {{ item.browse_media_count }} linked
+            </span>
+        </div>
+    </td>
+    {%- else %}
+    <td x-show="visibleCols.{{ col.name }}" data-col="{{ col.name }}"
+        class="px-3 py-2 {{ col_class.get(col.name, 'text-shelf-muted text-xs') }}">
+        {%- if col.name == 'author' %}{{ item.browse_media_authors or '—' }}
+        {%- elif col.name == 'media_type' %}{{ item.browse_media_labels | join(' · ') }}
+        {%- else %}—
+        {%- endif %}
+    </td>
+    {%- endif %}
+    {% endfor %}
+</tr>

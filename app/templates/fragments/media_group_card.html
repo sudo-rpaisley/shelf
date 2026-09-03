@@ -1,0 +1,26 @@
+{# One collapsed linked-media component in Browse grid view. The catalogue
+   items remain separate underneath; this is only a navigation/display stack.
+   Like series cards, stacks are deliberately not bulk-selection targets. #}
+<a href="{{ item.browse_media_url }}" class="group relative"
+   data-media-group="{{ item.browse_media_root }}">
+    <div class="cover-card bg-shelf-card rounded-lg overflow-hidden border border-shelf-border group-hover:border-shelf-accent/50 transition-colors shadow-lg">
+        <span class="absolute top-2 right-2 z-10 px-2 py-1 rounded-md text-[10px] font-semibold bg-shelf-card/95 text-shelf-text border border-shelf-border shadow">
+            {{ item.browse_media_count }} linked
+        </span>
+        {% if item.browse_media_cover_path %}
+        <img src="/{{ item.browse_media_cover_path }}" alt="{{ item.browse_media_title }}" loading="lazy">
+        {% else %}
+        <div class="w-full h-full flex items-center justify-center p-4 text-center bg-shelf-hover">
+            <div>
+                <svg class="w-10 h-10 mx-auto mb-2 text-shelf-muted" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M8 7h8a4 4 0 010 8h-3m-2 2H8a4 4 0 010-8h3"/></svg>
+                <p class="text-xs text-shelf-muted line-clamp-3">{{ item.browse_media_title }}</p>
+            </div>
+        </div>
+        {% endif %}
+    </div>
+    <div class="absolute bottom-0 left-0 right-0 p-3 pt-10 bg-gradient-to-t from-black/90 via-black/55 to-transparent rounded-b-lg opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none">
+        <p class="text-white text-sm font-semibold leading-tight line-clamp-2">{{ item.browse_media_title }}</p>
+        {% if item.browse_media_authors %}<p class="text-white/70 text-xs mt-0.5 truncate">{{ item.browse_media_authors }}</p>{% endif %}
+        <p class="text-white/70 text-xs mt-0.5 line-clamp-2">{{ item.browse_media_labels | join(' · ') }}</p>
+    </div>
+</a>
