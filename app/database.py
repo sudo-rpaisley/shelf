@@ -153,6 +153,23 @@ MIGRATIONS: Sequence[tuple[int, str, str]] = (
     (37, "Add Discogs notes", "ALTER TABLE music_releases ADD COLUMN discogs_notes TEXT DEFAULT NULL"),
     (38, "Add Discogs cache timestamp", "ALTER TABLE music_releases ADD COLUMN discogs_updated_at TEXT DEFAULT NULL"),
     (39, "Add music identifier source", "ALTER TABLE music_identifiers ADD COLUMN source TEXT NOT NULL DEFAULT 'manual'"),
+    (40, "Add item-series membership table",
+     """CREATE TABLE IF NOT EXISTS item_series (
+        item_id INTEGER NOT NULL REFERENCES items(id) ON DELETE CASCADE,
+        series_name TEXT NOT NULL COLLATE NOCASE,
+        position REAL,
+        is_primary INTEGER NOT NULL DEFAULT 0,
+        created_at TEXT NOT NULL DEFAULT (datetime('now')),
+        PRIMARY KEY (item_id, series_name)
+    )"""),
+    (41, "Index item-series names",
+     "CREATE INDEX IF NOT EXISTS idx_item_series_name ON item_series(series_name COLLATE NOCASE)"),
+    (42, "Backfill primary item-series memberships",
+     """INSERT INTO item_series (item_id, series_name, position, is_primary)
+        SELECT id, TRIM(series_name), series_position, 1 FROM items
+        WHERE series_name IS NOT NULL AND TRIM(series_name) != ''
+        ON CONFLICT(item_id, series_name) DO UPDATE SET
+            position = excluded.position, is_primary = 1"""),
 )
 
 MIGRATION_TABLES = """
@@ -276,6 +293,18 @@ CREATE TABLE IF NOT EXISTS series_meta (
     hc_missing    INTEGER DEFAULT NULL,
     hc_checked_at TEXT DEFAULT NULL
 );
+
+-- Multiple ordered series memberships. The legacy items.series_name /
+-- series_position pair remains the primary membership for compatibility.
+CREATE TABLE IF NOT EXISTS item_series (
+    item_id      INTEGER NOT NULL REFERENCES items(id) ON DELETE CASCADE,
+    series_name  TEXT NOT NULL COLLATE NOCASE,
+    position     REAL,
+    is_primary   INTEGER NOT NULL DEFAULT 0,
+    created_at   TEXT NOT NULL DEFAULT (datetime('now')),
+    PRIMARY KEY (item_id, series_name)
+);
+CREATE INDEX IF NOT EXISTS idx_item_series_name ON item_series(series_name COLLATE NOCASE);
 
 -- Music is intentionally relational rather than a wide set of nullable
 -- columns on items. `items` remains the owned object; this row identifies the
@@ -635,8 +664,10 @@ def gc_orphaned_series_meta(db, *names: str | None) -> None:
             "DELETE FROM series_meta WHERE name = ? COLLATE NOCASE "
             "AND NOT EXISTS ("
             "SELECT 1 FROM items WHERE series_name = ? COLLATE NOCASE"
+            ") AND NOT EXISTS ("
+            "SELECT 1 FROM item_series WHERE series_name = ? COLLATE NOCASE"
             ")",
-            (name, name),
+            (name, name, name),
         )
 
 
