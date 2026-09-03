@@ -36,8 +36,10 @@
                data-media-family="{{ family.key }}">
                 <div class="flex items-start justify-between gap-3">
                     <div class="min-w-0">
-                        <div class="w-10 h-10 rounded-lg bg-shelf-accent/10 text-shelf-accent2 flex items-center justify-center font-bold mb-4">
-                            {{ family.label[0] }}
+                        <div class="w-10 h-10 rounded-lg bg-shelf-accent/10 text-shelf-accent2 flex items-center justify-center mb-4">
+                            {% with media_family_key=family.key %}
+                            {% include "fragments/media_family_icon.html" %}
+                            {% endwith %}
                         </div>
                         <h3 class="font-semibold text-shelf-text">{{ family.label }}</h3>
                         <p class="text-sm text-shelf-muted mt-1">{{ family.count }} item{{ '' if family.count == 1 else 's' }}</p>
