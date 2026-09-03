@@ -28,6 +28,7 @@ NAV_TABS = [
      "roles": ("admin", "editor")},
     {"key": "intake", "label": "Intake", "path": "/intake", "group": "add",
      "roles": ("admin", "editor"), "requires": "vision"},
+    {"key": "locations", "label": "Locations", "path": "/locations", "group": "more"},
     {"key": "music", "label": "Music", "path": "/music", "group": "more"},
     {"key": "store", "label": "Store", "path": "/store", "group": "more"},
     {"key": "stats", "label": "Stats", "path": "/stats", "group": "more"},
