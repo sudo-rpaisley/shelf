@@ -419,6 +419,213 @@ CREATE TABLE IF NOT EXISTS music_identifiers (
 );
 CREATE INDEX IF NOT EXISTS idx_music_identifiers_item ON music_identifiers(item_id);
 CREATE INDEX IF NOT EXISTS idx_music_identifiers_value ON music_identifiers(value COLLATE NOCASE);
+
+-- Compatibility-first physical location tree. The legacy locations table is
+-- intentionally left in place while UI and item writes move to this model.
+-- A legacy location is represented as a root node, and arbitrary child nodes
+-- may reuse names under different parents (e.g. Shelf 1 in two rooms).
+CREATE TABLE IF NOT EXISTS location_nodes (
+    id                 INTEGER PRIMARY KEY AUTOINCREMENT,
+    parent_id          INTEGER REFERENCES location_nodes(id) ON DELETE RESTRICT,
+    name               TEXT NOT NULL,
+    sort_order         INTEGER NOT NULL DEFAULT 0,
+    legacy_location_id INTEGER UNIQUE REFERENCES locations(id) ON DELETE SET NULL,
+    created_at         TEXT NOT NULL DEFAULT (datetime('now')),
+    updated_at         TEXT NOT NULL DEFAULT (datetime('now'))
+);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_location_nodes_root_name
+    ON location_nodes(name COLLATE NOCASE) WHERE parent_id IS NULL;
+CREATE UNIQUE INDEX IF NOT EXISTS idx_location_nodes_child_name
+    ON location_nodes(parent_id, name COLLATE NOCASE) WHERE parent_id IS NOT NULL;
+CREATE INDEX IF NOT EXISTS idx_location_nodes_parent
+    ON location_nodes(parent_id, sort_order, name COLLATE NOCASE);
+
+INSERT OR IGNORE INTO location_nodes (name, sort_order, legacy_location_id)
+SELECT name, sort_order, id FROM locations;
+
+CREATE TRIGGER IF NOT EXISTS trg_locations_to_nodes_insert
+AFTER INSERT ON locations
+BEGIN
+    INSERT OR IGNORE INTO location_nodes (name, sort_order, legacy_location_id)
+    VALUES (NEW.name, NEW.sort_order, NEW.id);
+END;
+
+CREATE TRIGGER IF NOT EXISTS trg_locations_to_nodes_update
+AFTER UPDATE OF name, sort_order ON locations
+BEGIN
+    UPDATE location_nodes
+    SET name = NEW.name,
+        sort_order = NEW.sort_order,
+        updated_at = datetime('now')
+    WHERE legacy_location_id = NEW.id;
+END;
+
+-- Physical copies are distinct from catalogue metadata. The first backfilled
+-- copy mirrors the legacy item location while later copies may live anywhere
+-- in the hierarchy and have their own shelf position/condition/acquisition.
+CREATE TABLE IF NOT EXISTS item_copies (
+    id                INTEGER PRIMARY KEY AUTOINCREMENT,
+    item_id           INTEGER NOT NULL REFERENCES items(id) ON DELETE CASCADE,
+    copy_number       INTEGER NOT NULL DEFAULT 1,
+    location_id       INTEGER REFERENCES location_nodes(id) ON DELETE SET NULL,
+    position_order    INTEGER,
+    condition         TEXT,
+    notes             TEXT,
+    acquired_date     TEXT,
+    acquisition_price REAL,
+    copy_barcode      TEXT UNIQUE,
+    is_primary        INTEGER NOT NULL DEFAULT 0 CHECK(is_primary IN (0, 1)),
+    created_at        TEXT NOT NULL DEFAULT (datetime('now')),
+    updated_at        TEXT NOT NULL DEFAULT (datetime('now')),
+    UNIQUE(item_id, copy_number)
+);
+CREATE INDEX IF NOT EXISTS idx_item_copies_item ON item_copies(item_id);
+CREATE INDEX IF NOT EXISTS idx_item_copies_location
+    ON item_copies(location_id, position_order, id);
+
+INSERT OR IGNORE INTO item_copies (item_id, copy_number, location_id, is_primary)
+SELECT i.id, 1, ln.id, 1
+FROM items i
+LEFT JOIN location_nodes ln ON ln.legacy_location_id = i.location_id
+WHERE i.owned = 1
+  AND i.media_type NOT IN ('audiobook', 'ebook', 'digital_music', 'digital_comic', 'digital_game');
+
+CREATE TRIGGER IF NOT EXISTS trg_items_to_copies_insert
+AFTER INSERT ON items
+WHEN NEW.owned = 1
+ AND NEW.media_type NOT IN ('audiobook', 'ebook', 'digital_music', 'digital_comic', 'digital_game')
+BEGIN
+    INSERT OR IGNORE INTO item_copies (item_id, copy_number, location_id, is_primary)
+    SELECT NEW.id, 1, ln.id, 1
+    FROM (SELECT 1) seed
+    LEFT JOIN location_nodes ln ON ln.legacy_location_id = NEW.location_id;
+END;
+
+CREATE TRIGGER IF NOT EXISTS trg_items_to_copies_update
+AFTER UPDATE OF owned, media_type, location_id ON items
+WHEN NEW.owned = 1
+ AND NEW.media_type NOT IN ('audiobook', 'ebook', 'digital_music', 'digital_comic', 'digital_game')
+BEGIN
+    INSERT OR IGNORE INTO item_copies (item_id, copy_number, location_id, is_primary)
+    SELECT NEW.id, 1, ln.id, 1
+    FROM (SELECT 1) seed
+    LEFT JOIN location_nodes ln ON ln.legacy_location_id = NEW.location_id;
+    UPDATE item_copies
+    SET location_id = (
+            SELECT id FROM location_nodes WHERE legacy_location_id = NEW.location_id
+        ),
+        updated_at = datetime('now')
+    WHERE item_id = NEW.id AND is_primary = 1;
+END;
+
+-- Digital availability is a provider holding, not a room/shelf location.
+-- Existing integration-specific columns remain the compatibility source while
+-- this table becomes the common representation used by future UI.
+CREATE TABLE IF NOT EXISTS digital_holdings (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    item_id     INTEGER NOT NULL REFERENCES items(id) ON DELETE CASCADE,
+    provider    TEXT NOT NULL,
+    external_id TEXT NOT NULL,
+    library_id  TEXT,
+    format      TEXT,
+    source_url  TEXT,
+    created_at  TEXT NOT NULL DEFAULT (datetime('now')),
+    updated_at  TEXT NOT NULL DEFAULT (datetime('now')),
+    UNIQUE(item_id, provider, external_id)
+);
+CREATE INDEX IF NOT EXISTS idx_digital_holdings_item ON digital_holdings(item_id);
+CREATE INDEX IF NOT EXISTS idx_digital_holdings_provider
+    ON digital_holdings(provider, external_id);
+
+INSERT OR IGNORE INTO digital_holdings (item_id, provider, external_id, library_id)
+SELECT id, 'audiobookshelf', abs_id, abs_library_id FROM items
+WHERE abs_id IS NOT NULL AND TRIM(abs_id) != '';
+INSERT OR IGNORE INTO digital_holdings (item_id, provider, external_id, library_id)
+SELECT id, 'komga', komga_id, komga_library_id FROM items
+WHERE komga_id IS NOT NULL AND TRIM(komga_id) != '';
+INSERT OR IGNORE INTO digital_holdings (item_id, provider, external_id, library_id)
+SELECT id, 'romm', romm_id, romm_platform_id FROM items
+WHERE romm_id IS NOT NULL AND TRIM(romm_id) != '';
+
+CREATE TRIGGER IF NOT EXISTS trg_items_abs_holding_insert
+AFTER INSERT ON items
+WHEN NEW.abs_id IS NOT NULL AND TRIM(NEW.abs_id) != ''
+BEGIN
+    INSERT OR IGNORE INTO digital_holdings (item_id, provider, external_id, library_id)
+    VALUES (NEW.id, 'audiobookshelf', NEW.abs_id, NEW.abs_library_id);
+END;
+
+CREATE TRIGGER IF NOT EXISTS trg_items_abs_holding_update
+AFTER UPDATE OF abs_id, abs_library_id ON items
+BEGIN
+    DELETE FROM digital_holdings WHERE item_id = NEW.id AND provider = 'audiobookshelf';
+    INSERT OR IGNORE INTO digital_holdings (item_id, provider, external_id, library_id)
+    SELECT NEW.id, 'audiobookshelf', NEW.abs_id, NEW.abs_library_id
+    WHERE NEW.abs_id IS NOT NULL AND TRIM(NEW.abs_id) != '';
+END;
+
+CREATE TRIGGER IF NOT EXISTS trg_items_komga_holding_insert
+AFTER INSERT ON items
+WHEN NEW.komga_id IS NOT NULL AND TRIM(NEW.komga_id) != ''
+BEGIN
+    INSERT OR IGNORE INTO digital_holdings (item_id, provider, external_id, library_id)
+    VALUES (NEW.id, 'komga', NEW.komga_id, NEW.komga_library_id);
+END;
+
+CREATE TRIGGER IF NOT EXISTS trg_items_komga_holding_update
+AFTER UPDATE OF komga_id, komga_library_id ON items
+BEGIN
+    DELETE FROM digital_holdings WHERE item_id = NEW.id AND provider = 'komga';
+    INSERT OR IGNORE INTO digital_holdings (item_id, provider, external_id, library_id)
+    SELECT NEW.id, 'komga', NEW.komga_id, NEW.komga_library_id
+    WHERE NEW.komga_id IS NOT NULL AND TRIM(NEW.komga_id) != '';
+END;
+
+CREATE TRIGGER IF NOT EXISTS trg_items_romm_holding_insert
+AFTER INSERT ON items
+WHEN NEW.romm_id IS NOT NULL AND TRIM(NEW.romm_id) != ''
+BEGIN
+    INSERT OR IGNORE INTO digital_holdings (item_id, provider, external_id, library_id)
+    VALUES (NEW.id, 'romm', NEW.romm_id, NEW.romm_platform_id);
+END;
+
+CREATE TRIGGER IF NOT EXISTS trg_items_romm_holding_update
+AFTER UPDATE OF romm_id, romm_platform_id ON items
+BEGIN
+    DELETE FROM digital_holdings WHERE item_id = NEW.id AND provider = 'romm';
+    INSERT OR IGNORE INTO digital_holdings (item_id, provider, external_id, library_id)
+    SELECT NEW.id, 'romm', NEW.romm_id, NEW.romm_platform_id
+    WHERE NEW.romm_id IS NOT NULL AND TRIM(NEW.romm_id) != '';
+END;
+
+-- Periodicals use a publication -> issue model. A publication owns the ISSN;
+-- each physical/digital issue remains an item so it can participate in the
+-- rest of Shelf (covers, tags, collections, lending and holdings).
+CREATE TABLE IF NOT EXISTS periodical_publications (
+    id         INTEGER PRIMARY KEY AUTOINCREMENT,
+    title      TEXT NOT NULL,
+    issn       TEXT UNIQUE COLLATE NOCASE,
+    publisher  TEXT,
+    language   TEXT,
+    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+    updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+CREATE INDEX IF NOT EXISTS idx_periodical_publications_title
+    ON periodical_publications(title COLLATE NOCASE);
+
+CREATE TABLE IF NOT EXISTS periodical_issues (
+    item_id             INTEGER PRIMARY KEY REFERENCES items(id) ON DELETE CASCADE,
+    publication_id      INTEGER NOT NULL REFERENCES periodical_publications(id) ON DELETE CASCADE,
+    volume              TEXT,
+    issue_number        TEXT,
+    issue_date          TEXT,
+    barcode_supplement  TEXT,
+    cover_date_label    TEXT,
+    created_at          TEXT NOT NULL DEFAULT (datetime('now')),
+    updated_at          TEXT NOT NULL DEFAULT (datetime('now'))
+);
+CREATE INDEX IF NOT EXISTS idx_periodical_issues_publication
+    ON periodical_issues(publication_id, issue_date, issue_number);
 """
 
 
