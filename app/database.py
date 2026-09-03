@@ -170,6 +170,23 @@ MIGRATIONS: Sequence[tuple[int, str, str]] = (
         WHERE series_name IS NOT NULL AND TRIM(series_name) != ''
         ON CONFLICT(item_id, series_name) DO UPDATE SET
             position = excluded.position, is_primary = 1"""),
+    (43, "Add collections table",
+     """CREATE TABLE IF NOT EXISTS collections (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        name TEXT NOT NULL UNIQUE COLLATE NOCASE,
+        description TEXT,
+        created_at TEXT NOT NULL DEFAULT (datetime('now')),
+        updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+    )"""),
+    (44, "Add collection item membership table",
+     """CREATE TABLE IF NOT EXISTS collection_items (
+        collection_id INTEGER NOT NULL REFERENCES collections(id) ON DELETE CASCADE,
+        item_id INTEGER NOT NULL REFERENCES items(id) ON DELETE CASCADE,
+        created_at TEXT NOT NULL DEFAULT (datetime('now')),
+        PRIMARY KEY (collection_id, item_id)
+    )"""),
+    (45, "Index collection item memberships",
+     "CREATE INDEX IF NOT EXISTS idx_collection_items_item ON collection_items(item_id)"),
 )
 
 MIGRATION_TABLES = """
@@ -305,6 +322,24 @@ CREATE TABLE IF NOT EXISTS item_series (
     PRIMARY KEY (item_id, series_name)
 );
 CREATE INDEX IF NOT EXISTS idx_item_series_name ON item_series(series_name COLLATE NOCASE);
+
+-- Curated collections are intentionally separate from Series and Tags. They
+-- are shared library groupings and an item may belong to any number of them.
+CREATE TABLE IF NOT EXISTS collections (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    name        TEXT NOT NULL UNIQUE COLLATE NOCASE,
+    description TEXT,
+    created_at  TEXT NOT NULL DEFAULT (datetime('now')),
+    updated_at  TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+CREATE TABLE IF NOT EXISTS collection_items (
+    collection_id INTEGER NOT NULL REFERENCES collections(id) ON DELETE CASCADE,
+    item_id       INTEGER NOT NULL REFERENCES items(id) ON DELETE CASCADE,
+    created_at    TEXT NOT NULL DEFAULT (datetime('now')),
+    PRIMARY KEY (collection_id, item_id)
+);
+CREATE INDEX IF NOT EXISTS idx_collection_items_item ON collection_items(item_id);
 
 -- Music is intentionally relational rather than a wide set of nullable
 -- columns on items. `items` remains the owned object; this row identifies the

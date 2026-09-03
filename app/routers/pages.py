@@ -1,4 +1,5 @@
 from datetime import date, datetime, timedelta
+from urllib.parse import urlencode
 
 from fastapi import APIRouter, Depends, Query, Request
 from fastapi.responses import RedirectResponse
@@ -43,7 +44,7 @@ async def index(request: Request, _=Depends(require_role("viewer"))):
             "label": family["label"],
             "count": sum(type_counts.get(media_type, 0) for media_type in family["types"]),
             # Music has a release/pressing-aware catalogue of its own. Other
-            # families enter the generic Collection with a family filter set.
+            # families enter Browse with a family filter set.
             "href": "/music" if key == "music" else f"/browse?media_family_filter={key}",
         })
 
@@ -63,12 +64,25 @@ async def index(request: Request, _=Depends(require_role("viewer"))):
     )
 
 
+@router.get("/search")
+async def global_search(
+    query: str = Query("", max_length=200),
+    _=Depends(require_role("viewer")),
+):
+    """Small global search endpoint used by the persistent navigation bar."""
+    value = query.strip()
+    target = "/browse"
+    if value:
+        target += "?" + urlencode({"q": value})
+    return RedirectResponse(url=target, status_code=303)
+
+
 @router.get("/browse")
 async def browse(
     request: Request,
     _=Depends(require_role("viewer")),
 ):
-    """The Collection page — first paint of the item grid and its filters.
+    """The Browse page — first paint of the item grid and its filters.
 
     Filter values are read from the query string via the registry rather than
     declared as parameters here, exactly as `/api/search` does: a filter added
@@ -373,6 +387,9 @@ async def item_detail(
         item_tags = get_item_tags(db, item_id)
         all_tags = get_all_tags(db)
 
+        from app.routers.collections import item_collection_context
+        collection_context = item_collection_context(db, item_id)
+
         reading_history = get_reading_history(db, item_id)
 
         # Series progress from two labelled sources: local siblings and the
@@ -411,6 +428,8 @@ async def item_detail(
             "back": back,
             "item_tags": item_tags,
             "all_tags": all_tags,
+            "item_collections": collection_context["item_collections"],
+            "available_collections": collection_context["available_collections"],
             "media_types": MEDIA_TYPES,
             "game_platforms": game_platforms,
             "has_hardcover": has_hardcover,

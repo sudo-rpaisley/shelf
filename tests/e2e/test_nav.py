@@ -294,7 +294,7 @@ def test_back_link_defaults_to_browse(live_server, nav_page):
     nav_page.goto(f"{live_server['url']}/item/{item_id}")
     nav_page.wait_for_load_state("networkidle")
 
-    back_link = nav_page.get_by_role("link", name=re.compile("Back to collection"))
+    back_link = nav_page.get_by_role("link", name=re.compile("Back to browse"))
     expect(back_link).to_be_visible()
     back_link.click()
     nav_page.wait_for_url(f"{live_server['url']}/browse")

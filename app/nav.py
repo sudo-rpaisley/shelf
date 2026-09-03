@@ -19,7 +19,8 @@ logger = logging.getLogger(__name__)
 # and reporting pages sit under More; admin pages live with the account menu.
 NAV_TABS = [
     {"key": "home", "label": "Home", "path": "/", "group": "primary"},
-    {"key": "browse", "label": "Collection", "path": "/browse", "group": "primary"},
+    {"key": "browse", "label": "Browse", "path": "/browse", "group": "primary"},
+    {"key": "collections", "label": "Collections", "path": "/collections", "group": "primary"},
     {"key": "series", "label": "Series", "path": "/series", "group": "primary"},
     {"key": "discover", "label": "Discover", "path": "/discover", "group": "primary",
      "requires": "hardcover"},
@@ -36,8 +37,8 @@ NAV_TABS = [
      "roles": ("admin",)},
 ]
 
-# Home, Collection and the page that controls visibility must stay reachable.
-ALWAYS_VISIBLE = ("home", "browse", "settings")
+# Home, Browse, Collections and the page that controls visibility must stay reachable.
+ALWAYS_VISIBLE = ("home", "browse", "collections", "settings")
 
 HIDEABLE_TABS = [t for t in NAV_TABS if t["key"] not in ALWAYS_VISIBLE]
 HIDEABLE_KEYS = frozenset(t["key"] for t in HIDEABLE_TABS)
@@ -178,7 +179,7 @@ def visible_tabs(user: dict | None) -> list[dict]:
 
 
 # Where the item-detail "back" link goes when arriving from somewhere other
-# than Collection. This is a whitelist, not an echo: `back_target` is the only
+# than Browse. This is a whitelist, not an echo: `back_target` is the only
 # way a `?from=` value may influence emitted HTML, and any key not listed
 # here — including anything crafted to look like a URL or path — silently
 # degrades to the default with no `from=` param emitted at all.
@@ -187,7 +188,7 @@ BACK_TARGETS = {
     "series": ("/series", "Back to series"),
     "stats": ("/stats", "Back to stats"),
 }
-DEFAULT_BACK_TARGET = ("/browse", "Back to collection")
+DEFAULT_BACK_TARGET = ("/browse", "Back to browse")
 
 
 def back_target(key: str | None) -> dict:

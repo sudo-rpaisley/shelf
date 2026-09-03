@@ -2,30 +2,19 @@
 {% block title %}Home — Shelf{% endblock %}
 {% block content %}
 <div class="space-y-8">
-    <section class="flex flex-col lg:flex-row lg:items-center justify-between gap-4">
+    <section>
         <div>
             <p class="text-shelf-accent2 text-sm font-medium mb-1">Shelf</p>
             <h1 class="text-3xl font-bold">Your library</h1>
-            <p class="text-shelf-muted mt-2">{{ total_items }} item{{ '' if total_items == 1 else 's' }} across your collection.</p>
+            <p class="text-shelf-muted mt-2">{{ total_items }} item{{ '' if total_items == 1 else 's' }} in your library.</p>
         </div>
-        <form action="/browse" method="get" class="w-full lg:w-64">
-            <label for="home-search" style="position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;border:0">Search your collection</label>
-            <div class="flex gap-2">
-                <input id="home-search" type="search" name="q" placeholder="Search your collection..."
-                       class="flex-1 min-w-0 bg-shelf-card border border-shelf-border rounded-lg px-4 py-2.5 text-sm text-shelf-text focus:ring-2 focus:ring-shelf-accent focus:border-transparent outline-none placeholder-shelf-muted/50">
-                <button type="submit"
-                        class="px-4 py-2.5 bg-shelf-accent text-white rounded-lg text-sm font-medium hover:bg-shelf-accent2 transition-colors">
-                    Search
-                </button>
-            </div>
-        </form>
     </section>
 
     <section>
         <div class="flex items-center justify-between mb-4">
             <div>
                 <h2 class="text-xl font-bold">Browse your library</h2>
-                <p class="text-sm text-shelf-muted mt-1">Start with what you are looking for, then narrow it down in Collection.</p>
+                <p class="text-sm text-shelf-muted mt-1">Start with what you are looking for, then narrow it down in Browse.</p>
             </div>
             <a href="/browse" class="text-sm text-shelf-accent2 hover:text-white transition-colors">View all</a>
         </div>
@@ -117,7 +106,7 @@
             {% if intake_available %}
             <a href="/intake" class="px-4 py-2 bg-shelf-card border border-shelf-border rounded-lg text-sm hover:border-shelf-accent/50 hover:text-white transition-colors">Shelf intake</a>
             {% endif %}
-            <a href="/browse" class="px-4 py-2 bg-shelf-card border border-shelf-border rounded-lg text-sm hover:border-shelf-accent/50 hover:text-white transition-colors">Open Collection</a>
+            <a href="/browse" class="px-4 py-2 bg-shelf-card border border-shelf-border rounded-lg text-sm hover:border-shelf-accent/50 hover:text-white transition-colors">Open Browse</a>
         </div>
     </section>
     {% endif %}
