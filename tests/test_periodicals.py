@@ -10,8 +10,7 @@ def test_issn_check_character_is_reconstructed_from_977_stem():
 
 
 def test_issn_check_character_can_be_x():
-    # 0317-847X is a standard ISSN example with X as its check character.
-    assert periodicals.issn_from_seven_digits("0317847") == "0317-847X"
+    assert periodicals.issn_from_seven_digits("1000002") == "1000-002X"
 
 
 def test_valid_977_ean_decodes_to_periodical_identity():
