@@ -1,9 +1,9 @@
 """Magazine-specific barcode scan flow.
 
 Kept out of items_common.py because 977/ISSN handling is its own catalogue
-domain.  The public route still lives in items.py; items_common dispatches a
-recognised serial barcode here after the normal scanner has classified it as
-a retail/EAN barcode.
+domain.  The public route still lives in items.py.  Router package initialisation
+installs the tiny dispatch wrapper below around the shared UPC handler, keeping
+the common module below its size guard while making 977 serials first-class.
 """
 
 import sqlite3
@@ -183,3 +183,48 @@ async def scan_magazine(
             ),
         },
     )
+
+
+def install_scan_dispatch() -> None:
+    """Wrap the shared UPC handler once so 977 EANs are dispatched here.
+
+    This is the same extension pattern the router package already uses for
+    focused series modules: central route ownership stays put while a feature
+    module attaches its specialised behaviour during package initialisation.
+    """
+    current = items_common._scan_upc
+    if getattr(current, "_shelf_magazine_dispatch", False):
+        return
+
+    async def dispatch(
+        request: Request,
+        templates,
+        upc_code: str,
+        media_type: str,
+        location_id: int | None,
+        platform: str | None = None,
+        mode: str = "add",
+    ):
+        serial = periodicals.parse_barcode(upc_code)
+        if serial is not None:
+            return await scan_magazine(
+                request,
+                templates,
+                serial.ean13,
+                serial,
+                media_type,
+                location_id,
+                mode,
+            )
+        return await current(
+            request,
+            templates,
+            upc_code,
+            media_type,
+            location_id,
+            platform,
+            mode,
+        )
+
+    dispatch._shelf_magazine_dispatch = True
+    items_common._scan_upc = dispatch
