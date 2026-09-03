@@ -31,7 +31,7 @@ from app.database import get_db, get_game_platforms, get_setting
 from app.services import covers, detect, googlebooks, hardcover, national, openlibrary, provider_result
 from app.services import cover_queue
 from app.services import authors as authors_svc
-from app.services import igdb, periodicals, scan_outcome, tmdb, upcitemdb
+from app.services import igdb, scan_outcome, tmdb, upcitemdb
 from app.services import upc as upc_svc
 from app.services import isbn as isbn_svc
 from app.services.item_write import insert_item
@@ -41,8 +41,8 @@ logger = logging.getLogger(__name__)
 SORT_OPTIONS = {
     "newest": ("Most Recent", "i.created_at DESC"),
     "oldest": ("Oldest First", "i.created_at ASC"),
-    "title_asc": ("Title A–Z", "i.title COLLATE NOCASE ASC"),
-    "title_desc": ("Title Z–A", "i.title COLLATE NOCASE DESC"),
+    "title_asc": ("Title A\u2013Z", "i.title COLLATE NOCASE ASC"),
+    "title_desc": ("Title Z\u2013A", "i.title COLLATE NOCASE DESC"),
     "author": ("Author", "i.authors COLLATE NOCASE ASC, i.title COLLATE NOCASE ASC"),
     "year_desc": ("Year (Newest)", "(i.publish_year IS NULL), i.publish_year DESC, i.title COLLATE NOCASE ASC"),
     "year_asc": ("Year (Oldest)", "(i.publish_year IS NULL), i.publish_year ASC, i.title COLLATE NOCASE ASC"),
@@ -465,155 +465,9 @@ def _upc_lookup_error(request, templates, upc_norm: str, media_type: str, mode: 
     )
 
 
-async def _scan_magazine(
-    request: Request,
-    templates,
-    upc_norm: str,
-    serial: periodicals.PeriodicalBarcode,
-    media_type_hint: str,
-    location_id: int | None,
-    mode: str,
-):
-    """Handle a 977 serial barcode as a magazine publication.
-
-    The 977 carrier identifies the publication by ISSN, not reliably the exact
-    physical issue.  Google Books is therefore used only for publication-stable
-    metadata.  A miss falls back to UPC Item DB because some retailers do have
-    useful titles for individual magazine products.
-    """
-    upc_key = serial.ean13
-
-    with get_db() as db:
-        existing = db.execute(
-            "SELECT id, title, media_type FROM items WHERE upc = ?", (upc_key,)
-        ).fetchone()
-    if existing:
-        _log_scan(upc_norm, existing["media_type"], "duplicate", existing["id"], mode)
-        return templates.TemplateResponse(
-            request, "fragments/scan_result.html",
-            {"status": "duplicate", "isbn": upc_norm, "title": existing["title"],
-             "item_id": existing["id"]},
-        )
-
-    with get_db() as db:
-        google_api_key = get_setting(db, "google_books_api_key") or None
-
-    async with httpx.AsyncClient(timeout=HTTP_TIMEOUT) as client:
-        google_result = await googlebooks.lookup_magazine_by_issn(
-            serial.issn, client, api_key=google_api_key,
-        )
-
-        metadata = google_result.payload if google_result.found else None
-        source = "google" if metadata else None
-        fallback_result = None
-
-        if metadata is None:
-            fallback_result = await upcitemdb.lookup(upc_norm, client)
-            if fallback_result.found:
-                product = fallback_result.payload or {}
-                title = upcitemdb.clean_title(product.get("title") or "")
-                if title:
-                    metadata = {
-                        "title": title,
-                        "publisher": product.get("brand"),
-                        "description": None,
-                        "series_name": title,
-                    }
-                    source = "upc"
-
-    if metadata is None:
-        if fallback_result and fallback_result.outcome == "transport_failed" and google_result.outcome == "no_match":
-            return _upc_lookup_error(
-                request, templates, upc_norm, "magazine", mode, fallback_result,
-            )
-
-        outcome = google_result
-        if google_result.outcome == "no_match" and fallback_result is not None:
-            outcome = fallback_result
-        _log_scan(upc_norm, "magazine", "not_found", mode=mode)
-        return templates.TemplateResponse(
-            request,
-            "fragments/scan_result.html",
-            {
-                "status": "not_found",
-                "isbn": upc_norm,
-                "media_type": "magazine",
-                "message": f"Magazine ISSN {serial.issn} not found — add manually below",
-                "preview_cover": None,
-                "enrich_status": scan_outcome.not_found_status(outcome),
-                "enrich_provider": scan_outcome.provider_label(outcome),
-                "locations": _manual_form_locations(),
-            },
-        )
-
-    loc_id = location_id if location_id and location_id > 0 else None
-    existing = None
-    item_id = None
-    with get_db() as db:
-        db.execute("BEGIN IMMEDIATE")
-        existing = _find_upc_row(db, upc_key, "magazine")
-        if existing is None:
-            try:
-                item_id = insert_item(
-                    db,
-                    title=metadata["title"],
-                    description=metadata.get("description"),
-                    media_type="magazine",
-                    publisher=metadata.get("publisher"),
-                    series_name=metadata.get("series_name") or metadata["title"],
-                    location_id=loc_id,
-                    upc=upc_key,
-                    source=source,
-                    language=metadata.get("language"),
-                    owned=0 if mode == "wishlist" else 1,
-                )
-            except sqlite3.IntegrityError:
-                existing = _find_upc_row(db, upc_key, "magazine")
-                if existing is None:
-                    raise
-
-    if existing:
-        _log_scan(upc_norm, "magazine", "duplicate", existing["id"], mode)
-        return templates.TemplateResponse(
-            request, "fragments/scan_result.html",
-            {"status": "duplicate", "isbn": upc_norm, "title": existing["title"],
-             "item_id": existing["id"]},
-        )
-
-    status = "wishlisted" if mode == "wishlist" else "added"
-    _log_scan(upc_norm, "magazine", status, item_id, mode)
-    return templates.TemplateResponse(
-        request,
-        "fragments/scan_result.html",
-        {
-            "status": status,
-            "isbn": upc_norm,
-            "title": metadata["title"],
-            "authors": None,
-            "cover_path": None,
-            "item_id": item_id,
-            "source": source,
-            "media_type_label": MEDIA_TYPES["magazine"],
-            "detect_reason": (
-                f"977 serial barcode → ISSN {serial.issn} — filed as Magazine."
-            ),
-            "detect_overrode": media_type_hint != "magazine",
-            "enrich_status": None,
-            "enrich_provider": "Google Books" if source == "google" else "UPC Item DB",
-        },
-    )
-
-
 async def _scan_upc(request: Request, templates, upc_code: str, media_type: str, location_id: int | None, platform: str | None = None, mode: str = "add"):
-    """Handle UPC/EAN scan, including 977 serials and retail products."""
+    """Handle UPC barcode scan — look up via UPC Item DB + TMDb (or IGDB for games)."""
     upc_norm = upc_svc.normalize_barcode(upc_code)
-
-    serial = periodicals.parse_barcode(upc_norm)
-    if serial is not None:
-        return await _scan_magazine(
-            request, templates, upc_norm, serial, media_type, location_id, mode,
-        )
-
     # upc_norm goes to UPC Item DB / TMDb as scanned; upc_key is the canonical
     # EAN-13 form everything in the database is stored and matched on, so the
     # same disc scanned as UPC-A and as EAN-13 dedupes to one row (#20).
