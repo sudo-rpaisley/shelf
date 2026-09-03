@@ -62,7 +62,7 @@
         </div>
         {% if can_select and selectMode %}
         <div class="flex items-center gap-1">
-            <button @click="selectAll()" class="px-2 py-1 rounded text-xs text-shelf-muted hover:text-shelf-accent2 transition-colors">Select All</button>
+            <button @click="selectAll()" data-testid="select-all" class="px-2 py-1 rounded text-xs text-shelf-muted hover:text-shelf-accent2 transition-colors">Select All</button>
             <button @click="deselectAll()" x-show="selectedIds.length > 0" class="px-2 py-1 rounded text-xs text-shelf-muted hover:text-shelf-accent2 transition-colors">Deselect All</button>
         </div>
         {% endif %}

@@ -72,22 +72,27 @@ def test_bulk_move_apply_moves_selected_list_item(live_server, authed_page):
 
 
 def test_shortcut_help_button_opens_and_modal_controls_close(live_server, authed_page):
-    """The visible ? button and modal close surfaces must work under strict CSP."""
+    """The account shortcut action and modal close surfaces work under strict CSP."""
     authed_page.goto(f"{live_server['url']}/browse")
     authed_page.wait_for_load_state("networkidle")
 
     modal = authed_page.locator("#shortcut-modal")
     expect(modal).to_be_hidden()
 
-    authed_page.get_by_title("Keyboard shortcuts (?)").click()
+    def open_shortcuts():
+        authed_page.locator('[data-testid="account-menu-button"]').click()
+        panel = authed_page.locator('[data-testid="account-menu-panel"]')
+        expect(panel).to_be_visible()
+        panel.locator('[data-testid="account-shortcuts-action"]').click()
+
+    open_shortcuts()
     expect(modal).to_be_visible()
 
-    # The modal header has a single close button.
-    modal.locator("button").first.click()
+    authed_page.get_by_role("button", name="Close keyboard shortcuts").click()
     expect(modal).to_be_hidden()
 
     # Reopen and verify clicking the backdrop closes it too.
-    authed_page.get_by_title("Keyboard shortcuts (?)").click()
+    open_shortcuts()
     expect(modal).to_be_visible()
     modal.click(position={"x": 5, "y": 5})
     expect(modal).to_be_hidden()
