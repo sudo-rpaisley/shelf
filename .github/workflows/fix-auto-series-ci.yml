@@ -1,0 +1,40 @@
+name: Fix automatic series CI
+
+on:
+  push:
+    branches: [feature/rebuild-connected-items]
+
+permissions:
+  contents: write
+
+jobs:
+  fix-test-commit:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ github.ref_name }}
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+          cache: pip
+      - run: pip install -r requirements-dev.txt
+      - name: Apply follow-up fixes
+        run: python scripts/fix_auto_series_ci.py
+      - name: Run focused regressions
+        run: |
+          python -m pytest \
+            tests/test_komga_sync.py \
+            tests/test_komga_series_identity.py \
+            tests/test_module_sizes.py \
+            tests/test_automatic_series_metadata.py \
+            -q --tb=short
+      - name: Refresh badges
+        run: make badges
+      - name: Commit fixes
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add app README.md
+          git commit -m "Fix automatic series sync regressions"
+          git push origin HEAD:${{ github.ref_name }}
