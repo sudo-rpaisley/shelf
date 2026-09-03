@@ -1,11 +1,12 @@
 {% extends "base.html" %}
-{% block title %}Collection — Shelf{% endblock %}
+{% block title %}Browse — Shelf{% endblock %}
 {% block content %}
 {% set can_select = user and user.role in ('editor', 'admin') %}
 {% set can_bulk_edit = user and user.role == 'admin' %}
 {% set f = initial_filters or {} %}
 <div x-data="browsePage" data-initial-query="{{ initial_query or '' }}" data-can-select="{{ '1' if can_select else '0' }}">
     <input type="hidden" name="series" value="{{ (initial_filters or {}).get('series', '') }}">
+    <input type="hidden" name="collection" value="{{ (initial_filters or {}).get('collection', '') }}">
 
     {% if can_select %}
     <!-- Bulk Action Bar -->
@@ -54,11 +55,11 @@
     </div>
     {% endif %}
 
-    <!-- Collection heading -->
+    <!-- Browse heading -->
     <div class="flex flex-wrap items-end justify-between gap-3 mb-4">
         <div>
             <p class="text-xs uppercase tracking-wider text-shelf-muted mb-1">Library</p>
-            <h1 class="text-2xl font-bold whitespace-nowrap">Collection <span id="collection-count" class="text-shelf-muted text-lg font-normal">({{ filtered_total }})</span></h1>
+            <h1 class="text-2xl font-bold whitespace-nowrap">Browse <span id="collection-count" class="text-shelf-muted text-lg font-normal">({{ filtered_total }})</span></h1>
         </div>
         {% if can_select %}
         <div x-show="selectMode" x-cloak class="flex items-center gap-1">
@@ -72,7 +73,7 @@
     <div class="bg-shelf-card border border-shelf-border rounded-xl p-3 mb-4">
         <div class="flex flex-wrap items-center gap-2">
             <div class="flex-1 min-w-[200px]">
-                <label for="collection-search" class="sr-only">Search collection</label>
+                <label for="collection-search" class="sr-only">Search library</label>
                 <input id="collection-search" type="search" name="q" data-testid="search-input" placeholder="Search title, creator or ISBN..." value="{{ initial_query or '' }}"
                        x-model="searchQuery"
                        hx-get="/api/search" hx-trigger="keyup changed delay:300ms" hx-target="#item-grid"
@@ -89,7 +90,7 @@
                 <span x-show="filterPills.length > 0" class="bg-shelf-accent text-white text-[10px] rounded-full w-4 h-4 flex items-center justify-center" x-text="filterPills.length"></span>
             </button>
 
-            <label for="collection-sort" class="sr-only">Sort collection</label>
+            <label for="collection-sort" class="sr-only">Sort browse results</label>
             <select id="collection-sort" name="sort" data-testid="sort-control"
                     hx-get="/api/search" hx-trigger="change" hx-target="#item-grid"
                     hx-include="{{ filter_includes('sort') }}"

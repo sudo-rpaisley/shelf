@@ -39,7 +39,7 @@ VIEWER = {"id": 3, "username": "viewer", "role": "viewer"}
 
 def test_registry_covers_the_eleven_destinations():
     assert [t["key"] for t in NAV_TABS] == [
-        "home", "browse", "series", "discover", "scan", "intake", "music",
+        "home", "browse", "collections", "series", "discover", "scan", "intake", "music",
         "store", "stats", "settings", "logs",
     ]
     for tab in NAV_TABS:
@@ -47,14 +47,14 @@ def test_registry_covers_the_eleven_destinations():
         assert tab["group"] in {"primary", "add", "more", "account"}
 
 
-def test_home_collection_and_settings_are_not_hideable():
-    assert set(ALWAYS_VISIBLE) == {"home", "browse", "settings"}
+def test_home_browse_collections_and_settings_are_not_hideable():
+    assert set(ALWAYS_VISIBLE) == {"home", "browse", "collections", "settings"}
     assert not HIDEABLE_KEYS & set(ALWAYS_VISIBLE)
 
 
 def test_primary_group_is_the_small_top_level_navigation():
     primary = [t["key"] for t in NAV_TABS if t["group"] == "primary"]
-    assert primary == ["home", "browse", "series", "discover"]
+    assert primary == ["home", "browse", "collections", "series", "discover"]
 
 
 # --- Role gating ------------------------------------------------------------
@@ -79,7 +79,7 @@ def test_admin_sees_settings_and_logs(db):
 
 def test_anonymous_sees_only_ungated_tabs(db):
     keys = _keys(None)
-    assert keys == ["home", "browse", "series", "music", "store", "stats"]
+    assert keys == ["home", "browse", "collections", "series", "music", "store", "stats"]
 
 
 # --- Integration requirements ----------------------------------------------
@@ -239,6 +239,7 @@ def test_rendered_nav_follows_the_registry(admin_client, db):
     html = admin_client.get("/browse").text
     assert 'data-nav-tab="home"' in html
     assert 'data-nav-tab="browse"' in html
+    assert 'data-nav-tab="collections"' in html
     assert 'data-nav-tab="settings"' in html
     assert 'data-nav-tab="discover"' not in html  # no token configured
     _set(db, "hardcover_token", "hc-token")

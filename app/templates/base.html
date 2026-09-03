@@ -123,8 +123,15 @@
                     </div>
                 </div>
 
+                <form action="/search" method="get" class="hidden lg:block flex-1 max-w-xs mx-4" data-testid="nav-search-form">
+                    <label for="nav-search-desktop" class="sr-only">Search Shelf</label>
+                    <input id="nav-search-desktop" data-nav-search-input type="search" name="query"
+                           placeholder="Search Shelf..." autocomplete="off"
+                           class="w-full bg-shelf-bg border border-shelf-border rounded-lg px-3 py-2 text-sm text-shelf-text focus:ring-2 focus:ring-shelf-accent focus:border-transparent outline-none placeholder-shelf-muted/50">
+                </form>
+
                 {% if user %}
-                <!-- Account actions stay separate from collection navigation on every screen size. -->
+                <!-- Account actions stay separate from library navigation on every screen size. -->
                 <div class="relative" x-data="accountMenu" @click.outside="close()" @keydown.escape.window="close()">
                     <button type="button" @click="toggle()" data-testid="account-menu-button"
                             aria-label="Account menu" aria-haspopup="menu" :aria-expanded="open"
@@ -277,6 +284,12 @@
                 </div>
                 {% endif %}
             </div>
+            <form action="/search" method="get" class="lg:hidden pb-2" data-testid="nav-search-form-mobile">
+                <label for="nav-search-mobile" class="sr-only">Search Shelf</label>
+                <input id="nav-search-mobile" data-nav-search-input type="search" name="query"
+                       placeholder="Search Shelf..." autocomplete="off"
+                       class="w-full bg-shelf-bg border border-shelf-border rounded-lg px-3 py-2 text-sm text-shelf-text focus:ring-2 focus:ring-shelf-accent focus:border-transparent outline-none placeholder-shelf-muted/50">
+            </form>
         </div>
     </nav>
 
@@ -304,12 +317,12 @@
                     <div class="space-y-1.5">
                         <div class="flex justify-between"><span class="text-shelf-muted">Focus search</span><kbd class="bg-shelf-hover px-2 py-0.5 rounded text-shelf-text font-mono">/</kbd></div>
                         <div class="flex justify-between"><span class="text-shelf-muted">Go to Scan</span><kbd class="bg-shelf-hover px-2 py-0.5 rounded text-shelf-text font-mono">s</kbd></div>
-                        <div class="flex justify-between"><span class="text-shelf-muted">Go to Collection</span><kbd class="bg-shelf-hover px-2 py-0.5 rounded text-shelf-text font-mono">b</kbd></div>
+                        <div class="flex justify-between"><span class="text-shelf-muted">Go to Browse</span><kbd class="bg-shelf-hover px-2 py-0.5 rounded text-shelf-text font-mono">b</kbd></div>
                         <div class="flex justify-between"><span class="text-shelf-muted">Show shortcuts</span><kbd class="bg-shelf-hover px-2 py-0.5 rounded text-shelf-text font-mono">?</kbd></div>
                     </div>
                 </div>
                 <div>
-                    <h4 class="text-shelf-accent2 font-medium mb-2 text-xs uppercase tracking-wider">Collection Page</h4>
+                    <h4 class="text-shelf-accent2 font-medium mb-2 text-xs uppercase tracking-wider">Browse Page</h4>
                     <div class="space-y-1.5">
                         <div class="flex justify-between"><span class="text-shelf-muted">Toggle grid / list view</span><kbd class="bg-shelf-hover px-2 py-0.5 rounded text-shelf-text font-mono">g</kbd></div>
                         <div class="flex justify-between"><span class="text-shelf-muted">Toggle select mode</span><kbd class="bg-shelf-hover px-2 py-0.5 rounded text-shelf-text font-mono">e</kbd></div>

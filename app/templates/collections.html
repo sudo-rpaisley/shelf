@@ -1,0 +1,97 @@
+{% extends "base.html" %}
+{% block title %}Collections — Shelf{% endblock %}
+{% block content %}
+{% set can_edit = user and user.role in ('admin', 'editor') %}
+<div class="space-y-6">
+    <section class="flex flex-col sm:flex-row sm:items-end sm:justify-between gap-4">
+        <div>
+            <p class="text-xs uppercase tracking-wider text-shelf-muted mb-1">Library</p>
+            <h1 class="text-3xl font-bold">Collections</h1>
+            <p class="text-shelf-muted mt-2 max-w-2xl">Curated groups of items for favourites, projects, themes or anything else. Collections are separate from Series and Tags.</p>
+        </div>
+        {% if can_edit %}
+        <details class="bg-shelf-card border border-shelf-border rounded-xl p-3 sm:w-80" {% if not collections %}open{% endif %}>
+            <summary class="cursor-pointer text-sm font-medium text-shelf-accent2">New collection</summary>
+            <form method="post" action="/api/collections" class="mt-3 space-y-3">
+                <div>
+                    <label for="new-collection-name" class="block text-xs text-shelf-muted mb-1">Name</label>
+                    <input id="new-collection-name" name="name" type="text" maxlength="100" required
+                           placeholder="e.g. Favourites"
+                           class="w-full bg-shelf-bg border border-shelf-border rounded-lg px-3 py-2 text-sm text-shelf-text focus:ring-2 focus:ring-shelf-accent outline-none">
+                </div>
+                <div>
+                    <label for="new-collection-description" class="block text-xs text-shelf-muted mb-1">Description <span class="text-shelf-muted/70">optional</span></label>
+                    <textarea id="new-collection-description" name="description" maxlength="500" rows="2"
+                              class="w-full bg-shelf-bg border border-shelf-border rounded-lg px-3 py-2 text-sm text-shelf-text focus:ring-2 focus:ring-shelf-accent outline-none"></textarea>
+                </div>
+                <button type="submit" class="px-4 py-2 bg-shelf-accent text-white rounded-lg text-sm font-medium hover:bg-shelf-accent2 transition-colors">Create collection</button>
+            </form>
+        </details>
+        {% endif %}
+    </section>
+
+    {% if collections %}
+    <section class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4" data-testid="collections-grid">
+        {% for collection in collections %}
+        <article id="collection-card-{{ collection.id }}" class="bg-shelf-card border border-shelf-border rounded-xl overflow-hidden">
+            <a href="/browse?collection={{ collection.name|urlencode }}" class="block p-4 hover:bg-shelf-hover transition-colors">
+                {% if collection.preview_items %}
+                <div class="grid grid-cols-4 gap-1 h-28 bg-shelf-bg rounded-lg overflow-hidden mb-4">
+                    {% for preview in collection.preview_items %}
+                    <div class="bg-shelf-hover flex items-center justify-center min-w-0 overflow-hidden">
+                        {% if preview.cover_path %}
+                        <img src="/{{ preview.cover_path }}" alt="" loading="lazy" class="w-full h-full object-contain">
+                        {% else %}
+                        <span class="text-xs text-shelf-muted px-1 text-center truncate">{{ preview.title }}</span>
+                        {% endif %}
+                    </div>
+                    {% endfor %}
+                    {% for _ in range(4 - collection.preview_items|length) %}
+                    <div class="bg-shelf-hover"></div>
+                    {% endfor %}
+                </div>
+                {% else %}
+                <div class="h-28 bg-shelf-bg rounded-lg mb-4 flex items-center justify-center text-shelf-muted">
+                    <svg class="w-8 h-8" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M4 7h5l2 2h9v10a2 2 0 01-2 2H6a2 2 0 01-2-2V7z"/></svg>
+                </div>
+                {% endif %}
+                <div class="flex items-start justify-between gap-3">
+                    <div class="min-w-0">
+                        <h2 class="text-lg font-semibold text-shelf-text truncate">{{ collection.name }}</h2>
+                        <p class="text-sm text-shelf-muted mt-1">{{ collection.item_count }} item{{ '' if collection.item_count == 1 else 's' }}</p>
+                    </div>
+                    <svg class="w-4 h-4 text-shelf-accent2 mt-1 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"/></svg>
+                </div>
+                {% if collection.description %}<p class="text-sm text-shelf-muted mt-3 line-clamp-2">{{ collection.description }}</p>{% endif %}
+            </a>
+
+            {% if can_edit %}
+            <details class="border-t border-shelf-border px-4 py-3">
+                <summary class="cursor-pointer text-xs text-shelf-muted hover:text-shelf-text">Manage collection</summary>
+                <form method="post" action="/api/collections/{{ collection.id }}" class="mt-3 space-y-2">
+                    <input name="name" type="text" maxlength="100" required value="{{ collection.name }}"
+                           aria-label="Collection name"
+                           class="w-full bg-shelf-bg border border-shelf-border rounded-lg px-3 py-2 text-sm text-shelf-text focus:ring-2 focus:ring-shelf-accent outline-none">
+                    <textarea name="description" maxlength="500" rows="2" aria-label="Collection description"
+                              class="w-full bg-shelf-bg border border-shelf-border rounded-lg px-3 py-2 text-sm text-shelf-text focus:ring-2 focus:ring-shelf-accent outline-none">{{ collection.description or '' }}</textarea>
+                    <div class="flex items-center justify-between gap-2">
+                        <button type="submit" class="px-3 py-1.5 bg-shelf-accent text-white rounded-lg text-xs hover:bg-shelf-accent2 transition-colors">Save</button>
+                        <button type="button" hx-delete="/api/collections/{{ collection.id }}"
+                                hx-target="#collection-card-{{ collection.id }}" hx-swap="outerHTML"
+                                hx-confirm="Delete collection '{{ collection.name }}'? Items will stay in Shelf."
+                                class="px-3 py-1.5 text-shelf-error text-xs hover:bg-shelf-error/10 rounded-lg transition-colors">Delete collection</button>
+                    </div>
+                </form>
+            </details>
+            {% endif %}
+        </article>
+        {% endfor %}
+    </section>
+    {% else %}
+    <section class="bg-shelf-card border border-shelf-border rounded-xl p-8 text-center">
+        <h2 class="text-lg font-semibold">No collections yet</h2>
+        <p class="text-sm text-shelf-muted mt-2">{% if can_edit %}Create a collection above, then add items from their detail pages.{% else %}Collections created for this library will appear here.{% endif %}</p>
+    </section>
+    {% endif %}
+</div>
+{% endblock %}
