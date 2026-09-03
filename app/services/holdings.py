@@ -102,6 +102,7 @@ _PROVIDER_FIELDS = (
     ("komga", "komga_id", "komga_library_id"),
     ("romm", "romm_id", "romm_platform_id"),
 )
+_BACKFILL_SETTING = "holdings_foundation_backfill_v1"
 
 
 def install_schema(db) -> None:
@@ -224,3 +225,27 @@ def sync_all_holdings(db) -> None:
     item_ids = [row["id"] for row in db.execute("SELECT id FROM items").fetchall()]
     for item_id in item_ids:
         sync_item_holding(db, item_id)
+
+
+def ensure_foundation(db) -> None:
+    """Install the schema and perform the legacy backfill once per database.
+
+    Location roots are still refreshed on later calls so old Settings routes
+    that rename/add a flat location remain visible during the transition. New
+    item writes call ``sync_item_holding`` directly and therefore do not rely
+    on this one-time sweep.
+    """
+    install_schema(db)
+    row = db.execute(
+        "SELECT value FROM settings WHERE key = ?", (_BACKFILL_SETTING,)
+    ).fetchone()
+    if row and row["value"] == "1":
+        ensure_legacy_location_nodes(db)
+        return
+
+    sync_all_holdings(db)
+    db.execute(
+        "INSERT INTO settings (key, value) VALUES (?, '1') "
+        "ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+        (_BACKFILL_SETTING,),
+    )

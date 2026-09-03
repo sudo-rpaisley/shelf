@@ -13,13 +13,14 @@ to `SCHEMA` and `MIGRATIONS` (still both — see G1) and passing it wherever it
 is actually known; no site can silently drop it, because an unknown field name
 raises instead of being ignored.
 
-It is also the common hook for related-media discovery on ordinary inserts and
-for automatic series membership persistence. Provider batch syncs
-(Audiobookshelf, Komga and RomM) defer related-media grouping until the end of
-their batch for efficiency; manual/scanned/catalogue additions can join an
-existing safe same-work group immediately. Explicit provider series are stored
-in ``item_series`` at insert time so Series rows do not depend on first opening
-the item-detail page.
+It is also the common hook for related-media discovery, automatic series
+membership persistence and the compatibility holding projection. Provider
+batch syncs (Audiobookshelf, Komga and RomM) defer related-media grouping until
+the end of their batch for efficiency; manual/scanned/catalogue additions can
+join an existing safe same-work group immediately. Explicit provider series
+are stored in ``item_series`` at insert time so Series rows do not depend on
+first opening the item-detail page. Physical/digital holding rows are kept in
+the additive holding schema without SQLite triggers.
 
 **Call it inside an existing `with get_db() as db:` block**, never around one.
 The caller owns the transaction: several sites need the insert and their
@@ -142,5 +143,12 @@ def insert_item(db, fields: Mapping[str, Any] | None = None, **kwargs) -> int:
     from app.services import media_groups
     if media_groups.should_autolink_on_insert(values.get("source")):
         media_groups.auto_link_item(db, item_id)
+
+    # Every item creation now has one central hook, so compatibility holdings
+    # can be created immediately without database triggers. Physical media gets
+    # its primary copy; provider-backed digital media gets the common holding
+    # projection when those identifiers were supplied on the insert.
+    from app.services import holdings
+    holdings.sync_item_holding(db, item_id)
 
     return item_id
