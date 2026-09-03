@@ -237,15 +237,13 @@ async def move_copy(
             "updated_at = datetime('now') WHERE id = ?",
             (location_id, copy_id),
         )
-        # While legacy item.location_id is still in use, mirror a primary copy
-        # only when the destination is one of the old flat root locations.
+        # The legacy item field can only name a flat root. Resolve the nearest
+        # compatibility ancestor so moving Living Room/Shelf 1 -> Bedroom/Shelf 1
+        # updates legacy Browse/scan views to Bedroom rather than leaving the old room.
         if copy["is_primary"]:
-            legacy = db.execute(
-                "SELECT legacy_location_id FROM location_nodes WHERE id = ?", (location_id,)
-            ).fetchone()["legacy_location_id"]
-            if legacy is not None:
-                db.execute(
-                    "UPDATE items SET location_id = ? WHERE id = ?",
-                    (legacy, copy["item_id"]),
-                )
+            legacy = location_svc.nearest_legacy_location(db, location_id)
+            db.execute(
+                "UPDATE items SET location_id = ? WHERE id = ?",
+                (legacy, copy["item_id"]),
+            )
     return _redirect(location_id)
