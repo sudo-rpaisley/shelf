@@ -88,7 +88,10 @@ def test_maps_romm_rom_to_digital_game(db):
     }
     req = listing.calls[0].request
     assert req.headers["Authorization"] == f"Bearer {TOKEN}"
-    assert req.url.params["platform_id"] == "1"
+    assert req.url.params["platform_ids"] == "1"
+    assert "platform_id" not in req.url.params
+    assert req.url.params["order_by"] == "id"
+    assert req.url.params["with_total"] == "true"
     assert req.url.params["limit"] == str(PAGE_SIZE)
     assert req.url.params["group_by_meta_id"] == "true"
     assert req.url.params["with_char_index"] == "false"
@@ -211,6 +214,8 @@ def test_paginates_romm_platform(db):
     assert stats["added"] == PAGE_SIZE + 1
     assert route.call_count == 2
     assert route.calls[1].request.url.params["offset"] == str(PAGE_SIZE)
+    assert route.calls[0].request.url.params["with_total"] == "true"
+    assert route.calls[1].request.url.params["with_total"] == "false"
 
 
 @respx.mock
@@ -255,7 +260,7 @@ def test_exhausted_page_retries_preserve_partial_platform(db, monkeypatch):
 
 
 @respx.mock
-def test_discovery_reports_page_progress_before_import(db):
+def test_streaming_progress_reports_imports_without_reset(db):
     respx.get(f"{ROMM}/api/platforms").mock(
         return_value=httpx.Response(200, json=[_platform(count=PAGE_SIZE + 1)]))
     first = [_rom(rid=i + 1, title=f"Game {i + 1}", cover=None)
@@ -274,9 +279,35 @@ def test_discovery_reports_page_progress_before_import(db):
 
     assert stats["added"] == PAGE_SIZE + 1
     assert any(
-        current == PAGE_SIZE and total >= PAGE_SIZE + 1
-        and title.startswith("Discovering ") and status == "discovering"
+        current == 0 and title.startswith("Fetching ") and status == "discovering"
         for current, total, title, status in progress
     )
-    importing = next(entry for entry in progress if entry[3] == "importing")
-    assert importing[:2] == (0, PAGE_SIZE + 1)
+    added = [entry for entry in progress if entry[3] == "added"]
+    assert added[0][0] == 1
+    assert added[-1][0] == PAGE_SIZE + 1
+    assert all(entry[1] >= entry[0] for entry in progress)
+
+
+@respx.mock
+def test_first_page_is_imported_before_second_page_is_requested(db):
+    respx.get(f"{ROMM}/api/platforms").mock(
+        return_value=httpx.Response(200, json=[_platform(count=PAGE_SIZE + 1)]))
+    first = [_rom(rid=i + 1, title=f"Game {i + 1}", cover=None)
+             for i in range(PAGE_SIZE)]
+    last = _rom(rid=PAGE_SIZE + 1, title="Last Game", cover=None)
+
+    def responder(request):
+        offset = int(request.url.params.get("offset", "0"))
+        if offset == 0:
+            return _page(*first, total=PAGE_SIZE + 1, offset=0)
+        imported = db.execute(
+            "SELECT COUNT(*) AS n FROM items WHERE source='romm'"
+        ).fetchone()["n"]
+        assert imported == PAGE_SIZE
+        return _page(last, total=PAGE_SIZE + 1, offset=PAGE_SIZE)
+
+    route = respx.get(f"{ROMM}/api/roms").mock(side_effect=responder)
+    stats = asyncio.run(sync(ROMM, TOKEN))
+
+    assert stats["added"] == PAGE_SIZE + 1
+    assert route.call_count == 2

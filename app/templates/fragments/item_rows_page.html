@@ -1,5 +1,11 @@
 {% for item in items %}
+{% if item.browse_series_group|default(false) %}
+{% include "fragments/series_row.html" %}
+{% elif item.browse_media_group|default(false) %}
+{% include "fragments/media_group_row.html" %}
+{% else %}
 {% include "fragments/item_row.html" %}
+{% endif %}
 {% endfor %}
 {% if has_more is defined and has_more %}
 <tr id="load-more"
