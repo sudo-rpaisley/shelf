@@ -1,0 +1,39 @@
+name: Regenerate feature assets
+
+on:
+  push:
+
+permissions:
+  contents: write
+
+jobs:
+  regenerate:
+    if: github.ref_name == 'feature/rebuild-connected-items'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ github.ref_name }}
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+          cache: pip
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+      - run: pip install -r requirements-dev.txt
+      - run: npm ci
+      - run: make badges
+      - run: make css
+      - name: Commit generated files
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add README.md static/css/app.css static/sw.js
+          if git diff --cached --quiet; then
+            echo "Generated files are already current."
+            exit 0
+          fi
+          git commit -m "Regenerate generated assets"
+          git push origin HEAD:${{ github.ref_name }}
