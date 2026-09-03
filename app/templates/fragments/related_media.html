@@ -1,8 +1,16 @@
+<div id="item-series-loader"
+     hx-get="/api/items/{{ item.id }}/series-rows"
+     hx-trigger="load"
+     hx-swap="outerHTML">
+</div>
+
 {% if related_media or (user and user.role in ('admin', 'editor')) %}
 <div id="related-media-panel" class="mb-6 rounded-xl border border-shelf-border bg-shelf-bg/50 p-4" data-testid="related-media-panel">
     <div class="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-3 mb-4">
         <div class="min-w-0">
-            <h3 class="text-sm font-semibold text-shelf-text">Related media</h3>
+            <p class="text-[10px] uppercase tracking-wider text-shelf-muted">Connections</p>
+            <h3 class="text-sm font-semibold text-shelf-text mt-0.5">Connected items</h3>
+            <p class="text-xs text-shelf-muted mt-1">Other editions, formats, platform releases and adaptations of this work.</p>
             {% if related_formats|length > 1 %}
             <div class="flex flex-wrap items-center gap-1.5 mt-2" data-testid="related-formats">
                 {% for format in related_formats %}
@@ -26,7 +34,7 @@
             {% endif %}
         </div>
         {% if related_media %}
-        <span class="shrink-0 text-xs text-shelf-muted">{{ related_media|length + 1 }} items in this group</span>
+        <span class="shrink-0 text-xs text-shelf-muted">{{ related_media|length + 1 }} connected items</span>
         {% endif %}
     </div>
 
@@ -72,7 +80,7 @@
                 {% if user and user.role in ('admin', 'editor') and related.manual_linked %}
                 <form action="/api/items/{{ item.id }}/related/{{ related.id }}/remove" method="post" class="absolute top-2 right-2">
                     <input type="hidden" name="_csrf" value="{{ request.cookies.get('csrf_token', '') }}">
-                    <button type="submit" title="Remove manual relation" aria-label="Remove {{ related.title }} from related media"
+                    <button type="submit" title="Remove connection" aria-label="Disconnect {{ related.title }}"
                             class="w-7 h-7 rounded-full text-shelf-muted hover:text-shelf-error hover:bg-shelf-error/10 text-sm transition-colors">&times;</button>
                 </form>
                 {% endif %}
@@ -93,13 +101,13 @@
         {% endfor %}
     </div>
     {% else %}
-    <p class="text-xs text-shelf-muted">No related editions, formats or adaptations are linked yet.</p>
+    <p class="text-xs text-shelf-muted">No connected editions, formats or adaptations yet.</p>
     {% endif %}
 
     {% if user and user.role in ('admin', 'editor') %}
     <details class="mt-4 pt-3 border-t border-shelf-border">
-        <summary class="cursor-pointer text-xs text-shelf-accent2 hover:text-shelf-accent">Add related media</summary>
-        <p class="text-xs text-shelf-muted mt-2 mb-2">Search the Shelf library to join another edition, format, platform version or adaptation to this group.</p>
+        <summary class="cursor-pointer text-xs text-shelf-accent2 hover:text-shelf-accent">Connect an item</summary>
+        <p class="text-xs text-shelf-muted mt-2 mb-2">Search the Shelf library to connect another edition, format, platform version or adaptation to this work.</p>
         <input type="search" name="q" autocomplete="off"
                placeholder="Search title, author or series…"
                hx-get="/api/items/{{ item.id }}/related/search"
