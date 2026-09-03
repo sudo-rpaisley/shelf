@@ -5,6 +5,7 @@ import sqlite3
 import pytest
 
 from app.media_types import is_digital_media, is_physical_media
+from app.services import holdings
 
 
 def test_location_tree_allows_same_child_name_under_different_parents(db):
@@ -31,7 +32,7 @@ def test_location_tree_allows_same_child_name_under_different_parents(db):
         )
 
 
-def test_legacy_location_and_owned_item_mirror_into_primary_copy(db):
+def test_legacy_location_and_owned_item_sync_into_primary_copy(db):
     living = db.execute(
         "INSERT INTO locations (name, sort_order) VALUES ('Living Room', 0)"
     ).lastrowid
@@ -44,6 +45,7 @@ def test_legacy_location_and_owned_item_mirror_into_primary_copy(db):
         "VALUES ('Physical Book', 'book', 'test', 1, ?)",
         (living,),
     ).lastrowid
+    holdings.sync_item_holding(db, item_id)
 
     copy = db.execute(
         "SELECT c.*, n.legacy_location_id FROM item_copies c "
@@ -55,14 +57,30 @@ def test_legacy_location_and_owned_item_mirror_into_primary_copy(db):
     assert copy["copy_number"] == 1
     assert copy["legacy_location_id"] == living
 
+    # Old flat move routes still move a copy while it remains on a legacy root.
     db.execute("UPDATE items SET location_id = ? WHERE id = ?", (bedroom, item_id))
+    holdings.sync_item_holding(db, item_id)
     moved = db.execute(
-        "SELECT n.legacy_location_id FROM item_copies c "
+        "SELECT c.id, c.location_id, n.legacy_location_id FROM item_copies c "
         "LEFT JOIN location_nodes n ON n.id = c.location_id "
         "WHERE c.item_id = ? AND c.is_primary = 1",
         (item_id,),
     ).fetchone()
     assert moved["legacy_location_id"] == bedroom
+
+    # Once the copy has a precise child location, legacy compatibility updates
+    # must not flatten it back to a room/root.
+    shelf = db.execute(
+        "INSERT INTO location_nodes (parent_id, name) VALUES (?, 'Shelf 1')",
+        (moved["location_id"],),
+    ).lastrowid
+    db.execute("UPDATE item_copies SET location_id = ? WHERE id = ?", (shelf, moved["id"]))
+    db.execute("UPDATE items SET location_id = ? WHERE id = ?", (living, item_id))
+    holdings.sync_item_holding(db, item_id)
+    precise = db.execute(
+        "SELECT location_id FROM item_copies WHERE id = ?", (moved["id"],)
+    ).fetchone()
+    assert precise["location_id"] == shelf
 
 
 def test_digital_item_does_not_gain_physical_copy(db):
@@ -70,6 +88,7 @@ def test_digital_item_does_not_gain_physical_copy(db):
         "INSERT INTO items (title, media_type, source, owned) "
         "VALUES ('Digital Book', 'ebook', 'test', 1)"
     ).lastrowid
+    holdings.sync_item_holding(db, item_id)
 
     assert db.execute(
         "SELECT 1 FROM item_copies WHERE item_id = ?", (item_id,)
@@ -79,11 +98,12 @@ def test_digital_item_does_not_gain_physical_copy(db):
     assert is_physical_media("magazine") is True
 
 
-def test_provider_identifiers_are_mirrored_into_digital_holdings(db):
+def test_provider_identifiers_are_synced_into_digital_holdings(db):
     item_id = db.execute(
         "INSERT INTO items (title, media_type, source, owned, abs_id, abs_library_id) "
         "VALUES ('Synced Audio', 'audiobook', 'test', 1, 'abs-one', 'library-a')"
     ).lastrowid
+    holdings.sync_item_holding(db, item_id)
 
     holding = db.execute(
         "SELECT provider, external_id, library_id FROM digital_holdings "
@@ -100,6 +120,7 @@ def test_provider_identifiers_are_mirrored_into_digital_holdings(db):
         "UPDATE items SET abs_id = 'abs-two', abs_library_id = 'library-b' WHERE id = ?",
         (item_id,),
     )
+    holdings.sync_item_holding(db, item_id)
     rows = db.execute(
         "SELECT external_id, library_id FROM digital_holdings "
         "WHERE item_id = ? AND provider = 'audiobookshelf'",
