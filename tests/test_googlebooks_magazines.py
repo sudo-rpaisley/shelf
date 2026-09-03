@@ -52,14 +52,10 @@ async def test_magazine_lookup_uses_magazine_filter_and_exact_issn():
     assert params["maxResults"] == "10"
 
 
-def test_magazine_result_does_not_claim_arbitrary_issue_metadata():
-    # A bare 977 carrier identifies the serial publication, not necessarily
-    # the particular digitised Google issue returned by the search.
-    pass
-
-
 @pytest.mark.asyncio
 async def test_magazine_result_does_not_claim_arbitrary_issue_metadata():
+    # A bare 977 carrier identifies the serial publication, not necessarily
+    # the particular digitised Google issue returned by the search.
     fake_fetch = AsyncMock(
         return_value=httpx.Response(200, json=_magazine_payload())
     )
