@@ -21,11 +21,11 @@ jobs:
       - run: pip install -r requirements-dev.txt
       - name: Apply provider series patch
         run: |
-          if [ ! -f scripts/patch_auto_series.py ]; then
-            echo "Patch script not present yet; waiting for the next branch push."
+          if [ ! -f scripts/run_auto_series_patch.py ]; then
+            echo "Patch runner not present yet; waiting for the next branch push."
             exit 0
           fi
-          python scripts/patch_auto_series.py
+          python scripts/run_auto_series_patch.py
       - name: Run automatic-series regression tests
         if: hashFiles('tests/test_automatic_series_metadata.py') != ''
         run: python -m pytest tests/test_automatic_series_metadata.py tests/test_connection_rebuild.py tests/test_item_series_memberships.py -q --tb=short
