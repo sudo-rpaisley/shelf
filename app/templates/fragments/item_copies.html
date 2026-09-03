@@ -77,8 +77,8 @@
                         <div><dt class="text-shelf-muted">Condition</dt><dd>{{ copy.condition|replace('_', ' ')|title if copy.condition else 'Not recorded' }}</dd></div>
                         {% if copy.acquired_date %}<div><dt class="text-shelf-muted">Acquired</dt><dd>{{ copy.acquired_date }}</dd></div>{% endif %}
                         {% if copy.acquisition_price is not none %}<div><dt class="text-shelf-muted">Paid</dt><dd>{{ copy.acquisition_price|money }}</dd></div>{% endif %}
-                        {% if copy.copy_barcode %}<div class="col-span-2"><dt class="text-shelf-muted">Copy barcode</dt><dd class="font-mono">{{ copy.copy_barcode }}</dd></div>{% endif %}
-                        {% if copy.notes %}<div class="col-span-2"><dt class="text-shelf-muted">Notes</dt><dd>{{ copy.notes }}</dd></div>{% endif %}
+                        {% if copy.copy_barcode %}<div class="col-span-full"><dt class="text-shelf-muted">Copy barcode</dt><dd class="font-mono">{{ copy.copy_barcode }}</dd></div>{% endif %}
+                        {% if copy.notes %}<div class="col-span-full"><dt class="text-shelf-muted">Notes</dt><dd>{{ copy.notes }}</dd></div>{% endif %}
                     </dl>
                     {% endif %}
                 </div>
