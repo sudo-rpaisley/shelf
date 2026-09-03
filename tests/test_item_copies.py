@@ -147,13 +147,13 @@ def test_deleting_primary_copy_promotes_next_copy_and_updates_legacy_location(ed
     assert db.execute("SELECT location_id FROM items WHERE id = ?", (item_id,)).fetchone()["location_id"] == bedroom_legacy
 
 
-def test_digital_items_do_not_accept_physical_copies(editor_client, viewer_client, db):
+def test_digital_items_do_not_accept_physical_copies(editor_client, db):
     item_id = insert_item(
         db, title="Digital Only", media_type="ebook", source="test", owned=1
     )
     db.commit()
 
-    fragment = viewer_client.get(f"/api/items/{item_id}/copies")
+    fragment = editor_client.get(f"/api/items/{item_id}/copies")
     assert fragment.status_code == 200
     assert "does not have physical copies" in fragment.text
 
