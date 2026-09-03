@@ -940,3 +940,155 @@ class TestTheProviderOutcomeRendersInThePicker:
 
         assert "TMDb API key" in resp.text
         assert "rejected the configured key" not in resp.text
+
+
+
+class TestManualCoverUrl:
+    def test_picker_has_url_and_upload_for_any_item(self, editor_client, db):
+        item_id = _insert_item(
+            db, title="URL Cover", isbn="9780900011001", media_type="dvd"
+        )
+        db.commit()
+
+        html = editor_client.get(f"/api/items/{item_id}/cover-search").text
+
+        assert 'data-testid="cover-url"' in html
+        assert f'hx-post="/api/items/{item_id}/cover-url"' in html
+        assert 'data-testid="cover-upload"' in html
+        assert "Use image from URL" in html
+        assert "Upload from this device" in html
+
+    def test_successful_url_sets_cover_and_redirects(self, editor_client, db, monkeypatch):
+        from app.services import covers
+
+        item_id = _insert_item(db, title="URL Success", isbn="9780900011002")
+        db.commit()
+        download = AsyncMock(return_value=f"covers/{item_id}.jpg")
+        monkeypatch.setattr(covers, "download_manual_cover", download)
+
+        resp = editor_client.post(
+            f"/api/items/{item_id}/cover-url",
+            data={"url": "https://images.example.test/cover.jpg"},
+        )
+
+        assert resp.status_code == 200
+        assert resp.headers.get("HX-Redirect") == f"/item/{item_id}"
+        row = db.execute("SELECT cover_path FROM items WHERE id = ?", (item_id,)).fetchone()
+        assert row["cover_path"] == f"covers/{item_id}.jpg"
+        assert download.await_args.args[1] == "https://images.example.test/cover.jpg"
+
+    def test_failed_url_does_not_replace_existing_cover(self, editor_client, db, monkeypatch):
+        from app.services import covers
+
+        item_id = _insert_item(
+            db, title="Keep Existing", isbn="9780900011003", cover_path="covers/existing.jpg"
+        )
+        db.commit()
+        monkeypatch.setattr(covers, "download_manual_cover", AsyncMock(return_value=None))
+
+        resp = editor_client.post(
+            f"/api/items/{item_id}/cover-url",
+            data={"url": "https://images.example.test/not-an-image"},
+        )
+
+        assert resp.status_code == 200
+        assert "HX-Redirect" not in resp.headers
+        assert "error" in resp.headers.get("HX-Trigger", "")
+        row = db.execute("SELECT cover_path FROM items WHERE id = ?", (item_id,)).fetchone()
+        assert row["cover_path"] == "covers/existing.jpg"
+
+    def test_unknown_item_is_404(self, editor_client):
+        resp = editor_client.post(
+            "/api/items/999999/cover-url",
+            data={"url": "https://images.example.test/cover.jpg"},
+        )
+        assert resp.status_code == 404
+
+    def test_viewer_forbidden(self, viewer_client, db):
+        item_id = _insert_item(db, title="Viewer URL", isbn="9780900011004")
+        db.commit()
+        resp = viewer_client.post(
+            f"/api/items/{item_id}/cover-url",
+            data={"url": "https://images.example.test/cover.jpg"},
+        )
+        assert resp.status_code in (401, 403)
+
+
+class TestManualCoverUrlSafety:
+    def test_http_is_rejected(self):
+        import asyncio
+        from app.services import covers
+
+        assert asyncio.run(covers.is_public_cover_url("http://example.com/cover.jpg")) is False
+
+    def test_loopback_and_private_ip_literals_are_rejected(self):
+        import asyncio
+        from app.services import covers
+
+        assert asyncio.run(covers.is_public_cover_url("https://127.0.0.1/cover.jpg")) is False
+        assert asyncio.run(covers.is_public_cover_url("https://192.168.1.10/cover.jpg")) is False
+        assert asyncio.run(covers.is_public_cover_url("https://[::1]/cover.jpg")) is False
+
+    def test_embedded_credentials_are_rejected(self):
+        import asyncio
+        from app.services import covers
+
+        assert asyncio.run(covers.is_public_cover_url("https://user:pass@example.com/cover.jpg")) is False
+
+    def test_hostname_resolving_private_is_rejected(self, monkeypatch):
+        import asyncio
+        import ipaddress
+        from app.services import covers
+
+        async def resolve(_host):
+            return {ipaddress.ip_address("10.0.0.5")}
+
+        monkeypatch.setattr(covers, "_resolve_host_addresses", resolve)
+        assert asyncio.run(covers.is_public_cover_url("https://covers.example.test/a.jpg")) is False
+
+    def test_hostname_resolving_public_is_allowed(self, monkeypatch):
+        import asyncio
+        import ipaddress
+        from app.services import covers
+
+        async def resolve(_host):
+            return {ipaddress.ip_address("8.8.8.8")}
+
+        monkeypatch.setattr(covers, "_resolve_host_addresses", resolve)
+        assert asyncio.run(covers.is_public_cover_url("https://covers.example.test/a.jpg")) is True
+
+    def test_redirect_to_private_address_is_stopped_before_second_request(
+        self, tmp_path, monkeypatch
+    ):
+        import asyncio
+        import ipaddress
+        import httpx
+        import app.config
+        from app.services import covers, outbound
+
+        async def resolve(_host):
+            return {ipaddress.ip_address("8.8.8.8")}
+
+        calls = []
+
+        async def fetch(_client, _method, url, **_kwargs):
+            calls.append(url)
+            return httpx.Response(
+                302,
+                headers={"location": "https://127.0.0.1/private.jpg"},
+                request=httpx.Request("GET", url),
+            )
+
+        monkeypatch.setattr(covers, "_resolve_host_addresses", resolve)
+        monkeypatch.setattr(outbound, "fetch", fetch)
+        monkeypatch.setattr(app.config, "COVERS_DIR", tmp_path)
+        monkeypatch.setattr(covers, "COVERS_DIR", tmp_path)
+
+        async def run():
+            async with httpx.AsyncClient() as client:
+                return await covers.download_manual_cover(
+                    1, "https://covers.example.test/start.jpg", client
+                )
+
+        assert asyncio.run(run()) is None
+        assert calls == ["https://covers.example.test/start.jpg"]
