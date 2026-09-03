@@ -37,10 +37,10 @@ VIEWER = {"id": 3, "username": "viewer", "role": "viewer"}
 
 # --- Registry shape ---------------------------------------------------------
 
-def test_registry_covers_the_eleven_destinations():
+def test_registry_covers_all_destinations():
     assert [t["key"] for t in NAV_TABS] == [
-        "home", "browse", "collections", "series", "discover", "scan", "intake", "music",
-        "store", "stats", "settings", "logs",
+        "home", "browse", "collections", "series", "discover", "scan", "intake",
+        "locations", "music", "store", "stats", "settings", "logs",
     ]
     for tab in NAV_TABS:
         assert tab["label"] and tab["path"].startswith("/")
@@ -79,7 +79,9 @@ def test_admin_sees_settings_and_logs(db):
 
 def test_anonymous_sees_only_ungated_tabs(db):
     keys = _keys(None)
-    assert keys == ["home", "browse", "collections", "series", "music", "store", "stats"]
+    assert keys == [
+        "home", "browse", "collections", "series", "locations", "music", "store", "stats"
+    ]
 
 
 # --- Integration requirements ----------------------------------------------
@@ -485,7 +487,7 @@ def test_intake_available_ollama_on_defaults_is_true(db):
     assert _state(hideable_tab_states(), "intake")["available"] is True
 
 
-@pytest.mark.parametrize("key", ["stats", "store", "music"])
+@pytest.mark.parametrize("key", ["stats", "store", "music", "locations"])
 def test_tabs_without_requires_are_always_available(db, key):
     state = _state(hideable_tab_states(), key)
     assert state["available"] is True
