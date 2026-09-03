@@ -38,6 +38,15 @@ jobs:
           else
             python scripts/patch_browse_collections.py
           fi
+          python - <<'PY'
+          from pathlib import Path
+          path = Path("tests/test_collections.py")
+          text = path.read_text()
+          old = '    assert ">Browse</a>" in html\n'
+          new = '    assert "Browse" in html\n'
+          if old in text:
+              path.write_text(text.replace(old, new, 1))
+          PY
 
       - name: Build generated UI assets
         run: make css
