@@ -29,6 +29,7 @@ jobs:
       - name: Apply implementation
         run: |
           if [ ! -f app/services/music_artwork.py ]; then
+            python scripts/fix_music_browse_patcher.py
             python scripts/apply_music_browse_artwork_final.py
           fi
       - name: Build generated assets
