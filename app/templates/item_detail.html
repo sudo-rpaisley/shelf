@@ -154,9 +154,18 @@
                 <h2 class="text-lg font-semibold mt-1">Ownership, location and activity</h2>
             </div>
 
+            {% if item.owned %}
+            <div class="mb-6">
+                <p class="text-sm font-medium text-shelf-muted mb-2">Physical copies</p>
+                <div hx-get="/api/items/{{ item.id }}/copies" hx-trigger="load" hx-swap="outerHTML">
+                    <p class="text-sm text-shelf-muted">Loading copy information…</p>
+                </div>
+            </div>
+            {% endif %}
+
             <div class="grid grid-cols-2 gap-x-8 gap-y-2 text-sm mb-6">
                 <div><span class="text-shelf-muted">Ownership:</span> {% if item.owned %}Owned{% else %}Wishlist{% endif %}</div>
-                {% if item.location_name %}<div><span class="text-shelf-muted">Location:</span> {{ item.location_name }}</div>{% endif %}
+                {% if item.location_name %}<div><span class="text-shelf-muted">Legacy location:</span> {{ item.location_name }}</div>{% endif %}
                 {% if item.manual_value is not none %}
                 <div><span class="text-shelf-muted">Value:</span> <span class="text-shelf-success">{{ item.manual_value|money }}</span> <span class="text-xs text-shelf-muted">(manual)</span></div>
                 {% elif item.estimated_value %}
