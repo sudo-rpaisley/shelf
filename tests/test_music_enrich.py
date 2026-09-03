@@ -65,7 +65,7 @@ def test_existing_scanned_item_prefills_release_search_from_barcode(
         return provider_result.found("musicbrainz", [summary])
 
     monkeypatch.setattr(musicbrainz, "search_releases", fake_search)
-    response = editor_client.get(f"/music?item_id={item_id}")
+    response = editor_client.get(f"/music/add?item_id={item_id}")
 
     assert response.status_code == 200
     assert "Match scanned item" in response.text

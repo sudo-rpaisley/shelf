@@ -119,7 +119,7 @@
     <div class="bg-shelf-warning/10 border border-shelf-warning/30 rounded-lg p-4 text-sm">
         <p class="text-shelf-muted mb-3">This music item was catalogued without an exact release match. Shelf can use its scanned barcode first, then fall back to title and artist.</p>
         {% if user and user.role in ('admin', 'editor') %}
-        <a href="/music?item_id={{ item.id }}" class="inline-flex px-3 py-2 bg-shelf-accent text-white rounded-lg text-sm hover:bg-shelf-accent2 transition-colors">Find exact release</a>
+        <a href="/music/add?item_id={{ item.id }}" class="inline-flex px-3 py-2 bg-shelf-accent text-white rounded-lg text-sm hover:bg-shelf-accent2 transition-colors">Find exact release</a>
         {% endif %}
     </div>
     {% endif %}

@@ -196,10 +196,16 @@ class TestMusicPersistence:
 
 
 class TestMusicRoutes:
-    def test_viewer_can_open_music_page(self, viewer_client):
-        response = viewer_client.get("/music")
+    def test_music_opens_owned_library_first(self, viewer_client):
+        response = viewer_client.get("/music", follow_redirects=False)
+        assert response.status_code == 303
+        assert response.headers["location"] == "/browse?media_family_filter=music"
+
+    def test_add_page_keeps_exact_release_search(self, viewer_client):
+        response = viewer_client.get("/music/add")
         assert response.status_code == 200
         assert "Search exact MusicBrainz releases" in response.text
+        assert "Add music" in response.text
 
     def test_search_renders_exact_release_choices(self, viewer_client, monkeypatch):
         async def fake_search(*args, **kwargs):
@@ -208,7 +214,7 @@ class TestMusicRoutes:
             return provider_result.found("musicbrainz", [result])
 
         monkeypatch.setattr(musicbrainz, "search_releases", fake_search)
-        response = viewer_client.get("/music?q=dark+side&artist=Pink+Floyd")
+        response = viewer_client.get("/music/add?q=dark+side&artist=Pink+Floyd")
         assert response.status_code == 200
         assert "The Dark Side of the Moon" in response.text
         assert "SHVL 804" in response.text
