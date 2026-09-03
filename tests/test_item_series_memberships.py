@@ -186,7 +186,6 @@ def test_viewer_cannot_change_series_memberships(viewer_client, db):
     assert response.status_code == 403
 
 
-
 def test_global_series_page_includes_secondary_memberships(admin_client, db):
     book = _insert_item(
         db, title="Half-Blood Prince", isbn="9780907001106", media_type="book",
@@ -196,12 +195,13 @@ def test_global_series_page_includes_secondary_memberships(admin_client, db):
         db, title="Fantastic Beasts", isbn="9780907001113", media_type="book",
         series_name="Wizarding World", series_position=1,
     )
+    db.commit()
     admin_client.get("/series")
     db.execute(
         "INSERT INTO item_series (item_id, series_name, position, is_primary) "
         "VALUES (?, 'Wizarding World', 8, 0)", (book,),
     )
-    db.execute("COMMIT")
+    db.commit()
 
     html = admin_client.get("/series").text
     assert "Harry Potter" in html
@@ -219,12 +219,13 @@ def test_global_series_rename_updates_secondary_and_primary_memberships(admin_cl
         db, title="Secondary", isbn="9780907001137", media_type="book",
         series_name="Other", series_position=1,
     )
+    db.commit()
     admin_client.get("/series")
     db.execute(
         "INSERT INTO item_series (item_id, series_name, position, is_primary) "
         "VALUES (?, 'Old Name', 2, 0)", (secondary,),
     )
-    db.execute("COMMIT")
+    db.commit()
 
     response = admin_client.post("/api/series/Old%20Name/rename", data={"new_name": "New Name"})
     assert response.status_code == 200
@@ -248,12 +249,13 @@ def test_remove_all_promotes_remaining_secondary_membership(admin_client, db):
         db, title="Multi Series", isbn="9780907001144", media_type="book",
         series_name="Primary Series", series_position=3,
     )
+    db.commit()
     admin_client.get("/series")
     db.execute(
         "INSERT INTO item_series (item_id, series_name, position, is_primary) "
         "VALUES (?, 'Secondary Series', 7, 0)", (item,),
     )
-    db.execute("COMMIT")
+    db.commit()
 
     response = admin_client.post("/api/series/Primary%20Series/remove-all")
     assert response.status_code == 200
