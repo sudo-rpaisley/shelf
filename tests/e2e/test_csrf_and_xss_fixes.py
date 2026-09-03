@@ -33,7 +33,8 @@ def test_display_name_change_succeeds(live_server, authed_page):
     """Account modal display-name save — raw fetch() with FormData needs the CSRF header."""
     authed_page.goto(f"{live_server['url']}/browse")
     authed_page.wait_for_load_state("networkidle")
-    authed_page.click("button:has-text('E2E Admin')")
+    authed_page.locator('[data-testid="account-menu-button"]').click()
+    authed_page.locator('[data-testid="account-profile-action"]').click()
     name_input = authed_page.locator("input[x-model='displayName']")
     expect(name_input).to_be_visible()
     name_input.fill("E2E Admin")  # same value back — exercises the endpoint
@@ -60,8 +61,10 @@ def test_bulk_delete_succeeds(live_server, authed_page):
         dialog.accept()
 
     authed_page.once("dialog", _accept)
-    authed_page.get_by_text("Select", exact=True).click()
-    authed_page.get_by_text("Select All", exact=True).click()
+    authed_page.locator('[data-testid="select-mode-toggle"]').click()
+    select_all = authed_page.locator('[data-testid="select-all"]')
+    expect(select_all).to_be_visible()
+    select_all.click()
     with authed_page.expect_response(
         lambda r: "/api/items/" in r.url and r.request.method == "DELETE"
     ) as resp_info:
