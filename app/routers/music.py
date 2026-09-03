@@ -11,7 +11,7 @@ from fastapi.responses import HTMLResponse, RedirectResponse
 from app.auth import require_role
 from app.config import HTTP_TIMEOUT, MEDIA_TYPES, MUSIC_MEDIA_TYPES
 from app.database import get_db, get_setting
-from app.services import covers, discogs, music_catalog, musicbrainz
+from app.services import covers, discogs, music_artwork, music_catalog, musicbrainz
 from app.services import upc as upc_svc
 from app.services.item_write import insert_item
 from app.services.write_targets import UnknownLocationError, validated_location_id
@@ -84,6 +84,12 @@ def _music_item(db, item_id: int | None):
 
 
 @router.get("/music")
+async def music_library(_=Depends(require_role("viewer"))):
+    """Open Music on the owned library; exact-release search is an add action."""
+    return RedirectResponse("/browse?media_family_filter=music", status_code=303)
+
+
+@router.get("/music/add")
 async def music_page(
     request: Request,
     q: str = Query(""),
@@ -180,6 +186,47 @@ async def _apply_release_artwork(item_id: int, release_id: str) -> None:
             )
 
 
+@router.post("/api/music/repair-artwork")
+async def repair_music_artwork(_=Depends(require_role("editor"))):
+    """Fill missing covers for a bounded batch of barcode-backed music items."""
+    music_types = tuple(sorted(MUSIC_MEDIA_TYPES))
+    placeholders = ",".join("?" for _ in music_types)
+    with get_db() as db:
+        rows = db.execute(
+            f"""SELECT id, upc, media_type FROM items
+                WHERE media_type IN ({placeholders})
+                  AND upc IS NOT NULL AND TRIM(upc) != ''
+                  AND COALESCE(TRIM(cover_path), '') = ''
+                ORDER BY id LIMIT 15""",
+            music_types,
+        ).fetchall()
+
+    repaired = 0
+    async with httpx.AsyncClient(timeout=HTTP_TIMEOUT) as client:
+        for row in rows:
+            cover_url = await music_artwork.find_cover_url(
+                row["upc"], row["media_type"], client
+            )
+            if not cover_url:
+                continue
+            cover_path = await covers._download_to_item(row["id"], cover_url, client)
+            if not cover_path:
+                continue
+            with get_db() as db:
+                cursor = db.execute(
+                    "UPDATE items SET cover_path = ?, updated_at = datetime('now') "
+                    "WHERE id = ? AND COALESCE(TRIM(cover_path), '') = ''",
+                    (cover_path, row["id"]),
+                )
+                repaired += max(cursor.rowcount, 0)
+
+    return RedirectResponse(
+        "/browse?media_family_filter=music"
+        f"&music_artwork_checked={len(rows)}&music_artwork_repaired={repaired}",
+        status_code=303,
+    )
+
+
 @router.post("/api/music/add")
 async def add_music_release(
     request: Request,
@@ -193,7 +240,7 @@ async def add_music_release(
     """Add a new exact release or attach it to a title-only scanned music item."""
     release_id = release_id.strip()
     if not release_id:
-        return RedirectResponse("/music", status_code=303)
+        return RedirectResponse("/music/add", status_code=303)
 
     try:
         with get_db() as db:
