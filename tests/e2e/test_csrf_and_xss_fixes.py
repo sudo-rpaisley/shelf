@@ -61,8 +61,10 @@ def test_bulk_delete_succeeds(live_server, authed_page):
         dialog.accept()
 
     authed_page.once("dialog", _accept)
-    authed_page.get_by_text("Select", exact=True).click()
-    authed_page.get_by_text("Select All", exact=True).click()
+    authed_page.locator('[data-testid="select-mode-toggle"]').click()
+    select_all = authed_page.locator('[data-testid="select-all"]')
+    expect(select_all).to_be_visible()
+    select_all.click()
     with authed_page.expect_response(
         lambda r: "/api/items/" in r.url and r.request.method == "DELETE"
     ) as resp_info:
