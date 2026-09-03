@@ -29,14 +29,15 @@ def test_item_detail_shows_group_platforms_and_related_entries(admin_client, db)
     response = admin_client.get(f"/item/{snes}")
     assert response.status_code == 200
     assert 'data-testid="related-media-panel"' in response.text
-    assert "Platforms:" in response.text
+    assert 'data-testid="related-platforms"' in response.text
     assert "SNES" in response.text
     assert "Game Boy Advance" in response.text
     assert "PC" in response.text
     assert response.text.count('data-testid="related-media-item"') == 2
     # The current SNES item has its own Open in RomM action; both other
     # platform versions retain independent RomM deep links in the group.
-    assert response.text.count("Also in RomM (Digital Game)") == 2
+    assert response.text.count("Available in") == 2
+    assert response.text.count("RomM") >= 2
     # Every represented RomM platform keeps its own console icon as well as text.
     assert "https://romm.example/assets/platforms/snes.ico" in response.text
     assert "https://romm.example/assets/platforms/gba.ico" in response.text
@@ -67,7 +68,8 @@ def test_multiple_abs_narrator_editions_keep_separate_links(admin_client, db):
     assert response.status_code == 200
     assert "Narrator One" in response.text
     assert "Narrator Two" in response.text
-    assert response.text.count("Also in Audiobookshelf (Audiobook)") == 2
+    assert response.text.count("Available in") == 2
+    assert response.text.count("Audiobookshelf") >= 2
     assert "abs-one" in response.text
     assert "abs-two" in response.text
 
@@ -91,13 +93,13 @@ def test_cross_media_manual_group_renders_formats(admin_client, db):
 
     response = admin_client.get(f"/item/{book}")
     assert response.status_code == 200
-    assert "Formats:" in response.text
+    assert 'data-testid="related-formats"' in response.text
     assert "Book" in response.text
     assert "Audiobook" in response.text
     assert "Video Game" in response.text
     assert 'data-platform-icon="computer"' in response.text
     assert "Stephen Fry" in response.text
-    assert "Add related media" in response.text
+    assert "Connect an item" in response.text
 
 
 def test_related_search_and_link_endpoint(admin_client, db):
@@ -125,4 +127,4 @@ def test_viewer_cannot_manage_related_media(viewer_client, db):
     assert response.status_code in (401, 403)
 
     detail = viewer_client.get(f"/item/{book}")
-    assert "Add related media" not in detail.text
+    assert "Connect an item" not in detail.text
