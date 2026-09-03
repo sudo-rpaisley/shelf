@@ -10,6 +10,12 @@
         </div>
     </section>
 
+    <div data-testid="home-dashboard-loading"
+         hx-get="/api/home/dashboard" hx-trigger="load" hx-swap="outerHTML"
+         class="bg-shelf-card border border-shelf-border rounded-xl p-4 text-sm text-shelf-muted">
+        Loading library overview…
+    </div>
+
     <section>
         <div class="flex items-center justify-between mb-4">
             <div>
