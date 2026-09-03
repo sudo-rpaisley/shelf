@@ -1,4 +1,7 @@
 <div id="item-copies-panel" data-testid="item-copies-panel">
+    {% if copy_error %}
+    <div class="mb-3 rounded-lg border border-shelf-error/30 bg-shelf-error/10 px-3 py-2 text-sm text-shelf-error">{{ copy_error }}</div>
+    {% endif %}
     {% if missing %}
     <p class="text-sm text-shelf-muted">Item not found.</p>
     {% elif not is_physical_holding %}
@@ -6,9 +9,6 @@
     {% else %}
         {% if message %}
         <div class="mb-3 rounded-lg border border-shelf-success/40 bg-shelf-success/10 px-3 py-2 text-sm text-shelf-success">{{ message }}</div>
-        {% endif %}
-        {% if copy_error %}
-        <div class="mb-3 rounded-lg border border-shelf-error/30 bg-shelf-error/10 px-3 py-2 text-sm text-shelf-error">{{ copy_error }}</div>
         {% endif %}
 
         <div class="space-y-3">
