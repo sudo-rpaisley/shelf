@@ -1,18 +1,23 @@
 {% if related_media or (user and user.role in ('admin', 'editor')) %}
 <div id="related-media-panel" class="mb-6 rounded-xl border border-shelf-border bg-shelf-bg/50 p-4" data-testid="related-media-panel">
-    <div class="flex items-start justify-between gap-3 mb-3">
-        <div>
+    <div class="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-3 mb-4">
+        <div class="min-w-0">
             <h3 class="text-sm font-semibold text-shelf-text">Related media</h3>
             {% if related_formats|length > 1 %}
-            <p class="text-xs text-shelf-muted mt-1">
-                Formats: {{ related_formats | join(' · ') }}
-            </p>
+            <div class="flex flex-wrap items-center gap-1.5 mt-2" data-testid="related-formats">
+                <span class="text-xs text-shelf-muted">Formats:</span>
+                {% for format in related_formats %}
+                <span class="inline-flex items-center rounded-full bg-shelf-hover px-2 py-1 text-[10px] uppercase tracking-wide text-shelf-muted">
+                    {{ format }}
+                </span>
+                {% endfor %}
+            </div>
             {% endif %}
             {% if related_game_platforms|length > 1 %}
-            <div class="flex flex-wrap items-center gap-1.5 text-xs text-shelf-muted mt-1" data-testid="related-platforms">
-                <span>Platforms:</span>
+            <div class="flex flex-wrap items-center gap-1.5 mt-2" data-testid="related-platforms">
+                <span class="text-xs text-shelf-muted">Platforms:</span>
                 {% for platform in related_game_platforms %}
-                <span class="inline-flex items-center gap-1 rounded bg-shelf-hover px-1.5 py-0.5">
+                <span class="inline-flex items-center gap-1 rounded-full bg-shelf-accent/10 px-2 py-1 text-[10px] text-shelf-accent2">
                     {% with platform_icon_url=platform.icon_url, platform_icon_kind=platform.icon_kind %}
                     {% include "fragments/platform_icon.html" %}
                     {% endwith %}
@@ -23,54 +28,70 @@
             {% endif %}
         </div>
         {% if related_media %}
-        <span class="text-xs text-shelf-muted">{{ related_media|length + 1 }} items</span>
+        <span class="shrink-0 text-xs text-shelf-muted">{{ related_media|length + 1 }} items in this group</span>
         {% endif %}
     </div>
 
     {% if related_media %}
-    <div class="space-y-2">
+    <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
         {% for related in related_media %}
-        <div class="flex items-center gap-3 rounded-lg bg-shelf-card border border-shelf-border p-2.5" data-testid="related-media-item">
-            {% if related.cover_path %}
-            <a href="/item/{{ related.id }}{% if back.key %}?from={{ back.key }}{% endif %}" class="shrink-0">
-                <img src="/{{ related.cover_path }}" alt="" class="h-14 w-10 object-cover rounded">
-            </a>
-            {% endif %}
-            <a href="/item/{{ related.id }}{% if back.key %}?from={{ back.key }}{% endif %}" class="min-w-0 flex-1 group">
-                <div class="flex flex-wrap items-center gap-1.5">
-                    <span class="text-[10px] uppercase tracking-wide px-1.5 py-0.5 rounded bg-shelf-hover text-shelf-muted">{{ related.media_label }}</span>
-                    {% if related.platform_label %}
-                    <span class="inline-flex items-center gap-1 text-[10px] px-1.5 py-0.5 rounded bg-shelf-accent/15 text-shelf-accent2">
-                        {% with platform_icon_url=related.platform_icon_url, platform_icon_kind=related.platform_icon_kind %}
-                        {% include "fragments/platform_icon.html" %}
-                        {% endwith %}
-                        {{ related.platform_label }}
-                    </span>
+        <article class="relative flex flex-col rounded-xl bg-shelf-card border border-shelf-border overflow-hidden hover:border-shelf-accent/40 transition-colors" data-testid="related-media-item">
+            <div class="flex gap-3 p-3 min-w-0">
+                <a href="/item/{{ related.id }}{% if back.key %}?from={{ back.key }}{% endif %}" class="shrink-0">
+                    {% if related.cover_path %}
+                    <img src="/{{ related.cover_path }}" alt="" class="h-20 w-14 object-cover rounded-md bg-shelf-hover shadow-sm">
+                    {% else %}
+                    <div class="h-20 w-14 rounded-md bg-shelf-hover flex items-center justify-center px-1 text-center text-[10px] text-shelf-muted">
+                        {{ related.media_label }}
+                    </div>
                     {% endif %}
-                </div>
-                <p class="text-sm text-shelf-text group-hover:text-shelf-accent2 truncate mt-1">{{ related.title }}</p>
-                <p class="text-xs text-shelf-muted truncate">
-                    {% if related.narrator %}Narrated by {{ related.narrator }}{% if related.publish_year %} · {% endif %}{% endif %}
-                    {% if related.publish_year %}{{ related.publish_year }}{% endif %}
-                    {% if related.authors and not related.narrator %}{{ related.authors }}{% endif %}
-                </p>
-            </a>
-            <div class="flex items-center gap-1 shrink-0">
-                {% for provider in related.provider_links %}
-                <a href="{{ provider.url }}" target="_blank" rel="noopener"
-                   class="px-2 py-1 bg-shelf-accent/15 text-shelf-accent2 rounded text-xs hover:bg-shelf-accent/25 transition-colors">
-                    Also in {{ provider.name }} ({{ related.media_label }})
                 </a>
-                {% endfor %}
+
+                <div class="min-w-0 flex-1">
+                    <div class="flex flex-wrap items-center gap-1.5 pr-6">
+                        <span class="text-[10px] uppercase tracking-wide px-1.5 py-0.5 rounded bg-shelf-hover text-shelf-muted">{{ related.media_label }}</span>
+                        {% if related.platform_label %}
+                        <span class="inline-flex items-center gap-1 text-[10px] px-1.5 py-0.5 rounded bg-shelf-accent/15 text-shelf-accent2">
+                            {% with platform_icon_url=related.platform_icon_url, platform_icon_kind=related.platform_icon_kind %}
+                            {% include "fragments/platform_icon.html" %}
+                            {% endwith %}
+                            {{ related.platform_label }}
+                        </span>
+                        {% endif %}
+                    </div>
+
+                    <a href="/item/{{ related.id }}{% if back.key %}?from={{ back.key }}{% endif %}"
+                       class="block text-sm font-medium leading-snug text-shelf-text hover:text-shelf-accent2 mt-2 line-clamp-2">
+                        {{ related.title }}
+                    </a>
+                    <p class="text-xs text-shelf-muted mt-1 line-clamp-2">
+                        {% if related.narrator %}Narrated by {{ related.narrator }}{% if related.publish_year %} · {% endif %}{% endif %}
+                        {% if related.publish_year %}{{ related.publish_year }}{% endif %}
+                        {% if related.authors and not related.narrator %}{% if related.publish_year %} · {% endif %}{{ related.authors }}{% endif %}
+                    </p>
+                </div>
+
                 {% if user and user.role in ('admin', 'editor') and related.manual_linked %}
-                <form action="/api/items/{{ item.id }}/related/{{ related.id }}/remove" method="post">
+                <form action="/api/items/{{ item.id }}/related/{{ related.id }}/remove" method="post" class="absolute top-2 right-2">
                     <input type="hidden" name="_csrf" value="{{ request.cookies.get('csrf_token', '') }}">
-                    <button type="submit" title="Remove manual relation"
-                            class="px-2 py-1 text-shelf-muted hover:text-shelf-error text-xs transition-colors">&times;</button>
+                    <button type="submit" title="Remove manual relation" aria-label="Remove {{ related.title }} from related media"
+                            class="w-7 h-7 rounded-full text-shelf-muted hover:text-shelf-error hover:bg-shelf-error/10 text-sm transition-colors">&times;</button>
                 </form>
                 {% endif %}
             </div>
-        </div>
+
+            {% if related.provider_links %}
+            <div class="mt-auto flex flex-wrap items-center gap-2 border-t border-shelf-border px-3 py-2.5">
+                <span class="text-[10px] uppercase tracking-wide text-shelf-muted">Available in</span>
+                {% for provider in related.provider_links %}
+                <a href="{{ provider.url }}" target="_blank" rel="noopener"
+                   class="inline-flex items-center gap-1 px-2 py-1 bg-shelf-accent/15 text-shelf-accent2 rounded-md text-xs hover:bg-shelf-accent/25 transition-colors">
+                    Also in {{ provider.name }} ({{ related.media_label }}) <span aria-hidden="true">↗</span>
+                </a>
+                {% endfor %}
+            </div>
+            {% endif %}
+        </article>
         {% endfor %}
     </div>
     {% else %}
@@ -78,7 +99,7 @@
     {% endif %}
 
     {% if user and user.role in ('admin', 'editor') %}
-    <details class="mt-3 pt-3 border-t border-shelf-border">
+    <details class="mt-4 pt-3 border-t border-shelf-border">
         <summary class="cursor-pointer text-xs text-shelf-accent2 hover:text-shelf-accent">Add related media</summary>
         <p class="text-xs text-shelf-muted mt-2 mb-2">Search the Shelf library to join another edition, format, platform version or adaptation to this group.</p>
         <input type="search" name="q" autocomplete="off"
