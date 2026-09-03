@@ -5,10 +5,10 @@
         <div class="min-w-0">
             <h2 class="text-lg font-semibold">Connected items</h2>
             <p class="text-sm text-shelf-muted mt-1 max-w-2xl">
-                Scan the records already in Shelf for safe format matches. This does not rescan your shelves or contact metadata providers.
+                Scan the records already in Shelf for safe format matches. Existing series metadata is reconciled at the same time so series rows appear automatically. This does not rescan your shelves or contact metadata providers.
             </p>
             <p class="text-xs text-shelf-muted mt-2">
-                Books, eBooks and audiobooks; physical and digital comics; and physical and digital game releases are matched using Shelf's existing conservative rules. Cross-media adaptations are left for manual review.
+                Books, eBooks and audiobooks; physical and digital comics; and physical and digital game releases are matched using Shelf's existing conservative rules. Cross-media adaptations are left for manual review. Series are only created from explicit metadata already stored on the item — Shelf does not guess a series from a title.
             </p>
         </div>
         <form hx-post="/api/items/connections/rebuild"
@@ -42,8 +42,15 @@
                 {{ family.scanned }} checked · {{ family.created }} new
             </span>
             {% endfor %}
+            {% if connection_rebuild_result.series_sync %}
+            <span class="rounded-full bg-shelf-bg border border-shelf-border px-2.5 py-1" data-testid="series-rebuild-result">
+                Series: {{ connection_rebuild_result.series_sync.items }} item{{ '' if connection_rebuild_result.series_sync.items == 1 else 's' }} ·
+                {{ connection_rebuild_result.series_sync.series }} series ·
+                {{ connection_rebuild_result.series_sync.created }} membership{{ '' if connection_rebuild_result.series_sync.created == 1 else 's' }} added
+            </span>
+            {% endif %}
         </div>
-        <p class="text-xs text-shelf-muted mt-3">You can run this again safely after imports or metadata clean-up; existing connections are not duplicated.</p>
+        <p class="text-xs text-shelf-muted mt-3">You can run this again safely after imports or metadata clean-up; existing connections and series memberships are not duplicated.</p>
     </div>
     {% endif %}
 </div>
