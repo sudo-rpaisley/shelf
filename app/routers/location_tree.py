@@ -8,6 +8,7 @@ from fastapi.responses import JSONResponse, RedirectResponse
 from app.auth import require_role
 from app.database import get_db
 from app.routers import pages
+from app.services import holdings
 from app.services import location_tree as location_svc
 
 
@@ -32,9 +33,15 @@ def _parse_parent(value: str | int | None) -> int | None:
     return int(value)
 
 
+def _prepare(db) -> None:
+    """Install/backfill the additive model before a location operation."""
+    holdings.ensure_foundation(db)
+
+
 @pages.router.get("/locations")
 async def locations_index(request: Request, _=Depends(require_role("viewer"))):
     with get_db() as db:
+        _prepare(db)
         nodes = location_svc.flattened_tree(db)
     return request.app.state.templates.TemplateResponse(
         request,
@@ -51,6 +58,7 @@ async def location_detail(
     _=Depends(require_role("viewer")),
 ):
     with get_db() as db:
+        _prepare(db)
         selected = db.execute(
             "SELECT * FROM location_nodes WHERE id = ?", (location_id,)
         ).fetchone()
@@ -95,6 +103,7 @@ async def create_location_node(
         return _redirect(parent, error="blank")
     try:
         with get_db() as db:
+            _prepare(db)
             if not _parent_exists(db, parent):
                 return _redirect(error="parent_missing")
             cursor = db.execute(
@@ -127,6 +136,7 @@ async def update_location_node(
 
     try:
         with get_db() as db:
+            _prepare(db)
             node = db.execute(
                 "SELECT id, legacy_location_id FROM location_nodes WHERE id = ?",
                 (location_id,),
@@ -163,6 +173,7 @@ async def delete_location_node(
     _=Depends(require_role("admin")),
 ):
     with get_db() as db:
+        _prepare(db)
         node = db.execute(
             "SELECT id, parent_id, legacy_location_id FROM location_nodes WHERE id = ?",
             (location_id,),
@@ -201,6 +212,7 @@ async def reorder_location_copies(
         return JSONResponse({"ok": False, "message": "Invalid copy order"}, status_code=400)
 
     with get_db() as db:
+        _prepare(db)
         if not db.execute(
             "SELECT 1 FROM location_nodes WHERE id = ?", (location_id,)
         ).fetchone():
@@ -219,6 +231,7 @@ async def auto_order_location_copies(
     _=Depends(require_role("editor")),
 ):
     with get_db() as db:
+        _prepare(db)
         if not db.execute(
             "SELECT 1 FROM location_nodes WHERE id = ?", (location_id,)
         ).fetchone():
@@ -237,6 +250,7 @@ async def move_copy(
     _=Depends(require_role("editor")),
 ):
     with get_db() as db:
+        _prepare(db)
         if not db.execute(
             "SELECT 1 FROM location_nodes WHERE id = ?", (location_id,)
         ).fetchone():
@@ -247,10 +261,8 @@ async def move_copy(
         if not copy:
             return _redirect(location_id, error="copy_missing")
 
-        # Legacy item.location_id can name only a flat root. Update it first;
-        # its compatibility trigger may temporarily place the primary copy on
-        # that root. The explicit copy update below then restores the precise
-        # nested destination and is the final source of truth.
+        # The legacy field can name only the nearest flat/root location. The
+        # copy row remains authoritative for the precise shelf/sub-location.
         if copy["is_primary"]:
             legacy = location_svc.nearest_legacy_location(db, location_id)
             db.execute(
