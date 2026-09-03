@@ -1,0 +1,53 @@
+name: Fix Browse and Collections CI
+
+on:
+  push:
+    branches: [ui/browse-collections-nav-search]
+
+permissions:
+  contents: write
+
+jobs:
+  fix-test-commit:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ github.ref_name }}
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+          cache: pip
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+      - run: pip install -r requirements-dev.txt
+      - run: npm ci
+      - name: Apply stacked and Browse follow-up fixes
+        run: |
+          python scripts/fix_browse_collections_ci.py
+          rm -f .github/workflows/finish-auto-series.yml
+          rm -f scripts/patch_auto_series.py scripts/run_auto_series_patch.py
+      - name: Build generated UI assets
+        run: make css
+      - name: Run focused regressions
+        run: |
+          python -m pytest \
+            tests/test_collections.py \
+            tests/test_nav.py \
+            tests/test_home.py \
+            tests/test_back_nav.py \
+            tests/test_komga_sync.py \
+            tests/test_komga_series_identity.py \
+            tests/test_module_sizes.py \
+            -q --tb=short
+      - name: Refresh badges
+        run: make badges
+      - name: Commit fixes
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A app static tests README.md .github scripts
+          git commit -m "Finish Browse and Collections navigation"
+          git push origin HEAD:${{ github.ref_name }}
