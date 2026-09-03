@@ -57,9 +57,10 @@
             <h2 class="text-xl font-bold">Recently added</h2>
             <a href="/browse?sort=newest" class="text-sm text-shelf-accent2 hover:text-white transition-colors">View all</a>
         </div>
-        <div class="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
+        <div class="flex gap-3" style="overflow-x:auto; scroll-snap-type:x proximity; padding-bottom:0.5rem;">
             {% for item in recent_items %}
-            <a href="/item/{{ item.id }}" class="group min-w-0">
+            <a href="/item/{{ item.id }}" class="group min-w-0"
+               style="flex:0 0 clamp(10rem, 14vw, 16rem); scroll-snap-align:start;">
                 <div class="bg-shelf-card border border-shelf-border rounded-lg overflow-hidden group-hover:border-shelf-accent/50 transition-colors shadow-lg"
                      style="aspect-ratio: 2 / 3">
                     {% if item.cover_path %}
