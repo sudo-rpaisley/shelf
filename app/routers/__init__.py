@@ -15,6 +15,7 @@ from app.routers import series_detail as series_detail  # noqa: F401,E402
 from app.routers import series_memberships as series_memberships  # noqa: F401,E402
 
 from app.routers import pages as pages  # noqa: F401,E402
+from app.routers import home_dashboard as home_dashboard  # noqa: F401,E402
 from app.routers import location_tree as location_tree  # noqa: F401,E402
 
 from app.routers import items_common as items_common  # noqa: F401,E402
