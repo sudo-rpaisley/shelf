@@ -5,7 +5,7 @@
     <p class="text-sm text-shelf-muted">This item does not have physical copies or shelf locations.</p>
     {% else %}
         {% if message %}
-        <div class="mb-3 rounded-lg border border-shelf-success/30 bg-shelf-success/10 px-3 py-2 text-sm text-shelf-success">{{ message }}</div>
+        <div class="mb-3 rounded-lg border border-shelf-success/40 bg-shelf-success/10 px-3 py-2 text-sm text-shelf-success">{{ message }}</div>
         {% endif %}
         {% if copy_error %}
         <div class="mb-3 rounded-lg border border-shelf-error/30 bg-shelf-error/10 px-3 py-2 text-sm text-shelf-error">{{ copy_error }}</div>
@@ -51,16 +51,16 @@
                             <input type="number" min="0" step="0.01" name="acquisition_price" value="{{ copy.acquisition_price if copy.acquisition_price is not none else '' }}"
                                    class="w-full bg-shelf-card border border-shelf-border rounded-lg px-3 py-2 text-shelf-text">
                         </label>
-                        <label class="text-sm sm:col-span-2">
+                        <label class="text-sm col-span-full">
                             <span class="block text-shelf-muted mb-1">Copy barcode / asset label</span>
                             <input type="text" name="copy_barcode" value="{{ copy.copy_barcode or '' }}" maxlength="120"
                                    class="w-full bg-shelf-card border border-shelf-border rounded-lg px-3 py-2 text-shelf-text font-mono">
                         </label>
-                        <label class="text-sm sm:col-span-2">
+                        <label class="text-sm col-span-full">
                             <span class="block text-shelf-muted mb-1">Copy notes</span>
                             <textarea name="notes" rows="2" class="w-full bg-shelf-card border border-shelf-border rounded-lg px-3 py-2 text-shelf-text">{{ copy.notes or '' }}</textarea>
                         </label>
-                        <div class="sm:col-span-2 flex flex-wrap gap-2 items-center">
+                        <div class="col-span-full flex flex-wrap gap-2 items-center">
                             <button type="submit" class="px-3 py-2 bg-shelf-accent text-white rounded-lg text-sm hover:bg-shelf-accent2 transition-colors">Save copy</button>
                             {% if copies|length > 1 %}
                             <button type="button"
@@ -116,15 +116,15 @@
                     <span class="block text-shelf-muted mb-1">Acquisition price</span>
                     <input type="number" min="0" step="0.01" name="acquisition_price" class="w-full bg-shelf-card border border-shelf-border rounded-lg px-3 py-2 text-shelf-text">
                 </label>
-                <label class="text-sm sm:col-span-2">
+                <label class="text-sm col-span-full">
                     <span class="block text-shelf-muted mb-1">Copy barcode / asset label</span>
                     <input type="text" name="copy_barcode" maxlength="120" class="w-full bg-shelf-card border border-shelf-border rounded-lg px-3 py-2 text-shelf-text font-mono">
                 </label>
-                <label class="text-sm sm:col-span-2">
+                <label class="text-sm col-span-full">
                     <span class="block text-shelf-muted mb-1">Copy notes</span>
                     <textarea name="notes" rows="2" class="w-full bg-shelf-card border border-shelf-border rounded-lg px-3 py-2 text-shelf-text"></textarea>
                 </label>
-                <div class="sm:col-span-2">
+                <div class="col-span-full">
                     <button type="submit" class="px-3 py-2 bg-shelf-accent text-white rounded-lg text-sm hover:bg-shelf-accent2 transition-colors">Add copy</button>
                 </div>
             </form>
