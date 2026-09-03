@@ -1,0 +1,49 @@
+<div id="connection-rebuild-panel"
+     class="bg-shelf-card rounded-xl border border-shelf-border p-6"
+     data-testid="connection-rebuild-panel">
+    <div class="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-4">
+        <div class="min-w-0">
+            <h2 class="text-lg font-semibold">Connected items</h2>
+            <p class="text-sm text-shelf-muted mt-1 max-w-2xl">
+                Scan the records already in Shelf for safe format matches. This does not rescan your shelves or contact metadata providers.
+            </p>
+            <p class="text-xs text-shelf-muted mt-2">
+                Books, eBooks and audiobooks; physical and digital comics; and physical and digital game releases are matched using Shelf's existing conservative rules. Cross-media adaptations are left for manual review.
+            </p>
+        </div>
+        <form hx-post="/api/items/connections/rebuild"
+              hx-target="#connection-rebuild-panel"
+              hx-swap="outerHTML"
+              class="shrink-0">
+            <button type="submit"
+                    class="px-4 py-2 bg-shelf-accent text-white rounded-lg text-sm hover:bg-shelf-accent2 transition-colors whitespace-nowrap">
+                Find connected items
+            </button>
+        </form>
+    </div>
+
+    {% if connection_rebuild_result %}
+    <div class="mt-4 pt-4 border-t border-shelf-border" data-testid="connection-rebuild-result">
+        {% if connection_rebuild_result.created %}
+        <p class="text-sm text-shelf-text">
+            Created <strong class="text-shelf-success">{{ connection_rebuild_result.created }}</strong>
+            new connection{{ '' if connection_rebuild_result.created == 1 else 's' }} after checking
+            {{ connection_rebuild_result.scanned }} existing item{{ '' if connection_rebuild_result.scanned == 1 else 's' }}.
+        </p>
+        {% else %}
+        <p class="text-sm text-shelf-text">
+            No new automatic connections were needed. Checked {{ connection_rebuild_result.scanned }} existing item{{ '' if connection_rebuild_result.scanned == 1 else 's' }}.
+        </p>
+        {% endif %}
+        <div class="flex flex-wrap gap-2 mt-3 text-xs text-shelf-muted">
+            {% for family in connection_rebuild_result.families %}
+            <span class="rounded-full bg-shelf-bg border border-shelf-border px-2.5 py-1">
+                {{ {'book': 'Books', 'comic': 'Comics', 'game': 'Games'}.get(family.family, family.family|title) }}:
+                {{ family.scanned }} checked · {{ family.created }} new
+            </span>
+            {% endfor %}
+        </div>
+        <p class="text-xs text-shelf-muted mt-3">You can run this again safely after imports or metadata clean-up; existing connections are not duplicated.</p>
+    </div>
+    {% endif %}
+</div>
