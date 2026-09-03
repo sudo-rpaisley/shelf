@@ -3,11 +3,12 @@
 Consumer magazines and other serials commonly use an EAN-13 beginning 977.
 The seven digits after that prefix are the first seven digits of the ISSN;
 the ISSN check character is reconstructed independently from the EAN check
-character.  The two digits before the EAN check digit are the serial variant
+character. The two digits before the EAN check digit are the serial variant
 value and must not be treated as an issue number.
 
-This module is deliberately pure.  Provider lookup belongs in googlebooks.py;
-scan routing belongs in items_common.py.
+A 977 carrier may be followed by a 2- or 5-digit add-on. The add-on is useful
+issue-discriminator data, but its interpretation is publisher/cadence-specific,
+so Shelf preserves it verbatim rather than guessing an issue number or date.
 """
 
 from dataclasses import dataclass
@@ -17,18 +18,25 @@ from app.services.upc import normalize_barcode
 
 @dataclass(frozen=True, slots=True)
 class PeriodicalBarcode:
-    """Decoded stable information from one 977 EAN-13 barcode."""
+    """Decoded information from a 977 serial carrier and optional add-on."""
 
     ean13: str
     issn: str
     variant: str
+    supplement: str | None = None
+
+    @property
+    def full_code(self) -> str:
+        return self.ean13 + (self.supplement or "")
 
 
 def _valid_ean13(code: str) -> bool:
     if len(code) != 13 or not code.isdigit():
         return False
-    total = sum(int(digit) * (3 if index % 2 else 1)
-                for index, digit in enumerate(code[:12]))
+    total = sum(
+        int(digit) * (3 if index % 2 else 1)
+        for index, digit in enumerate(code[:12])
+    )
     check = (10 - (total % 10)) % 10
     return check == int(code[-1])
 
@@ -38,26 +46,40 @@ def issn_from_seven_digits(stem: str) -> str | None:
     if len(stem) != 7 or not stem.isdigit():
         return None
 
-    weighted = sum(int(digit) * weight
-                   for digit, weight in zip(stem, range(8, 1, -1)))
+    weighted = sum(
+        int(digit) * weight
+        for digit, weight in zip(stem, range(8, 1, -1))
+    )
     value = (11 - (weighted % 11)) % 11
     check = "X" if value == 10 else str(value)
     return f"{stem[:4]}-{stem[4:]}{check}"
 
 
 def parse_barcode(raw: str) -> PeriodicalBarcode | None:
-    """Decode a valid 977 EAN-13, otherwise return ``None``.
+    """Decode a valid 977 EAN-13 with an optional 2/5-digit add-on.
 
-    Shelf's browser scanner currently supplies the main EAN symbol, not a
-    separate 2/5-digit supplemental symbol, so this parser intentionally only
-    accepts the 13-digit carrier code.  Supplemental issue handling can be
-    added later without changing how the stable publication ISSN is derived.
+    Camera decoding currently normally returns only the 13-digit carrier, but
+    keyboard/USB scanners may concatenate an EAN add-on. Accepting 15/18 digit
+    input here preserves that information without pretending the add-on has a
+    universal issue-number meaning.
     """
     code = normalize_barcode(raw)
-    if not code.startswith("977") or not _valid_ean13(code):
+    if len(code) not in (13, 15, 18):
         return None
 
-    issn = issn_from_seven_digits(code[3:10])
+    carrier = code[:13]
+    supplement = code[13:] or None
+    if not carrier.startswith("977") or not _valid_ean13(carrier):
+        return None
+    if supplement is not None and len(supplement) not in (2, 5):
+        return None
+
+    issn = issn_from_seven_digits(carrier[3:10])
     if not issn:
         return None
-    return PeriodicalBarcode(ean13=code, issn=issn, variant=code[10:12])
+    return PeriodicalBarcode(
+        ean13=carrier,
+        issn=issn,
+        variant=carrier[10:12],
+        supplement=supplement,
+    )
