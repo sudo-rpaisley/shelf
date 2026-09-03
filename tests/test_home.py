@@ -29,7 +29,8 @@ def test_root_is_a_real_home_page(admin_client):
     assert response.status_code == 200
     assert "Home — Shelf" in response.text
     assert "Your library" in response.text
-    assert 'action="/browse"' in response.text
+    assert 'data-testid="nav-search-form"' in response.text
+    assert 'action="/search"' in response.text
     assert '<a href="/" class="text-lg font-bold text-shelf-accent2 tracking-tight mr-6">Shelf</a>' in response.text
 
 

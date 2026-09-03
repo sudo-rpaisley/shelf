@@ -525,11 +525,11 @@ async def sync(komga_url: str, api_key: str, on_progress=None) -> dict:
                         status = "added"
                         fetch_cover = True
 
-                series_memberships_svc.add_metadata_memberships(
-                    db,
-                    item_id,
-                    [{"name": series_name, "position": series_position}] if series_name else [],
-                )
+                    series_memberships_svc.add_metadata_memberships(
+                        db,
+                        item_id,
+                        [{"name": series_name, "position": series_position}] if series_name else [],
+                    )
 
                 # Metadata progress is independent of cover I/O. Queue the cover
                 # first, report this item immediately, then periodically drain a
