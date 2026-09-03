@@ -1,0 +1,125 @@
+name: Apply multi-series migration once
+
+on:
+  push:
+    branches:
+      - feature/multi-series-item-rows
+    paths:
+      - .github/workflows/multi-series-migration.yml
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: feature/multi-series-item-rows
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.13'
+      - name: Add schema migrations and secondary-series-aware GC
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          path = Path('app/database.py')
+          text = path.read_text()
+
+          old = '''    (39, "Add music identifier source", "ALTER TABLE music_identifiers ADD COLUMN source TEXT NOT NULL DEFAULT 'manual'"),
+          )'''
+          new = '''    (39, "Add music identifier source", "ALTER TABLE music_identifiers ADD COLUMN source TEXT NOT NULL DEFAULT 'manual'"),
+              (40, "Add item-series membership table",
+               """CREATE TABLE IF NOT EXISTS item_series (
+                  item_id INTEGER NOT NULL REFERENCES items(id) ON DELETE CASCADE,
+                  series_name TEXT NOT NULL COLLATE NOCASE,
+                  position REAL,
+                  is_primary INTEGER NOT NULL DEFAULT 0,
+                  created_at TEXT NOT NULL DEFAULT (datetime('now')),
+                  PRIMARY KEY (item_id, series_name)
+              )"""),
+              (41, "Index item-series names",
+               "CREATE INDEX IF NOT EXISTS idx_item_series_name ON item_series(series_name COLLATE NOCASE)"),
+              (42, "Backfill primary item-series memberships",
+               """INSERT INTO item_series (item_id, series_name, position, is_primary)
+                  SELECT id, TRIM(series_name), series_position, 1 FROM items
+                  WHERE series_name IS NOT NULL AND TRIM(series_name) != ''
+                  ON CONFLICT(item_id, series_name) DO UPDATE SET
+                      position = excluded.position, is_primary = 1"""),
+          )'''
+          if old not in text:
+              raise SystemExit('migration anchor not found')
+          text = text.replace(old, new, 1)
+
+          old = '''CREATE TABLE IF NOT EXISTS series_meta (
+              name          TEXT PRIMARY KEY COLLATE NOCASE,
+              description   TEXT,
+              source        TEXT,
+              updated_at    TEXT,
+              complete      INTEGER DEFAULT NULL,
+              hc_total      INTEGER DEFAULT NULL,
+              hc_missing    INTEGER DEFAULT NULL,
+              hc_checked_at TEXT DEFAULT NULL
+          );
+
+          -- Music is intentionally relational rather than a wide set of nullable'''
+          new = '''CREATE TABLE IF NOT EXISTS series_meta (
+              name          TEXT PRIMARY KEY COLLATE NOCASE,
+              description   TEXT,
+              source        TEXT,
+              updated_at    TEXT,
+              complete      INTEGER DEFAULT NULL,
+              hc_total      INTEGER DEFAULT NULL,
+              hc_missing    INTEGER DEFAULT NULL,
+              hc_checked_at TEXT DEFAULT NULL
+          );
+
+          -- Multiple ordered series memberships. The legacy items.series_name /
+          -- series_position pair remains the primary membership for compatibility.
+          CREATE TABLE IF NOT EXISTS item_series (
+              item_id      INTEGER NOT NULL REFERENCES items(id) ON DELETE CASCADE,
+              series_name  TEXT NOT NULL COLLATE NOCASE,
+              position     REAL,
+              is_primary   INTEGER NOT NULL DEFAULT 0,
+              created_at   TEXT NOT NULL DEFAULT (datetime('now')),
+              PRIMARY KEY (item_id, series_name)
+          );
+          CREATE INDEX IF NOT EXISTS idx_item_series_name ON item_series(series_name COLLATE NOCASE);
+
+          -- Music is intentionally relational rather than a wide set of nullable'''
+          if old not in text:
+              raise SystemExit('managed-table anchor not found')
+          text = text.replace(old, new, 1)
+
+          old = '''        db.execute(
+                      "DELETE FROM series_meta WHERE name = ? COLLATE NOCASE "
+                      "AND NOT EXISTS ("
+                      "SELECT 1 FROM items WHERE series_name = ? COLLATE NOCASE"
+                      ")",
+                      (name, name),
+                  )'''
+          new = '''        db.execute(
+                      "DELETE FROM series_meta WHERE name = ? COLLATE NOCASE "
+                      "AND NOT EXISTS ("
+                      "SELECT 1 FROM items WHERE series_name = ? COLLATE NOCASE"
+                      ") AND NOT EXISTS ("
+                      "SELECT 1 FROM item_series WHERE series_name = ? COLLATE NOCASE"
+                      ")",
+                      (name, name, name),
+                  )'''
+          if old not in text:
+              raise SystemExit('series metadata GC anchor not found')
+          text = text.replace(old, new, 1)
+
+          path.write_text(text)
+          PY
+      - name: Commit migration
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add app/database.py
+          git diff --cached --quiet && exit 0
+          git commit -m "Add multi-series database migration"
+          git push origin HEAD:feature/multi-series-item-rows
