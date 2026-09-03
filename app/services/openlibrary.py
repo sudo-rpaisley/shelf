@@ -17,6 +17,36 @@ async def _rate_limit():
     await outbound.acquire("openlibrary.org")
 
 
+def _series_memberships(data: dict) -> list[dict]:
+    import re
+
+    raw_series = data.get("series") or []
+    if isinstance(raw_series, str):
+        raw_series = [raw_series]
+    if not isinstance(raw_series, list):
+        return []
+    rows = []
+    seen = set()
+    for raw in raw_series:
+        value = str(raw or "").strip()
+        if not value:
+            continue
+        name = value
+        position = None
+        match = re.match(r"^(.*?)(?:\s*#\s*|,\s*)(\d+(?:\.\d+)?)$", value)
+        if match and match.group(1).strip():
+            name = match.group(1).strip()
+            position = float(match.group(2))
+            if position.is_integer():
+                position = int(position)
+        key = name.casefold()
+        if key in seen:
+            continue
+        seen.add(key)
+        rows.append({"name": name, "position": position})
+    return rows
+
+
 async def lookup(isbn: str, client: httpx.AsyncClient) -> provider_result.ProviderResult:
     """Look up a book by ISBN via Open Library.
 
@@ -67,6 +97,12 @@ async def lookup(isbn: str, client: httpx.AsyncClient) -> provider_result.Provid
             "page_count": data.get("number_of_pages"),
             "isbn10": data.get("isbn_10", [None])[0] if data.get("isbn_10") else None,
         }
+
+        series_memberships = _series_memberships(data)
+        if series_memberships:
+            result["series_memberships"] = series_memberships
+            result["series_name"] = series_memberships[0]["name"]
+            result["series_position"] = series_memberships[0]["position"]
 
         # Extract publish year
         pub_date = data.get("publish_date", "")

@@ -18,6 +18,9 @@
             {% include "fragments/settings/integrations.html" %}
 
             {% include "fragments/settings/data.html" %}
+            <div x-show="tab === 'data'" class="mt-8">
+                {% include "fragments/settings/connection_rebuild.html" %}
+            </div>
 
             {% include "fragments/settings/users.html" %}
         </section>

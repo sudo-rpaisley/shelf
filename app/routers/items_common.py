@@ -147,7 +147,6 @@ async def _lookup_metadata(isbn13: str, hc_token: str | None, client: httpx.Asyn
     metadata = None
     source = "manual"
     legs: list[provider_result.ProviderResult] = []
-
     # National-bibliography routing: for registration groups with an
     # authoritative national source (e.g. 978-3 -> DNB), consult it before
     # the general cascade. A miss falls through unchanged. This leg is
@@ -197,6 +196,7 @@ async def _lookup_metadata(isbn13: str, hc_token: str | None, client: httpx.Asyn
                 if hc_data.get("series_name") and not metadata.get("series_name"):
                     metadata["series_name"] = hc_data["series_name"]
                     metadata["series_position"] = hc_data.get("series_position")
+                metadata["series_memberships"] = hc_data.get("series_memberships") or metadata.get("series_memberships")
                 if hc_data.get("description") and not metadata.get("description"):
                     metadata["description"] = hc_data["description"]
                 hc_ids = {
@@ -212,7 +212,6 @@ def _save_item(metadata: dict, isbn13: str, media_type: str, location_id: int | 
     """Insert a new item from scan metadata. Returns the new item ID."""
     isbn10 = metadata.get("isbn10") or isbn_svc.isbn13_to_isbn10(isbn13)
     loc_id = location_id if location_id and location_id > 0 else None
-
     with get_db() as db:
         return insert_item(
             db,
@@ -228,6 +227,7 @@ def _save_item(metadata: dict, isbn13: str, media_type: str, location_id: int | 
             description=metadata.get("description"),
             series_name=metadata.get("series_name"),
             series_position=metadata.get("series_position"),
+            series_memberships=metadata.get("series_memberships"),
             location_id=loc_id,
             source=source,
             language=metadata.get("language"),

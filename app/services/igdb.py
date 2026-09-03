@@ -421,10 +421,14 @@ def _parse_game(game: dict) -> dict:
     platform_names = [p.get("name", "") for p in game.get("platforms", []) if p.get("name")]
 
     # Series / franchise
-    series_name = None
-    franchises = game.get("franchises", [])
-    if franchises:
-        series_name = franchises[0].get("name")
+    series_memberships = []
+    seen_franchises = set()
+    for franchise in game.get("franchises", []) or []:
+        name = str(franchise.get("name") or "").strip() if isinstance(franchise, dict) else ""
+        if name and name.casefold() not in seen_franchises:
+            series_memberships.append({"name": name, "position": None})
+            seen_franchises.add(name.casefold())
+    series_name = series_memberships[0]["name"] if series_memberships else None
 
     return {
         "igdb_id": game.get("id"),
@@ -436,6 +440,7 @@ def _parse_game(game: dict) -> dict:
         "cover_url": cover_url,
         "platform_names": platform_names,
         "series_name": series_name,
+        "series_memberships": series_memberships,
     }
 
 

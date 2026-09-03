@@ -211,6 +211,39 @@ def auto_link_family(db, family: str) -> int:
     return created
 
 
+def rebuild_automatic_connections(db) -> dict:
+    """Retroactively build safe automatic format links for existing items.
+
+    This is the maintenance equivalent of the per-insert/provider-sync
+    autolinking paths. It deliberately uses the same conservative family
+    boundaries and matching rules, so running it cannot create cross-media
+    adaptation links. ``link_items`` is idempotent, making this safe to run
+    repeatedly after imports or metadata clean-up.
+    """
+    family_results = []
+    total_scanned = 0
+    total_created = 0
+    for family, media_types in FAMILIES.items():
+        placeholders = ",".join("?" for _ in media_types)
+        scanned = db.execute(
+            f"SELECT COUNT(*) AS c FROM items WHERE media_type IN ({placeholders})",
+            tuple(media_types),
+        ).fetchone()["c"]
+        created = auto_link_family(db, family)
+        total_scanned += scanned
+        total_created += created
+        family_results.append({
+            "family": family,
+            "scanned": scanned,
+            "created": created,
+        })
+    return {
+        "scanned": total_scanned,
+        "created": total_created,
+        "families": family_results,
+    }
+
+
 def should_autolink_on_insert(source: str | None) -> bool:
     """Provider batches group once after sync; ordinary inserts group immediately."""
     return (source or "manual") not in _PROVIDER_SYNC_SOURCES

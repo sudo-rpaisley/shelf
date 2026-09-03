@@ -5,6 +5,7 @@ import httpx
 
 from app.database import get_db, get_setting
 from app.services import covers
+from app.services import series_memberships as series_memberships_svc
 from app.services.item_write import insert_item
 
 logger = logging.getLogger(__name__)
@@ -32,6 +33,13 @@ def _normalise_publish_year(value):
         return int(value)
     except (TypeError, ValueError):
         return value
+
+
+def _series_memberships(metadata: dict) -> list[dict]:
+    rows = series_memberships_svc.normalise(metadata.get("series"))
+    if not rows and metadata.get("seriesName"):
+        rows = series_memberships_svc.normalise(metadata.get("seriesName"))
+    return rows
 
 
 async def sync(abs_url: str, abs_token: str, on_progress=None) -> dict:
@@ -140,7 +148,9 @@ async def sync(abs_url: str, abs_token: str, on_progress=None) -> dict:
                 authors = metadata.get("authorName") or metadata.get("author")
                 narrator = metadata.get("narratorName")
                 isbn = metadata.get("isbn") or metadata.get("asin")
-                series_name = metadata.get("seriesName")
+                series_memberships = _series_memberships(metadata)
+                series_name = series_memberships[0]["name"] if series_memberships else None
+                series_position = series_memberships[0]["position"] if series_memberships else None
                 publisher = metadata.get("publisher")
                 pub_year = _normalise_publish_year(metadata.get("publishedYear"))
                 description = metadata.get("description")
@@ -150,7 +160,7 @@ async def sync(abs_url: str, abs_token: str, on_progress=None) -> dict:
 
                 with get_db() as db:
                     existing = db.execute(
-                        """SELECT id, title, authors, narrator, isbn, series_name,
+                        """SELECT id, title, authors, narrator, isbn, series_name, series_position,
                                   publisher, publish_year, description, duration_mins,
                                   media_type, abs_id, abs_library_id, cover_path
                            FROM items WHERE abs_id = ?""",
@@ -199,7 +209,7 @@ async def sync(abs_url: str, abs_token: str, on_progress=None) -> dict:
                         # instead of attempting a duplicate insert. From this
                         # point on it follows the normal ABS update path.
                         existing = db.execute(
-                            """SELECT id, title, authors, narrator, isbn, series_name,
+                            """SELECT id, title, authors, narrator, isbn, series_name, series_position,
                                       publisher, publish_year, description, duration_mins,
                                       media_type, abs_id, abs_library_id, cover_path
                                FROM items WHERE id = ?""",
@@ -213,6 +223,7 @@ async def sync(abs_url: str, abs_token: str, on_progress=None) -> dict:
                             "narrator": narrator,
                             "isbn": isbn,
                             "series_name": series_name,
+                            "series_position": series_position,
                             "publisher": publisher,
                             "publish_year": pub_year,
                             "description": description,
@@ -226,12 +237,12 @@ async def sync(abs_url: str, abs_token: str, on_progress=None) -> dict:
                         if changed:
                             db.execute(
                                 """UPDATE items SET title=?, authors=?, narrator=?,
-                                   isbn=?, series_name=?, publisher=?, publish_year=?,
+                                   isbn=?, series_name=?, series_position=?, publisher=?, publish_year=?,
                                    description=?, duration_mins=?, media_type=?,
                                    abs_id=?, abs_library_id=?,
                                    updated_at=datetime('now')
                                    WHERE id=?""",
-                                (title, authors, narrator, isbn, series_name,
+                                (title, authors, narrator, isbn, series_name, series_position,
                                  publisher, pub_year, description, duration_mins,
                                  media_type, abs_id, lib_id, existing["id"]),
                             )
@@ -242,6 +253,9 @@ async def sync(abs_url: str, abs_token: str, on_progress=None) -> dict:
                             status = "unchanged"
 
                         item_id = existing["id"]
+                        series_memberships_svc.add_metadata_memberships(
+                            db, item_id, series_memberships
+                        )
                         fetch_cover = changed or not existing["cover_path"]
                         if on_progress:
                             await on_progress(current, total, title, status)
@@ -256,6 +270,8 @@ async def sync(abs_url: str, abs_token: str, on_progress=None) -> dict:
                             publish_year=pub_year,
                             description=description,
                             series_name=series_name,
+                            series_position=series_position,
+                            series_memberships=series_memberships,
                             narrator=narrator,
                             duration_mins=duration_mins,
                             abs_id=abs_id,

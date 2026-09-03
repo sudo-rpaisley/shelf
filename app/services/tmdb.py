@@ -7,6 +7,7 @@ import httpx
 from app.services import outbound, provider_result
 
 TMDB_SEARCH_URL = "https://api.themoviedb.org/3/search/movie"
+TMDB_MOVIE_URL = "https://api.themoviedb.org/3/movie"
 TMDB_IMAGE_ROOT = "https://image.tmdb.org/t/p"
 # Kept as its own constant — app/services/covers.py's cover-allowlist comment
 # names it by this name, and callers that only ever wanted the default poster
@@ -90,6 +91,50 @@ async def lookup_by_title(
             "description": movie.get("overview"),
             "publish_year": int(year) if year.isdigit() else None,
             "cover_url": cover_url,
+        }, status=resp.status_code)
+    except Exception:
+        return provider_result.no_match("tmdb", status=resp.status_code)
+
+
+async def lookup_movie(
+    tmdb_id: int, api_key: str, client: httpx.AsyncClient,
+) -> provider_result.ProviderResult:
+    """Fetch one movie including its explicit TMDb collection membership."""
+    extra_params, headers = _auth(api_key)
+    try:
+        resp = await outbound.fetch(
+            client, "GET", f"{TMDB_MOVIE_URL}/{int(tmdb_id)}",
+            params=extra_params, headers=headers, timeout=10,
+        )
+    except Exception:
+        return provider_result.transport_failed("tmdb")
+
+    classified = provider_result.classify_response(
+        "tmdb", resp, auth_statuses=_AUTH_STATUSES
+    )
+    if classified is not None:
+        return classified
+    try:
+        movie = resp.json()
+        title = movie.get("title")
+        if not title:
+            return provider_result.no_match("tmdb", status=resp.status_code)
+        year = str(movie.get("release_date") or "")[:4]
+        collection = movie.get("belongs_to_collection") or {}
+        series_name = (
+            str(collection.get("name") or "").strip()
+            if isinstance(collection, dict) else ""
+        ) or None
+        return provider_result.found("tmdb", {
+            "tmdb_id": movie.get("id"),
+            "title": title,
+            "description": movie.get("overview"),
+            "publish_year": int(year) if year.isdigit() else None,
+            "cover_url": image_url(movie["poster_path"]) if movie.get("poster_path") else None,
+            "series_name": series_name,
+            "series_memberships": (
+                [{"name": series_name, "position": None}] if series_name else []
+            ),
         }, status=resp.status_code)
     except Exception:
         return provider_result.no_match("tmdb", status=resp.status_code)
