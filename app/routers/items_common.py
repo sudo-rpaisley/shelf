@@ -197,6 +197,8 @@ async def _lookup_metadata(isbn13: str, hc_token: str | None, client: httpx.Asyn
                 if hc_data.get("series_name") and not metadata.get("series_name"):
                     metadata["series_name"] = hc_data["series_name"]
                     metadata["series_position"] = hc_data.get("series_position")
+                if hc_data.get("series_memberships"):
+                    metadata["series_memberships"] = hc_data["series_memberships"]
                 if hc_data.get("description") and not metadata.get("description"):
                     metadata["description"] = hc_data["description"]
                 hc_ids = {
@@ -228,6 +230,7 @@ def _save_item(metadata: dict, isbn13: str, media_type: str, location_id: int | 
             description=metadata.get("description"),
             series_name=metadata.get("series_name"),
             series_position=metadata.get("series_position"),
+            series_memberships=metadata.get("series_memberships"),
             location_id=loc_id,
             source=source,
             language=metadata.get("language"),

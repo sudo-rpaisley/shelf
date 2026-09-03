@@ -148,6 +148,7 @@ async def add_game_from_search(
             publisher=metadata.get("publisher"),
             publish_year=metadata.get("publish_year"),
             series_name=metadata.get("series_name"),
+            series_memberships=metadata.get("series_memberships"),
             platform=platform_val,
             location_id=loc_id,
             source="igdb",
@@ -413,6 +414,19 @@ async def add_dvd_from_search(
             {"status": "duplicate", "isbn": "", "title": existing["title"], "item_id": existing["id"]},
         )
 
+    series_name = None
+    series_memberships = None
+    if tmdb_id:
+        with get_db() as db:
+            tmdb_key = get_setting(db, "tmdb_api_key")
+        if tmdb_key:
+            async with httpx.AsyncClient(timeout=HTTP_TIMEOUT) as client:
+                detail = await tmdb.lookup_movie(tmdb_id, tmdb_key, client)
+            if detail.found:
+                detail_meta = detail.payload or {}
+                series_name = detail_meta.get("series_name")
+                series_memberships = detail_meta.get("series_memberships")
+
     with get_db() as db:
         item_id = insert_item(
             db,
@@ -420,6 +434,8 @@ async def add_dvd_from_search(
             description=description or None,
             media_type="dvd",
             publish_year=year,
+            series_name=series_name,
+            series_memberships=series_memberships,
             location_id=loc_id,
             source="tmdb",
         )

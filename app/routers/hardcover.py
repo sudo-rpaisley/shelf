@@ -12,6 +12,7 @@ from app.auth import require_role
 from app.config import HTTP_TIMEOUT
 from app.database import get_db, get_setting
 from app.services import hardcover, covers
+from app.services import series_memberships as series_memberships_svc
 from app.services.item_write import insert_item
 
 logger = logging.getLogger(__name__)
@@ -111,6 +112,9 @@ async def add_hardcover_to_shelf(request: Request, _=Depends(require_role("edito
         isinstance(series_position, bool) or not isinstance(series_position, (int, float))
     ):
         return {"ok": False, "message": "Invalid request body"}
+    series_memberships = data.get("series_memberships")
+    if series_memberships is not None and not isinstance(series_memberships, list):
+        return {"ok": False, "message": "Invalid request body"}
 
     title = (raw_title or "").strip()
     if not title:
@@ -151,6 +155,7 @@ async def add_hardcover_to_shelf(request: Request, _=Depends(require_role("edito
             description=data.get("description"),
             series_name=data.get("series_name"),
             series_position=data.get("series_position"),
+            series_memberships=series_memberships,
             reading_status="want_to_read",
             source="hardcover",
             owned=0,
@@ -517,14 +522,20 @@ def _import_single_book_metadata(book: dict, overwrite: bool, title_index: dict)
                     updates["reading_status"] = book["reading_status"]
 
                 _apply_updates(db, existing["id"], updates)
+                series_added = series_memberships_svc.add_metadata_memberships(
+                    db, existing["id"], book.get("series_memberships")
+                )
                 cover_job = None if existing["cover_path"] else _cover_job(existing["id"], book)
-                return ("updated" if updates else "skipped", cover_job)
+                return ("updated" if updates or series_added else "skipped", cover_job)
             else:
                 updates = _build_hc_id_updates(book)
                 for field in (*_MERGE_FIELDS, "reading_status"):
                     if book.get(field) is not None:
                         updates[field] = book[field]
                 _apply_updates(db, existing["id"], updates)
+                series_memberships_svc.add_metadata_memberships(
+                    db, existing["id"], book.get("series_memberships")
+                )
                 return ("updated", _cover_job(existing["id"], book))
 
         # New item — insert
@@ -550,6 +561,7 @@ def _import_single_book_metadata(book: dict, overwrite: bool, title_index: dict)
             description=book.get("description"),
             series_name=book.get("series_name"),
             series_position=book.get("series_position"),
+            series_memberships=book.get("series_memberships"),
             reading_status=book.get("reading_status"),
             source="hardcover",
             owned=is_owned,

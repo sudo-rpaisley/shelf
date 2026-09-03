@@ -133,10 +133,21 @@ def sync_legacy_item(db, item_id: int) -> bool:
     if not item:
         return False
 
-    db.execute("UPDATE item_series SET is_primary = 0 WHERE item_id = ?", (item_id,))
     name = str(item["series_name"] or "").strip()
-    if not name:
+    if name:
+        db.execute(
+            "DELETE FROM item_series WHERE item_id = ? AND is_primary = 1 "
+            "AND series_name != ? COLLATE NOCASE",
+            (item_id, name),
+        )
+    else:
+        db.execute(
+            "DELETE FROM item_series WHERE item_id = ? AND is_primary = 1",
+            (item_id,),
+        )
         return False
+
+    db.execute("UPDATE item_series SET is_primary = 0 WHERE item_id = ?", (item_id,))
 
     existed = db.execute(
         "SELECT 1 FROM item_series WHERE item_id = ? AND series_name = ? COLLATE NOCASE",
@@ -157,9 +168,16 @@ def sync_all_legacy(db) -> dict:
     ensure_schema(db)
     before = db.execute("SELECT COUNT(*) FROM item_series").fetchone()[0]
 
-    # The item row is authoritative for *which* membership is primary. Keep
-    # secondary memberships intact, clear old primary flags, then upsert every
-    # current legacy pair in one set-based pass.
+    # The item row is authoritative for *which* membership is primary. Drop
+    # a stale former primary when that compatibility field changed, preserve true
+    # secondary memberships, then upsert every current legacy pair.
+    db.execute(
+        "DELETE FROM item_series WHERE is_primary = 1 AND NOT EXISTS ("
+        "SELECT 1 FROM items i WHERE i.id = item_series.item_id "
+        "AND i.series_name IS NOT NULL AND TRIM(i.series_name) != '' "
+        "AND TRIM(i.series_name) = item_series.series_name COLLATE NOCASE"
+        ")"
+    )
     db.execute("UPDATE item_series SET is_primary = 0")
     db.execute(
         "INSERT INTO item_series (item_id, series_name, position, is_primary) "

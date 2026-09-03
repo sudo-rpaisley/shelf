@@ -6,6 +6,7 @@ import httpx
 
 from app.database import get_db, get_setting
 from app.services import covers
+from app.services import series_memberships as series_memberships_svc
 from app.services.item_write import insert_item
 
 logger = logging.getLogger(__name__)
@@ -523,6 +524,12 @@ async def sync(komga_url: str, api_key: str, on_progress=None) -> dict:
                         stats["added"] += 1
                         status = "added"
                         fetch_cover = True
+
+                series_memberships_svc.add_metadata_memberships(
+                    db,
+                    item_id,
+                    [{"name": series_name, "position": series_position}] if series_name else [],
+                )
 
                 # Metadata progress is independent of cover I/O. Queue the cover
                 # first, report this item immediately, then periodically drain a
