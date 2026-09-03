@@ -290,12 +290,11 @@
 
     <!-- Keyboard shortcuts help modal -->
     <div id="shortcut-modal" role="dialog" aria-modal="true" aria-labelledby="shortcut-modal-title"
-         class="fixed inset-0 bg-black/60 z-[200] hidden flex items-center justify-center"
-         onclick="if(event.target===this)this.classList.add('hidden')">
+         class="fixed inset-0 bg-black/60 z-[200] hidden flex items-center justify-center">
         <div class="bg-shelf-card border border-shelf-border rounded-xl p-6 max-w-md w-full mx-4 shadow-2xl">
             <div class="flex items-center justify-between mb-4">
                 <h3 id="shortcut-modal-title" class="text-lg font-bold">Keyboard Shortcuts</h3>
-                <button type="button" aria-label="Close keyboard shortcuts" onclick="this.closest('#shortcut-modal').classList.add('hidden')" class="text-shelf-muted hover:text-white">
+                <button type="button" aria-label="Close keyboard shortcuts" data-shortcut-close class="text-shelf-muted hover:text-white">
                     <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg>
                 </button>
             </div>

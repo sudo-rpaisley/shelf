@@ -85,19 +85,24 @@ def test_shortcut_help_interacts_without_inline_script_violation(
         page.click("button[type=submit]")
         page.wait_for_url(f"{live_server['url']}/browse", timeout=10_000)
 
-        trigger = page.locator('button[title="Keyboard shortcuts (?)"]')
         modal = page.locator("#shortcut-modal")
         expect(modal).to_be_hidden()
 
-        trigger.click()
+        def open_shortcuts():
+            page.locator('[data-testid="account-menu-button"]').click()
+            panel = page.locator('[data-testid="account-menu-panel"]')
+            expect(panel).to_be_visible()
+            panel.locator('[data-testid="account-shortcuts-action"]').click()
+
+        open_shortcuts()
         expect(modal).to_be_visible()
         expect(modal).to_contain_text("Keyboard Shortcuts")
         assert page.evaluate("window.__cspViolations") == []
 
-        modal.locator("button").click()
+        page.get_by_role("button", name="Close keyboard shortcuts").click()
         expect(modal).to_be_hidden()
 
-        trigger.click()
+        open_shortcuts()
         expect(modal).to_be_visible()
         page.keyboard.press("Escape")
         expect(modal).to_be_hidden()
