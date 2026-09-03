@@ -8,7 +8,7 @@
         <p class="text-shelf-muted mt-2">Work through incomplete catalogue records without hunting for them individually.</p>
     </div>
 
-    <div class="grid grid-cols-2 lg:grid-cols-4 gap-3">
+    <div class="grid grid-cols-2 gap-3">
         {% for category in categories %}
         <a href="/attention?category={{ category.key }}"
            data-attention-category="{{ category.key }}"
