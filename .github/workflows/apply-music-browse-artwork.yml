@@ -1,0 +1,70 @@
+name: Apply music browse and artwork changes
+
+on:
+  push:
+    branches: [ui/music-browse-artwork]
+
+permissions:
+  contents: write
+
+jobs:
+  apply-test-commit:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ github.ref_name }}
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+          cache: pip
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+
+      - name: Install dependencies
+        run: |
+          pip install -r requirements-dev.txt
+          npm ci
+
+      - name: Apply implementation
+        run: |
+          if [ -f app/services/music_scan.py ]; then
+            echo "Implementation already applied."
+          else
+            python scripts/patch_music_browse_artwork.py
+          fi
+
+      - name: Build generated UI assets
+        run: make css
+
+      - name: Run focused regressions
+        run: |
+          python -m pytest \
+            tests/test_music.py \
+            tests/test_music_enrich.py \
+            tests/test_music_detection.py \
+            tests/test_music_scan_artwork.py \
+            tests/test_scan_upc_enrichment.py \
+            tests/test_home.py \
+            tests/test_nav.py \
+            tests/test_module_sizes.py \
+            -q --tb=short
+
+      - name: Refresh test-count badges
+        run: make badges
+
+      - name: Commit implementation
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add app static/css/app.css static/sw.js tests README.md
+          if git diff --cached --quiet; then
+            echo "No implementation changes to commit."
+            exit 0
+          fi
+          git commit -m "Browse music first and enrich scanned artwork"
+          git push origin HEAD:${{ github.ref_name }}
