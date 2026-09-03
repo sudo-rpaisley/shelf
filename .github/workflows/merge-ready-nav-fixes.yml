@@ -1,0 +1,206 @@
+name: Apply navigation merge-readiness fixes
+
+on:
+  push:
+    branches:
+      - ui/navigation-polish
+    paths:
+      - .github/workflows/merge-ready-nav-fixes.yml
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ui/navigation-polish
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.13'
+      - name: Patch navigation modal and E2E flows
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          def replace(path, old, new):
+              p = Path(path)
+              text = p.read_text()
+              if old not in text:
+                  raise SystemExit(f'anchor not found in {path}: {old[:80]!r}')
+              p.write_text(text.replace(old, new, 1))
+
+          replace(
+              'app/templates/base.html',
+              '''    <div id="shortcut-modal" role="dialog" aria-modal="true" aria-labelledby="shortcut-modal-title"
+                   class="fixed inset-0 bg-black/60 z-[200] hidden flex items-center justify-center"
+                   onclick="if(event.target===this)this.classList.add('hidden')">''',
+              '''    <div id="shortcut-modal" role="dialog" aria-modal="true" aria-labelledby="shortcut-modal-title"
+                   class="fixed inset-0 bg-black/60 z-[200] hidden flex items-center justify-center">'''
+          )
+          replace(
+              'app/templates/base.html',
+              '''                <button type="button" aria-label="Close keyboard shortcuts" onclick="this.closest('#shortcut-modal').classList.add('hidden')" class="text-shelf-muted hover:text-white">''',
+              '''                <button type="button" aria-label="Close keyboard shortcuts" data-shortcut-close class="text-shelf-muted hover:text-white">'''
+          )
+
+          old = '''// The visible shortcut-help controls used inline onclick handlers. Shelf's
+          // script-src 'self' CSP refuses those handlers, so the button and both close
+          // surfaces looked clickable but did nothing. Bind the same behaviour from this
+          // external script instead. Remove the inert inline attributes before a user can
+          // click them so browsers do not report a CSP violation for the dead handler.
+          (function() {
+              var modal = document.getElementById('shortcut-modal');
+              var trigger = document.querySelector('[title="Keyboard shortcuts (?)"]');
+              if (!modal || !trigger) return;
+
+              trigger.removeAttribute('onclick');
+              trigger.addEventListener('click', function() {
+                  modal.classList.toggle('hidden');
+              });
+
+              modal.removeAttribute('onclick');
+              modal.addEventListener('click', function(e) {
+                  if (e.target === modal) modal.classList.add('hidden');
+              });
+
+              var close = modal.querySelector('button[onclick]');
+              if (close) {
+                  close.removeAttribute('onclick');
+                  close.addEventListener('click', function() {
+                      modal.classList.add('hidden');
+                  });
+              }
+          })();'''
+          new = '''// Keyboard-shortcut dialog controls live in this external script so they work
+          // under Shelf's no-inline CSP. The old floating trigger is optional: newer
+          // navigation opens the same dialog from the account-menu Alpine component.
+          (function() {
+              var modal = document.getElementById('shortcut-modal');
+              if (!modal) return;
+
+              var trigger = document.querySelector('[title="Keyboard shortcuts (?)"]');
+              if (trigger) {
+                  trigger.removeAttribute('onclick');
+                  trigger.addEventListener('click', function() {
+                      modal.classList.toggle('hidden');
+                  });
+              }
+
+              modal.removeAttribute('onclick');
+              modal.addEventListener('click', function(e) {
+                  if (e.target === modal) modal.classList.add('hidden');
+              });
+
+              var close = modal.querySelector('[data-shortcut-close], button[onclick]');
+              if (close) {
+                  close.removeAttribute('onclick');
+                  close.addEventListener('click', function() {
+                      modal.classList.add('hidden');
+                  });
+              }
+          })();'''
+          replace('static/js/app.js', old, new)
+
+          old = '''def test_shortcut_help_button_opens_and_modal_controls_close(live_server, authed_page):
+              """The visible ? button and modal close surfaces must work under strict CSP."""
+              authed_page.goto(f"{live_server['url']}/browse")
+              authed_page.wait_for_load_state("networkidle")
+
+              modal = authed_page.locator("#shortcut-modal")
+              expect(modal).to_be_hidden()
+
+              authed_page.get_by_title("Keyboard shortcuts (?)").click()
+              expect(modal).to_be_visible()
+
+              # The modal header has a single close button.
+              modal.locator("button").first.click()
+              expect(modal).to_be_hidden()
+
+              # Reopen and verify clicking the backdrop closes it too.
+              authed_page.get_by_title("Keyboard shortcuts (?)").click()
+              expect(modal).to_be_visible()
+              modal.click(position={"x": 5, "y": 5})
+              expect(modal).to_be_hidden()'''
+          new = '''def test_shortcut_help_button_opens_and_modal_controls_close(live_server, authed_page):
+              """The account shortcut action and modal close surfaces work under strict CSP."""
+              authed_page.goto(f"{live_server['url']}/browse")
+              authed_page.wait_for_load_state("networkidle")
+
+              modal = authed_page.locator("#shortcut-modal")
+              expect(modal).to_be_hidden()
+
+              def open_shortcuts():
+                  authed_page.locator('[data-testid="account-menu-button"]').click()
+                  panel = authed_page.locator('[data-testid="account-menu-panel"]')
+                  expect(panel).to_be_visible()
+                  panel.locator('[data-testid="account-shortcuts-action"]').click()
+
+              open_shortcuts()
+              expect(modal).to_be_visible()
+
+              authed_page.get_by_role("button", name="Close keyboard shortcuts").click()
+              expect(modal).to_be_hidden()
+
+              # Reopen and verify clicking the backdrop closes it too.
+              open_shortcuts()
+              expect(modal).to_be_visible()
+              modal.click(position={"x": 5, "y": 5})
+              expect(modal).to_be_hidden()'''
+          replace('tests/e2e/test_bulk_actions.py', old, new)
+
+          old = '''        trigger = page.locator('button[title="Keyboard shortcuts (?)"]')
+                  modal = page.locator("#shortcut-modal")
+                  expect(modal).to_be_hidden()
+
+                  trigger.click()
+                  expect(modal).to_be_visible()
+                  expect(modal).to_contain_text("Keyboard Shortcuts")
+                  assert page.evaluate("window.__cspViolations") == []
+
+                  modal.locator("button").click()
+                  expect(modal).to_be_hidden()
+
+                  trigger.click()
+                  expect(modal).to_be_visible()
+                  page.keyboard.press("Escape")
+                  expect(modal).to_be_hidden()'''
+          new = '''        modal = page.locator("#shortcut-modal")
+                  expect(modal).to_be_hidden()
+
+                  def open_shortcuts():
+                      page.locator('[data-testid="account-menu-button"]').click()
+                      panel = page.locator('[data-testid="account-menu-panel"]')
+                      expect(panel).to_be_visible()
+                      panel.locator('[data-testid="account-shortcuts-action"]').click()
+
+                  open_shortcuts()
+                  expect(modal).to_be_visible()
+                  expect(modal).to_contain_text("Keyboard Shortcuts")
+                  assert page.evaluate("window.__cspViolations") == []
+
+                  page.get_by_role("button", name="Close keyboard shortcuts").click()
+                  expect(modal).to_be_hidden()
+
+                  open_shortcuts()
+                  expect(modal).to_be_visible()
+                  page.keyboard.press("Escape")
+                  expect(modal).to_be_hidden()'''
+          replace('tests/e2e/test_csp.py', old, new)
+
+          replace(
+              'tests/e2e/test_scan.py',
+              '''    button = pg.get_by_role("button", name=mode_label, exact=True)''',
+              '''    button = pg.get_by_role("main").get_by_role("button", name=mode_label, exact=True)'''
+          )
+          PY
+      - name: Commit fixes
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add app/templates/base.html static/js/app.js tests/e2e/test_bulk_actions.py tests/e2e/test_csp.py tests/e2e/test_scan.py
+          git diff --cached --quiet && exit 0
+          git commit -m "Fix navigation E2E flows and shortcut dialog"
+          git push origin HEAD:ui/navigation-polish
