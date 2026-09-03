@@ -78,6 +78,21 @@ def location_path(db, location_id: int) -> list[dict]:
     return [dict(row) for row in rows]
 
 
+def nearest_legacy_location(db, location_id: int) -> int | None:
+    """Legacy flat location represented by this node or its nearest ancestor."""
+    row = db.execute(
+        "WITH RECURSIVE ancestors(id, parent_id, legacy_location_id, depth) AS ("
+        " SELECT id, parent_id, legacy_location_id, 0 FROM location_nodes WHERE id = ?"
+        " UNION ALL "
+        " SELECT n.id, n.parent_id, n.legacy_location_id, a.depth + 1 "
+        " FROM location_nodes n JOIN ancestors a ON a.parent_id = n.id"
+        ") SELECT legacy_location_id FROM ancestors "
+        "WHERE legacy_location_id IS NOT NULL ORDER BY depth LIMIT 1",
+        (location_id,),
+    ).fetchone()
+    return row["legacy_location_id"] if row else None
+
+
 def descendant_ids(db, location_id: int, *, include_self: bool = True) -> list[int]:
     rows = db.execute(
         "WITH RECURSIVE descendants(id) AS ("
