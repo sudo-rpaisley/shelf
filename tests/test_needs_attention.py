@@ -88,7 +88,10 @@ def test_magazine_attention_uses_issue_model_not_generic_publish_year(viewer_cli
     assert "Issue With Year Only" not in html
 
 
-def test_attention_fix_action_is_role_aware(viewer_client, editor_client, db):
+def test_attention_fix_action_is_role_aware(viewer_client, editor_user, db):
+    """Exercise both roles without sharing two cookie-mutating client fixtures."""
+    from app.auth import create_token
+
     item_id = db.execute(
         "INSERT INTO items (title, media_type, source, owned) "
         "VALUES ('Fix Me', 'book', 'test', 1)"
@@ -96,7 +99,11 @@ def test_attention_fix_action_is_role_aware(viewer_client, editor_client, db):
     db.commit()
 
     viewer_html = viewer_client.get("/attention").text
-    editor_html = editor_client.get("/attention").text
-
     assert f'href="/item/{item_id}/edit"' not in viewer_html
+
+    editor_token = create_token(
+        editor_user["id"], editor_user["username"], editor_user["role"], editor_user["display_name"]
+    )
+    viewer_client.cookies.set("access_token", editor_token)
+    editor_html = viewer_client.get("/attention").text
     assert f'href="/item/{item_id}/edit"' in editor_html
