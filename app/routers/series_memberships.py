@@ -148,9 +148,9 @@ def _render_panel(request: Request, item_id: int):
         context = _item_and_series_context(db, item_id)
     if not context:
         return HTMLResponse("Item not found", status_code=404)
-    context["can_edit"] = bool(
-        request.state.user and request.state.user.role in ("admin", "editor")
-    )
+    user = getattr(request.state, "user", None)
+    role = user.get("role") if isinstance(user, dict) else getattr(user, "role", None)
+    context["can_edit"] = role in ("admin", "editor")
     return request.app.state.templates.TemplateResponse(
         request,
         "fragments/item_series_rows.html",

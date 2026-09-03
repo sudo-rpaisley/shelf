@@ -148,5 +148,6 @@ class TestKomgaPublicUrl:
         _set(db, "komga_public_url", "https://comics.example.test")
 
         html = admin_client.get(f"/item/{ebook}").text
-        assert "Also in Komga" in html
+        assert "Available in" in html
+        assert "Komga" in html
         assert 'href="https://comics.example.test/book/book_linked"' in html

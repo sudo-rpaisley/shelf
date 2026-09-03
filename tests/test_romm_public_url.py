@@ -172,7 +172,8 @@ def test_physical_item_links_to_romm_copy(admin_client, db):
     db.execute("INSERT INTO item_links (item_a_id, item_b_id) VALUES (?, ?)", (a, b))
     db.execute("COMMIT")
     response = admin_client.get(f"/item/{physical}")
-    assert "Also in RomM (Digital Game)" in response.text
+    assert "Available in" in response.text
+    assert "RomM" in response.text
     assert f'href="{ROMM}/rom/101"' in response.text
 
 
