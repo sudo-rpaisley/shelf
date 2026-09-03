@@ -9,6 +9,25 @@ from app.services import media_groups
 router = APIRouter(prefix="/api/items")
 
 
+@router.post("/connections/rebuild")
+async def rebuild_connected_items(
+    request: Request,
+    _=Depends(require_role("admin")),
+):
+    """Retroactively create safe automatic format connections.
+
+    Uses the same conservative matching rules as normal inserts and provider
+    syncs, so this is safe to run repeatedly against an existing library.
+    """
+    with get_db() as db:
+        result = media_groups.rebuild_automatic_connections(db)
+    return request.app.state.templates.TemplateResponse(
+        request,
+        "fragments/settings/connection_rebuild.html",
+        {"connection_rebuild_result": result},
+    )
+
+
 @router.get("/{item_id}/related/search")
 async def search_related_media(
     request: Request,
