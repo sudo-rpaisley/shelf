@@ -1,0 +1,71 @@
+{% extends "base.html" %}
+{% block title %}Needs attention — Shelf{% endblock %}
+{% block content %}
+<div class="max-w-7xl mx-auto space-y-6">
+    <div>
+        <p class="text-shelf-accent2 text-sm font-medium mb-1">Library health</p>
+        <h1 class="text-3xl font-bold">Needs attention</h1>
+        <p class="text-shelf-muted mt-2">Work through incomplete catalogue records without hunting for them individually.</p>
+    </div>
+
+    <div class="grid grid-cols-2 lg:grid-cols-4 gap-3">
+        {% for category in categories %}
+        <a href="/attention?category={{ category.key }}"
+           data-attention-category="{{ category.key }}"
+           class="border rounded-xl p-4 transition-colors {% if active_category == category.key %}bg-shelf-hover text-white border-shelf-accent/40{% else %}bg-shelf-card text-shelf-muted border-shelf-border hover:text-white hover:bg-shelf-hover{% endif %}">
+            <div class="flex items-start justify-between gap-3">
+                <div class="min-w-0">
+                    <p class="font-semibold text-shelf-text">{{ category.label }}</p>
+                    <p class="text-xs mt-1">{{ category.description }}</p>
+                </div>
+                <span class="text-xl font-bold text-shelf-accent2">{{ category.count }}</span>
+            </div>
+        </a>
+        {% endfor %}
+    </div>
+
+    <section>
+        <div class="flex items-center justify-between mb-4">
+            <div>
+                <h2 class="text-xl font-bold">{{ active_definition.label }}</h2>
+                <p class="text-sm text-shelf-muted mt-1">{{ active_definition.description }}</p>
+            </div>
+            <span class="text-sm text-shelf-muted">{{ attention_items|length }} shown</span>
+        </div>
+
+        {% if attention_items %}
+        <div class="space-y-2" data-testid="attention-results">
+            {% for item in attention_items %}
+            <div class="bg-shelf-card border border-shelf-border rounded-xl p-3 flex items-center gap-4">
+                <a href="/item/{{ item.id }}" class="w-12 h-16 shrink-0 bg-shelf-hover rounded overflow-hidden flex items-center justify-center">
+                    {% if item.cover_path %}
+                    <img src="/{{ item.cover_path }}" alt="" class="w-full h-full" style="object-fit:contain">
+                    {% else %}
+                    <span class="text-xs text-shelf-muted">{{ item.title[0] if item.title else '?' }}</span>
+                    {% endif %}
+                </a>
+                <div class="min-w-0 flex-1">
+                    <a href="/item/{{ item.id }}" class="font-medium hover:text-shelf-accent2 transition-colors">{{ item.title }}</a>
+                    <p class="text-sm text-shelf-muted truncate mt-1">
+                        {{ item.authors or item.media_type }}{% if item.issue_number %} · Issue {{ item.issue_number }}{% elif item.issue_date %} · {{ item.issue_date }}{% elif item.publish_year %} · {{ item.publish_year }}{% endif %}{% if item.location_name %} · {{ item.location_name }}{% endif %}
+                    </p>
+                </div>
+                {% if user and user.role in ('editor', 'admin') %}
+                <a href="/item/{{ item.id }}/edit"
+                   class="px-3 py-2 bg-shelf-hover border border-shelf-border rounded-lg text-sm hover:border-shelf-accent/50 hover:text-white transition-colors">Fix</a>
+                {% endif %}
+            </div>
+            {% endfor %}
+        </div>
+        {% if result_truncated %}
+        <p class="text-sm text-shelf-muted mt-4">Showing the first 200 matches. Fix some records to reveal the rest.</p>
+        {% endif %}
+        {% else %}
+        <div class="bg-shelf-card border border-shelf-border rounded-xl p-8 text-center" data-testid="attention-empty">
+            <p class="font-medium">Nothing to fix here.</p>
+            <p class="text-sm text-shelf-muted mt-1">This category is currently clear.</p>
+        </div>
+        {% endif %}
+    </section>
+</div>
+{% endblock %}
