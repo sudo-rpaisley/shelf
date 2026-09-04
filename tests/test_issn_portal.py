@@ -39,7 +39,9 @@ async def test_lookup_reads_exact_issn_from_linked_open_data():
     assert result.payload["issn"] == "0953-6167"
     assert result.payload["series_name"] == "VW motoring"
 
-    assert fake_fetch.await_args.args[2].endswith("/resource/ISSN/0953-6167")
+    assert fake_fetch.await_args.args[2] == (
+        "https://portal-plus.issn.org/resource/ISSN/0953-6167"
+    )
     assert fake_fetch.await_args.kwargs["params"] == {"format": "json"}
     assert fake_fetch.await_args.kwargs["follow_redirects"] is True
     assert "application/ld+json" in fake_fetch.await_args.kwargs["headers"]["Accept"]
@@ -68,6 +70,22 @@ async def test_lookup_accepts_issn_match_from_resource_id():
 
     assert result.found
     assert result.payload["issn"] == "0953-6167"
+
+
+@pytest.mark.asyncio
+async def test_lookup_accepts_schema_issn_property():
+    payload = _payload()
+    node = payload["@graph"][1]
+    del node["identifier"]
+    node["@id"] = "resource/serial/vw-motoring"
+    node["http://schema.org/issn"] = "0953-6167"
+    fake_fetch = AsyncMock(return_value=httpx.Response(200, json=payload))
+
+    with patch("app.services.issn_portal.outbound.fetch", new=fake_fetch):
+        result = await issn_portal.lookup("0953-6167", object())
+
+    assert result.found
+    assert result.payload["title"] == "VW motoring"
 
 
 @pytest.mark.parametrize(("status", "outcome"), [
