@@ -40,11 +40,52 @@ async def test_lookup_reads_exact_issn_from_linked_open_data():
     assert result.payload["series_name"] == "VW motoring"
 
     assert fake_fetch.await_args.args[2] == (
-        "https://issn.org/resource/ISSN/0953-6167"
+        "https://portal.issn.org/resource/ISSN/0953-6167"
     )
     assert fake_fetch.await_args.kwargs["params"] == {"format": "json"}
     assert fake_fetch.await_args.kwargs["follow_redirects"] is True
     assert "application/ld+json" in fake_fetch.await_args.kwargs["headers"]["Accept"]
+    assert fake_fetch.await_count == 1
+
+
+@pytest.mark.asyncio
+async def test_lookup_falls_back_to_portal_plus_when_public_portal_misses():
+    fake_fetch = AsyncMock(
+        side_effect=[
+            httpx.Response(404),
+            httpx.Response(200, json=_payload()),
+        ]
+    )
+
+    with patch("app.services.issn_portal.outbound.fetch", new=fake_fetch):
+        result = await issn_portal.lookup("0953-6167", object())
+
+    assert result.found
+    assert result.payload["title"] == "VW motoring"
+    assert fake_fetch.await_count == 2
+    assert fake_fetch.await_args_list[0].args[2] == (
+        "https://portal.issn.org/resource/ISSN/0953-6167"
+    )
+    assert fake_fetch.await_args_list[1].args[2] == (
+        "https://portal-plus.issn.org/resource/ISSN/0953-6167"
+    )
+
+
+@pytest.mark.asyncio
+async def test_lookup_falls_back_when_public_portal_returns_html():
+    fake_fetch = AsyncMock(
+        side_effect=[
+            httpx.Response(200, text="<html>portal UI</html>"),
+            httpx.Response(200, json=_payload()),
+        ]
+    )
+
+    with patch("app.services.issn_portal.outbound.fetch", new=fake_fetch):
+        result = await issn_portal.lookup("0953-6167", object())
+
+    assert result.found
+    assert result.payload["title"] == "VW motoring"
+    assert fake_fetch.await_count == 2
 
 
 @pytest.mark.asyncio
@@ -102,6 +143,7 @@ async def test_lookup_preserves_http_outcomes(status, outcome):
         result = await issn_portal.lookup("0953-6167", object())
 
     assert result.outcome == outcome
+    assert fake_fetch.await_count == 2
 
 
 @pytest.mark.asyncio
@@ -112,3 +154,4 @@ async def test_lookup_preserves_transport_failure():
         result = await issn_portal.lookup("0953-6167", object())
 
     assert result.outcome == "transport_failed"
+    assert fake_fetch.await_count == 2
