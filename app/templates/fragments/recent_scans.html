@@ -13,7 +13,7 @@
         {% if scan.authors %}<p class="text-sm text-shelf-muted truncate">{{ scan.authors }}</p>{% endif %}
     </div>
     <span class="text-xs px-2 py-1 rounded-full shrink-0
-        {% if scan.result in ('added', 'returned', 'confirmed', 'marked_read') %}bg-shelf-success/20 text-shelf-success
+        {% if scan.result in ('added', 'returned', 'confirmed', 'marked_read', 'shelved') %}bg-shelf-success/20 text-shelf-success
         {% elif scan.result == 'wishlisted' %}bg-purple-500/20 text-purple-400
         {% elif scan.result == 'checked_out' %}bg-orange-500/20 text-orange-400
         {% elif scan.result in ('moved', 'found', 'relocated') %}bg-blue-500/20 text-blue-400

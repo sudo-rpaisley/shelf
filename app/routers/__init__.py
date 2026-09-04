@@ -24,5 +24,6 @@ from app.routers import attention as attention  # noqa: F401,E402
 from app.routers import items_common as items_common  # noqa: F401,E402
 from app.routers import items_magazines as items_magazines  # noqa: F401,E402
 from app.routers import magazines as magazines  # noqa: F401,E402
+from app.routers import shelf_fill as shelf_fill  # noqa: F401,E402
 
 items_magazines.install_scan_dispatch()
