@@ -45,6 +45,8 @@ def test_shelf_fill_typed_scan_uses_sticky_precise_location(live_server, authed_
     picker = authed_page.locator("#shelf-fill-location")
     expect(picker).to_be_visible(timeout=5_000)
     picker.select_option(label="E2E Shelf · 1 copy")
+    selected_location = picker.input_value()
+    assert selected_location
 
     authed_page.fill("#isbn-input", "9780000000170")
     authed_page.press("#isbn-input", "Enter")
@@ -59,7 +61,7 @@ def test_shelf_fill_typed_scan_uses_sticky_precise_location(live_server, authed_
     # filling the same physical shelf without re-selecting it each time.
     authed_page.reload()
     authed_page.wait_for_load_state("networkidle")
-    expect(authed_page.locator("#shelf-fill-location")).to_have_value(
-        authed_page.locator("#shelf-fill-location").input_value(), timeout=5_000
-    )
-    expect(authed_page.locator("#shelf-fill-location option:checked")).to_contain_text("E2E Shelf")
+    reloaded_picker = authed_page.locator("#shelf-fill-location")
+    expect(reloaded_picker).to_be_visible(timeout=5_000)
+    expect(reloaded_picker).to_have_value(selected_location)
+    expect(reloaded_picker.locator("option:checked")).to_contain_text("E2E Shelf")
