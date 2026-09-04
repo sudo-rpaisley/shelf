@@ -72,8 +72,9 @@
                         {% endif %}
                     </div>
 
-                    {% if can_edit %}
-                    <div class="flex flex-wrap items-center gap-2">
+                    {% if can_edit or abs_url or komga_url or romm_url %}
+                    <div class="flex flex-wrap items-center gap-2" data-testid="item-hero-actions">
+                        {% if can_edit %}
                         <a href="/item/{{ item.id }}/edit{% if back.key %}?from={{ back.key }}{% endif %}"
                            class="px-4 py-2 bg-shelf-accent text-white rounded-lg text-sm hover:bg-shelf-accent2 transition-colors">
                             Edit
@@ -99,6 +100,33 @@
                                 </button>
                             </div>
                         </div>
+                        {% endif %}
+
+                        {% if abs_url %}
+                        <a href="{{ abs_url }}" target="_blank" rel="noopener"
+                           class="inline-flex items-center gap-1 px-4 py-2 bg-shelf-accent/20 text-shelf-accent2 rounded-lg text-sm hover:bg-shelf-accent/30 transition-colors">
+                            {% if item.media_type == 'ebook' %}Read on Audiobookshelf{% else %}Listen on Audiobookshelf{% endif %}
+                        </a>
+                        {% endif %}
+                        {% if komga_url %}
+                        <a href="{{ komga_url }}" target="_blank" rel="noopener"
+                           class="inline-flex items-center gap-1 px-4 py-2 bg-shelf-accent/20 text-shelf-accent2 rounded-lg text-sm hover:bg-shelf-accent/30 transition-colors">Open in Komga</a>
+                        {% endif %}
+                        {% if romm_url %}
+                        <a href="{{ romm_url }}" target="_blank" rel="noopener"
+                           class="inline-flex items-center gap-1 px-4 py-2 bg-shelf-accent/20 text-shelf-accent2 rounded-lg text-sm hover:bg-shelf-accent/30 transition-colors">Open in RomM</a>
+                        {% endif %}
+                        {% if has_hardcover and item.media_type in ('book', 'ebook', 'audiobook', 'kids_book', 'comic', 'digital_comic') and can_edit %}
+                        <div x-data="hardcoverPush" data-item-id="{{ item.id }}">
+                            <button @click="push" :disabled="hcPushing"
+                                    class="inline-flex items-center gap-1.5 px-4 py-2 rounded-lg text-sm transition-colors {% if item.hardcover_user_book_id %}bg-shelf-success/20 text-shelf-success hover:bg-shelf-success/30{% else %}bg-shelf-accent/20 text-shelf-accent2 hover:bg-shelf-accent/30{% endif %}">
+                                <span x-show="!hcPushing">{% if item.hardcover_user_book_id %}Synced to Hardcover{% else %}Push to Hardcover{% endif %}</span>
+                                <span x-show="hcPushing">Syncing...</span>
+                            </button>
+                            <template x-if="hcResult && !hcResult.ok"><p class="text-xs text-shelf-error mt-1" x-text="hcResult.message"></p></template>
+                            <template x-if="hcResult && hcResult.ok && hcResult.status === 'added'"><p class="text-xs text-shelf-success mt-1">Added to your Hardcover library</p></template>
+                        </div>
+                        {% endif %}
                     </div>
                     {% endif %}
                 </div>
@@ -248,43 +276,6 @@
             </div>
             <div hx-get="/api/music/items/{{ item.id }}/detail" hx-trigger="load" hx-swap="outerHTML">
                 <div class="text-sm text-shelf-muted">Loading release metadata…</div>
-            </div>
-        </section>
-        {% endif %}
-
-        {% if abs_url or komga_url or romm_url or (has_hardcover and item.media_type in ('book', 'ebook', 'audiobook', 'kids_book', 'comic', 'digital_comic') and can_edit) %}
-        <!-- Connected services -->
-        <section class="bg-shelf-card rounded-xl border border-shelf-border p-6" data-testid="item-connected-services">
-            <div class="mb-4">
-                <p class="text-xs uppercase tracking-wider text-shelf-muted">Connected services</p>
-                <h2 class="text-lg font-semibold mt-1">Open and sync elsewhere</h2>
-            </div>
-            <div class="flex flex-wrap gap-2">
-                {% if abs_url %}
-                <a href="{{ abs_url }}" target="_blank" rel="noopener"
-                   class="inline-flex items-center gap-1 px-3 py-1.5 bg-shelf-accent/20 text-shelf-accent2 rounded-lg text-sm hover:bg-shelf-accent/30 transition-colors">
-                    {% if item.media_type == 'ebook' %}Read on Audiobookshelf{% else %}Listen on Audiobookshelf{% endif %}
-                </a>
-                {% endif %}
-                {% if komga_url %}
-                <a href="{{ komga_url }}" target="_blank" rel="noopener"
-                   class="inline-flex items-center gap-1 px-3 py-1.5 bg-shelf-accent/20 text-shelf-accent2 rounded-lg text-sm hover:bg-shelf-accent/30 transition-colors">Open in Komga</a>
-                {% endif %}
-                {% if romm_url %}
-                <a href="{{ romm_url }}" target="_blank" rel="noopener"
-                   class="inline-flex items-center gap-1 px-3 py-1.5 bg-shelf-accent/20 text-shelf-accent2 rounded-lg text-sm hover:bg-shelf-accent/30 transition-colors">Open in RomM</a>
-                {% endif %}
-                {% if has_hardcover and item.media_type in ('book', 'ebook', 'audiobook', 'kids_book', 'comic', 'digital_comic') and can_edit %}
-                <div x-data="hardcoverPush" data-item-id="{{ item.id }}">
-                    <button @click="push" :disabled="hcPushing"
-                            class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm transition-colors {% if item.hardcover_user_book_id %}bg-shelf-success/20 text-shelf-success hover:bg-shelf-success/30{% else %}bg-shelf-accent/20 text-shelf-accent2 hover:bg-shelf-accent/30{% endif %}">
-                        <span x-show="!hcPushing">{% if item.hardcover_user_book_id %}Synced to Hardcover{% else %}Push to Hardcover{% endif %}</span>
-                        <span x-show="hcPushing">Syncing...</span>
-                    </button>
-                    <template x-if="hcResult && !hcResult.ok"><p class="text-xs text-shelf-error mt-1" x-text="hcResult.message"></p></template>
-                    <template x-if="hcResult && hcResult.ok && hcResult.status === 'added'"><p class="text-xs text-shelf-success mt-1">Added to your Hardcover library</p></template>
-                </div>
-                {% endif %}
             </div>
         </section>
         {% endif %}
