@@ -5,7 +5,7 @@ could see its audiobook, but the audiobook could not necessarily see another
 edition that was linked through the physical copy. A media group is the
 *connected component* of that graph. No second source of truth is required.
 
-Automatic grouping stays inside three format families (books, comics and
+Automatic grouping stays inside four format families (books, comics, manga and
 games). Cross-family relationships such as a novel and its game adaptation are
 user-managed links.
 """
@@ -19,6 +19,7 @@ from collections import defaultdict
 FAMILIES: dict[str, frozenset[str]] = {
     "book": frozenset({"book", "kids_book", "ebook", "audiobook"}),
     "comic": frozenset({"comic", "digital_comic"}),
+    "manga": frozenset({"manga", "digital_manga"}),
     "game": frozenset({"video_game", "digital_game"}),
 }
 
@@ -58,7 +59,7 @@ def _authors_compatible(a: str | None, b: str | None) -> bool:
 
 
 def _match(a, b, family: str) -> bool:
-    if family in ("book", "comic"):
+    if family in ("book", "comic", "manga"):
         if a["isbn"] and b["isbn"] and a["isbn"] == b["isbn"]:
             return True
         return (
@@ -181,11 +182,11 @@ def auto_link_family(db, family: str) -> int:
         title_key = normalise_title(row["title"])
         if title_key:
             by_title[title_key].append(row)
-        if family in ("book", "comic") and row["isbn"]:
+        if family in ("book", "comic", "manga") and row["isbn"]:
             by_isbn[row["isbn"]].append(row)
 
     created = 0
-    # ISBN is the strongest book/comic signal and may bridge title variations.
+    # ISBN is the strongest book/comic/manga signal and may bridge title variations.
     for group in by_isbn.values():
         if len(group) < 2:
             continue

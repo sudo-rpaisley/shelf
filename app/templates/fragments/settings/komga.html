@@ -22,10 +22,11 @@
                     <li>Enter the Komga server URL Shelf can reach (for example <span class="text-shelf-accent2">http://komga:25600</span>)</li>
                     <li>Paste the API key below and use <span class="text-shelf-text">Test</span> to verify the connection</li>
                     <li>If browsers use a different reverse-proxy domain, set the Komga Browser URL below</li>
+                    <li>Under Manage Libraries, choose whether each Komga library contains Comics or Manga</li>
                 </ol>
                 <div class="mt-4 p-3 bg-shelf-bg rounded-lg text-xs text-shelf-muted">
                     <p class="font-medium text-shelf-text mb-1">What does sync do?</p>
-                    <p>Sync imports books from selected Komga libraries as Digital Comic items, including issue metadata and Komga cover art. Physical comics remain separate and are linked to their digital copy by ISBN or title.</p>
+                    <p>Sync imports books from selected Komga libraries as Digital Comic or Digital Manga items, including issue metadata and Komga cover art. Physical copies remain separate and can be linked to their digital counterpart by ISBN or title.</p>
                 </div>
                 <button @click="showHelp = false" class="mt-4 w-full text-center px-4 py-2 bg-shelf-hover text-shelf-text rounded-lg text-sm hover:bg-shelf-border transition-colors">Got it</button>
             </div>
@@ -136,11 +137,11 @@
                 <button type="submit" class="px-3 py-1 bg-shelf-hover text-shelf-text rounded-lg text-xs hover:bg-shelf-border transition-colors">Save</button>
             </form>
 
-            <div class="mt-4 pt-4 border-t border-shelf-border" x-data="komgaLibraries">
+            <div class="mt-4 pt-4 border-t border-shelf-border" x-data="komgaLibrariesTyped">
                 <div class="flex items-center justify-between">
                     <div>
                         <p class="text-sm font-medium text-shelf-text">Libraries to sync</p>
-                        <p class="text-xs text-shelf-muted">Uncheck Komga libraries you don't want represented in Shelf.</p>
+                        <p class="text-xs text-shelf-muted">Choose which Komga libraries Shelf imports and whether each one contains Comics or Manga.</p>
                     </div>
                     <button @click="loadLibs" x-show="!libs" :disabled="libsLoading"
                             class="px-3 py-1.5 bg-shelf-hover text-shelf-text rounded-lg text-xs hover:bg-shelf-border transition-colors disabled:opacity-50 shrink-0">
@@ -152,17 +153,21 @@
                 <template x-if="libs">
                     <div class="mt-3 space-y-2">
                         <template x-for="lib in libs" :key="lib.id">
-                            <label class="flex items-center gap-2 text-sm cursor-pointer">
+                            <div class="flex items-center gap-2 text-sm">
                                 <input type="checkbox" :checked="lib.included" @change="toggleLib(lib.id)"
                                        class="rounded border-shelf-border bg-shelf-bg text-shelf-accent focus:ring-shelf-accent">
-                                <span class="text-shelf-text" x-text="lib.name"></span>
-                                <span class="text-xs text-shelf-muted">(Digital Comic)</span>
-                            </label>
+                                <span class="text-shelf-text flex-1" x-text="lib.name"></span>
+                                <select :value="lib.media_type" @change="setMediaType(lib.id, $event)"
+                                        class="bg-shelf-bg border border-shelf-border rounded-lg px-2 py-1 text-sm text-shelf-text">
+                                    <option value="digital_comic">Comic</option>
+                                    <option value="digital_manga">Manga</option>
+                                </select>
+                            </div>
                         </template>
                         <div class="flex items-center gap-2 pt-2">
                             <button @click="saveLibs" :disabled="libsSaving"
                                     class="px-3 py-1.5 bg-shelf-accent text-white rounded-lg text-xs hover:bg-shelf-accent2 transition-colors disabled:opacity-50">
-                                <span x-show="!libsSaving">Save Selection</span>
+                                <span x-show="!libsSaving">Save Library Settings</span>
                                 <span x-show="libsSaving" x-cloak>Saving&hellip;</span>
                             </button>
                             <button @click="cleanup" :disabled="cleaning || !hasExcluded"
@@ -171,7 +176,7 @@
                                 <span x-show="cleaning" x-cloak>Removing&hellip;</span>
                             </button>
                         </div>
-                        <p class="text-xs text-shelf-muted">Cleanup never changes Komga. Comics that existed in Shelf before sync are detached from Komga rather than deleted.</p>
+                        <p class="text-xs text-shelf-muted">Shelf suggests Manga for libraries with “Manga” in their name. You can override every library. Changing the type reclassifies existing synced items without creating duplicates. Cleanup never changes Komga.</p>
                         <template x-if="cleanResult && cleanResult.ok">
                             <p class="text-xs text-shelf-success" x-text="cleanResultLabel"></p>
                         </template>

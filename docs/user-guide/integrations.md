@@ -33,6 +33,22 @@ URL and token, **Test**, then choose which libraries to include. Set an
 interval for automatic sync or run it by hand. Items removed from ABS can be
 cleaned up from the same card.
 
+## Komga
+
+[komga.org](https://komga.org) — self-hosted comics and Manga server.
+
+**Adds:** sync of selected Komga libraries into Shelf as Digital Comic or
+Digital Manga items, including issue metadata, series membership, cover art
+and a browser-facing link back to Komga. Physical copies stay separate and
+can be linked automatically to their digital counterpart.
+
+**Setup:** enter the Komga URL Shelf can reach and an API key, then use
+**Manage Libraries** to choose which libraries are included. Each Komga
+library has its own **Comic / Manga** classification. Shelf initially suggests
+Manga when the library name contains “Manga” and Comic otherwise, but every
+suggestion can be overridden. Changing a library from Comic to Manga (or back)
+reclassifies existing synced items in place rather than creating duplicates.
+
 A scan that comes back thin tells you **on the card** which of five things
 happened: no credential configured, a credential the provider rejected, a
 provider that is rate-limiting you right now, a format Shelf has no metadata
@@ -159,7 +175,8 @@ can be starved at once. See
 ## Supplying keys by environment instead
 
 Every key except the vision providers can come from an environment variable
-(`HARDCOVER_TOKEN`, `GOOGLE_BOOKS_API_KEY`, `ABS_URL`/`ABS_TOKEN`, `ISBNDB_API_KEY`, `TMDB_API_KEY`,
+(`HARDCOVER_TOKEN`, `GOOGLE_BOOKS_API_KEY`, `ABS_URL`/`ABS_TOKEN`,
+`KOMGA_URL`/`KOMGA_API_KEY`, `ISBNDB_API_KEY`, `TMDB_API_KEY`,
 `IGDB_CLIENT_ID`/`IGDB_CLIENT_SECRET`), which overrides whatever is stored. The
 secret field stays blank in Settings — Shelf never echoes a secret back — but
 **Test key** still works against it, so you can confirm the key without pasting

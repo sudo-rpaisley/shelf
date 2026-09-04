@@ -17,6 +17,7 @@ DIGITAL_MEDIA_TYPES = frozenset({
     "ebook",
     "digital_music",
     "digital_comic",
+    "digital_manga",
     "digital_game",
 })
 

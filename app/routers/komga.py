@@ -127,16 +127,25 @@ async def list_libraries():
         return {"ok": False, "message": "Komga returned an invalid library response"}
 
     excluded = komga.get_excluded_libraries()
-    libraries = [
-        {
-            "id": library.get("id"),
-            "name": library.get("name"),
-            "media_type": "digital_comic",
-            "included": library.get("id") not in excluded,
-        }
-        for library in raw_libraries
-        if isinstance(library, dict) and library.get("id")
-    ]
+    configured_types = komga.get_library_media_types()
+    libraries = []
+    for library in raw_libraries:
+        if not isinstance(library, dict) or not library.get("id"):
+            continue
+        library_id = str(library["id"])
+        media_type = komga.library_media_type(
+            library_id, library.get("name"), configured_types
+        )
+        libraries.append(
+            {
+                "id": library_id,
+                "name": library.get("name"),
+                "media_type": media_type,
+                "media_type_label": komga.KOMGA_MEDIA_TYPE_LABELS[media_type],
+                "included": library_id not in excluded,
+                "explicit_media_type": library_id in configured_types,
+            }
+        )
     return {"ok": True, "libraries": libraries}
 
 
@@ -148,19 +157,46 @@ async def save_libraries(request: Request):
         return {"ok": False, "message": "Invalid request body"}
     if not isinstance(body, dict):
         return {"ok": False, "message": "Invalid request body"}
+
     raw_excluded = body.get("excluded") or []
+    raw_media_types = body.get("media_types") or {}
     if not isinstance(raw_excluded, list) or not all(
-        isinstance(value, str) for value in raw_excluded
+        isinstance(value, str) and value.strip() for value in raw_excluded
     ):
         return {"ok": False, "message": "Invalid request body"}
+    if not isinstance(raw_media_types, dict) or not all(
+        isinstance(library_id, str)
+        and library_id.strip()
+        and isinstance(media_type, str)
+        and media_type in komga.KOMGA_LIBRARY_MEDIA_TYPES
+        for library_id, media_type in raw_media_types.items()
+    ):
+        return {"ok": False, "message": "Invalid request body"}
+
+    media_types = {
+        library_id.strip(): media_type
+        for library_id, media_type in raw_media_types.items()
+    }
+    excluded = [library_id.strip() for library_id in raw_excluded]
 
     with get_db() as db:
         db.execute(
             "INSERT INTO settings (key, value) VALUES ('komga_excluded_libraries', ?) "
             "ON CONFLICT(key) DO UPDATE SET value = excluded.value",
-            (json.dumps(raw_excluded),),
+            (json.dumps(excluded),),
         )
-    return {"ok": True, "excluded": raw_excluded}
+        db.execute(
+            "INSERT INTO settings (key, value) VALUES ('komga_library_media_types', ?) "
+            "ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+            (json.dumps(media_types, sort_keys=True),),
+        )
+        reclassified = komga.apply_library_media_types(db, media_types)
+    return {
+        "ok": True,
+        "excluded": excluded,
+        "media_types": media_types,
+        "reclassified": reclassified,
+    }
 
 
 @router.post("/libraries/cleanup")

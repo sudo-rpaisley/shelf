@@ -2,7 +2,7 @@
 
 Browse has two independent compact views:
 
-* Digital Comics can collapse by series (Komga ``seriesId`` when available).
+* Digital Comics and Manga can collapse by series (Komga ``seriesId`` when available).
 * Items connected through ``item_links`` collapse into one linked-media stack.
 
 Grouping is performed before LIMIT/OFFSET so a group cannot consume a page or
@@ -19,11 +19,13 @@ from urllib.parse import urlencode
 from app.config import MEDIA_TYPES
 from app.database import get_setting
 
+# The historical setting name remains for backward compatibility; the switch
+# now controls both Digital Comic and Digital Manga series grouping.
 SETTING_KEY = "browse_group_digital_comics"
 MEDIA_SETTING_KEY = "browse_group_related_media"
 _FALSE_VALUES = {"0", "false", "off", "no"}
 _GROUPABLE = (
-    "i.media_type = 'digital_comic' "
+    "i.media_type IN ('digital_comic', 'digital_manga') "
     "AND i.series_name IS NOT NULL AND TRIM(i.series_name) != ''"
 )
 _SERIES_IDENTITY = (
@@ -31,7 +33,7 @@ _SERIES_IDENTITY = (
     "WHEN LOWER(COALESCE(i.source, '')) = 'komga' "
     "AND i.komga_series_id IS NOT NULL AND TRIM(i.komga_series_id) != '' "
     "THEN 'komga:' || TRIM(i.komga_series_id) "
-    "ELSE 'series:' || LOWER(TRIM(i.series_name)) END"
+    "ELSE 'series:' || i.media_type || ':' || LOWER(TRIM(i.series_name)) END"
 )
 _GROUP_KEY = (
     "CASE WHEN " + _GROUPABLE + " THEN " + _SERIES_IDENTITY + " "
@@ -67,7 +69,7 @@ media_roots(id, root) AS (
 
 
 def grouping_enabled(db, values: dict) -> bool:
-    """Whether this request should collapse Digital Comic series."""
+    """Whether this request should collapse Digital Comic/Manga series."""
     if values.get("series"):
         return False
     raw = get_setting(db, SETTING_KEY)
@@ -128,7 +130,7 @@ def _plain_page(db, where: str, params: list, order_clause: str, *, limit: int, 
 
 
 def _earliest_group_covers(db, group_keys: list[str]) -> dict[str, str | None]:
-    """Return the cover belonging to the earliest item in each comic series."""
+    """Return the cover belonging to the earliest item in each comic/Manga series."""
     if not group_keys:
         return {}
     placeholders = ",".join("?" for _ in group_keys)
@@ -141,7 +143,7 @@ def _earliest_group_covers(db, group_keys: list[str]) -> dict[str, str | None]:
                                 (publish_year IS NULL), publish_year ASC, id ASC
                    ) AS issue_rank
               FROM items i
-             WHERE media_type = 'digital_comic'
+             WHERE media_type IN ('digital_comic', 'digital_manga')
                AND series_name IS NOT NULL AND TRIM(series_name) != ''
                AND {_GROUP_KEY} IN ({placeholders})
         )
@@ -327,7 +329,7 @@ def fetch_page(
             item["cover_path"] = earliest_covers.get(group_key)
             detail_params = {
                 "name": item["series_name"],
-                "media_type": "digital_comic",
+                "media_type": item["media_type"],
             }
             if group_key.startswith("komga:"):
                 detail_params["komga_series_id"] = group_key[6:]
