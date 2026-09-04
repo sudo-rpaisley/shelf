@@ -13,7 +13,7 @@ from fastapi import Request
 from app.config import HTTP_TIMEOUT
 from app.database import get_db, get_setting
 from app.routers import items_common
-from app.services import googlebooks, periodicals, upcitemdb
+from app.services import googlebooks, issn_portal, periodicals, upcitemdb
 
 
 async def scan_magazine(
@@ -30,11 +30,21 @@ async def scan_magazine(
         google_api_key = get_setting(db, "google_books_api_key") or None
 
     async with httpx.AsyncClient(timeout=HTTP_TIMEOUT) as client:
+        # Google Books is cheap and can provide richer publication metadata for
+        # magazines it has digitised. Older/niche magazines are often absent,
+        # so an exact ISSN miss falls through to the ISSN International
+        # Centre's linked-open-data record before the generic retail database.
         google_result = await googlebooks.lookup_magazine_by_issn(
             serial.issn, client, api_key=google_api_key
         )
         metadata = google_result.payload if google_result.found else None
+        issn_result = None
         fallback_result = None
+
+        if metadata is None:
+            issn_result = await issn_portal.lookup(serial.issn, client)
+            if issn_result.found:
+                metadata = issn_result.payload
 
         if metadata is None:
             fallback_result = await upcitemdb.lookup(serial.ean13, client)
@@ -50,20 +60,25 @@ async def scan_magazine(
                     }
 
     if metadata is None:
-        # If neither source can answer because connectivity failed, do not turn
-        # that into a misleading catalogue miss. A genuine no-match still goes
-        # to the magazine-specific issue form with a blank publication title.
-        if google_result.outcome == "transport_failed" or (
-            fallback_result is not None
-            and fallback_result.outcome == "transport_failed"
-        ):
-            failed = (
-                google_result
-                if google_result.outcome == "transport_failed"
-                else fallback_result
-            )
+        # If every identification source missed, a transport failure is not a
+        # catalogue miss. Prefer the first failed leg so the scan card remains
+        # actionable instead of silently showing an empty publication title.
+        transport_failure = next(
+            (
+                result
+                for result in (google_result, issn_result, fallback_result)
+                if result is not None and result.outcome == "transport_failed"
+            ),
+            None,
+        )
+        if transport_failure is not None:
             return items_common._upc_lookup_error(
-                request, templates, serial.full_code, "magazine", mode, failed
+                request,
+                templates,
+                serial.full_code,
+                "magazine",
+                mode,
+                transport_failure,
             )
         metadata = {
             "title": "",
