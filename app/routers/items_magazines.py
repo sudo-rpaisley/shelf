@@ -1,16 +1,16 @@
 """Magazine and periodical-specific barcode scan flow.
 
-A 977 barcode identifies a serial publication by ISSN. It does not, by itself,
-reliably identify the exact issue, so this module stops after publication
-identification and asks for issue identity before creating an item. If a USB
-scanner supplies a 2/5-digit EAN add-on concatenated to the carrier, Shelf
-preserves it as issue-discriminator data without guessing its meaning.
+A 977 barcode identifies a serial publication by ISSN. North American consumer
+magazines may instead use an ordinary UPC-A carrier with a 2/5-digit add-on.
+Neither form safely identifies human-readable issue semantics on its own, so
+Shelf preserves the add-on as issue-discriminator data and asks for issue
+number/date rather than guessing a publisher-specific encoding.
 
-The lookup ladder deliberately favours serial-aware sources over generic retail
-metadata. This covers consumer magazines, newspapers and other ISSN serials via
-Google Books / ISSN Portal, scholarly journals via Crossref, then uses UPC Item
-DB only as a last resort. Generic category labels such as ``Magazine`` are not
-accepted as publication titles.
+For ISSN-bearing carriers the lookup ladder deliberately favours serial-aware
+sources: Google Books, ISSN Portal and Crossref, then UPC Item DB. Supplemented
+retail UPC/EAN periodicals first reuse publication metadata already learned by
+Shelf, then try UPC Item DB. Generic category labels such as ``Magazine`` are
+never accepted as publication titles.
 """
 
 import re
@@ -25,6 +25,7 @@ from app.services import (
     crossref_journals,
     googlebooks,
     issn_portal,
+    periodical_records,
     periodicals,
     upcitemdb,
 )
@@ -67,6 +68,53 @@ def _metadata_with_usable_title(result):
     return metadata
 
 
+def _known_publication_metadata(carrier_ean: str) -> dict | None:
+    """Reuse publication identity from an earlier issue with this carrier."""
+    with get_db() as db:
+        periodical_records.ensure_extended_schema(db)
+        row = db.execute(
+            "SELECT pp.title, pp.publisher, pp.language, pp.issn "
+            "FROM periodical_issues pi "
+            "JOIN periodical_publications pp ON pp.id = pi.publication_id "
+            "WHERE pi.barcode_ean = ? "
+            "ORDER BY pi.item_id DESC LIMIT 1",
+            (carrier_ean,),
+        ).fetchone()
+    if row is None:
+        return None
+    title = _usable_publication_title(row["title"])
+    if not title:
+        return None
+    return {
+        "title": title,
+        "publisher": row["publisher"],
+        "description": None,
+        "language": row["language"],
+        "issn": row["issn"],
+    }
+
+
+def _known_issue(serial: periodicals.PeriodicalBarcode) -> dict | None:
+    """Return an exact previously catalogued issue for carrier+supplement."""
+    if not serial.supplement:
+        return None
+    with get_db() as db:
+        periodical_records.ensure_extended_schema(db)
+        row = db.execute(
+            "SELECT i.id, i.title, i.authors, i.cover_path "
+            "FROM periodical_issues pi JOIN items i ON i.id = pi.item_id "
+            "WHERE pi.barcode_ean = ? AND pi.barcode_supplement = ? "
+            "ORDER BY pi.item_id DESC LIMIT 1",
+            (serial.ean13, serial.supplement),
+        ).fetchone()
+    return dict(row) if row else None
+
+
+def _retail_lookup_code(ean13: str) -> str:
+    """UPC Item DB is happiest with the native 12-digit UPC-A representation."""
+    return ean13[1:] if len(ean13) == 13 and ean13.startswith("0") else ean13
+
+
 async def scan_magazine(
     request: Request,
     templates,
@@ -76,29 +124,53 @@ async def scan_magazine(
     location_id: int | None,
     mode: str,
 ):
-    """Identify a 977 serial publication, then request concrete issue details."""
+    """Identify a periodical publication, then request concrete issue details."""
+    existing = _known_issue(serial)
+    if existing is not None:
+        items_common._log_scan(
+            serial.full_code, "magazine", "duplicate", existing["id"], mode
+        )
+        return templates.TemplateResponse(
+            request,
+            "fragments/scan_result.html",
+            {
+                "status": "duplicate",
+                "isbn": serial.full_code,
+                "title": existing["title"],
+                "authors": existing.get("authors"),
+                "cover_path": existing.get("cover_path"),
+                "item_id": existing["id"],
+            },
+        )
+
     with get_db() as db:
         google_api_key = get_setting(db, "google_books_api_key") or None
 
-    async with httpx.AsyncClient(timeout=HTTP_TIMEOUT) as client:
-        google_result = await googlebooks.lookup_magazine_by_issn(
-            serial.issn, client, api_key=google_api_key
-        )
-        metadata = _metadata_with_usable_title(google_result)
-        issn_result = None
-        crossref_result = None
-        fallback_result = None
+    metadata = _known_publication_metadata(serial.ean13)
+    google_result = None
+    issn_result = None
+    crossref_result = None
+    fallback_result = None
 
-        if metadata is None:
+    async with httpx.AsyncClient(timeout=HTTP_TIMEOUT) as client:
+        if metadata is None and serial.issn:
+            google_result = await googlebooks.lookup_magazine_by_issn(
+                serial.issn, client, api_key=google_api_key
+            )
+            metadata = _metadata_with_usable_title(google_result)
+
+        if metadata is None and serial.issn:
             issn_result = await issn_portal.lookup(serial.issn, client)
             metadata = _metadata_with_usable_title(issn_result)
 
-        if metadata is None:
+        if metadata is None and serial.issn:
             crossref_result = await crossref_journals.lookup(serial.issn, client)
             metadata = _metadata_with_usable_title(crossref_result)
 
         if metadata is None:
-            fallback_result = await upcitemdb.lookup(serial.ean13, client)
+            fallback_result = await upcitemdb.lookup(
+                _retail_lookup_code(serial.ean13), client
+            )
             if fallback_result.found:
                 product = fallback_result.payload or {}
                 title = _usable_publication_title(
@@ -163,7 +235,7 @@ async def scan_magazine(
 
 
 def install_scan_dispatch() -> None:
-    """Wrap the shared UPC handler once so 977 serials are dispatched here."""
+    """Wrap the shared UPC handler so periodical carriers are dispatched here."""
     current = items_common._scan_upc
     if getattr(current, "_shelf_magazine_dispatch", False):
         return
