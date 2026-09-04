@@ -93,7 +93,7 @@ GAME_PLATFORMS = {
     "3ds": "Nintendo 3DS",
     "genesis": "Sega Genesis",
     "saturn": "Sega Saturn",
-    "dreamcast": "Sega Dreamcast",
+    "dreamcast": "Dreamcast",
     "ps1": "PlayStation",
     "ps2": "PlayStation 2",
     "ps3": "PlayStation 3",
