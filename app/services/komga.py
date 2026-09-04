@@ -22,6 +22,12 @@ COVER_RETRIES = 1
 COVER_BATCH_SIZE = 8
 COVER_WALL_TIMEOUT = 15.0
 
+KOMGA_LIBRARY_MEDIA_TYPES = frozenset({"digital_comic", "digital_manga"})
+KOMGA_MEDIA_TYPE_LABELS = {
+    "digital_comic": "Digital Comic",
+    "digital_manga": "Digital Manga",
+}
+
 
 def get_excluded_libraries() -> set[str]:
     """Komga library IDs the user has opted out of syncing (JSON setting)."""
@@ -35,6 +41,91 @@ def get_excluded_libraries() -> set[str]:
         return set(json.loads(row["value"]))
     except (json.JSONDecodeError, TypeError):
         return set()
+
+
+def get_library_media_types() -> dict[str, str]:
+    """Return explicit Komga library -> Shelf digital media type mappings."""
+    with get_db() as db:
+        row = db.execute(
+            "SELECT value FROM settings WHERE key = 'komga_library_media_types'"
+        ).fetchone()
+    if not row or not row["value"]:
+        return {}
+    try:
+        raw = json.loads(row["value"])
+    except (json.JSONDecodeError, TypeError):
+        return {}
+    if not isinstance(raw, dict):
+        return {}
+    return {
+        str(library_id): media_type
+        for library_id, media_type in raw.items()
+        if str(library_id).strip() and media_type in KOMGA_LIBRARY_MEDIA_TYPES
+    }
+
+
+def suggest_library_media_type(name: str | None) -> str:
+    """Suggest Manga for clearly named Manga libraries, Comic otherwise."""
+    if "manga" in str(name or "").casefold():
+        return "digital_manga"
+    return "digital_comic"
+
+
+def library_media_type(
+    library_id: str,
+    library_name: str | None = None,
+    configured: dict[str, str] | None = None,
+) -> str:
+    """Resolve a library's selected media type, falling back to name detection."""
+    mappings = configured if configured is not None else get_library_media_types()
+    selected = mappings.get(str(library_id))
+    if selected in KOMGA_LIBRARY_MEDIA_TYPES:
+        return selected
+    return suggest_library_media_type(library_name)
+
+
+def _detach_automatic_format_links(db, item_id: int) -> None:
+    """Remove automatic related-format edges before changing media family."""
+    db.execute(
+        """DELETE FROM item_links
+           WHERE link_type = 'format' AND (item_a_id = ? OR item_b_id = ?)""",
+        (item_id, item_id),
+    )
+
+
+def apply_library_media_types(db, mappings: dict[str, str]) -> int:
+    """Immediately reclassify existing Komga-linked digital items.
+
+    This is used when the user changes a library mapping in Settings. Automatic
+    format links are rebuilt in the new family, while manual ``related`` links
+    remain untouched.
+    """
+    changed = 0
+    for library_id, media_type in mappings.items():
+        if media_type not in KOMGA_LIBRARY_MEDIA_TYPES:
+            continue
+        rows = db.execute(
+            """SELECT id, media_type FROM items
+               WHERE komga_library_id = ?
+                 AND media_type IN ('digital_comic', 'digital_manga')
+                 AND media_type != ?""",
+            (library_id, media_type),
+        ).fetchall()
+        for row in rows:
+            _detach_automatic_format_links(db, row["id"])
+            db.execute(
+                """UPDATE items SET media_type = ?, updated_at = datetime('now')
+                   WHERE id = ?""",
+                (media_type, row["id"]),
+            )
+            changed += 1
+
+    if changed:
+        from app.services import media_groups
+
+        media_groups.auto_link_family(db, "comic")
+        media_groups.auto_link_family(db, "manga")
+    return changed
 
 
 def get_browser_url(komga_url: str, komga_id: str) -> str:
@@ -289,7 +380,7 @@ async def _drain_cover_batch(cover_batch: list[tuple], stats: dict) -> None:
 
 
 async def sync(komga_url: str, api_key: str, on_progress=None) -> dict:
-    """Sync digital comics from Komga into Shelf."""
+    """Sync selected Komga libraries into Shelf as digital comics or Manga."""
     stats = {
         "added": 0,
         "updated": 0,
@@ -300,6 +391,7 @@ async def sync(komga_url: str, api_key: str, on_progress=None) -> dict:
         "cover_errors": 0,
     }
     excluded = get_excluded_libraries()
+    configured_types = get_library_media_types()
 
     async with httpx.AsyncClient(timeout=30) as client:
         try:
@@ -324,13 +416,14 @@ async def sync(komga_url: str, api_key: str, on_progress=None) -> dict:
             for library in raw_libraries
             if isinstance(library, dict)
             and library.get("id")
-            and library.get("id") not in excluded
+            and str(library.get("id")) not in excluded
         ]
 
         library_books: list[tuple[dict, list[dict]]] = []
         for library in libraries:
+            library_id = str(library["id"])
             books = await _fetch_library_books(
-                client, komga_url, api_key, library["id"]
+                client, komga_url, api_key, library_id
             )
             if books is None:
                 stats["errors"] += 1
@@ -342,7 +435,11 @@ async def sync(komga_url: str, api_key: str, on_progress=None) -> dict:
         cover_batch: list[tuple] = []
 
         for library, books in library_books:
-            library_id = library["id"]
+            library_id = str(library["id"])
+            media_type = library_media_type(
+                library_id, library.get("name"), configured_types
+            )
+            media_label = KOMGA_MEDIA_TYPE_LABELS[media_type]
             for book in books:
                 current += 1
                 komga_id = str(book.get("id") or "").strip()
@@ -385,14 +482,13 @@ async def sync(komga_url: str, api_key: str, on_progress=None) -> dict:
                         (komga_id,),
                     ).fetchone()
 
-                    # Early versions of this integration adopted a physical
-                    # `comic` row on ISBN match. Komga is a digital copy, so
-                    # repair that state in-place: preserve the physical item,
-                    # detach its Komga IDs, and create/link a Digital Comic.
+                    # Early versions of this integration could adopt a physical
+                    # comic row on ISBN match. Komga represents a digital copy,
+                    # so preserve any physical Comic or Manga and detach it.
                     if (
                         existing
                         and existing["source"] != "komga"
-                        and existing["media_type"] == "comic"
+                        and existing["media_type"] in ("comic", "manga")
                     ):
                         db.execute(
                             """UPDATE items SET komga_id = NULL,
@@ -403,34 +499,34 @@ async def sync(komga_url: str, api_key: str, on_progress=None) -> dict:
                         existing = None
 
                     # Shelf allows one ISBN in different formats. Only another
-                    # Digital Comic is a collision/adoption candidate; a
-                    # physical Comic / Graphic Novel should coexist and link.
+                    # item of this same digital Komga type is a collision or
+                    # adoption candidate; physical copies coexist and can link.
                     isbn_match = None
                     if isbn:
                         if existing:
                             isbn_match = db.execute(
                                 """SELECT id, komga_id FROM items
-                                   WHERE isbn = ? AND media_type = 'digital_comic'
-                                     AND id != ?
+                                   WHERE isbn = ? AND media_type = ? AND id != ?
                                    ORDER BY id LIMIT 1""",
-                                (isbn, existing["id"]),
+                                (isbn, media_type, existing["id"]),
                             ).fetchone()
                         else:
                             isbn_match = db.execute(
                                 """SELECT id, komga_id FROM items
-                                   WHERE isbn = ? AND media_type = 'digital_comic'
+                                   WHERE isbn = ? AND media_type = ?
                                    ORDER BY id LIMIT 1""",
-                                (isbn,),
+                                (isbn, media_type),
                             ).fetchone()
 
                     if isbn_match:
                         if existing or isbn_match["komga_id"]:
                             logger.warning(
                                 "Skipping Komga book %s (%s): ISBN %s already belongs "
-                                "to Digital Comic item %s",
+                                "to %s item %s",
                                 komga_id,
                                 title,
                                 isbn,
+                                media_label,
                                 isbn_match["id"],
                             )
                             stats["skipped"] += 1
@@ -438,7 +534,7 @@ async def sync(komga_url: str, api_key: str, on_progress=None) -> dict:
                                 await on_progress(
                                     current,
                                     total,
-                                    f"Digital Comic ISBN conflict with Shelf item "
+                                    f"{media_label} ISBN conflict with Shelf item "
                                     f"{isbn_match['id']} — {title} ({isbn})",
                                     "skipped",
                                 )
@@ -462,7 +558,7 @@ async def sync(komga_url: str, api_key: str, on_progress=None) -> dict:
                         "publish_year": publish_year,
                         "description": description,
                         "page_count": page_count,
-                        "media_type": "digital_comic",
+                        "media_type": media_type,
                         "komga_id": komga_id,
                         "komga_library_id": library_id,
                         "komga_series_id": series_id,
@@ -473,10 +569,12 @@ async def sync(komga_url: str, api_key: str, on_progress=None) -> dict:
                             existing[key] != value for key, value in desired.items()
                         )
                         if changed:
+                            if existing["media_type"] != media_type:
+                                _detach_automatic_format_links(db, existing["id"])
                             db.execute(
                                 """UPDATE items SET title=?, authors=?, isbn=?,
                                    series_name=?, series_position=?, publish_year=?,
-                                   description=?, page_count=?, media_type='digital_comic',
+                                   description=?, page_count=?, media_type=?,
                                    komga_id=?, komga_library_id=?, komga_series_id=?,
                                    updated_at=datetime('now') WHERE id=?""",
                                 (
@@ -488,6 +586,7 @@ async def sync(komga_url: str, api_key: str, on_progress=None) -> dict:
                                     publish_year,
                                     description,
                                     page_count,
+                                    media_type,
                                     komga_id,
                                     library_id,
                                     series_id,
@@ -510,7 +609,7 @@ async def sync(komga_url: str, api_key: str, on_progress=None) -> dict:
                             title=title,
                             authors=authors,
                             isbn=isbn,
-                            media_type="digital_comic",
+                            media_type=media_type,
                             publish_year=publish_year,
                             description=description,
                             series_name=series_name,
@@ -574,7 +673,9 @@ def _authors_compatible(a: str | None, b: str | None) -> bool:
 
 
 def _auto_link_items():
-    """Group physical and digital comic representations of the same work."""
+    """Group physical/digital Comic and Manga representations of a work."""
     from app.services import media_groups
+
     with get_db() as db:
         media_groups.auto_link_family(db, "comic")
+        media_groups.auto_link_family(db, "manga")
