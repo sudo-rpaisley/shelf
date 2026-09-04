@@ -187,6 +187,22 @@ MIGRATIONS: Sequence[tuple[int, str, str]] = (
     )"""),
     (45, "Index collection item memberships",
      "CREATE INDEX IF NOT EXISTS idx_collection_items_item ON collection_items(item_id)"),
+    (46, "Add external user identities table",
+     """CREATE TABLE IF NOT EXISTS user_identities (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        provider TEXT NOT NULL DEFAULT 'oidc',
+        issuer TEXT NOT NULL,
+        subject TEXT NOT NULL,
+        email TEXT,
+        last_login_at TEXT,
+        created_at TEXT NOT NULL DEFAULT (datetime('now')),
+        updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+        UNIQUE(issuer, subject),
+        UNIQUE(user_id, provider, issuer)
+    )"""),
+    (47, "Index external user identities",
+     "CREATE INDEX IF NOT EXISTS idx_user_identities_user ON user_identities(user_id)"),
 )
 
 MIGRATION_TABLES = """
@@ -273,6 +289,21 @@ CREATE TABLE IF NOT EXISTS users (
     created_at     TEXT NOT NULL DEFAULT (datetime('now')),
     updated_at     TEXT NOT NULL DEFAULT (datetime('now'))
 );
+
+CREATE TABLE IF NOT EXISTS user_identities (
+    id            INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id       INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    provider      TEXT NOT NULL DEFAULT 'oidc',
+    issuer        TEXT NOT NULL,
+    subject       TEXT NOT NULL,
+    email         TEXT,
+    last_login_at TEXT,
+    created_at    TEXT NOT NULL DEFAULT (datetime('now')),
+    updated_at    TEXT NOT NULL DEFAULT (datetime('now')),
+    UNIQUE(issuer, subject),
+    UNIQUE(user_id, provider, issuer)
+);
+CREATE INDEX IF NOT EXISTS idx_user_identities_user ON user_identities(user_id);
 
 CREATE TABLE IF NOT EXISTS game_platforms (
     id         INTEGER PRIMARY KEY AUTOINCREMENT,
