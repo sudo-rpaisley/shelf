@@ -1,18 +1,24 @@
 <div class="scan-result bg-shelf-card rounded-lg border border-shelf-border p-4"
      data-scan-status="not_found">
+    {% set display_carrier = carrier_ean[1:] if carrier_ean and carrier_ean|length == 13 and carrier_ean[0] == '0' else carrier_ean %}
     <div class="flex items-center gap-4 mb-3">
         <div class="w-12 h-16 bg-shelf-hover rounded flex items-center justify-center text-shelf-muted text-lg">M</div>
         <div class="flex-1 min-w-0">
             <p class="font-medium" data-scan-title>{{ title or 'Magazine' }}</p>
+            {% if issn %}
             <p class="text-sm text-shelf-muted">ISSN {{ issn }}{% if supplement %} · barcode add-on {{ supplement }}{% endif %}</p>
             <p class="text-xs text-shelf-muted mt-1">The 977 carrier identifies the publication, not a unique issue. Enter the issue number or date before adding it.</p>
+            {% else %}
+            <p class="text-sm text-shelf-muted">Barcode {{ display_carrier }}{% if supplement %} · add-on {{ supplement }}{% endif %}</p>
+            <p class="text-xs text-shelf-muted mt-1">This UPC/EAN uses a periodical add-on. Shelf keeps the add-on as issue-discriminator data without guessing the publisher's numbering scheme; enter the issue number or date before adding it.</p>
+            {% endif %}
         </div>
         <span class="text-xs px-2 py-1 rounded-full shrink-0 bg-shelf-warning/20 text-shelf-warning" data-scan-badge>issue details</span>
     </div>
 
     <form hx-post="/api/magazines/add" hx-target="closest .scan-result" hx-swap="outerHTML"
           class="border-t border-shelf-border pt-3 space-y-3">
-        <input type="hidden" name="issn" value="{{ issn }}">
+        <input type="hidden" name="issn" value="{{ issn or '' }}">
         <input type="hidden" name="publisher" value="{{ publisher or '' }}">
         <input type="hidden" name="language" value="{{ language or '' }}">
         <input type="hidden" name="description" value="{{ description or '' }}">

@@ -18,12 +18,18 @@
     // @zxing/browser UMD exports as ZXingBrowser (not ZXing).
     // DecodeHintType isn't re-exported — use the numeric enum values
     // from @zxing/library: POSSIBLE_FORMATS=2, TRY_HARDER=3.
+    // ResultMetadataType is likewise not re-exported; UPC_EAN_EXTENSION=7.
     var HINT_POSSIBLE_FORMATS = 2;
     var HINT_TRY_HARDER = 3;
+    var META_UPC_EAN_EXTENSION = 7;
 
     function isIosDevice() {
         var ua = navigator.userAgent;
         return /iPad|iPhone|iPod/.test(ua) || (ua.includes('Macintosh') && 'ontouchend' in document);
+    }
+
+    function isAndroidDevice() {
+        return /Android/i.test(navigator.userAgent);
     }
 
     function resolveEl(ref) {
@@ -67,6 +73,25 @@
                     .catch(function () {});
             }
         };
+    }
+
+    function zxingDecodedText(result) {
+        var text = result.getText();
+        try {
+            var metadata = result.getResultMetadata && result.getResultMetadata();
+            var extension = metadata && metadata.get ? metadata.get(META_UPC_EAN_EXTENSION) : null;
+            // EAN/UPC add-ons are either two or five digits. ZXing decodes the
+            // carrier and extension separately; concatenate them before handing
+            // the value to Shelf so camera scans follow the same server path as
+            // USB scanners that already emit carrier+supplement as one string.
+            if (typeof extension === 'string' && /^(?:\d{2}|\d{5})$/.test(extension)) {
+                return text + extension;
+            }
+        } catch (e) {
+            // Metadata is optional; a perfectly good carrier scan must still
+            // succeed when a browser/device does not expose the extension.
+        }
+        return text;
     }
 
     function createZxingEngine(opts) {
@@ -115,7 +140,7 @@
 
                 paused = false;
                 return reader.decodeFromConstraints(constraints, resolveEl(opts.videoEl), function (result) {
-                    if (result && !paused) opts.onDecode(result.getText());
+                    if (result && !paused) opts.onDecode(zxingDecodedText(result));
                 });
             }).then(function (handle) {
                 controls = handle;
@@ -144,6 +169,14 @@
     }
 
     window.createBarcodeScanner = function (opts) {
-        return isIosDevice() ? createZxingEngine(opts) : createHtml5Engine(opts);
+        // Mobile periodicals commonly use a 2/5-digit EAN/UPC add-on for issue
+        // identity. html5-qrcode only gives Shelf the carrier text, whereas
+        // ZXing exposes the add-on in result metadata. Use ZXing on both major
+        // mobile platforms so a camera scan preserves that information. Keep
+        // html5-qrcode on desktop, where the existing scanner behaviour is
+        // mature and keyboard/USB scanners already deliver add-ons directly.
+        return (isIosDevice() || isAndroidDevice())
+            ? createZxingEngine(opts)
+            : createHtml5Engine(opts);
     };
 })();
