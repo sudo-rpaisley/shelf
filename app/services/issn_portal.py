@@ -14,9 +14,11 @@ import httpx
 from app.services import outbound, provider_result
 
 logger = logging.getLogger(__name__)
-# The public portal UI now lives at portal.issn.org, while the linked-data
-# export used by Shelf is served from portal-plus.issn.org.
-RESOURCE_URL = "https://portal-plus.issn.org/resource/ISSN/{issn}"
+# ISSN's own linked-data documentation publishes the stable resource URI at
+# issn.org. It redirects to whichever portal host currently serves the record,
+# so Shelf must not pin itself to an implementation hostname such as
+# portal-plus.issn.org.
+RESOURCE_URL = "https://issn.org/resource/ISSN/{issn}"
 _USER_AGENT = "Shelf/1.0 (+https://github.com/sudo-rpaisley/shelf)"
 
 
@@ -53,10 +55,18 @@ def _text(value) -> str | None:
 
 
 def _identifier_matches(node: dict, target: str) -> bool:
-    # ISSN JSON-LD has appeared with the identifier exposed as `identifier`,
-    # `issn`, and the fully-qualified schema.org property. Accept all three so
-    # a harmless context/profile change cannot turn a valid record into a miss.
-    for field in ("identifier", "issn", "http://schema.org/issn"):
+    # The linked-data profile has appeared both compacted and expanded. Accept
+    # the compact property names and the schema.org IRIs used by expanded
+    # JSON-LD so a profile/context change does not turn a valid record into a
+    # miss.
+    for field in (
+        "identifier",
+        "issn",
+        "http://schema.org/identifier",
+        "https://schema.org/identifier",
+        "http://schema.org/issn",
+        "https://schema.org/issn",
+    ):
         identifiers = node.get(field)
         if not isinstance(identifiers, list):
             identifiers = [identifiers]
@@ -68,6 +78,14 @@ def _identifier_matches(node: dict, target: str) -> bool:
     node_id = str(node.get("@id") or "")
     match = re.search(r"/ISSN/([0-9]{4}-?[0-9]{3}[0-9X])(?:$|[#/?])", node_id, re.I)
     return bool(match and _normalise_issn(match.group(1)) == target)
+
+
+def _first_text(node: dict, *fields: str) -> str | None:
+    for field in fields:
+        text = _text(node.get(field))
+        if text:
+            return text
+    return None
 
 
 def _record_from_jsonld(data, canonical: str) -> dict | None:
@@ -84,13 +102,30 @@ def _record_from_jsonld(data, canonical: str) -> dict | None:
         if not isinstance(node, dict) or not _identifier_matches(node, target):
             continue
 
-        # `mainTitle` is the ISSN linked-data profile's direct title literal.
-        # `name` is retained as a defensive fallback for profile evolution.
-        title = _text(node.get("mainTitle")) or _text(node.get("name"))
+        # Support both the compact ISSN profile and expanded Schema.org / DCT
+        # forms. Essential open-data records do not all use the same compaction
+        # context, but they do expose a publication title.
+        title = _first_text(
+            node,
+            "mainTitle",
+            "titleProper",
+            "title",
+            "name",
+            "http://schema.org/name",
+            "https://schema.org/name",
+            "http://purl.org/dc/terms/title",
+            "http://purl.org/dc/elements/1.1/title",
+        )
         if not title:
             continue
 
-        publisher = _text(node.get("publisher"))
+        publisher = _first_text(
+            node,
+            "publisher",
+            "http://schema.org/publisher",
+            "https://schema.org/publisher",
+            "http://purl.org/dc/terms/publisher",
+        )
         return {
             "title": title,
             "publisher": publisher,
