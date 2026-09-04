@@ -7,7 +7,7 @@ import respx
 
 from app.config import MEDIA_FAMILIES, MEDIA_TYPES
 from app.media_types import is_digital_media, is_physical_media
-from app.services import komga, media_groups
+from app.services import browse_grouping, komga, media_groups
 from tests.conftest import _insert_item
 
 KOMGA = "http://komga.example:25600"
@@ -61,12 +61,47 @@ def _mock_library(library_id, name, *books):
 
 
 class TestMangaMediaTypes:
-    def test_manga_is_first_class_physical_and_digital_media(self):
+    def test_manga_is_first_class_physical_digital_and_grouped_media(self, db):
         assert MEDIA_TYPES["manga"] == "Manga"
         assert MEDIA_TYPES["digital_manga"] == "Digital Manga"
         assert MEDIA_FAMILIES["manga"]["types"] == ("manga", "digital_manga")
         assert is_physical_media("manga") is True
         assert is_digital_media("digital_manga") is True
+
+        _insert_item(
+            db,
+            title="Akira 1",
+            media_type="digital_manga",
+            series_name="Akira",
+            series_position=1,
+            komga_series_id="series_akira",
+            source="komga",
+        )
+        _insert_item(
+            db,
+            title="Akira 2",
+            media_type="digital_manga",
+            series_name="Akira",
+            series_position=2,
+            komga_series_id="series_akira",
+            source="komga",
+        )
+        db.execute("COMMIT")
+        items, raw_total, display_total = browse_grouping.fetch_page(
+            db,
+            "",
+            [],
+            "i.title COLLATE NOCASE",
+            limit=60,
+            offset=0,
+            values={},
+        )
+        assert raw_total == 2
+        assert display_total == 1
+        assert len(items) == 1
+        assert items[0]["browse_series_group"] is True
+        assert items[0]["browse_series_count"] == 2
+        assert "media_type=digital_manga" in items[0]["browse_series_url"]
 
     def test_related_format_family_keeps_manga_separate_from_comics(self):
         assert media_groups.family_for("manga") == "manga"
