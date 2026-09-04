@@ -3,6 +3,7 @@ from unittest.mock import AsyncMock, patch
 import httpx
 import pytest
 
+from app.database import get_db
 from app.services import holdings, magazine_google, periodical_records, provider_result
 
 
@@ -193,11 +194,15 @@ def test_publication_gap_detection_keeps_volume_sequences_separate(db):
     ]
 
 
-def test_magazine_publications_page_groups_issues_for_viewers(viewer_client, db):
-    publication_id = periodical_records.upsert_publication(
-        db, title="Popular Science", issn="0161-7370", publisher="Bonnier Corporation"
-    )
-    _seed_issue(db, publication_id, "42", "2024-06")
+def test_magazine_publications_page_groups_issues_for_viewers(viewer_client):
+    with get_db() as db:
+        publication_id = periodical_records.upsert_publication(
+            db,
+            title="Popular Science",
+            issn="0161-7370",
+            publisher="Bonnier Corporation",
+        )
+        _seed_issue(db, publication_id, "42", "2024-06")
 
     response = viewer_client.get("/magazines")
 
@@ -209,16 +214,17 @@ def test_magazine_publications_page_groups_issues_for_viewers(viewer_client, db)
     assert "1 issue" in response.text
 
 
-def test_magazine_publication_page_shows_copies_and_possible_gaps(viewer_client, db):
-    publication_id = periodical_records.upsert_publication(
-        db, title="Popular Science", issn="0161-7370"
-    )
-    first_id = _seed_issue(db, publication_id, "1", "2024-01", volume="9")
-    third_id = _seed_issue(db, publication_id, "3", "2024-03", volume="9")
-    db.execute(
-        "INSERT INTO item_copies (item_id, copy_number, is_primary) VALUES (?, 2, 0)",
-        (first_id,),
-    )
+def test_magazine_publication_page_shows_copies_and_possible_gaps(viewer_client):
+    with get_db() as db:
+        publication_id = periodical_records.upsert_publication(
+            db, title="Popular Science", issn="0161-7370"
+        )
+        first_id = _seed_issue(db, publication_id, "1", "2024-01", volume="9")
+        third_id = _seed_issue(db, publication_id, "3", "2024-03", volume="9")
+        db.execute(
+            "INSERT INTO item_copies (item_id, copy_number, is_primary) VALUES (?, 2, 0)",
+            (first_id,),
+        )
 
     response = viewer_client.get(f"/magazines/publications/{publication_id}")
 
