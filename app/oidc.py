@@ -28,7 +28,7 @@ import httpx
 import jwt
 from fastapi import Request, Response
 
-from app.auth import ROLE_LEVELS, hash_password
+from app.auth import hash_password
 from app.crypto import decrypt_value, encrypt_value, get_encryption_key
 from app.database import get_db, get_setting
 
@@ -257,6 +257,9 @@ async def discover(config: OIDCConfig) -> dict[str, Any]:
     response_types = metadata.get("response_types_supported")
     if isinstance(response_types, list) and "code" not in response_types:
         raise OIDCError("OIDC provider does not advertise Authorization Code flow support")
+    pkce_methods = metadata.get("code_challenge_methods_supported")
+    if isinstance(pkce_methods, list) and "S256" not in pkce_methods:
+        raise OIDCError("OIDC provider does not advertise PKCE S256 support")
     return metadata
 
 
@@ -281,7 +284,13 @@ def _decode_flow(value: str | None) -> dict[str, Any]:
         payload = json.loads(decrypt_value(value, get_encryption_key()))
     except (TypeError, ValueError, json.JSONDecodeError) as exc:
         raise OIDCError("OIDC sign-in session is invalid") from exc
-    if not isinstance(payload, dict) or float(payload.get("exp", 0)) < time.time():
+    if not isinstance(payload, dict):
+        raise OIDCError("OIDC sign-in session is invalid")
+    try:
+        expires_at = float(payload.get("exp", 0))
+    except (TypeError, ValueError) as exc:
+        raise OIDCError("OIDC sign-in session is invalid") from exc
+    if expires_at < time.time():
         raise OIDCError("OIDC sign-in session is missing or expired")
     return payload
 
@@ -418,6 +427,8 @@ async def _validate_id_token(
 
     jwks = await _fetch_jwks(metadata)
     pyjwk = _select_jwk(jwks, header.get("kid"))
+    if pyjwk.algorithm_name and pyjwk.algorithm_name != alg:
+        raise OIDCError("OIDC signing key algorithm does not match the ID token")
     try:
         claims = jwt.decode(
             id_token,
@@ -446,6 +457,9 @@ async def _userinfo(metadata: dict[str, Any], token: dict[str, Any], subject: st
     access_token = token.get("access_token")
     if not endpoint or not isinstance(access_token, str):
         return {}
+    token_type = token.get("token_type")
+    if token_type is not None and (not isinstance(token_type, str) or token_type.casefold() != "bearer"):
+        raise OIDCError("OIDC provider returned an unsupported access-token type")
     try:
         async with httpx.AsyncClient(timeout=HTTP_TIMEOUT_SECONDS, follow_redirects=False) as client:
             response = await client.get(
@@ -525,38 +539,6 @@ def identity_from_claims(claims: dict[str, Any], config: OIDCConfig) -> OIDCIden
     )
 
 
-_IDENTITY_SCHEMA = """
-CREATE TABLE IF NOT EXISTS user_identities (
-    id            INTEGER PRIMARY KEY AUTOINCREMENT,
-    user_id       INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-    provider      TEXT NOT NULL DEFAULT 'oidc',
-    issuer        TEXT NOT NULL,
-    subject       TEXT NOT NULL,
-    email         TEXT,
-    last_login_at TEXT,
-    created_at    TEXT NOT NULL DEFAULT (datetime('now')),
-    updated_at    TEXT NOT NULL DEFAULT (datetime('now')),
-    UNIQUE(issuer, subject),
-    UNIQUE(user_id, provider, issuer)
-);
-CREATE INDEX IF NOT EXISTS idx_user_identities_user ON user_identities(user_id);
-"""
-
-
-def ensure_identity_schema(db=None) -> None:
-    """Create the additive identity table on old and fresh databases.
-
-    This is intentionally CREATE-IF-NOT-EXISTS only: it is safe for rolling
-    upgrades and does not rebuild the existing users table or alter local
-    authentication semantics.
-    """
-    if db is not None:
-        db.executescript(_IDENTITY_SCHEMA)
-        return
-    with get_db() as conn:
-        conn.executescript(_IDENTITY_SCHEMA)
-
-
 def _unique_username(db, base: str) -> str:
     candidate = base[:64]
     if not db.execute("SELECT 1 FROM users WHERE username = ?", (candidate,)).fetchone():
@@ -572,7 +554,6 @@ def _unique_username(db, base: str) -> str:
 
 def provision_or_sync(identity: OIDCIdentity, config: OIDCConfig) -> dict[str, Any]:
     with get_db() as db:
-        ensure_identity_schema(db)
         row = db.execute(
             "SELECT u.id, u.username, u.display_name, u.role, u.token_version "
             "FROM user_identities ui JOIN users u ON u.id = ui.user_id "
@@ -584,7 +565,7 @@ def provision_or_sync(identity: OIDCIdentity, config: OIDCConfig) -> dict[str, A
             if not config.auto_provision:
                 raise OIDCAccessDenied("Your OIDC identity is valid but is not provisioned in Shelf")
             username = _unique_username(db, identity.username)
-            # OIDC-only accounts get an unknowable random local credential.  A
+            # OIDC-only accounts get an unknowable random local credential. A
             # Shelf admin can deliberately set a local fallback password later;
             # there is never a shared/default password to attack.
             disabled_local_password = hash_password(secrets.token_urlsafe(48))
@@ -635,16 +616,12 @@ def provision_or_sync(identity: OIDCIdentity, config: OIDCConfig) -> dict[str, A
 
 
 async def complete_login(request: Request, config: OIDCConfig) -> dict[str, Any]:
-    error = request.query_params.get("error")
-    if error:
-        if error == "access_denied":
-            raise OIDCAccessDenied("Sign-in was cancelled or denied by the identity provider")
-        raise OIDCError("The identity provider returned an authentication error")
-
-    code = request.query_params.get("code")
+    # Validate state for every authorization response, including provider error
+    # responses. Error callbacks are just as cross-site as success callbacks
+    # and must be bound to a Shelf-initiated flow before they are trusted.
     state = request.query_params.get("state")
-    if not code or not state:
-        raise OIDCError("OIDC callback is missing the authorization code or state")
+    if not state:
+        raise OIDCError("OIDC callback is missing state")
 
     flow = _decode_flow(request.cookies.get(FLOW_COOKIE))
     expected_state = flow.get("state")
@@ -652,6 +629,16 @@ async def complete_login(request: Request, config: OIDCConfig) -> dict[str, Any]
         raise OIDCError("OIDC state validation failed")
     if flow.get("issuer") != config.issuer:
         raise OIDCError("OIDC provider changed during sign-in")
+
+    error = request.query_params.get("error")
+    if error:
+        if error == "access_denied":
+            raise OIDCAccessDenied("Sign-in was cancelled or denied by the identity provider")
+        raise OIDCError("The identity provider returned an authentication error")
+
+    code = request.query_params.get("code")
+    if not code:
+        raise OIDCError("OIDC callback is missing the authorization code")
 
     metadata = await discover(config)
     token = await _exchange_code(
@@ -678,7 +665,6 @@ def managed_user_ids() -> set[int]:
     if not config.sync_roles:
         return set()
     with get_db() as db:
-        ensure_identity_schema(db)
         return {row["user_id"] for row in db.execute("SELECT DISTINCT user_id FROM user_identities").fetchall()}
 
 
@@ -686,5 +672,4 @@ def is_role_managed(user_id: int) -> bool:
     if not get_oidc_config().sync_roles:
         return False
     with get_db() as db:
-        ensure_identity_schema(db)
         return bool(db.execute("SELECT 1 FROM user_identities WHERE user_id = ? LIMIT 1", (user_id,)).fetchone())
