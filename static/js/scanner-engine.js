@@ -138,24 +138,8 @@
                     }
                 };
 
-                // ZXing uses the camera video's natural aspect ratio. On a
-                // portrait phone that made the scan panel grow to almost the
-                // full screen, unlike the existing html5-qrcode scanner which
-                // is configured at 1.5. Keep the same 3:2 viewport for both
-                // engines and crop the preview rather than stretching it.
-                var videoEl = resolveEl(opts.videoEl);
-                if (videoEl) {
-                    videoEl.style.width = '100%';
-                    videoEl.style.height = '100%';
-                    videoEl.style.objectFit = 'cover';
-                    videoEl.style.display = 'block';
-                    if (videoEl.parentElement) {
-                        videoEl.parentElement.style.aspectRatio = '3 / 2';
-                    }
-                }
-
                 paused = false;
-                return reader.decodeFromConstraints(constraints, videoEl, function (result) {
+                return reader.decodeFromConstraints(constraints, resolveEl(opts.videoEl), function (result) {
                     if (result && !paused) opts.onDecode(zxingDecodedText(result));
                 });
             }).then(function (handle) {
