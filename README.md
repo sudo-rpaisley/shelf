@@ -3,7 +3,7 @@
 [![Release](https://img.shields.io/github/v/release/dgahagan/shelf)](https://github.com/dgahagan/shelf/releases)
 [![Docker Pulls](https://img.shields.io/docker/pulls/dangahagan/shelf)](https://hub.docker.com/r/dangahagan/shelf)
 [![CI](https://github.com/sudo-rpaisley/shelf/actions/workflows/test.yml/badge.svg)](https://github.com/sudo-rpaisley/shelf/actions/workflows/test.yml)
-[![Unit tests](https://img.shields.io/badge/unit%20tests-2545%20passing-brightgreen)](https://github.com/sudo-rpaisley/shelf/actions/workflows/test.yml)
+[![Unit tests](https://img.shields.io/badge/unit%20tests-2562%20passing-brightgreen)](https://github.com/sudo-rpaisley/shelf/actions/workflows/test.yml)
 [![E2E tests](https://img.shields.io/badge/e2e%20tests-215%20passing-brightgreen)](https://github.com/sudo-rpaisley/shelf/actions/workflows/test.yml)
 [![License: AGPL-3.0](https://img.shields.io/github/license/sudo-rpaisley/shelf)](LICENSE)
 
@@ -36,7 +36,8 @@ responsive web interface.
   cassettes, CDs, digital music, comics, Manga, children's books and video games
   alongside physical books.
 - **Collection management** — locations, tags, bulk editing, series tracking,
-  reading status, lending, wishlist management and collection statistics.
+  bulk issue ranges for physical comics and magazines, reading status, lending,
+  wishlist management and collection statistics.
 - **Import, export and backup** — CSV migration, Goodreads/StoryGraph import,
   portable collection archives and database backup/restore.
 - **Offline Store Mode** — a PWA workflow for checking your collection while
