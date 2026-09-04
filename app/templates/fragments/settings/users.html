@@ -216,7 +216,7 @@
                         <span class="font-medium text-shelf-text" x-text="u.display_name || u.username"></span>
                         <span class="text-shelf-muted text-sm ml-1" x-text="'@' + u.username"></span>
                         <span class="ml-2 text-[11px] uppercase tracking-wide px-1.5 py-0.5 rounded border border-shelf-border text-shelf-muted"
-                              x-text="u.role_managed ? 'OIDC managed' : 'Local'"></span>
+                              x-text="u.auth_provider === 'OIDC' ? (u.role_managed ? 'OIDC managed' : 'OIDC') : 'Local'"></span>
                     </div>
                     <select :value="u.role" @change="updateRole(u.id, $event.target.value)"
                         :disabled="u.role_managed"
