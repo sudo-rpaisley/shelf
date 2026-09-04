@@ -1,5 +1,6 @@
 import logging
 import sqlite3
+import time
 from urllib.parse import urlencode
 
 from fastapi import APIRouter, Form, Request, Depends
@@ -27,6 +28,13 @@ from app.oidc import (
 
 logger = logging.getLogger(__name__)
 
+# OIDC sessions are intentionally shorter and non-sliding. Provider group
+# membership is re-evaluated at least once per day even if Shelf is used
+# continuously, so a removed/demoted IdP user cannot retain a stale local role
+# indefinitely. The OP's own SSO session normally makes this reauthentication
+# transparent to the user.
+OIDC_SESSION_TTL_SECONDS = 24 * 3600
+
 # Unknown usernames must do the same one bcrypt verification as known usernames
 # without generating a fresh salt/hash on every request. The hash is created
 # once at process start; the fixed plaintext is deliberately not a valid
@@ -47,12 +55,27 @@ def _login_context(error: str | None = None) -> dict:
 
 def _render_login(request: Request, error: str | None = None, status_code: int = 200):
     templates = request.app.state.templates
-    return templates.TemplateResponse(
+    response = templates.TemplateResponse(
         request,
         "login.html",
         _login_context(error),
         status_code=status_code,
     )
+    # Authorization responses can carry short-lived codes/state in the URL.
+    # Never let those values escape through Referer headers or cached HTML.
+    response.headers["Referrer-Policy"] = "no-referrer"
+    response.headers["Cache-Control"] = "no-store"
+    return response
+
+
+def _oidc_user_ids() -> set[int]:
+    with get_db() as db:
+        return {row["user_id"] for row in db.execute("SELECT DISTINCT user_id FROM user_identities").fetchall()}
+
+
+def _is_oidc_account(user_id: int) -> bool:
+    with get_db() as db:
+        return bool(db.execute("SELECT 1 FROM user_identities WHERE user_id = ? LIMIT 1", (user_id,)).fetchone())
 
 
 # --- Public pages ---
@@ -75,6 +98,7 @@ async def login_page(request: Request):
             logger.warning("OIDC login initiation failed: %s", exc)
             return _render_login(request, str(exc), 400)
         response = RedirectResponse(url=redirect_url, status_code=302)
+        response.headers["Cache-Control"] = "no-store"
         set_flow_cookie(response, flow)
         return response
 
@@ -92,16 +116,20 @@ async def login_page(request: Request):
             clear_flow_cookie(response)
             return response
 
+        reauth_at = int(time.time()) + OIDC_SESSION_TTL_SECONDS
         token = create_token(
             oidc_user["id"],
             oidc_user["username"],
             oidc_user["role"],
             oidc_user["display_name"],
             oidc_user["token_version"],
+            auth_method="oidc",
+            reauth_at=reauth_at,
         )
         response = RedirectResponse(url="/browse", status_code=303)
+        response.headers["Cache-Control"] = "no-store"
         clear_flow_cookie(response)
-        set_auth_cookie(response, token)
+        set_auth_cookie(response, token, max_age=OIDC_SESSION_TTL_SECONDS)
         logger.info("OIDC user '%s' logged in from %s", oidc_user["username"], get_client_ip(request))
         return response
 
@@ -125,6 +153,9 @@ async def login(request: Request, username: str = Form(...), password: str = For
         logger.warning("Failed login attempt for username=%s from %s", username, get_client_ip(request))
         return _render_login(request, "Invalid username or password", 401)
 
+    # OIDC-created accounts have an unknowable random local password and Shelf
+    # never exposes a reset path for it. A separate local admin account is the
+    # break-glass mechanism; this route therefore cannot bypass OIDC policy.
     token = create_token(user["id"], user["username"], user["role"], user["display_name"], user["token_version"])
     response = RedirectResponse(url="/browse", status_code=303)
     set_auth_cookie(response, token)
@@ -263,6 +294,7 @@ async def update_oidc_settings(
 @router.get("/api/users")
 async def list_users(request: Request, _=Depends(require_role("admin"))):
     managed = managed_user_ids()
+    oidc_users = _oidc_user_ids()
     with get_db() as db:
         users = db.execute(
             "SELECT id, username, display_name, role, created_at FROM users ORDER BY created_at"
@@ -271,7 +303,7 @@ async def list_users(request: Request, _=Depends(require_role("admin"))):
     for user in users:
         item = dict(user)
         item["role_managed"] = user["id"] in managed
-        item["auth_provider"] = "OIDC" if user["id"] in managed else "Local"
+        item["auth_provider"] = "OIDC" if user["id"] in oidc_users else "Local"
         result.append(item)
     return result
 
@@ -348,6 +380,11 @@ async def reset_user_password(
     password: str = Form(...),
     _=Depends(require_role("admin")),
 ):
+    if _is_oidc_account(user_id):
+        return {
+            "ok": False,
+            "message": "OIDC accounts do not use Shelf passwords; keep a separate local break-glass administrator",
+        }
     if len(password) < 8:
         return {"ok": False, "message": "Password must be at least 8 characters"}
 
@@ -371,8 +408,10 @@ async def change_own_password(
     new_password: str = Form(...),
     _=Depends(require_role("viewer")),
 ):
-    """Any authenticated user can change their own password."""
+    """Any locally authenticated account can change its own password."""
     user = request.state.user
+    if _is_oidc_account(user["id"]):
+        return {"ok": False, "message": "Your account is managed by OIDC and does not use a Shelf password"}
     if len(new_password) < 8:
         return {"ok": False, "message": "New password must be at least 8 characters"}
 
@@ -403,8 +442,10 @@ async def change_display_name(
     display_name: str = Form(...),
     _=Depends(require_role("viewer")),
 ):
-    """Any authenticated user can update their own display name."""
+    """Locally managed users can update their own display name."""
     user = request.state.user
+    if _is_oidc_account(user["id"]):
+        return {"ok": False, "message": "Your display name is managed by your OIDC identity provider"}
     display_name = display_name.strip()
     if not display_name:
         return {"ok": False, "message": "Display name cannot be empty"}
