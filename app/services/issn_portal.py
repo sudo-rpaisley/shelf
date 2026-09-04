@@ -15,11 +15,13 @@ from app.services import outbound, provider_result
 
 logger = logging.getLogger(__name__)
 
-# The ISSN service has moved between portal hosts during the 2026 portal
-# transition. Ask the public Portal resource first, then the linked-data host
-# used by existing JSON formatters. A 200 response that is not usable JSON-LD
-# is treated as a miss for that host so the alternate can still answer.
+# ISSN documents the canonical linked-data resource at issn.org. During the
+# 2026 portal transition the same records have also been served from the public
+# portal and portal-plus hosts, so keep those as fallbacks. A 200 response that
+# is not usable JSON-LD is treated as a miss for that host so another endpoint
+# can still answer.
 RESOURCE_URLS = (
+    "https://issn.org/resource/ISSN/{issn}",
     "https://portal.issn.org/resource/ISSN/{issn}",
     "https://portal-plus.issn.org/resource/ISSN/{issn}",
 )
@@ -60,9 +62,7 @@ def _text(value) -> str | None:
 
 def _identifier_matches(node: dict, target: str) -> bool:
     # The linked-data profile has appeared both compacted and expanded. Accept
-    # the compact property names and the schema.org IRIs used by expanded
-    # JSON-LD so a profile/context change does not turn a valid record into a
-    # miss.
+    # Schema.org, Dublin Core and BIBO forms as well as the compact properties.
     for field in (
         "identifier",
         "issn",
@@ -70,6 +70,8 @@ def _identifier_matches(node: dict, target: str) -> bool:
         "https://schema.org/identifier",
         "http://schema.org/issn",
         "https://schema.org/issn",
+        "http://purl.org/dc/elements/1.1/identifier",
+        "http://purl.org/ontology/bibo/issn",
     ):
         identifiers = node.get(field)
         if not isinstance(identifiers, list):
@@ -92,6 +94,74 @@ def _first_text(node: dict, *fields: str) -> str | None:
     return None
 
 
+def _reference_ids(value) -> list[str]:
+    """Return JSON-LD resource identifiers from a scalar/list reference value."""
+    if isinstance(value, str):
+        return [value]
+    if isinstance(value, dict):
+        ref = value.get("@id")
+        return [ref] if isinstance(ref, str) and ref else []
+    if isinstance(value, list):
+        refs: list[str] = []
+        for item in value:
+            refs.extend(_reference_ids(item))
+        return refs
+    return []
+
+
+def _looks_like_reference(value: str) -> bool:
+    lowered = value.casefold()
+    return (
+        lowered.startswith(("http://", "https://", "resource/", "organization/", "#"))
+        or "#keytitle" in lowered
+        or "/resource/" in lowered
+    )
+
+
+def _title_from_node(node: dict, by_id: dict[str, dict]) -> str | None:
+    # Direct literals used by compact and expanded ISSN profiles. Bibframe's
+    # full mainTitle IRI matters when the JSON-LD response is expanded.
+    title = _first_text(
+        node,
+        "mainTitle",
+        "http://id.loc.gov/ontologies/bibframe/mainTitle",
+        "titleProper",
+        "name",
+        "http://schema.org/name",
+        "https://schema.org/name",
+        "http://purl.org/dc/terms/title",
+        "http://purl.org/dc/elements/1.1/title",
+    )
+    if title:
+        return title
+
+    # In some ISSN JSON-LD records bf:title is a link to a KeyTitle resource
+    # whose human-readable value lives in rdf:value. Follow that link instead
+    # of accidentally displaying the resource URI as the publication title.
+    for field in ("title", "http://id.loc.gov/ontologies/bibframe/title"):
+        raw = node.get(field)
+        for ref in _reference_ids(raw):
+            linked = by_id.get(ref)
+            if linked:
+                linked_title = _first_text(
+                    linked,
+                    "@value",
+                    "value",
+                    "http://www.w3.org/1999/02/22-rdf-syntax-ns#value",
+                    "name",
+                    "http://schema.org/name",
+                    "https://schema.org/name",
+                )
+                if linked_title:
+                    return linked_title
+
+        literal = _text(raw)
+        if literal and not _looks_like_reference(literal):
+            return literal
+
+    return None
+
+
 def _record_from_jsonld(data, canonical: str) -> dict | None:
     target = _normalise_issn(canonical)
     if isinstance(data, dict):
@@ -102,24 +172,17 @@ def _record_from_jsonld(data, canonical: str) -> dict | None:
     else:
         return None
 
+    by_id = {
+        str(node.get("@id")): node
+        for node in nodes
+        if isinstance(node, dict) and node.get("@id")
+    }
+
     for node in nodes:
         if not isinstance(node, dict) or not _identifier_matches(node, target):
             continue
 
-        # Support both the compact ISSN profile and expanded Schema.org / DCT
-        # forms. Essential open-data records do not all use the same compaction
-        # context, but they do expose a publication title.
-        title = _first_text(
-            node,
-            "mainTitle",
-            "titleProper",
-            "title",
-            "name",
-            "http://schema.org/name",
-            "https://schema.org/name",
-            "http://purl.org/dc/terms/title",
-            "http://purl.org/dc/elements/1.1/title",
-        )
+        title = _title_from_node(node, by_id)
         if not title:
             continue
 
