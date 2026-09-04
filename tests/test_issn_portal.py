@@ -40,7 +40,7 @@ async def test_lookup_reads_exact_issn_from_linked_open_data():
     assert result.payload["series_name"] == "VW motoring"
 
     assert fake_fetch.await_args.args[2] == (
-        "https://portal-plus.issn.org/resource/ISSN/0953-6167"
+        "https://issn.org/resource/ISSN/0953-6167"
     )
     assert fake_fetch.await_args.kwargs["params"] == {"format": "json"}
     assert fake_fetch.await_args.kwargs["follow_redirects"] is True
@@ -77,8 +77,10 @@ async def test_lookup_accepts_schema_issn_property():
     payload = _payload()
     node = payload["@graph"][1]
     del node["identifier"]
+    del node["mainTitle"]
     node["@id"] = "resource/serial/vw-motoring"
     node["http://schema.org/issn"] = "0953-6167"
+    node["http://schema.org/name"] = [{"@value": "VW motoring"}]
     fake_fetch = AsyncMock(return_value=httpx.Response(200, json=payload))
 
     with patch("app.services.issn_portal.outbound.fetch", new=fake_fetch):
