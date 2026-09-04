@@ -1,7 +1,7 @@
 """Publication metadata lookup from the ISSN Portal linked-data endpoint.
 
 The ISSN International Centre exposes essential ISSN record information as
-linked open data.  Shelf uses the JSON-LD representation only to identify the
+linked open data. Shelf uses the JSON-LD representation only to identify the
 serial publication behind a 977 barcode; it does not scrape the human-facing
 portal and it does not infer a concrete issue from publication-level data.
 """
@@ -14,7 +14,9 @@ import httpx
 from app.services import outbound, provider_result
 
 logger = logging.getLogger(__name__)
-RESOURCE_URL = "https://portal.issn.org/resource/ISSN/{issn}"
+# The public portal UI now lives at portal.issn.org, while the linked-data
+# export used by Shelf is served from portal-plus.issn.org.
+RESOURCE_URL = "https://portal-plus.issn.org/resource/ISSN/{issn}"
 _USER_AGENT = "Shelf/1.0 (+https://github.com/sudo-rpaisley/shelf)"
 
 
@@ -51,13 +53,17 @@ def _text(value) -> str | None:
 
 
 def _identifier_matches(node: dict, target: str) -> bool:
-    identifiers = node.get("identifier")
-    if not isinstance(identifiers, list):
-        identifiers = [identifiers]
-    for identifier in identifiers:
-        text = _text(identifier)
-        if text and _normalise_issn(text) == target:
-            return True
+    # ISSN JSON-LD has appeared with the identifier exposed as `identifier`,
+    # `issn`, and the fully-qualified schema.org property. Accept all three so
+    # a harmless context/profile change cannot turn a valid record into a miss.
+    for field in ("identifier", "issn", "http://schema.org/issn"):
+        identifiers = node.get(field)
+        if not isinstance(identifiers, list):
+            identifiers = [identifiers]
+        for identifier in identifiers:
+            text = _text(identifier)
+            if text and _normalise_issn(text) == target:
+                return True
 
     node_id = str(node.get("@id") or "")
     match = re.search(r"/ISSN/([0-9]{4}-?[0-9]{3}[0-9X])(?:$|[#/?])", node_id, re.I)
