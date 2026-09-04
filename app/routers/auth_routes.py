@@ -19,6 +19,7 @@ from app.oidc import (
     authorization_redirect,
     clear_flow_cookie,
     complete_login,
+    discover,
     get_oidc_config,
     is_role_managed,
     managed_user_ids,
@@ -149,13 +150,17 @@ async def login(request: Request, username: str = Form(...), password: str = For
         verify_password("dummy", _DUMMY_PASSWORD_HASH)
         logger.warning("Failed login attempt for username=%s from %s", username, get_client_ip(request))
         return _render_login(request, "Invalid username or password", 401)
-    if not verify_password(password, user["password"]):
+
+    # Always perform the password verification before deciding whether this is
+    # an OIDC identity so the route does not create a useful timing distinction.
+    password_valid = verify_password(password, user["password"])
+    if _is_oidc_account(user["id"]):
+        logger.warning("Blocked local login for OIDC account username=%s from %s", username, get_client_ip(request))
+        return _render_login(request, "This account signs in through the configured identity provider", 401)
+    if not password_valid:
         logger.warning("Failed login attempt for username=%s from %s", username, get_client_ip(request))
         return _render_login(request, "Invalid username or password", 401)
 
-    # OIDC-created accounts have an unknowable random local password and Shelf
-    # never exposes a reset path for it. A separate local admin account is the
-    # break-glass mechanism; this route therefore cannot bypass OIDC policy.
     token = create_token(user["id"], user["username"], user["role"], user["display_name"], user["token_version"])
     response = RedirectResponse(url="/browse", status_code=303)
     set_auth_cookie(response, token)
@@ -255,6 +260,7 @@ async def update_oidc_settings(
     oidc_default_role: str = Form("deny"),
     oidc_auto_provision: bool = Form(False),
     oidc_sync_roles: bool = Form(False),
+    oidc_action: str = Form("save"),
     _=Depends(require_role("admin")),
 ):
     try:
@@ -283,6 +289,22 @@ async def update_oidc_settings(
             url="/settings?" + urlencode({"oidc_error": str(exc)}),
             status_code=303,
         )
+
+    if oidc_action == "test":
+        try:
+            metadata = await discover(get_oidc_config())
+        except OIDCError as exc:
+            logger.warning("OIDC configuration test failed for admin '%s': %s", request.state.user["username"], exc)
+            return RedirectResponse(
+                url="/settings?" + urlencode({"oidc_test_error": str(exc)}),
+                status_code=303,
+            )
+        logger.info(
+            "OIDC configuration test succeeded for admin '%s' (issuer=%s)",
+            request.state.user["username"],
+            metadata.get("issuer"),
+        )
+        return RedirectResponse(url="/settings?oidc_test=1", status_code=303)
 
     logger.info("OIDC settings updated by admin '%s'", request.state.user["username"])
     return RedirectResponse(url="/settings?oidc_saved=1", status_code=303)
