@@ -1,9 +1,9 @@
-"""Publication metadata lookup from the ISSN Portal linked-data endpoint.
+"""Publication metadata lookup from ISSN linked-data endpoints.
 
 The ISSN International Centre exposes essential ISSN record information as
-linked open data. Shelf uses the JSON-LD representation only to identify the
-serial publication behind a 977 barcode; it does not scrape the human-facing
-portal and it does not infer a concrete issue from publication-level data.
+linked open data. Shelf uses JSON-LD only to identify the serial publication
+behind a 977 barcode; it does not scrape the human-facing portal and it does
+not infer a concrete issue from publication-level data.
 """
 
 import logging
@@ -14,11 +14,15 @@ import httpx
 from app.services import outbound, provider_result
 
 logger = logging.getLogger(__name__)
-# ISSN's own linked-data documentation publishes the stable resource URI at
-# issn.org. It redirects to whichever portal host currently serves the record,
-# so Shelf must not pin itself to an implementation hostname such as
-# portal-plus.issn.org.
-RESOURCE_URL = "https://issn.org/resource/ISSN/{issn}"
+
+# The ISSN service has moved between portal hosts during the 2026 portal
+# transition. Ask the public Portal resource first, then the linked-data host
+# used by existing JSON formatters. A 200 response that is not usable JSON-LD
+# is treated as a miss for that host so the alternate can still answer.
+RESOURCE_URLS = (
+    "https://portal.issn.org/resource/ISSN/{issn}",
+    "https://portal-plus.issn.org/resource/ISSN/{issn}",
+)
 _USER_AGENT = "Shelf/1.0 (+https://github.com/sudo-rpaisley/shelf)"
 
 
@@ -141,41 +145,58 @@ async def lookup(
     issn: str,
     client: httpx.AsyncClient,
 ) -> provider_result.ProviderResult:
-    """Identify a serial publication by exact ISSN using ISSN Portal JSON-LD."""
+    """Identify a serial publication by exact ISSN using ISSN JSON-LD."""
     canonical = _canonical_issn(issn)
     if canonical is None:
         return provider_result.no_match("issn_portal")
 
-    try:
-        resp = await outbound.fetch(
-            client,
-            "GET",
-            RESOURCE_URL.format(issn=canonical),
-            params={"format": "json"},
-            headers={
-                "Accept": "application/ld+json, application/json;q=0.9",
-                "User-Agent": _USER_AGENT,
-            },
-            follow_redirects=True,
-        )
-    except Exception:
-        logger.debug("ISSN Portal lookup failed for ISSN %s", canonical, exc_info=True)
-        return provider_result.transport_failed("issn_portal")
+    attempts: list[provider_result.ProviderResult] = []
+    for resource_url in RESOURCE_URLS:
+        try:
+            resp = await outbound.fetch(
+                client,
+                "GET",
+                resource_url.format(issn=canonical),
+                params={"format": "json"},
+                headers={
+                    "Accept": "application/ld+json, application/json;q=0.9",
+                    "User-Agent": _USER_AGENT,
+                },
+                follow_redirects=True,
+            )
+        except Exception:
+            logger.debug(
+                "ISSN lookup transport failure for %s via %s",
+                canonical,
+                resource_url,
+                exc_info=True,
+            )
+            attempts.append(provider_result.transport_failed("issn_portal"))
+            continue
 
-    classified = provider_result.classify_response("issn_portal", resp)
-    if classified is not None:
-        return classified
+        classified = provider_result.classify_response("issn_portal", resp)
+        if classified is not None:
+            attempts.append(classified)
+            continue
 
-    try:
-        metadata = _record_from_jsonld(resp.json(), canonical)
-    except Exception:
-        logger.debug(
-            "ISSN Portal lookup returned malformed JSON-LD for ISSN %s",
-            canonical,
-            exc_info=True,
-        )
-        return provider_result.no_match("issn_portal", status=resp.status_code)
+        try:
+            metadata = _record_from_jsonld(resp.json(), canonical)
+        except Exception:
+            logger.debug(
+                "ISSN lookup returned non-JSON or malformed JSON-LD for %s via %s",
+                canonical,
+                resource_url,
+                exc_info=True,
+            )
+            attempts.append(
+                provider_result.no_match("issn_portal", status=resp.status_code)
+            )
+            continue
 
-    if metadata is None:
-        return provider_result.no_match("issn_portal", status=resp.status_code)
-    return provider_result.found("issn_portal", metadata, status=resp.status_code)
+        if metadata is not None:
+            return provider_result.found(
+                "issn_portal", metadata, status=resp.status_code
+            )
+        attempts.append(provider_result.no_match("issn_portal", status=resp.status_code))
+
+    return provider_result.combine(attempts, provider="issn_portal")
