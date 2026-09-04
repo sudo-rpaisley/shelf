@@ -13,6 +13,7 @@ shared routers.
 # Import the base routers first, then extensions which decorate them.
 from app.routers import series as series  # noqa: F401,E402
 from app.routers import series_detail as series_detail  # noqa: F401,E402
+from app.routers import series_bulk_issues as series_bulk_issues  # noqa: F401,E402
 from app.routers import series_memberships as series_memberships  # noqa: F401,E402
 
 from app.routers import pages as pages  # noqa: F401,E402
