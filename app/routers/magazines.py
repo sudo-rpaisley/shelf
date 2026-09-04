@@ -1,10 +1,10 @@
-"""Magazine issue search and add workflows.
+"""Magazine issue search, add and publication catalogue workflows.
 
-The routes attach to the existing catalogue router so the main application does
-not gain another top-level router solely for periodicals. The scan page keeps
-using its long-standing /api/title-search URL; this extension replaces only
-that route registration and delegates every non-magazine request to the
-original handler.
+The API routes attach to the existing catalogue router so the main application
+does not gain another top-level API router solely for periodicals. Viewer-facing
+publication pages attach to the existing pages router. The scan page keeps using
+its long-standing /api/title-search URL; this extension replaces only that route
+registration and delegates every non-magazine request to the original handler.
 """
 
 from datetime import date
@@ -12,12 +12,12 @@ import re
 
 import httpx
 from fastapi import Depends, Form, Request
-from fastapi.responses import HTMLResponse
+from fastapi.responses import HTMLResponse, RedirectResponse
 
 from app.auth import require_role
 from app.config import HTTP_TIMEOUT, MEDIA_TYPES
 from app.database import get_db, get_setting
-from app.routers import items_catalog, items_common
+from app.routers import items_catalog, items_common, pages
 from app.services import covers, magazine_google, periodical_records, periodicals, scan_outcome
 from app.services.item_write import insert_item
 from app.services.write_targets import UnknownLocationError, validated_location_id
@@ -58,6 +58,39 @@ def _issue_label(issue_number: str | None, issue_date: str | None) -> str:
     if issue_date:
         return issue_date
     return "Issue"
+
+
+@pages.router.get("/magazines")
+async def magazine_publications(
+    request: Request,
+    _=Depends(require_role("viewer")),
+):
+    """Browse magazines by publication rather than as one flat item list."""
+    with get_db() as db:
+        publications = periodical_records.list_publications(db)
+    return request.app.state.templates.TemplateResponse(
+        request,
+        "magazines.html",
+        {"publications": publications},
+    )
+
+
+@pages.router.get("/magazines/publications/{publication_id}")
+async def magazine_publication_detail(
+    request: Request,
+    publication_id: int,
+    _=Depends(require_role("viewer")),
+):
+    """Show every tracked issue and copy belonging to one publication."""
+    with get_db() as db:
+        catalogue = periodical_records.publication_catalogue(db, publication_id)
+    if catalogue is None:
+        return RedirectResponse(url="/magazines", status_code=303)
+    return request.app.state.templates.TemplateResponse(
+        request,
+        "magazine_publication.html",
+        catalogue,
+    )
 
 
 @router.get("/magazines/search")
