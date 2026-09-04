@@ -28,10 +28,6 @@
         return /iPad|iPhone|iPod/.test(ua) || (ua.includes('Macintosh') && 'ontouchend' in document);
     }
 
-    function isAndroidDevice() {
-        return /Android/i.test(navigator.userAgent);
-    }
-
     function resolveEl(ref) {
         return typeof ref === 'string' ? document.getElementById(ref) : ref;
     }
@@ -169,13 +165,16 @@
     }
 
     window.createBarcodeScanner = function (opts) {
-        // Mobile periodicals commonly use a 2/5-digit EAN/UPC add-on for issue
-        // identity. html5-qrcode only gives Shelf the carrier text, whereas
-        // ZXing exposes the add-on in result metadata. Use ZXing on both major
-        // mobile platforms so a camera scan preserves that information. Keep
-        // html5-qrcode on desktop, where the existing scanner behaviour is
-        // mature and keyboard/USB scanners already deliver add-ons directly.
-        return (isIosDevice() || isAndroidDevice())
+        // Keep the proven html5-qrcode scanner on Android. It detects these
+        // long EAN/UPC symbols reliably and renders the shaded rectangular
+        // alignment guide from html5Config. The ZXing live-video path introduced
+        // for add-on metadata regressed Android detection in real use, so add-on
+        // capture must not come at the cost of recognising the carrier at all.
+        //
+        // iOS retains ZXing, where that engine was already the established
+        // compatibility path. Periodical supplement handling remains supported
+        // server-side for scanners that provide carrier+supplement together.
+        return isIosDevice()
             ? createZxingEngine(opts)
             : createHtml5Engine(opts);
     };
