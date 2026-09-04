@@ -22,6 +22,7 @@
     var HINT_POSSIBLE_FORMATS = 2;
     var HINT_TRY_HARDER = 3;
     var META_UPC_EAN_EXTENSION = 7;
+    var CONFIRM_WINDOW_MS = 1800;
 
     function isIosDevice() {
         var ua = navigator.userAgent;
@@ -30,6 +31,33 @@
 
     function resolveEl(ref) {
         return typeof ref === 'string' ? document.getElementById(ref) : ref;
+    }
+
+    // Camera decoders occasionally produce a single plausible-but-wrong EAN
+    // while the phone is moving or autofocus is settling. Do not submit that
+    // first frame. A code must be seen twice, unchanged, within a short window.
+    // USB/keyboard scans do not pass through this engine and are unaffected.
+    function createDecodeGuard(onDecode) {
+        var candidate = '';
+        var candidateAt = 0;
+
+        return {
+            accept: function (decodedText) {
+                var now = Date.now();
+                if (decodedText === candidate && now - candidateAt <= CONFIRM_WINDOW_MS) {
+                    candidate = '';
+                    candidateAt = 0;
+                    onDecode(decodedText);
+                    return;
+                }
+                candidate = decodedText;
+                candidateAt = now;
+            },
+            reset: function () {
+                candidate = '';
+                candidateAt = 0;
+            }
+        };
     }
 
     function createHtml5Engine(opts) {
@@ -164,18 +192,43 @@
         };
     }
 
+    function guardedEngine(engine, guard) {
+        return {
+            engine: engine.engine,
+            start: function () {
+                guard.reset();
+                return engine.start();
+            },
+            stop: function () {
+                guard.reset();
+                return engine.stop();
+            },
+            pause: function () {
+                guard.reset();
+                return engine.pause();
+            },
+            resume: function () {
+                guard.reset();
+                return engine.resume();
+            }
+        };
+    }
+
     window.createBarcodeScanner = function (opts) {
-        // Keep the proven html5-qrcode scanner on Android. It detects these
-        // long EAN/UPC symbols reliably and renders the shaded rectangular
-        // alignment guide from html5Config. The ZXing live-video path introduced
-        // for add-on metadata regressed Android detection in real use, so add-on
-        // capture must not come at the cost of recognising the carrier at all.
+        var guard = createDecodeGuard(opts.onDecode);
+        var guardedOpts = Object.assign({}, opts, { onDecode: guard.accept });
+
+        // Keep the original html5-qrcode scanner on Android and other
+        // non-iOS devices. Besides being more reliable for the long 977 EAN
+        // carrier in real use, it restores the compact preview, shaded mask and
+        // the small 280x100 framing rectangle configured by scan.js.
         //
-        // iOS retains ZXing, where that engine was already the established
-        // compatibility path. Periodical supplement handling remains supported
-        // server-side for scanners that provide carrier+supplement together.
-        return isIosDevice()
-            ? createZxingEngine(opts)
-            : createHtml5Engine(opts);
+        // iOS retains ZXing, where that engine is the established compatibility
+        // path. Periodical supplement handling remains supported server-side for
+        // scanners that provide carrier+supplement together.
+        var engine = isIosDevice()
+            ? createZxingEngine(guardedOpts)
+            : createHtml5Engine(guardedOpts);
+        return guardedEngine(engine, guard);
     };
 })();
