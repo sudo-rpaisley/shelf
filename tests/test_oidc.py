@@ -45,6 +45,50 @@ def _config(**overrides):
     return OIDCConfig(**values)
 
 
+def _settings_values(**overrides):
+    values = {
+        "enabled": True,
+        "provider_name": "Authentik",
+        "issuer": "https://idp.example/application/o/shelf/",
+        "client_id": "shelf-client",
+        "client_secret": "client-secret",
+        "scopes": "openid profile email groups",
+        "group_claim": "groups",
+        "required_group": "Shelf-Users",
+        "admin_groups": "Shelf-Admins",
+        "editor_groups": "Shelf-Editors",
+        "viewer_groups": "Shelf-Users",
+        "default_role": "deny",
+        "auto_provision": True,
+        "sync_roles": True,
+    }
+    values.update(overrides)
+    return values
+
+
+def _metadata(issuer="https://idp.example/application/o/shelf/"):
+    return {
+        "issuer": issuer,
+        "authorization_endpoint": "https://idp.example/authorize",
+        "token_endpoint": "https://idp.example/token",
+        "jwks_uri": "https://idp.example/jwks",
+        "userinfo_endpoint": "https://idp.example/userinfo",
+        "response_types_supported": ["code"],
+        "code_challenge_methods_supported": ["S256"],
+        "id_token_signing_alg_values_supported": ["RS256"],
+        "token_endpoint_auth_methods_supported": ["client_secret_basic"],
+    }
+
+
+def test_identity_schema_is_created_by_database_bootstrap(db):
+    table = db.execute(
+        "SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'user_identities'"
+    ).fetchone()
+    assert table is not None
+    indexes = {row["name"] for row in db.execute("PRAGMA index_list(user_identities)").fetchall()}
+    assert "idx_user_identities_user" in indexes
+
+
 def test_parse_groups_deduplicates_without_changing_case():
     assert parse_groups("Shelf-Admins\nShelf-Users, Shelf-Admins") == (
         "Shelf-Admins",
@@ -85,22 +129,11 @@ def test_issuer_requires_https_by_default(monkeypatch):
 
 def test_oidc_client_secret_is_encrypted_at_rest(db):
     save_oidc_config(
-        {
-            "enabled": True,
-            "provider_name": "Authentik",
-            "issuer": "https://auth.example/application/o/shelf/",
-            "client_id": "shelf",
-            "client_secret": "super-secret-value",
-            "scopes": "openid profile email",
-            "group_claim": "groups",
-            "required_group": "Shelf-Users",
-            "admin_groups": "Shelf-Admins",
-            "editor_groups": "Shelf-Editors",
-            "viewer_groups": "Shelf-Users",
-            "default_role": "deny",
-            "auto_provision": True,
-            "sync_roles": True,
-        }
+        _settings_values(
+            issuer="https://auth.example/application/o/shelf/",
+            client_id="shelf",
+            client_secret="super-secret-value",
+        )
     )
     raw = db.execute("SELECT value FROM settings WHERE key = 'oidc_client_secret'").fetchone()["value"]
     assert raw != "super-secret-value"
@@ -164,24 +197,7 @@ def test_managed_oidc_role_cannot_be_changed_locally(admin_client, admin_user):
     user = provision_or_sync(identity, config)
 
     # Persist matching global settings so is_role_managed() sees sync_roles=true.
-    save_oidc_config(
-        {
-            "enabled": True,
-            "provider_name": config.provider_name,
-            "issuer": config.issuer,
-            "client_id": config.client_id,
-            "client_secret": config.client_secret,
-            "scopes": config.scopes,
-            "group_claim": config.group_claim,
-            "required_group": config.required_group,
-            "admin_groups": "Shelf-Admins",
-            "editor_groups": "Shelf-Editors",
-            "viewer_groups": "Shelf-Users",
-            "default_role": "deny",
-            "auto_provision": True,
-            "sync_roles": True,
-        }
-    )
+    save_oidc_config(_settings_values())
 
     response = admin_client.post(f"/api/users/{user['id']}/role", data={"role": "editor"})
     assert response.status_code == 200
@@ -198,36 +214,32 @@ def _rsa_key_and_jwk():
     return private, jwk
 
 
-@pytest.mark.asyncio
-async def test_full_oidc_callback_provisions_mapped_role(monkeypatch, client, admin_user, db):
-    config_values = {
-        "enabled": True,
-        "provider_name": "Authentik",
-        "issuer": "https://idp.example/application/o/shelf/",
-        "client_id": "shelf-client",
-        "client_secret": "client-secret",
-        "scopes": "openid profile email groups",
-        "group_claim": "groups",
-        "required_group": "Shelf-Users",
-        "admin_groups": "Shelf-Admins",
-        "editor_groups": "Shelf-Editors",
-        "viewer_groups": "Shelf-Users",
-        "default_role": "deny",
-        "auto_provision": True,
-        "sync_roles": True,
-    }
+def test_oidc_error_callback_must_match_initiated_state(monkeypatch, client, admin_user):
+    save_oidc_config(_settings_values())
+    metadata = _metadata()
+
+    async def fake_discover(_config):
+        return metadata
+
+    monkeypatch.setattr("app.oidc.discover", fake_discover)
+    start = client.get("/login?oidc=1", follow_redirects=False)
+    assert start.status_code == 302
+    assert "oidc_flow" in client.cookies
+
+    response = client.get(
+        "/login",
+        params={"error": "access_denied", "state": "attacker-state"},
+        follow_redirects=False,
+    )
+    assert response.status_code == 401
+    assert "OIDC state validation failed" in response.text
+
+
+def test_full_oidc_callback_provisions_mapped_role(monkeypatch, client, admin_user, db):
+    config_values = _settings_values()
     save_oidc_config(config_values)
 
-    metadata = {
-        "issuer": config_values["issuer"],
-        "authorization_endpoint": "https://idp.example/authorize",
-        "token_endpoint": "https://idp.example/token",
-        "jwks_uri": "https://idp.example/jwks",
-        "userinfo_endpoint": "https://idp.example/userinfo",
-        "response_types_supported": ["code"],
-        "id_token_signing_alg_values_supported": ["RS256"],
-        "token_endpoint_auth_methods_supported": ["client_secret_basic"],
-    }
+    metadata = _metadata(config_values["issuer"])
 
     async def fake_discover(_config):
         return metadata
@@ -264,7 +276,7 @@ async def test_full_oidc_callback_provisions_mapped_role(monkeypatch, client, ad
     )
 
     async def fake_exchange(*_args, **_kwargs):
-        return {"id_token": id_token, "access_token": "access-token"}
+        return {"id_token": id_token, "access_token": "access-token", "token_type": "Bearer"}
 
     async def fake_jwks(_metadata):
         return {"keys": [jwk]}
@@ -310,22 +322,11 @@ def test_login_page_shows_oidc_only_when_enabled(client, admin_user):
     assert 'data-testid="oidc-login"' not in response.text
 
     save_oidc_config(
-        {
-            "enabled": True,
-            "provider_name": "Authentik",
-            "issuer": "https://idp.example/application/o/shelf/",
-            "client_id": "shelf",
-            "client_secret": "secret",
-            "scopes": "openid profile email",
-            "group_claim": "groups",
-            "required_group": "Shelf-Users",
-            "admin_groups": "Shelf-Admins",
-            "editor_groups": "Shelf-Editors",
-            "viewer_groups": "Shelf-Users",
-            "default_role": "deny",
-            "auto_provision": True,
-            "sync_roles": True,
-        }
+        _settings_values(
+            issuer="https://idp.example/application/o/shelf/",
+            client_id="shelf",
+            client_secret="secret",
+        )
     )
     response = client.get("/login")
     assert response.status_code == 200
