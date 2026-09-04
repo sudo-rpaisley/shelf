@@ -1,6 +1,10 @@
 {% extends "base.html" %}
 {% block title %}{{ publication.title }} — Magazines — Shelf{% endblock %}
 {% block content %}
+{% set can_edit = user and user.role in ('editor', 'admin') %}
+{% set bulk_added = request.query_params.get('bulk_added') %}
+{% set bulk_skipped = request.query_params.get('bulk_skipped') %}
+{% set bulk_error = request.query_params.get('bulk_error') %}
 <div class="space-y-6">
     <a href="/magazines" class="text-shelf-muted hover:text-shelf-text text-sm inline-block">&larr; Back to magazines</a>
 
@@ -15,11 +19,24 @@
                     {% if publication.language %}<span>{{ publication.language }}</span>{% endif %}
                 </div>
             </div>
-            {% if user and user.role in ('editor', 'admin') %}
+            {% if can_edit %}
             <a href="/scan" class="px-4 py-2 bg-shelf-accent text-white rounded-lg text-sm hover:bg-shelf-accent2 transition-colors">Add another issue</a>
             {% endif %}
         </div>
     </section>
+
+    {% if bulk_error %}
+    <section class="bg-shelf-card border border-shelf-border rounded-xl p-4" data-testid="magazine-bulk-error">
+        <p class="text-sm text-shelf-error">{{ bulk_error }}</p>
+    </section>
+    {% elif bulk_added is not none %}
+    <section class="bg-shelf-card border border-shelf-border rounded-xl p-4" data-testid="magazine-bulk-success">
+        <p class="text-sm text-shelf-success">
+            Added {{ bulk_added }} issue{% if bulk_added != '1' %}s{% endif %}.{% if bulk_skipped and bulk_skipped != '0' %}
+            Skipped {{ bulk_skipped }} already in this publication and volume.{% endif %}
+        </p>
+    </section>
+    {% endif %}
 
     <section class="grid grid-cols-2 md:grid-cols-3 gap-3" aria-label="Publication summary">
         <div class="bg-shelf-card border border-shelf-border rounded-xl p-4">
@@ -38,6 +55,39 @@
             <p class="text-xs text-shelf-muted mt-1">numbered run{{ '' if potential_gaps|length == 1 else 's' }} with possible gaps</p>
         </div>
     </section>
+
+    {% if can_edit %}
+    <section class="bg-shelf-card border border-shelf-border rounded-xl p-5" data-testid="magazine-bulk-panel">
+        <h2 class="font-semibold">Bulk add issues</h2>
+        <p class="text-sm text-shelf-muted mt-1">Add a known numbered run as owned without scanning every copy.</p>
+        <form method="post" action="/api/magazines/publications/{{ publication.id }}/bulk-add-issues"
+              class="mt-4 space-y-3" data-testid="magazine-bulk-form">
+            <div class="grid md:grid-cols-3 gap-3">
+                <label class="block text-sm">
+                    <span class="text-shelf-muted">Volume <span class="text-xs">(optional)</span></span>
+                    <input type="text" name="volume" autocomplete="off"
+                           class="mt-1 w-full bg-shelf-bg border border-shelf-border rounded-lg px-3 py-2 text-shelf-text focus:ring-2 focus:ring-shelf-accent outline-none"
+                           data-testid="magazine-bulk-volume">
+                </label>
+                <label class="block text-sm">
+                    <span class="text-shelf-muted">From issue</span>
+                    <input type="number" name="from_issue" min="1" step="1" required inputmode="numeric"
+                           class="mt-1 w-full bg-shelf-bg border border-shelf-border rounded-lg px-3 py-2 text-shelf-text focus:ring-2 focus:ring-shelf-accent outline-none"
+                           data-testid="magazine-bulk-from">
+                </label>
+                <label class="block text-sm">
+                    <span class="text-shelf-muted">To issue</span>
+                    <input type="number" name="to_issue" min="1" step="1" required inputmode="numeric"
+                           class="mt-1 w-full bg-shelf-bg border border-shelf-border rounded-lg px-3 py-2 text-shelf-text focus:ring-2 focus:ring-shelf-accent outline-none"
+                           data-testid="magazine-bulk-to">
+                </label>
+            </div>
+            <button type="submit" class="px-4 py-2 bg-shelf-accent text-white rounded-lg text-sm hover:bg-shelf-accent2 transition-colors"
+                    data-testid="magazine-bulk-submit">Add issue range</button>
+        </form>
+        <p class="text-xs text-shelf-muted mt-3">Up to 500 issues at once. Existing numbers are skipped only within this publication and the selected volume, so numbering can restart in a later volume. New copies inherit the publication's most common physical location when possible.</p>
+    </section>
+    {% endif %}
 
     {% if potential_gaps %}
     <section class="bg-shelf-card border border-shelf-border rounded-xl p-4" data-testid="magazine-issue-gaps">
