@@ -1,5 +1,8 @@
 {% extends "base.html" %}
 {% block title %}Settings — Shelf{% endblock %}
+{% block head %}
+<script src="/static/js/komga-library-types.js"></script>
+{% endblock %}
 {% block content %}
 <div class="max-w-7xl mx-auto" x-data="settingsTabs">
     {% include "fragments/settings/page_header.html" %}
