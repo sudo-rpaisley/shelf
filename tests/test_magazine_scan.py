@@ -1,9 +1,19 @@
 import pytest
 
-from app.services import googlebooks, provider_result, upcitemdb
+from app.services import googlebooks, issn_portal, provider_result, upcitemdb
 
 
 MAGAZINE_EAN = "9770161737008"  # Popular Science / ISSN 0161-7370
+VW_MOTORING_EAN = "9770953616115"  # VW motoring / ISSN 0953-6167
+
+
+@pytest.fixture(autouse=True)
+def issn_portal_miss(monkeypatch):
+    """Keep scan tests deterministic unless a test explicitly needs Portal."""
+    async def _lookup(issn, client):
+        return provider_result.no_match("issn_portal")
+
+    monkeypatch.setattr(issn_portal, "lookup", _lookup)
 
 
 @pytest.fixture
@@ -53,6 +63,44 @@ def test_977_overrides_wrong_media_hint_without_creating_wrong_item(
     assert resp.status_code == 200
     assert "Popular Science" in resp.text
     assert "0161-7370" in resp.text
+    assert db.execute("SELECT COUNT(*) AS c FROM items").fetchone()["c"] == 0
+
+
+def test_issn_portal_identifies_vw_motoring_when_google_misses(
+    editor_client, db, monkeypatch
+):
+    async def _google_miss(issn, client, *, api_key=None):
+        assert issn == "0953-6167"
+        return provider_result.no_match("google")
+
+    async def _issn_hit(issn, client):
+        assert issn == "0953-6167"
+        return provider_result.found("issn_portal", {
+            "title": "VW motoring",
+            "publisher": None,
+            "description": None,
+            "issn": issn,
+            "series_name": "VW motoring",
+            "language": None,
+        })
+
+    async def _upc_must_not_run(upc, client):
+        raise AssertionError("Retail lookup must not run after an authoritative ISSN hit")
+
+    monkeypatch.setattr(googlebooks, "lookup_magazine_by_issn", _google_miss)
+    monkeypatch.setattr(issn_portal, "lookup", _issn_hit)
+    monkeypatch.setattr(upcitemdb, "lookup", _upc_must_not_run)
+
+    resp = editor_client.post(
+        "/api/scan", data={"isbn": VW_MOTORING_EAN, "media_type": "auto"}
+    )
+
+    assert resp.status_code == 200
+    assert "VW motoring" in resp.text
+    assert "ISSN 0953-6167" in resp.text
+    assert f'name="carrier_ean" value="{VW_MOTORING_EAN}"' in resp.text
+    assert 'name="issue_number"' in resp.text
+    assert 'name="issue_date"' in resp.text
     assert db.execute("SELECT COUNT(*) AS c FROM items").fetchone()["c"] == 0
 
 
