@@ -50,11 +50,11 @@ def test_shelf_fill_picker_uses_hierarchical_paths(editor_client):
 
 def test_shelf_fill_existing_item_moves_primary_copy_and_sets_position(editor_client):
     legacy_id, _, _, shelf_id = _nested_location()
-    item_id = _physical_item("9780000000100", legacy_id)
+    item_id = _physical_item("9780000000101", legacy_id)
 
     response = editor_client.post(
         "/api/shelf-fill/scan",
-        data={"isbn": "9780000000100", "location_node_id": shelf_id, "media_type": "auto"},
+        data={"isbn": "9780000000101", "location_node_id": shelf_id, "media_type": "auto"},
     )
 
     assert response.status_code == 200
@@ -75,10 +75,10 @@ def test_shelf_fill_existing_item_moves_primary_copy_and_sets_position(editor_cl
 
 def test_shelf_fill_scan_order_appends_positions(editor_client):
     legacy_id, _, _, shelf_id = _nested_location()
-    first_id = _physical_item("9780000000101", legacy_id, title="First")
-    second_id = _physical_item("9780000000102", legacy_id, title="Second")
+    first_id = _physical_item("9780000000118", legacy_id, title="First")
+    second_id = _physical_item("9780000000125", legacy_id, title="Second")
 
-    for code in ("9780000000101", "9780000000102"):
+    for code in ("9780000000118", "9780000000125"):
         response = editor_client.post(
             "/api/shelf-fill/scan",
             data={"isbn": code, "location_node_id": shelf_id, "media_type": "auto"},
@@ -99,11 +99,11 @@ def test_shelf_fill_scan_order_appends_positions(editor_client):
 
 def test_shelf_fill_wishlist_item_becomes_owned(editor_client):
     legacy_id, _, _, shelf_id = _nested_location()
-    item_id = _physical_item("9780000000103", legacy_id, owned=0)
+    item_id = _physical_item("9780000000132", legacy_id, owned=0)
 
     response = editor_client.post(
         "/api/shelf-fill/scan",
-        data={"isbn": "9780000000103", "location_node_id": shelf_id, "media_type": "auto"},
+        data={"isbn": "9780000000132", "location_node_id": shelf_id, "media_type": "auto"},
     )
 
     assert response.status_code == 200
@@ -120,7 +120,7 @@ def test_shelf_fill_wishlist_item_becomes_owned(editor_client):
 
 def test_shelf_fill_copy_barcode_moves_exact_copy(editor_client):
     legacy_id, root_id, _, shelf_id = _nested_location()
-    item_id = _physical_item("9780000000104", legacy_id)
+    item_id = _physical_item("9780000000149", legacy_id)
     with get_db() as db:
         second_copy_id = db.execute(
             "INSERT INTO item_copies "
@@ -159,7 +159,7 @@ def test_shelf_fill_rejects_digital_item(editor_client):
         insert_item(
             db,
             title="Digital Test",
-            isbn="9780000000105",
+            isbn="9780000000156",
             media_type="ebook",
             source="test",
             owned=1,
@@ -167,7 +167,7 @@ def test_shelf_fill_rejects_digital_item(editor_client):
 
     response = editor_client.post(
         "/api/shelf-fill/scan",
-        data={"isbn": "9780000000105", "location_node_id": shelf_id, "media_type": "auto"},
+        data={"isbn": "9780000000156", "location_node_id": shelf_id, "media_type": "auto"},
     )
 
     assert response.status_code == 200
@@ -188,7 +188,7 @@ def test_shelf_fill_unknown_scan_delegates_to_add_then_places(editor_client, mon
         borrower_id=None,
         _=None,
     ):
-        assert isbn == "9780000000106"
+        assert isbn == "9780000000163"
         assert location_id == legacy_id
         assert mode == "add"
         with get_db() as db:
@@ -219,7 +219,7 @@ def test_shelf_fill_unknown_scan_delegates_to_add_then_places(editor_client, mon
 
     response = editor_client.post(
         "/api/shelf-fill/scan",
-        data={"isbn": "9780000000106", "location_node_id": shelf_id, "media_type": "auto"},
+        data={"isbn": "9780000000163", "location_node_id": shelf_id, "media_type": "auto"},
     )
 
     assert response.status_code == 200
@@ -228,7 +228,7 @@ def test_shelf_fill_unknown_scan_delegates_to_add_then_places(editor_client, mon
         copy = db.execute(
             "SELECT c.location_id, c.position_order FROM item_copies c "
             "JOIN items i ON i.id = c.item_id WHERE i.isbn = ? AND c.is_primary = 1",
-            ("9780000000106",),
+            ("9780000000163",),
         ).fetchone()
     assert copy["location_id"] == shelf_id
     assert copy["position_order"] == 1
