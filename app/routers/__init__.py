@@ -5,8 +5,9 @@ Importing focused extensions here lets them attach routes to those same
 routers without adding more top-level router registration in ``app.main``.
 
 Magazine barcode handling follows the same extension principle: the existing
-``/api/scan`` route keeps ownership of scanning, while the focused magazine
-module installs a small 977/ISSN dispatch wrapper around the shared UPC path.
+``/api/scan`` route keeps ownership of scanning, while focused periodical
+modules extend scanning and catalogue title search without enlarging the
+shared routers.
 """
 
 # Import the base routers first, then extensions which decorate them.
@@ -22,5 +23,6 @@ from app.routers import attention as attention  # noqa: F401,E402
 
 from app.routers import items_common as items_common  # noqa: F401,E402
 from app.routers import items_magazines as items_magazines  # noqa: F401,E402
+from app.routers import magazines as magazines  # noqa: F401,E402
 
 items_magazines.install_scan_dispatch()

@@ -25,7 +25,13 @@ def normalize_upc(raw: str) -> str:
 
 
 def detect_barcode_type(code: str) -> str:
-    """Detect barcode type: 'isbn', 'upc', or 'unknown'."""
+    """Detect barcode type: 'isbn', 'upc', or 'unknown'.
+
+    A serial EAN-13 may arrive from a USB/keyboard scanner concatenated with
+    its 2- or 5-digit add-on. Those 15/18-digit 977 values still enter the UPC
+    dispatch path, where the periodical parser validates the carrier and keeps
+    the add-on separate.
+    """
     code = normalize_barcode(code)
 
     if len(code) == 10:
@@ -36,6 +42,8 @@ def detect_barcode_type(code: str) -> str:
         return "upc"  # EAN-13 (non-ISBN)
     if len(code) == 12:
         return "upc"  # UPC-A
+    if len(code) in (15, 18) and code.startswith("977"):
+        return "upc"  # EAN-13 serial carrier + 2/5 digit add-on
     return "unknown"
 
 

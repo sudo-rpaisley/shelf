@@ -1,0 +1,56 @@
+<div class="scan-result bg-shelf-card rounded-lg border border-shelf-border p-4"
+     data-scan-status="not_found">
+    <div class="flex items-center gap-4 mb-3">
+        <div class="w-12 h-16 bg-shelf-hover rounded flex items-center justify-center text-shelf-muted text-lg">M</div>
+        <div class="flex-1 min-w-0">
+            <p class="font-medium" data-scan-title>{{ title or 'Magazine' }}</p>
+            <p class="text-sm text-shelf-muted">ISSN {{ issn }}{% if supplement %} · barcode add-on {{ supplement }}{% endif %}</p>
+            <p class="text-xs text-shelf-muted mt-1">The 977 carrier identifies the publication, not a unique issue. Enter the issue number or date before adding it.</p>
+        </div>
+        <span class="text-xs px-2 py-1 rounded-full shrink-0 bg-shelf-warning/20 text-shelf-warning" data-scan-badge>issue details</span>
+    </div>
+
+    <form hx-post="/api/magazines/add" hx-target="closest .scan-result" hx-swap="outerHTML"
+          class="border-t border-shelf-border pt-3 space-y-3">
+        <input type="hidden" name="issn" value="{{ issn }}">
+        <input type="hidden" name="publisher" value="{{ publisher or '' }}">
+        <input type="hidden" name="language" value="{{ language or '' }}">
+        <input type="hidden" name="description" value="{{ description or '' }}">
+        <input type="hidden" name="carrier_ean" value="{{ carrier_ean }}">
+        <input type="hidden" name="barcode_supplement" value="{{ supplement or '' }}">
+        <input type="hidden" name="mode" value="{{ mode }}">
+
+        <label class="block text-sm">
+            <span class="text-shelf-muted">Publication title</span>
+            <input type="text" name="title" value="{{ title or '' }}" required maxlength="300"
+                   class="mt-1 w-full bg-shelf-bg border border-shelf-border rounded-lg px-3 py-2 text-shelf-text focus:ring-2 focus:ring-shelf-accent outline-none">
+        </label>
+        <div class="grid grid-cols-2 gap-3">
+            <label class="block text-sm">
+                <span class="text-shelf-muted">Volume <span class="text-xs">(optional)</span></span>
+                <input type="text" name="volume" maxlength="80"
+                       class="mt-1 w-full bg-shelf-bg border border-shelf-border rounded-lg px-3 py-2 text-shelf-text focus:ring-2 focus:ring-shelf-accent outline-none">
+            </label>
+            <label class="block text-sm">
+                <span class="text-shelf-muted">Issue number</span>
+                <input type="text" name="issue_number" maxlength="80"
+                       class="mt-1 w-full bg-shelf-bg border border-shelf-border rounded-lg px-3 py-2 text-shelf-text focus:ring-2 focus:ring-shelf-accent outline-none">
+            </label>
+            <label class="block text-sm">
+                <span class="text-shelf-muted">Issue date</span>
+                <input type="date" name="issue_date"
+                       class="mt-1 w-full bg-shelf-bg border border-shelf-border rounded-lg px-3 py-2 text-shelf-text focus:ring-2 focus:ring-shelf-accent outline-none">
+            </label>
+            <label class="block text-sm">
+                <span class="text-shelf-muted">Location</span>
+                <select name="location_id" class="mt-1 w-full bg-shelf-bg border border-shelf-border rounded-lg px-3 py-2 text-shelf-text">
+                    <option value="">No location</option>
+                    {% for loc in locations %}
+                    <option value="{{ loc.id }}" {% if selected_location_id == loc.id %}selected{% endif %}>{{ loc.name }}</option>
+                    {% endfor %}
+                </select>
+            </label>
+        </div>
+        <button type="submit" class="px-4 py-2 bg-shelf-accent text-white rounded-lg text-sm hover:bg-shelf-accent2 transition-colors">Add issue</button>
+    </form>
+</div>
