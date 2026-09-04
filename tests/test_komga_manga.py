@@ -71,6 +71,7 @@ class TestMangaMediaTypes:
         _insert_item(
             db,
             title="Akira 1",
+            isbn=None,
             media_type="digital_manga",
             series_name="Akira",
             series_position=1,
@@ -80,6 +81,7 @@ class TestMangaMediaTypes:
         _insert_item(
             db,
             title="Akira 2",
+            isbn=None,
             media_type="digital_manga",
             series_name="Akira",
             series_position=2,
