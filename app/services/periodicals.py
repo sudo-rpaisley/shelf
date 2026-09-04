@@ -1,14 +1,16 @@
-"""Helpers for ISSN-based periodical barcodes.
+"""Helpers for magazine and other periodical barcodes.
 
-Consumer magazines and other serials commonly use an EAN-13 beginning 977.
-The seven digits after that prefix are the first seven digits of the ISSN;
-the ISSN check character is reconstructed independently from the EAN check
-character. The two digits before the EAN check digit are the serial variant
-value and must not be treated as an issue number.
+ISSN serials commonly use an EAN-13 beginning 977. The seven digits after
+that prefix are the first seven digits of the ISSN; the ISSN check character
+is reconstructed independently from the EAN check character. The two digits
+before the EAN check digit are the serial variant value and must not be treated
+as an issue number.
 
-A 977 carrier may be followed by a 2- or 5-digit add-on. The add-on is useful
-issue-discriminator data, but its interpretation is publisher/cadence-specific,
-so Shelf preserves it verbatim rather than guessing an issue number or date.
+North American consumer magazines also commonly use a normal UPC-A carrier
+followed by a 2- or 5-digit EAN/UPC add-on. That carrier does not encode an
+ISSN, but the add-on is strong evidence that the barcode represents a concrete
+periodical issue. Shelf preserves the add-on verbatim rather than guessing its
+publisher-specific issue/date meaning.
 """
 
 from dataclasses import dataclass
@@ -18,11 +20,15 @@ from app.services.upc import normalize_barcode
 
 @dataclass(frozen=True, slots=True)
 class PeriodicalBarcode:
-    """Decoded information from a 977 serial carrier and optional add-on."""
+    """Decoded periodical carrier and optional issue-discriminator add-on."""
 
+    # Canonical EAN-13 storage form. UPC-A carriers are zero-padded.
     ean13: str
-    issn: str
-    variant: str
+    # Present for 977 serial carriers; ordinary UPC-A/EAN periodicals may not
+    # expose an ISSN in their retail barcode at all.
+    issn: str | None
+    # 977 serial variant. It has no universal issue-number meaning.
+    variant: str | None
     supplement: str | None = None
 
     @property
@@ -56,30 +62,58 @@ def issn_from_seven_digits(stem: str) -> str | None:
 
 
 def parse_barcode(raw: str) -> PeriodicalBarcode | None:
-    """Decode a valid 977 EAN-13 with an optional 2/5-digit add-on.
+    """Decode a periodical barcode and preserve its 2/5-digit add-on.
 
-    Camera decoding currently normally returns only the 13-digit carrier, but
-    keyboard/USB scanners may concatenate an EAN add-on. Accepting 15/18 digit
-    input here preserves that information without pretending the add-on has a
-    universal issue-number meaning.
+    Accepted forms:
+
+    * 13-digit 977 serial carrier, with optional 2/5-digit add-on (15/18)
+    * 12-digit UPC-A carrier plus a required 2/5-digit add-on (14/17)
+    * non-ISBN 13-digit EAN carrier plus a required 2/5-digit add-on (15/18)
+
+    A plain non-977 retail UPC/EAN is deliberately *not* classified as a
+    periodical: without the extension there is no safe barcode-level signal.
+    Likewise 978/979 + extension remains book territory rather than being
+    reclassified as a magazine.
     """
     code = normalize_barcode(raw)
-    if len(code) not in (13, 15, 18):
+
+    carrier: str
+    supplement: str | None
+    if len(code) in (13, 15, 18):
+        carrier = code[:13]
+        supplement = code[13:] or None
+    elif len(code) in (14, 17):
+        # UPC-A (12 digits) + 2/5 digit extension. Canonicalise to EAN-13 so
+        # the same issue matches whether a decoder reports UPC-A or EAN-13.
+        carrier = "0" + code[:12]
+        supplement = code[12:]
+    else:
         return None
 
-    carrier = code[:13]
-    supplement = code[13:] or None
-    if not carrier.startswith("977") or not _valid_ean13(carrier):
+    if not _valid_ean13(carrier):
         return None
     if supplement is not None and len(supplement) not in (2, 5):
         return None
 
-    issn = issn_from_seven_digits(carrier[3:10])
-    if not issn:
+    if carrier.startswith("977"):
+        issn = issn_from_seven_digits(carrier[3:10])
+        if not issn:
+            return None
+        return PeriodicalBarcode(
+            ean13=carrier,
+            issn=issn,
+            variant=carrier[10:12],
+            supplement=supplement,
+        )
+
+    # A supplement is the evidence that an ordinary retail carrier is being
+    # used for a periodical issue. Do not steal ISBN/EAN book extensions.
+    if supplement is None or carrier.startswith(("978", "979")):
         return None
+
     return PeriodicalBarcode(
         ean13=carrier,
-        issn=issn,
-        variant=carrier[10:12],
+        issn=None,
+        variant=None,
         supplement=supplement,
     )
