@@ -44,9 +44,11 @@ def test_shelf_fill_typed_scan_uses_sticky_precise_location(live_server, authed_
 
     picker = authed_page.locator("#shelf-fill-location")
     expect(picker).to_be_visible(timeout=5_000)
-    picker.select_option(label="E2E Shelf · 1 copy")
-    selected_location = picker.input_value()
+    shelf_option = picker.locator("option", has_text="E2E Shelf")
+    expect(shelf_option).to_have_count(1)
+    selected_location = shelf_option.get_attribute("value")
     assert selected_location
+    picker.select_option(selected_location)
 
     authed_page.fill("#isbn-input", "9780000000170")
     authed_page.press("#isbn-input", "Enter")
