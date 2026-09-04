@@ -15,6 +15,25 @@ each volume's position and a cover strip. It is the fastest way to answer
 - **Unassigned** — a block at the bottom for items with no series at all
   (with the true count; these are not a series, just the remainder).
 
+## Bulk adding physical issues
+
+For a physical comic series, open its series detail page and choose **Bulk add
+issues**. Enter an inclusive range such as **10** to **90** and Shelf adds the
+missing issue positions as owned without requiring a scan for every copy.
+Existing positions are skipped rather than changed or duplicated.
+
+Magazines use their publication catalogue instead. Open **Magazines**, choose
+the publication, then use **Bulk add issues** there. You can optionally enter a
+**Volume** before the issue range. Shelf checks duplicates within that exact
+publication and volume, so a later volume can safely restart at issue 1 without
+being mistaken for the earlier run. The added rows use the same publication and
+issue records as magazine barcode scans.
+
+Both workflows add at most 500 issues at once and inherit the most commonly used
+physical location for the comic series or magazine publication when one is
+available. Provider-managed digital comics are excluded so their connected
+source remains authoritative.
+
 ## With Hardcover connected
 
 Hardcover knows how many books a series has. **Check completeness** compares your

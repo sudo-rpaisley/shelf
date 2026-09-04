@@ -1,8 +1,8 @@
 """Focused series drill-down used by grouped Browse cards.
 
-The existing ``/series`` page remains the management overview. This route is
-purposefully read-only and gives one series enough space for ordered covers and
-local gap hints.
+The existing ``/series`` page remains the management overview. This route gives
+one series enough space for ordered covers, local gap hints and focused
+series-level actions such as adding a known run of physical comic issues.
 
 For Komga-backed Digital Comics, ``komga_series_id`` is the authoritative
 series identity. The human-readable title remains display metadata and is not
@@ -85,6 +85,13 @@ async def series_detail_page(
     owned_count = sum(1 for item in items if item.get("owned"))
     wishlist_count = len(items) - owned_count
 
+    # If the detail URL did not need an explicit media filter, a uniform series
+    # can still use media-specific actions. Mixed physical/digital groups stay
+    # deliberately ambiguous until the caller scopes the detail view.
+    media_types = {item.get("media_type") for item in items if item.get("media_type")}
+    resolved_media_type = media_type or (next(iter(media_types)) if len(media_types) == 1 else None)
+    can_bulk_add = bool(not requested_komga_id and resolved_media_type == "comic")
+
     # Name-based Browse filtering cannot faithfully isolate two Komga series
     # with the same title, so omit that shortcut for source-ID scoped views.
     browse_url = None
@@ -108,13 +115,19 @@ async def series_detail_page(
         "hc_missing": meta["hc_missing"] if meta else None,
         "hc_checked_at": meta["hc_checked_at"] if meta else None,
         "unit": unit,
-        "media_type": media_type,
+        "media_type": resolved_media_type,
         "komga_series_id": requested_komga_id,
         "browse_url": browse_url,
+        "can_bulk_add": can_bulk_add,
     }
 
     return request.app.state.templates.TemplateResponse(
         request,
         "series_detail.html",
-        {"series": series},
+        {
+            "series": series,
+            "bulk_added": request.query_params.get("bulk_added"),
+            "bulk_skipped": request.query_params.get("bulk_skipped"),
+            "bulk_error": request.query_params.get("bulk_error"),
+        },
     )
