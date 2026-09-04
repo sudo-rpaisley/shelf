@@ -8,6 +8,7 @@ function scanPage() {
         mediaType: localStorage.getItem('shelf_media_type') || 'auto',
         platform: localStorage.getItem('shelf_platform') || '',
         location: localStorage.getItem('shelf_location') || '',
+        shelfLocation: localStorage.getItem('shelf_fill_location') || '',
         borrowerId: '',
         cameraActive: false,
         scanPaused: false,
@@ -21,6 +22,7 @@ function scanPage() {
 
         modes: [
             {id: 'add', label: 'Add'},
+            {id: 'shelf_fill', label: 'Shelf Fill'},
             {id: 'wishlist', label: 'Wishlist'},
             {id: 'lend', label: 'Lend'},
             {id: 'return', label: 'Return'},
@@ -33,6 +35,7 @@ function scanPage() {
         get modeConfig() {
             var configs = {
                 add: {heading: 'Add Items', description: 'Scan barcodes to add items to your collection.'},
+                shelf_fill: {heading: 'Shelf Filling', description: 'Pick a precise shelf or sub-location, then scan items in the order they sit. New items are added; existing items are moved.'},
                 wishlist: {heading: 'Add to Wishlist', description: 'Scan to save items you want but haven\'t bought yet.'},
                 lend: {heading: 'Lend Items', description: 'Select a borrower, then scan items to check them out.'},
                 'return': {heading: 'Return Items', description: 'Scan items to check them back in.'},
@@ -68,6 +71,7 @@ function scanPage() {
             if (si) si.value = '';
             var sr = document.getElementById('title-search-results');
             if (sr) sr.innerHTML = '';
+            this.updateShelfFillVisibility();
         },
 
         // @change handlers (CSP build: no localStorage/document in templates)
@@ -83,14 +87,108 @@ function scanPage() {
             localStorage.setItem('shelf_location', this.location);
         },
 
+        persistShelfLocation() {
+            var select = document.getElementById('shelf-fill-location');
+            this.shelfLocation = select ? select.value : '';
+            localStorage.setItem('shelf_fill_location', this.shelfLocation);
+        },
+
         persistPlatform() {
             localStorage.setItem('shelf_platform', this.platform);
+        },
+
+        updateShelfFillVisibility() {
+            var wrap = document.getElementById('shelf-fill-location-wrap');
+            if (wrap) wrap.style.display = this.mode === 'shelf_fill' ? '' : 'none';
+        },
+
+        installShelfFillPicker() {
+            var self = this;
+            var form = document.querySelector('form[hx-post="/api/scan"]');
+            if (!form || document.getElementById('shelf-fill-picker-host')) return;
+
+            var host = document.createElement('div');
+            host.id = 'shelf-fill-picker-host';
+            var card = form.querySelector('.bg-shelf-card');
+            if (card) form.insertBefore(host, card);
+            else form.appendChild(host);
+
+            fetch('/api/shelf-fill/location-picker')
+                .then(function(r) {
+                    if (!r.ok) throw new Error('HTTP ' + r.status);
+                    return r.text();
+                })
+                .then(function(html) {
+                    host.innerHTML = html;
+                    var select = document.getElementById('shelf-fill-location');
+                    if (select) {
+                        select.value = self.shelfLocation;
+                        if (select.value !== self.shelfLocation) {
+                            self.shelfLocation = '';
+                            localStorage.removeItem('shelf_fill_location');
+                        }
+                        select.addEventListener('change', function() {
+                            self.persistShelfLocation();
+                        });
+                    }
+                    self.updateShelfFillVisibility();
+                })
+                .catch(function() {
+                    host.innerHTML = '';
+                    if (self.mode === 'shelf_fill') {
+                        showToast('Could not load shelf locations', 'error');
+                    }
+                });
+        },
+
+        async placeDeferredResult(html) {
+            if (this.mode !== 'shelf_fill' || !this.shelfLocation || !html) return;
+
+            var tmp = document.createElement('div');
+            tmp.innerHTML = html;
+            var incoming = tmp.querySelector('.scan-result');
+            if (!incoming) return;
+            var status = incoming.getAttribute('data-scan-status') || '';
+            if (status !== 'added' && status !== 'duplicate') return;
+
+            var link = incoming.querySelector('a[href^="/item/"]');
+            if (!link) return;
+            var match = link.getAttribute('href').match(/\/item\/(\d+)/);
+            if (!match) return;
+            var itemId = parseInt(match[1]);
+
+            var body = new FormData();
+            body.set('item_id', itemId);
+            body.set('location_node_id', this.shelfLocation);
+            try {
+                var resp = await fetch('/api/shelf-fill/place', {
+                    method: 'POST',
+                    headers: {'X-CSRF-Token': window.csrfToken()},
+                    body: body
+                });
+                if (!resp.ok) throw new Error('HTTP ' + resp.status);
+                var replacement = await resp.text();
+                var cards = document.querySelectorAll('#scan-results .scan-result');
+                for (var i = 0; i < cards.length; i++) {
+                    var cardLink = cards[i].querySelector('a[href="/item/' + itemId + '"]');
+                    var cardStatus = cards[i].getAttribute('data-scan-status') || '';
+                    if (cardLink && (cardStatus === 'added' || cardStatus === 'duplicate')) {
+                        cards[i].outerHTML = replacement;
+                        var first = document.querySelector('#scan-results .scan-result');
+                        if (first) htmx.process(first);
+                        break;
+                    }
+                }
+            } catch (err) {
+                showToast('Item was added, but could not be placed on the selected shelf', 'error');
+            }
         },
 
         // Client-side validation before form submit
         init() {
             var self = this;
             var form = document.querySelector('form[hx-post="/api/scan"]');
+            this.installShelfFillPicker();
             if (form) {
                 form.addEventListener('htmx:beforeRequest', function(e) {
                     if (self.mode === 'lend' && !self.borrowerId) {
@@ -103,8 +201,31 @@ function scanPage() {
                         showToast('Select a location first', 'error');
                         return false;
                     }
+                    if (self.mode === 'shelf_fill' && !self.shelfLocation) {
+                        e.preventDefault();
+                        showToast('Select a shelf location first', 'error');
+                        return false;
+                    }
+                });
+                form.addEventListener('htmx:configRequest', function(e) {
+                    if (self.mode === 'shelf_fill') {
+                        e.detail.path = '/api/shelf-fill/scan';
+                    }
                 });
             }
+
+            // Metadata misses and magazine scans can render a second-step form.
+            // Once that form eventually creates or resolves an item, place it
+            // on the still-selected precise shelf without asking again.
+            document.body.addEventListener('htmx:afterRequest', function(e) {
+                if (self.mode !== 'shelf_fill' || !e.detail.successful) return;
+                var el = e.detail.elt;
+                if (!el || !el.closest || !el.closest('#scan-results')) return;
+                var xhr = e.detail.xhr;
+                if (xhr && xhr.responseText) self.placeDeferredResult(xhr.responseText);
+            });
+
+            this.updateShelfFillVisibility();
         },
 
         async showMissing() {
@@ -198,6 +319,10 @@ function scanPage() {
                 showToast('Select a location first', 'error');
                 return;
             }
+            if (this.mode === 'shelf_fill' && !this.shelfLocation) {
+                showToast('Select a shelf location first', 'error');
+                return;
+            }
 
             var now = Date.now();
             if (code === this.lastScanned && now - this.lastScanTime < 3000) return;
@@ -231,8 +356,9 @@ function scanPage() {
             formData.set('isbn', code);
             formData.set('mode', this.mode);
             if (this.mode === 'lend') formData.set('borrower_id', this.borrowerId);
+            var endpoint = this.mode === 'shelf_fill' ? '/api/shelf-fill/scan' : '/api/scan';
             try {
-                var resp = await fetch('/api/scan', { method: 'POST', headers: { 'X-CSRF-Token': window.csrfToken() }, body: formData });
+                var resp = await fetch(endpoint, { method: 'POST', headers: { 'X-CSRF-Token': window.csrfToken() }, body: formData });
                 if (!resp.ok) throw new Error('HTTP ' + resp.status);
                 var html = await resp.text();
 

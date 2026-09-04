@@ -3,8 +3,8 @@
 [![Release](https://img.shields.io/github/v/release/dgahagan/shelf)](https://github.com/dgahagan/shelf/releases)
 [![Docker Pulls](https://img.shields.io/docker/pulls/dangahagan/shelf)](https://hub.docker.com/r/dangahagan/shelf)
 [![CI](https://github.com/sudo-rpaisley/shelf/actions/workflows/test.yml/badge.svg)](https://github.com/sudo-rpaisley/shelf/actions/workflows/test.yml)
-[![Unit tests](https://img.shields.io/badge/unit%20tests-2522%20passing-brightgreen)](https://github.com/sudo-rpaisley/shelf/actions/workflows/test.yml)
-[![E2E tests](https://img.shields.io/badge/e2e%20tests-214%20passing-brightgreen)](https://github.com/sudo-rpaisley/shelf/actions/workflows/test.yml)
+[![Unit tests](https://img.shields.io/badge/unit%20tests-2530%20passing-brightgreen)](https://github.com/sudo-rpaisley/shelf/actions/workflows/test.yml)
+[![E2E tests](https://img.shields.io/badge/e2e%20tests-215%20passing-brightgreen)](https://github.com/sudo-rpaisley/shelf/actions/workflows/test.yml)
 [![License: AGPL-3.0](https://img.shields.io/github/license/sudo-rpaisley/shelf)](LICENSE)
 
 Shelf is a self-hosted home library catalogue for books and other media. Scan
@@ -25,8 +25,8 @@ responsive web interface.
 
 - **Barcode scanning** — use a phone camera or USB/Bluetooth scanner for ISBN,
   EAN and UPC barcodes.
-- **Eight scan modes** — Add, Wishlist, Lend, Return, Move, Inventory, Lookup
-  and Quick Rate.
+- **Nine scan modes** — Add, Shelf Fill, Wishlist, Lend, Return, Move,
+  Inventory, Lookup and Quick Rate.
 - **Photo Intake** — photograph a shelf or stack of books, review the detected
   titles, then import them in bulk.
 - **Automatic metadata and covers** — book metadata can cascade through Open

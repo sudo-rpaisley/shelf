@@ -1,0 +1,15 @@
+<div id="shelf-fill-location-wrap" class="bg-shelf-card rounded-xl border border-shelf-border p-4 mb-6" style="display:none">
+    <label for="shelf-fill-location" class="block text-sm font-medium text-shelf-muted mb-1">Shelf location</label>
+    {% if locations %}
+    <select id="shelf-fill-location" name="location_node_id"
+            class="w-full bg-shelf-bg border border-shelf-border rounded-lg px-3 py-2.5 text-shelf-text focus:ring-2 focus:ring-shelf-accent focus:border-transparent outline-none">
+        <option value="">Choose a room, bookcase or shelf…</option>
+        {% for loc in locations %}
+        <option value="{{ loc.id }}">{{ loc.path }}{% if loc.copy_count %} · {{ loc.copy_count }} cop{{ 'y' if loc.copy_count == 1 else 'ies' }}{% endif %}</option>
+        {% endfor %}
+    </select>
+    <p class="text-xs text-shelf-muted mt-2">Scans are appended to this location in scan order. The precise sub-location is stored on the physical copy.</p>
+    {% else %}
+    <p class="text-sm text-shelf-muted">No physical locations exist yet. <a href="/locations" class="text-shelf-accent2 hover:text-white">Create one in Locations</a> first.</p>
+    {% endif %}
+</div>
