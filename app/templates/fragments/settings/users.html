@@ -21,13 +21,23 @@
         </div>
 
         {% if request.query_params.get('oidc_saved') %}
-        <div class="mb-4 bg-shelf-success/10 border border-shelf-success/30 text-shelf-success text-sm rounded-lg px-4 py-2" role="status">
+        <div class="mb-4 bg-shelf-success/10 border border-shelf-success/40 text-shelf-success text-sm rounded-lg px-4 py-2" role="status">
             OIDC settings saved.
+        </div>
+        {% endif %}
+        {% if request.query_params.get('oidc_test') %}
+        <div class="mb-4 bg-shelf-success/10 border border-shelf-success/40 text-shelf-success text-sm rounded-lg px-4 py-2" role="status">
+            OIDC configuration test passed. Discovery, issuer, endpoints, Authorization Code support and PKCE S256 are valid.
         </div>
         {% endif %}
         {% if request.query_params.get('oidc_error') %}
         <div class="mb-4 bg-shelf-error/10 border border-shelf-error/30 text-shelf-error text-sm rounded-lg px-4 py-2" role="alert">
             {{ request.query_params.get('oidc_error') }}
+        </div>
+        {% endif %}
+        {% if request.query_params.get('oidc_test_error') %}
+        <div class="mb-4 bg-shelf-error/10 border border-shelf-error/30 text-shelf-error text-sm rounded-lg px-4 py-2" role="alert">
+            OIDC configuration test failed: {{ request.query_params.get('oidc_test_error') }}
         </div>
         {% endif %}
 
@@ -144,7 +154,7 @@
                         <label for="oidc_default_role" class="block text-sm font-medium text-shelf-muted mb-1">If no role group matches</label>
                         {% set oidc_default_role = settings.get('oidc_default_role', 'deny') %}
                         <select id="oidc_default_role" name="oidc_default_role"
-                                class="w-full md:w-64 bg-shelf-card border border-shelf-border rounded-lg px-3 py-2 text-sm text-shelf-text focus:outline-none focus:border-shelf-accent">
+                                class="w-full max-w-xs bg-shelf-card border border-shelf-border rounded-lg px-3 py-2 text-sm text-shelf-text focus:outline-none focus:border-shelf-accent">
                             <option value="deny" {% if oidc_default_role == 'deny' %}selected{% endif %}>Deny access</option>
                             <option value="viewer" {% if oidc_default_role == 'viewer' %}selected{% endif %}>Viewer</option>
                             <option value="editor" {% if oidc_default_role == 'editor' %}selected{% endif %}>Editor</option>
@@ -179,11 +189,15 @@
                 <code class="block mt-1 text-shelf-text break-all select-all">{{ request.url_for('login_page') }}</code>
             </div>
 
-            <div class="flex items-center gap-3">
+            <div class="flex flex-wrap items-center gap-3">
                 <button type="submit" class="px-4 py-2 bg-shelf-accent text-white rounded-lg text-sm hover:bg-shelf-accent2 transition-colors">
                     Save OIDC settings
                 </button>
-                <span class="text-xs text-shelf-muted">HTTPS is required unless <code>SHELF_OIDC_ALLOW_INSECURE_HTTP</code> is explicitly set for development.</span>
+                <button type="submit" name="oidc_action" value="test"
+                        class="px-4 py-2 bg-shelf-hover hover:bg-shelf-border text-shelf-text rounded-lg text-sm border border-shelf-border transition-colors">
+                    Save &amp; test configuration
+                </button>
+                <span class="basis-full text-xs text-shelf-muted">HTTPS is required unless <code class="break-all">SHELF_OIDC_ALLOW_INSECURE_HTTP</code> is explicitly set for development. The test validates discovery and advertised protocol capabilities; a real sign-in still validates the client and claims.</span>
             </div>
         </form>
     </div>
@@ -207,13 +221,17 @@
                     <select :value="u.role" @change="updateRole(u.id, $event.target.value)"
                         :disabled="u.role_managed"
                         :title="u.role_managed ? 'Role is managed by OIDC group mapping' : 'Change role'"
-                        :class="u.role_managed ? 'opacity-60 cursor-not-allowed' : ''"
+                        :class="u.role_managed ? 'opacity-75 cursor-not-allowed' : ''"
                         class="bg-shelf-card border border-shelf-border rounded px-2 py-1 text-sm text-shelf-text">
                         <option value="admin">Admin</option>
                         <option value="editor">Editor</option>
                         <option value="viewer">Viewer</option>
                     </select>
-                    <button @click="resetPassword(u.id)" class="text-shelf-muted hover:text-shelf-text text-sm transition-colors" title="Set/reset a local fallback password">
+                    <button @click="resetPassword(u.id)"
+                            :disabled="u.auth_provider === 'OIDC'"
+                            :title="u.auth_provider === 'OIDC' ? 'OIDC accounts do not use Shelf passwords' : 'Set/reset password'"
+                            :class="u.auth_provider === 'OIDC' ? 'opacity-75 cursor-not-allowed' : ''"
+                            class="text-shelf-muted hover:text-shelf-text text-sm transition-colors">
                         Reset PW
                     </button>
                     <button @click="deleteUser(u.id, u.display_name || u.username)" class="text-shelf-error/60 hover:text-shelf-error text-sm transition-colors" title="Delete user">
