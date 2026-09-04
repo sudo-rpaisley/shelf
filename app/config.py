@@ -19,6 +19,8 @@ MEDIA_TYPES = {
     "music_other": "Other Music Format",
     "comic": "Comic / Graphic Novel",
     "digital_comic": "Digital Comic",
+    "manga": "Manga",
+    "digital_manga": "Digital Manga",
     "video_game": "Video Game",
     "digital_game": "Digital Game",
 }
@@ -50,6 +52,10 @@ MEDIA_FAMILIES = {
     "comics": {
         "label": "Comics",
         "types": ("comic", "digital_comic"),
+    },
+    "manga": {
+        "label": "Manga",
+        "types": ("manga", "digital_manga"),
     },
     "music": {
         "label": "Music",
@@ -87,7 +93,7 @@ GAME_PLATFORMS = {
     "3ds": "Nintendo 3DS",
     "genesis": "Sega Genesis",
     "saturn": "Sega Saturn",
-    "dreamcast": "Dreamcast",
+    "dreamcast": "Sega Dreamcast",
     "ps1": "PlayStation",
     "ps2": "PlayStation 2",
     "ps3": "PlayStation 3",
