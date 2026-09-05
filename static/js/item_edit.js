@@ -123,6 +123,7 @@ function installBarcodeFieldScanner() {
             html5ElId: 'edit-barcode-camera-reader',
             videoEl: 'edit-barcode-zxing-video',
             html5Config: { fps: 10, qrbox: { width: 280, height: 100 }, aspectRatio: 1.5 },
+            forceZxing: scanMode === 'periodical-supplement',
             onDecode: function (decodedText) {
                 if (!target) return;
                 if (!applyScannedBarcode(target, decodedText, scanMode, supplementTargetId)) {
