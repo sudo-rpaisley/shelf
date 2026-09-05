@@ -27,4 +27,6 @@ def test_scan_page_and_edit_fields_share_compact_barcode_camera_behavior():
     assert "fetch(" not in edit_source
     assert 'data-scan-barcode-target="{{ name }}"' in edit_template
     assert 'barcode_field("isbn", "ISBN"' in edit_template
+    assert 'barcode_field("upc", "Barcode (UPC / EAN)"' in edit_template
+    assert 'action="/api/items/{{ item.id }}/edit"' in edit_template
     assert 'src="/static/js/scanner-engine.js"' in edit_template
