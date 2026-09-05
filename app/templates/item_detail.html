@@ -207,12 +207,9 @@
             </div>
             {% endif %}
 
-            {% if not is_music %}
             <div class="mb-6">
-                <p class="text-sm font-medium text-shelf-muted mb-2">Reading Status</p>
                 {% include "fragments/reading_status.html" %}
             </div>
-            {% endif %}
 
             {% if can_edit or current_checkout or checkout_history %}
             <div x-data="{ showLendForm: false }">
