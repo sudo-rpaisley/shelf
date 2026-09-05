@@ -97,17 +97,17 @@
         <form hx-post="/api/items/{{ item.id }}/personal-state"
               hx-target="#personal-state-section" hx-swap="outerHTML"
               class="mt-2 flex flex-wrap items-end gap-2">
-            <label class="text-xs text-shelf-muted">Current
+            <label class="text-xs text-shelf-muted basis-full sm:flex-1">Current
                 <input type="number" min="0" step="any" name="progress_value" value="{{ state.progress_value if state.progress_value is not none else '' }}"
-                       class="block mt-1 w-24 bg-shelf-bg border border-shelf-border rounded-lg px-2 py-1.5 text-sm text-shelf-text">
+                       class="block mt-1 w-full bg-shelf-bg border border-shelf-border rounded-lg px-2 py-1.5 text-sm text-shelf-text">
             </label>
-            <label class="text-xs text-shelf-muted">Total
+            <label class="text-xs text-shelf-muted basis-full sm:flex-1">Total
                 <input type="number" min="0" step="any" name="progress_total" value="{{ state.progress_total if state.progress_total is not none else '' }}"
-                       class="block mt-1 w-24 bg-shelf-bg border border-shelf-border rounded-lg px-2 py-1.5 text-sm text-shelf-text">
+                       class="block mt-1 w-full bg-shelf-bg border border-shelf-border rounded-lg px-2 py-1.5 text-sm text-shelf-text">
             </label>
-            <label class="text-xs text-shelf-muted">Unit
+            <label class="text-xs text-shelf-muted basis-full sm:flex-1">Unit
                 <input type="text" maxlength="32" name="progress_unit" value="{{ state.progress_unit or '' }}" placeholder="pages, %, episodes…"
-                       class="block mt-1 w-36 bg-shelf-bg border border-shelf-border rounded-lg px-2 py-1.5 text-sm text-shelf-text">
+                       class="block mt-1 w-full bg-shelf-bg border border-shelf-border rounded-lg px-2 py-1.5 text-sm text-shelf-text">
             </label>
             <button type="submit" class="px-3 py-1.5 bg-shelf-bg border border-shelf-border text-shelf-muted rounded-lg text-xs hover:text-shelf-text hover:bg-shelf-hover transition-colors">Save progress</button>
         </form>
