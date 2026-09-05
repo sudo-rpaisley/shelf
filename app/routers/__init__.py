@@ -22,6 +22,11 @@ from app.routers import location_tree as location_tree  # noqa: F401,E402
 from app.routers import item_copies as item_copies  # noqa: F401,E402
 from app.routers import attention as attention  # noqa: F401,E402
 
+# auth_routes owns the mounted authentication router. OIDC-focused extensions
+# decorate that same router so app.main does not need another include_router.
+from app.routers import auth_routes as auth_routes  # noqa: F401,E402
+from app.routers import oidc_linking as oidc_linking  # noqa: F401,E402
+
 from app.routers import items_common as items_common  # noqa: F401,E402
 from app.routers import items_magazines as items_magazines  # noqa: F401,E402
 from app.routers import magazines as magazines  # noqa: F401,E402
