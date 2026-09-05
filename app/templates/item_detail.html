@@ -2,7 +2,7 @@
 {% block title %}{{ item.title }} — Shelf{% endblock %}
 {% block content %}
 {% set is_music = item.media_type in ('vinyl', 'cassette', 'cd', 'digital_music', 'music_other') %}
-{% set can_edit = user and user.role in ('admin', 'editor') %}
+{% set can_edit = can_edit_item if can_edit_item is defined else (user and user.role in ('admin', 'editor')) %}
 <div class="max-w-4xl mx-auto">
     <a href="{{ back.path }}" class="text-shelf-muted hover:text-shelf-text text-sm mb-4 inline-block">&larr; {{ back.label }}</a>
 
