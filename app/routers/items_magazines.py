@@ -7,10 +7,11 @@ Shelf preserves the add-on as issue-discriminator data and asks for issue
 number/date rather than guessing a publisher-specific encoding.
 
 For ISSN-bearing carriers the lookup ladder deliberately favours serial-aware
-sources: Google Books, ISSN Portal and Crossref, then UPC Item DB. Supplemented
-retail UPC/EAN periodicals first reuse publication metadata already learned by
-Shelf, then try UPC Item DB. Generic category labels such as ``Magazine`` are
-never accepted as publication titles.
+sources: an earlier local Shelf record, the small bundled legacy-periodical
+catalogue, Google Books, ISSN linked data and Crossref, then UPC Item DB.
+Supplemented retail UPC/EAN periodicals first reuse publication metadata
+already learned by Shelf, then try UPC Item DB. Generic category labels such as
+``Magazine`` are never accepted as publication titles.
 """
 
 import re
@@ -25,6 +26,7 @@ from app.services import (
     crossref_journals,
     googlebooks,
     issn_portal,
+    periodical_catalogue,
     periodical_records,
     periodicals,
     upcitemdb,
@@ -147,6 +149,9 @@ async def scan_magazine(
         google_api_key = get_setting(db, "google_books_api_key") or None
 
     metadata = _known_publication_metadata(serial.ean13)
+    if metadata is None and serial.issn:
+        metadata = periodical_catalogue.lookup(serial.issn)
+
     google_result = None
     issn_result = None
     crossref_result = None
