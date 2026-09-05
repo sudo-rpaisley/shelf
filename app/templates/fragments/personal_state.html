@@ -5,27 +5,27 @@
     <div>
         <p class="text-sm font-medium text-shelf-muted mb-2">{{ status_labels.heading }}</p>
         <div class="flex flex-wrap items-center gap-2">
-            <button hx-post="/api/items/{{ item.id }}/personal-state"
-                    hx-vals='{"reading_status":"want_to_read"}'
+            <button hx-post="/api/items/{{ item.id }}/reading-status"
+                    hx-vals='{"status":"want_to_read"}'
                     hx-target="#personal-state-section" hx-swap="outerHTML"
                     class="px-3 py-1.5 rounded-full text-xs font-medium border transition-colors {% if rs == 'want_to_read' %}bg-shelf-warning/20 text-shelf-warning border-shelf-warning/40{% else %}bg-shelf-card text-shelf-muted border-shelf-border hover:border-shelf-warning/40{% endif %}">
                 {{ status_labels.want_to_read }}
             </button>
-            <button hx-post="/api/items/{{ item.id }}/personal-state"
-                    hx-vals='{"reading_status":"reading"}'
+            <button hx-post="/api/items/{{ item.id }}/reading-status"
+                    hx-vals='{"status":"reading"}'
                     hx-target="#personal-state-section" hx-swap="outerHTML"
                     class="px-3 py-1.5 rounded-full text-xs font-medium border transition-colors {% if rs == 'reading' %}bg-shelf-accent/20 text-shelf-accent2 border-shelf-accent/40{% else %}bg-shelf-card text-shelf-muted border-shelf-border hover:border-shelf-accent/40{% endif %}">
                 {{ status_labels.reading }}
             </button>
-            <button hx-post="/api/items/{{ item.id }}/personal-state"
-                    hx-vals='{"reading_status":"read"}'
+            <button hx-post="/api/items/{{ item.id }}/reading-status"
+                    hx-vals='{"status":"read"}'
                     hx-target="#personal-state-section" hx-swap="outerHTML"
                     class="px-3 py-1.5 rounded-full text-xs font-medium border transition-colors {% if rs == 'read' %}bg-shelf-success/20 text-shelf-success border-shelf-success/40{% else %}bg-shelf-card text-shelf-muted border-shelf-border hover:border-shelf-success/40{% endif %}">
                 {{ status_labels.read }}
             </button>
             {% if rs %}
-            <button hx-post="/api/items/{{ item.id }}/personal-state"
-                    hx-vals='{"reading_status":""}'
+            <button hx-post="/api/items/{{ item.id }}/reading-status"
+                    hx-vals='{"status":""}'
                     hx-target="#personal-state-section" hx-swap="outerHTML"
                     class="px-2 py-1.5 rounded-full text-xs text-shelf-muted hover:text-shelf-error transition-colors"
                     title="Clear status">&times;</button>
@@ -40,7 +40,7 @@
         {% endif %}
         {% if reading_history and reading_history|length >= 2 %}
         <details class="mt-2" data-testid="reading-history">
-            <summary class="text-xs text-shelf-muted cursor-pointer hover:text-shelf-text">Completed {{ reading_history|length }} times</summary>
+            <summary class="text-xs text-shelf-muted cursor-pointer hover:text-shelf-text">{{ status_labels.read }} {{ reading_history|length }} times</summary>
             <div class="mt-2 space-y-1">
                 {% for r in reading_history %}
                 <div class="text-xs text-shelf-muted flex gap-2">
@@ -112,8 +112,4 @@
             <button type="submit" class="px-3 py-1.5 bg-shelf-bg border border-shelf-border text-shelf-muted rounded-lg text-xs hover:text-shelf-text hover:bg-shelf-hover transition-colors">Save progress</button>
         </form>
     </details>
-
-    {% if not state.persisted %}
-    <p class="text-[10px] text-shelf-muted">Showing the previous shared Shelf state as your starting point. Your first change makes it personal to your account.</p>
-    {% endif %}
 </div>
