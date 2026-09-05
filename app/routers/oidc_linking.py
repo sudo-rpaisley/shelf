@@ -1,4 +1,4 @@
-"""Administrative linking of existing Shelf users to OIDC identities.
+"""Administrative OIDC account migration and login-policy routes.
 
 Identity linking is deliberately explicit. Shelf never treats a matching
 username or email address as proof that a local account and an OIDC identity
@@ -15,6 +15,11 @@ from fastapi.responses import RedirectResponse
 from app.auth import require_role
 from app.database import get_db
 from app.oidc import get_oidc_config
+from app.oidc_policy import (
+    OIDCPolicyError,
+    get_local_login_policy,
+    save_local_login_policy,
+)
 from app.routers.auth_routes import router
 
 logger = logging.getLogger(__name__)
@@ -25,6 +30,32 @@ _MAX_EMAIL_LENGTH = 320
 
 def _settings_redirect(**params: str) -> RedirectResponse:
     return RedirectResponse(url="/settings?" + urlencode(params), status_code=303)
+
+
+@router.post("/api/oidc/local-login-policy")
+async def update_local_login_policy(
+    request: Request,
+    local_login_mode: str = Form("enabled"),
+    break_glass_username: str = Form(""),
+    _=Depends(require_role("admin")),
+):
+    """Choose normal local login or a single local recovery administrator."""
+    try:
+        policy = save_local_login_policy(local_login_mode, break_glass_username)
+    except OIDCPolicyError as exc:
+        logger.warning(
+            "OIDC local-login policy rejected for admin '%s': %s",
+            request.state.user["username"],
+            exc,
+        )
+        return _settings_redirect(oidc_policy_error=str(exc))
+
+    logger.info(
+        "OIDC local-login policy changed to '%s' by admin '%s'",
+        policy.mode,
+        request.state.user["username"],
+    )
+    return _settings_redirect(oidc_policy_saved=policy.mode)
 
 
 @router.post("/api/oidc/link-existing")
@@ -64,6 +95,12 @@ async def link_existing_oidc_account(
         ).fetchone()
         if not user:
             return _settings_redirect(oidc_link_error=f"Shelf user '{username}' was not found")
+
+        policy = get_local_login_policy()
+        if policy.recovery_only and user["id"] == policy.break_glass_user_id:
+            return _settings_redirect(
+                oidc_link_error="This account is the configured break-glass administrator; change the local-login policy before linking it"
+            )
 
         existing_for_user = db.execute(
             "SELECT issuer, subject FROM user_identities WHERE user_id = ? LIMIT 1",
