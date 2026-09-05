@@ -26,16 +26,14 @@ from app.oidc import (
     save_oidc_config,
     set_flow_cookie,
 )
-from app.oidc_policy import get_local_login_policy, save_local_login_policy
+from app.oidc_logout import provider_logout_enabled, provider_logout_url
+from app.oidc_policy import (
+    get_local_login_policy,
+    get_oidc_session_ttl_seconds,
+    save_local_login_policy,
+)
 
 logger = logging.getLogger(__name__)
-
-# OIDC sessions are intentionally shorter and non-sliding. Provider group
-# membership is re-evaluated at least once per day even if Shelf is used
-# continuously, so a removed/demoted IdP user cannot retain a stale local role
-# indefinitely. The OP's own SSO session normally makes this reauthentication
-# transparent to the user.
-OIDC_SESSION_TTL_SECONDS = 24 * 3600
 
 # Unknown usernames must do the same one bcrypt verification as known usernames
 # without generating a fresh salt/hash on every request. The hash is created
@@ -123,7 +121,8 @@ async def login_page(request: Request):
             clear_flow_cookie(response)
             return response
 
-        reauth_at = int(time.time()) + OIDC_SESSION_TTL_SECONDS
+        session_ttl = get_oidc_session_ttl_seconds()
+        reauth_at = int(time.time()) + session_ttl
         token = create_token(
             oidc_user["id"],
             oidc_user["username"],
@@ -136,7 +135,7 @@ async def login_page(request: Request):
         response = RedirectResponse(url="/browse", status_code=303)
         response.headers["Cache-Control"] = "no-store"
         clear_flow_cookie(response)
-        set_auth_cookie(response, token, max_age=OIDC_SESSION_TTL_SECONDS)
+        set_auth_cookie(response, token, max_age=session_ttl)
         logger.info("OIDC user '%s' logged in from %s", oidc_user["username"], get_client_ip(request))
         return response
 
@@ -185,8 +184,19 @@ async def login(request: Request, username: str = Form(...), password: str = For
 
 
 @router.post("/logout")
-async def logout():
-    response = RedirectResponse(url="/login", status_code=303)
+async def logout(request: Request):
+    # Local Shelf logout is authoritative and must never depend on the IdP.
+    # For an OIDC-derived session we may redirect to the provider afterwards,
+    # but discovery/network errors simply fall back to Shelf's login page.
+    target = "/login"
+    user = getattr(request.state, "user", None)
+    if user and user.get("auth_method") == "oidc" and provider_logout_enabled():
+        try:
+            target = await provider_logout_url(request) or "/login"
+        except OIDCError as exc:
+            logger.warning("OIDC provider logout unavailable: %s", exc)
+
+    response = RedirectResponse(url=target, status_code=303)
     clear_auth_cookie(response)
     clear_flow_cookie(response)
     return response
