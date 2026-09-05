@@ -11,8 +11,6 @@ the shared routers.
 """
 
 # Register focused schema extensions before application startup calls init_db.
-# First-class libraries have no routes in their schema-only slice yet, but the
-# migration registration belongs here with the other extension foundations.
 from app.services import libraries as libraries_service  # noqa: F401,E402
 
 # Import the base routers first, then extensions which decorate them.
@@ -38,7 +36,9 @@ from app.routers import item_barcode_edit as item_barcode_edit  # noqa: F401,E40
 items_magazines.install_scan_dispatch()
 
 # Load the large items router once its lower-level scan dispatchers are ready,
-# then let the personal-state extension replace only the legacy endpoints that
-# used to write household-wide reading/wishlist state.
+# then apply focused route replacements in increasing specificity: personal
+# state first, library visibility last so the final Browse/search endpoints
+# enforce both concerns together.
 from app.routers import items as items  # noqa: F401,E402
 from app.routers import user_state_items as user_state_items  # noqa: F401,E402
+from app.routers import library_access as library_access  # noqa: F401,E402
