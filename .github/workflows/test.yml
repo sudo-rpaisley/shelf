@@ -37,8 +37,14 @@ jobs:
   # layout in a browser.
   css:
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
     steps:
+      # Temporary branch-maintenance checkout: use the PR head directly so the
+      # exact generated assets can be committed back to this same branch.
       - uses: actions/checkout@v7
+        with:
+          ref: ${{ github.head_ref }}
 
       - uses: actions/setup-node@v4
         with:
@@ -57,25 +63,21 @@ jobs:
       - name: Rebuild the stylesheet and restamp the service worker
         run: make css
 
-      # Temporary while this feature branch is being forward-ported: expose the
-      # exact generated files so they can be committed without hand-editing
-      # minified Tailwind output. Remove this step once the generated files land.
-      - name: Upload generated build output
-        uses: actions/upload-artifact@v4
-        with:
-          name: oidc-generated-build
-          path: |
-            static/css/app.css
-            static/sw.js
-
-      - name: Committed build output must match the rebuild
+      # Temporary one-shot branch maintenance. GITHUB_TOKEN-authored pushes do
+      # not recursively trigger this workflow. Restore the normal read-only CSS
+      # gate after the generated files have landed.
+      - name: Commit generated build output
         run: |
-          git diff --exit-code --stat static/css/app.css static/sw.js || {
-            echo "::error::Committed build output is stale — run 'make css' and commit the result."
-            echo "static/css/app.css is the Tailwind build; static/sw.js carries the"
-            echo "SW_VERSION stamped from the precache digest. Both are generated."
-            exit 1
-          }
+          if ! git diff --quiet -- static/css/app.css static/sw.js; then
+            git config user.name "github-actions[bot]"
+            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+            git add static/css/app.css static/sw.js
+            git commit -m "Regenerate CSS and service worker for OIDC settings"
+            git push origin HEAD:${{ github.head_ref }}
+          fi
+
+      - name: Generated build output is clean
+        run: git diff --exit-code -- static/css/app.css static/sw.js
 
   # Playwright suite, in its own job: it is the slowest gate and the only one
   # that sees rendered geometry, so a failure here should be attributable at a
