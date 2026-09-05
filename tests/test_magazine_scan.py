@@ -57,7 +57,7 @@ def test_auto_scan_identifies_publication_but_does_not_invent_issue(
     assert resp.status_code == 200
     assert "Popular Science" in resp.text
     assert "ISSN 0161-7370" in resp.text
-    assert "identifies the publication, not a unique issue" in resp.text
+    assert "does not assume the carrier uniquely identifies a publication or issue" in resp.text
     assert 'name="issue_number"' in resp.text
     assert 'name="issue_date"' in resp.text
     assert db.execute("SELECT COUNT(*) AS c FROM items").fetchone()["c"] == 0
@@ -210,7 +210,7 @@ def test_generic_retail_category_is_not_accepted_as_publication_title(
     assert resp.status_code == 200
     assert 'name="title" value=""' in resp.text
     assert f'value="{generic_title}"' not in resp.text
-    assert "ISSN 0161-7370" in resp.text
+    assert "Barcode ISSN hint 0161-7370" in resp.text
     assert db.execute("SELECT COUNT(*) AS c FROM items").fetchone()["c"] == 0
 
 
@@ -229,7 +229,7 @@ def test_unknown_977_still_uses_magazine_issue_form(editor_client, db, monkeypat
     )
 
     assert resp.status_code == 200
-    assert "ISSN 0161-7370" in resp.text
+    assert "Barcode ISSN hint 0161-7370" in resp.text
     assert f'name="carrier_ean" value="{MAGAZINE_EAN}"' in resp.text
     assert 'name="title" value=""' in resp.text
     assert db.execute("SELECT COUNT(*) AS c FROM items").fetchone()["c"] == 0
@@ -292,7 +292,7 @@ def test_concatenated_supplement_is_preserved_for_issue(editor_client, db, monke
         data={"isbn": MAGAZINE_EAN + "05", "media_type": "auto"},
     )
     assert scanned.status_code == 200
-    assert "barcode add-on 05" in scanned.text
+    assert "Barcode ISSN hint 0161-7370 · add-on 05" in scanned.text
 
     added = editor_client.post(
         "/api/magazines/add",
