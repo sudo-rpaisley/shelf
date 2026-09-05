@@ -41,14 +41,8 @@ async def home_dashboard(request: Request, _=Depends(require_role("viewer"))):
             "SELECT COUNT(*) AS c FROM items WHERE owned = 1"
         ).fetchone()["c"]
         wishlist_count = db.execute(
-            """SELECT COUNT(*) AS c
-                 FROM items i
-                 LEFT JOIN user_item_state uis
-                   ON uis.item_id = i.id AND uis.user_id = ?
-                WHERE CASE WHEN uis.user_id IS NOT NULL
-                           THEN uis.wishlist
-                           ELSE CASE WHEN i.owned = 0 THEN 1 ELSE 0 END
-                      END = 1""",
+            "SELECT COUNT(*) AS c FROM user_item_state "
+            "WHERE user_id = ? AND wishlist = 1",
             (user_id,),
         ).fetchone()["c"]
         lent_out_count = db.execute(
