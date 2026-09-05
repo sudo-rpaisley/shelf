@@ -38,8 +38,8 @@ from app.routers import item_barcode_edit as item_barcode_edit  # noqa: F401,E40
 items_magazines.install_scan_dispatch()
 
 # Load the large items router once its lower-level scan dispatchers are ready,
-# then apply focused route replacements in increasing specificity. My List is
-# a personal destination built on the final ACL-aware read stack.
+# then apply focused route replacements in increasing specificity. Personal
+# destinations are built on the final ACL-aware read stack.
 from app.routers import items as items  # noqa: F401,E402
 from app.routers import user_state_items as user_state_items  # noqa: F401,E402
 from app.routers import library_access as library_access  # noqa: F401,E402
@@ -49,3 +49,4 @@ from app.routers import library_series_check as library_series_check  # noqa: F4
 from app.routers import library_item_edit_guard as library_item_edit_guard  # noqa: F401,E402
 from app.routers import library_item_guard as library_item_guard  # noqa: F401,E402
 from app.routers import my_list as my_list  # noqa: F401,E402
+from app.routers import continue_home as continue_home  # noqa: F401,E402
