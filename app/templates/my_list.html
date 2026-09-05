@@ -1,0 +1,72 @@
+{% extends "base.html" %}
+{% block title %}My List — Shelf{% endblock %}
+{% block content %}
+<div class="max-w-6xl mx-auto space-y-6">
+    <div class="flex flex-col sm:flex-row sm:items-end sm:justify-between gap-3">
+        <div>
+            <p class="text-xs uppercase tracking-wider text-shelf-muted">Personal</p>
+            <h1 class="text-2xl font-bold mt-1">My List</h1>
+            <p class="text-sm text-shelf-muted mt-2 max-w-2xl">
+                Things you want to read, watch, listen to or play. This is separate from your wishlist, which tracks things you want to own.
+            </p>
+        </div>
+        <p class="text-sm text-shelf-muted">{{ total }} item{% if total != 1 %}s{% endif %}</p>
+    </div>
+
+    <div class="flex flex-wrap gap-2" data-testid="my-list-tabs">
+        {% for tab in tabs %}
+        <a href="/my-list{% if tab.key != 'all' %}?kind={{ tab.key }}{% endif %}"
+           class="px-3 py-1.5 rounded-full text-sm border transition-colors {% if active_kind == tab.key %}bg-shelf-accent/20 text-shelf-accent2 border-shelf-accent/40{% else %}bg-shelf-card text-shelf-muted border-shelf-border hover:text-shelf-text hover:border-shelf-accent/40{% endif %}">
+            {{ tab.label }} <span class="text-xs opacity-75">{{ tab.count }}</span>
+        </a>
+        {% endfor %}
+    </div>
+
+    {% if items %}
+    <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4" data-testid="my-list-grid">
+        {% for item in items %}
+        <article class="bg-shelf-card rounded-xl border border-shelf-border p-4 flex gap-4 min-w-0">
+            <a href="/item/{{ item.id }}?from=my_list" class="shrink-0">
+                {% if item.cover_path %}
+                <img src="/{{ item.cover_path }}" alt="{{ item.title }}" class="w-20 h-28 object-cover rounded-lg shadow">
+                {% else %}
+                <div class="w-20 h-28 bg-shelf-hover rounded-lg flex items-center justify-center text-[10px] text-shelf-muted text-center px-2">No cover</div>
+                {% endif %}
+            </a>
+
+            <div class="min-w-0 flex-1 flex flex-col">
+                <div class="flex items-center gap-2 text-[10px] uppercase tracking-wider text-shelf-muted mb-1">
+                    <span>{{ item.media_type_label }}</span>
+                    <span>·</span>
+                    <span>{{ item.want_label }}</span>
+                </div>
+                <a href="/item/{{ item.id }}?from=my_list" class="font-semibold leading-snug hover:text-shelf-accent2 transition-colors line-clamp-2">{{ item.title }}</a>
+                {% if item.subtitle %}<p class="text-xs text-shelf-muted mt-1 truncate">{{ item.subtitle }}</p>{% endif %}
+                {% if item.authors %}<p class="text-sm text-shelf-muted mt-1 truncate">{{ item.authors }}</p>{% endif %}
+
+                <div class="mt-auto pt-3 flex items-center justify-between gap-2">
+                    <span class="px-2 py-1 rounded-full text-[10px] bg-shelf-warning/10 text-shelf-warning border border-shelf-warning/30">{{ item.want_label }}</span>
+                    <form method="post" action="/my-list/{{ item.id }}/remove">
+                        <input type="hidden" name="kind" value="{{ active_kind }}">
+                        <button type="submit" class="text-xs text-shelf-muted hover:text-shelf-error transition-colors">Remove</button>
+                    </form>
+                </div>
+            </div>
+        </article>
+        {% endfor %}
+    </div>
+    {% else %}
+    <div class="bg-shelf-card rounded-xl border border-shelf-border p-8 text-center">
+        <h2 class="font-semibold">Nothing here yet</h2>
+        <p class="text-sm text-shelf-muted mt-2">
+            {% if active_kind == 'all' %}
+            Open any item and choose its “Want to…” status to add it to My List.
+            {% else %}
+            You do not currently have anything in this part of My List.
+            {% endif %}
+        </p>
+        <a href="/browse" class="inline-block mt-4 px-4 py-2 bg-shelf-accent text-white rounded-lg text-sm hover:bg-shelf-accent2 transition-colors">Browse library</a>
+    </div>
+    {% endif %}
+</div>
+{% endblock %}
