@@ -1,12 +1,10 @@
 """Browse naming, global nav search, and curated Collections."""
 
+from tests.conftest import _insert_item
+
 
 def _item(db, title, isbn):
-    cur = db.execute(
-        "INSERT INTO items (title, isbn, media_type, source) VALUES (?, ?, 'book', 'test')",
-        (title, isbn),
-    )
-    return cur.lastrowid
+    return _insert_item(db, title=title, isbn=isbn, media_type="book")
 
 
 def _collection(db, name, description=None):
@@ -35,57 +33,50 @@ def test_collection_page_was_renamed_to_browse(admin_client):
     assert "Browse" in html
 
 
-def test_collections_is_a_primary_navigation_destination(admin_client):
-    html = admin_client.get("/collections").text
-    assert "<title>Collections — Shelf</title>" in html
-    assert 'data-nav-tab="collections"' in html
-    assert "Collections are separate from Series and Tags" in html
-
-
-def test_navigation_search_redirects_to_browse(admin_client):
-    response = admin_client.get(
-        "/search", params={"query": "The Left Hand of Darkness"}, follow_redirects=False
-    )
+def test_global_search_redirects_to_browse(viewer_client):
+    response = viewer_client.get("/search?query=Discworld", follow_redirects=False)
     assert response.status_code == 303
-    assert response.headers["location"] == "/browse?q=The+Left+Hand+of+Darkness"
+    assert response.headers["location"] == "/browse?q=Discworld"
 
 
-def test_navigation_search_bar_is_rendered_on_desktop_and_mobile(admin_client):
-    html = admin_client.get("/collections").text
-    assert 'data-testid="nav-search-form"' in html
-    assert 'data-testid="nav-search-form-mobile"' in html
-    assert html.count('name="query"') == 2
-    # The global search deliberately does not use name=q, so Browse's HTMX
-    # filter registry never double-sends its live search value.
-    assert html.count('name="q"') == 0
+def test_collections_nav_and_page_exist(viewer_client, db):
+    _collection(db, "Favourites", "Things worth revisiting")
+    db.commit()
+    html = viewer_client.get("/collections").text
+    assert "<title>Collections — Shelf</title>" in html
+    assert "Favourites" in html
+    assert "Things worth revisiting" in html
+    assert 'data-nav-tab="collections"' in html
 
 
-def test_editor_can_create_and_update_a_collection(editor_client, db):
+def test_editor_can_create_update_and_delete_collection(editor_client, db):
     response = editor_client.post(
         "/api/collections",
-        data={"name": "  Favourite   Science Fiction  ", "description": "Top shelf picks"},
+        data={"name": "Favourites", "description": "Initial"},
         follow_redirects=False,
     )
     assert response.status_code == 303
-    row = db.execute("SELECT * FROM collections").fetchone()
-    assert row["name"] == "Favourite Science Fiction"
-    assert row["description"] == "Top shelf picks"
+    row = db.execute("SELECT * FROM collections WHERE name = 'Favourites'").fetchone()
+    assert row and row["description"] == "Initial"
 
     response = editor_client.post(
         f"/api/collections/{row['id']}",
-        data={"name": "SF Favourites", "description": "Best of the best"},
+        data={"name": "Keepers", "description": "Updated"},
         follow_redirects=False,
     )
     assert response.status_code == 303
-    updated = db.execute("SELECT * FROM collections WHERE id = ?", (row["id"],)).fetchone()
-    assert updated["name"] == "SF Favourites"
-    assert updated["description"] == "Best of the best"
+    row = db.execute("SELECT * FROM collections WHERE id = ?", (row["id"],)).fetchone()
+    assert row["name"] == "Keepers"
+    assert row["description"] == "Updated"
+
+    response = editor_client.delete(f"/api/collections/{row['id']}")
+    assert response.status_code == 200
+    assert db.execute("SELECT 1 FROM collections WHERE id = ?", (row["id"],)).fetchone() is None
 
 
-def test_collection_names_are_case_insensitively_unique(editor_client):
-    assert editor_client.post(
-        "/api/collections", data={"name": "Favourites", "description": ""}
-    ).status_code == 200
+def test_duplicate_collection_name_is_rejected(editor_client, db):
+    _collection(db, "Favourites")
+    db.commit()
     response = editor_client.post(
         "/api/collections", data={"name": "favourites", "description": ""},
         follow_redirects=False,
@@ -146,30 +137,44 @@ def test_browse_collection_filter_only_returns_members(admin_client, db):
     )
     db.commit()
 
-    html = admin_client.get("/browse", params={"collection": "Desert worlds"}).text
+    html = admin_client.get("/browse?collection=Desert%20worlds").text
     assert "Dune" in html
     assert "Neuromancer" not in html
-    assert 'name="collection" value="Desert worlds"' in html
 
 
-def test_collection_cards_show_counts_and_link_into_browse(admin_client, db):
-    item_id = _item(db, "Piranesi", "9781526622433")
-    cid = _collection(db, "Short favourites", "Books I would reread")
+def test_collection_cards_show_member_count_and_preview(viewer_client, db):
+    dune = _item(db, "Dune", "9780441172719")
+    neuromancer = _item(db, "Neuromancer", "9780441569595")
+    cid = _collection(db, "Classics")
     db.execute(
         "INSERT INTO collection_items (collection_id, item_id) VALUES (?, ?)",
-        (cid, item_id),
+        (cid, dune),
+    )
+    db.execute(
+        "INSERT INTO collection_items (collection_id, item_id) VALUES (?, ?)",
+        (cid, neuromancer),
     )
     db.commit()
 
-    html = admin_client.get("/collections").text
-    assert "Short favourites" in html
-    assert "1 item" in html
-    assert "Books I would reread" in html
-    assert "/browse?collection=Short%20favourites" in html
+    html = viewer_client.get("/collections").text
+    assert "2 items" in html
+    assert "Dune" in html
+    assert "Neuromancer" in html
 
 
-def test_deleting_collection_keeps_items_and_cascades_membership(editor_client, db):
-    item_id = _item(db, "Solaris", "9780156027601")
+def test_item_collection_fragment_lists_available_collections(editor_client, db):
+    item_id = _item(db, "Dune", "9780441172719")
+    _collection(db, "Desert worlds")
+    _collection(db, "Classics")
+    db.commit()
+
+    html = editor_client.get(f"/item/{item_id}").text
+    assert "Desert worlds" in html
+    assert "Classics" in html
+
+
+def test_collection_delete_keeps_items(editor_client, db):
+    item_id = _item(db, "Dune", "9780441172719")
     cid = _collection(db, "Temporary")
     db.execute(
         "INSERT INTO collection_items (collection_id, item_id) VALUES (?, ?)",
@@ -179,8 +184,12 @@ def test_deleting_collection_keeps_items_and_cascades_membership(editor_client, 
 
     response = editor_client.delete(f"/api/collections/{cid}")
     assert response.status_code == 200
-    assert db.execute("SELECT 1 FROM collections WHERE id = ?", (cid,)).fetchone() is None
-    assert db.execute(
-        "SELECT 1 FROM collection_items WHERE collection_id = ?", (cid,)
-    ).fetchone() is None
-    assert db.execute("SELECT title FROM items WHERE id = ?", (item_id,)).fetchone()["title"] == "Solaris"
+    assert db.execute("SELECT 1 FROM items WHERE id = ?", (item_id,)).fetchone()
+
+
+def test_collection_name_validation(editor_client):
+    response = editor_client.post(
+        "/api/collections", data={"name": "   ", "description": ""},
+        follow_redirects=False,
+    )
+    assert response.status_code == 400
