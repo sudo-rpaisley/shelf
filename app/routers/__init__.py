@@ -12,6 +12,8 @@ the shared routers.
 
 # Register focused schema extensions before application startup calls init_db.
 from app.services import libraries as libraries_service  # noqa: F401,E402
+# Adapt the existing Users API before app.main mounts auth_routes.router.
+from app.routers import library_user_defaults as library_user_defaults  # noqa: F401,E402
 
 # Import the base routers first, then extensions which decorate them.
 from app.routers import series as series  # noqa: F401,E402
@@ -37,8 +39,11 @@ items_magazines.install_scan_dispatch()
 
 # Load the large items router once its lower-level scan dispatchers are ready,
 # then apply focused route replacements in increasing specificity: personal
-# state first, library visibility last so the final Browse/search endpoints
-# enforce both concerns together.
+# state first, Browse/search visibility, direct/core reads, then the barcode
+# edit compatibility guard and final personal-state guard.
 from app.routers import items as items  # noqa: F401,E402
 from app.routers import user_state_items as user_state_items  # noqa: F401,E402
 from app.routers import library_access as library_access  # noqa: F401,E402
+from app.routers import library_item_access as library_item_access  # noqa: F401,E402
+from app.routers import library_item_edit_guard as library_item_edit_guard  # noqa: F401,E402
+from app.routers import library_item_guard as library_item_guard  # noqa: F401,E402
