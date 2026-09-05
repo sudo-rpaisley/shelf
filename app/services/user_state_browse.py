@@ -10,7 +10,7 @@ same rule.
 from __future__ import annotations
 
 from app import browse_filters
-from app.services import user_state
+from app.services import libraries, user_state
 
 
 def _personal_reading_status_sql(user_id: int) -> tuple[str, list]:
@@ -90,12 +90,22 @@ def overlay_items(db, user_id: int, items: list[dict]) -> list[dict]:
     return items
 
 
-def filter_counts(db, values: dict, total: int, user_id: int) -> dict:
-    """Cross-filter counts resolved against the signed-in user's state."""
+def filter_counts(
+    db,
+    values: dict,
+    total: int,
+    user_id: int,
+    *,
+    user: dict | None = None,
+) -> dict:
+    """Cross-filter counts resolved against one user's state and access set."""
     user_state.ensure_schema(db)
 
     def _count_where(exclude):
-        return browse_filters.build_where(values, exclude=exclude, user_id=user_id)
+        where, params = browse_filters.build_where(values, exclude=exclude, user_id=user_id)
+        if user is not None:
+            where, params = libraries.scope_where(where, params, user)
+        return where, params
 
     type_where, type_params = _count_where("media_type_filter")
     type_counts = {
@@ -151,6 +161,8 @@ def filter_counts(db, values: dict, total: int, user_id: int) -> dict:
         ).fetchall()
     }
 
+    # Locations describe the shared physical world and remain globally named.
+    # Their counts above reveal only accessible items.
     locations = db.execute(
         "SELECT * FROM locations ORDER BY sort_order, name"
     ).fetchall()

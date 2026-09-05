@@ -256,3 +256,59 @@ def has_item_role(db, user: dict, item_id: int, minimum_role: str = "viewer") ->
     if library_id is None:
         return False
     return has_library_role(db, user, library_id, minimum_role)
+
+
+def item_access_condition(
+    user: dict,
+    *,
+    item_alias: str = "i",
+    minimum_role: str = "viewer",
+) -> tuple[str, list]:
+    """Return a bound SQL predicate for the user's accessible item set.
+
+    The alias is supplied only by Shelf code, never request data. Keeping the
+    predicate in one service makes Browse, search, Stats and grouped projections
+    agree on the same deny-by-default rule.
+    """
+    if minimum_role not in LIBRARY_ROLE_LEVELS:
+        raise ValueError("Unknown library role")
+    if not item_alias or not item_alias.replace("_", "").isalnum():
+        raise ValueError("Invalid SQL item alias")
+    if user.get("role") == "admin":
+        return "1 = 1", []
+
+    if minimum_role == "viewer":
+        membership_roles = "('viewer','editor')"
+    elif minimum_role == "editor":
+        membership_roles = "('editor')"
+    else:
+        # Non-admin users can never satisfy a global-admin requirement.
+        return "1 = 0", []
+
+    return (
+        "EXISTS ("
+        "SELECT 1 FROM library_items li "
+        "JOIN library_memberships lm ON lm.library_id = li.library_id "
+        f"WHERE li.item_id = {item_alias}.id AND lm.user_id = ? "
+        f"AND lm.role IN {membership_roles}"
+        ")",
+        [int(user["id"])],
+    )
+
+
+def scope_where(
+    where: str,
+    params: list,
+    user: dict,
+    *,
+    item_alias: str = "i",
+    minimum_role: str = "viewer",
+) -> tuple[str, list]:
+    """AND a library-access predicate onto an existing optional WHERE clause."""
+    condition, access_params = item_access_condition(
+        user,
+        item_alias=item_alias,
+        minimum_role=minimum_role,
+    )
+    joiner = " AND " if where else "WHERE "
+    return f"{where}{joiner}{condition}", list(params) + access_params
