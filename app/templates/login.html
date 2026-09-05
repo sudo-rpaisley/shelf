@@ -3,6 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="referrer" content="no-referrer">
     <title>Sign In - Shelf</title>
     <link rel="stylesheet" href="/static/css/app.css">
 </head>
@@ -13,30 +14,70 @@
             <p class="text-shelf-muted text-sm mt-1">Sign in to your library</p>
         </div>
 
-        <form method="POST" action="/login" class="bg-shelf-card border border-shelf-border rounded-xl p-6 space-y-4">
+        <div class="bg-shelf-card border border-shelf-border rounded-xl p-6 space-y-4">
             {% if error %}
-            <div class="bg-shelf-error/10 border border-shelf-error/30 text-shelf-error text-sm rounded-lg px-4 py-2">
+            <div class="bg-shelf-error/10 border border-shelf-error/30 text-shelf-error text-sm rounded-lg px-4 py-2" role="alert">
                 {{ error }}
             </div>
             {% endif %}
 
-            <div>
-                <label for="username" class="block text-sm font-medium text-shelf-muted mb-1">Username</label>
-                <input type="text" id="username" name="username" required autofocus
-                    class="w-full bg-shelf-bg border border-shelf-border rounded-lg px-3 py-2 text-shelf-text focus:outline-none focus:border-shelf-accent focus:ring-1 focus:ring-shelf-accent">
-            </div>
+            {% if oidc_enabled %}
+            <a href="/login?oidc=1"
+               class="block w-full text-center bg-shelf-accent hover:bg-shelf-accent2 text-white font-medium rounded-lg px-4 py-2 transition-colors"
+               data-testid="oidc-login">
+                Sign in with {{ oidc_provider_name }}
+            </a>
+            {% endif %}
 
-            <div>
-                <label for="password" class="block text-sm font-medium text-shelf-muted mb-1">Password</label>
-                <input type="password" id="password" name="password" required
-                    class="w-full bg-shelf-bg border border-shelf-border rounded-lg px-3 py-2 text-shelf-text focus:outline-none focus:border-shelf-accent focus:ring-1 focus:ring-shelf-accent">
-            </div>
+            {% if show_local_login %}
+                {% if oidc_enabled %}
+                <div class="flex items-center gap-3 py-1" aria-hidden="true">
+                    <div class="flex-1 border-t border-shelf-border"></div>
+                    <span class="text-xs text-shelf-muted uppercase tracking-wide">
+                        {% if recovery_login_requested %}recovery account{% else %}or use a local account{% endif %}
+                    </span>
+                    <div class="flex-1 border-t border-shelf-border"></div>
+                </div>
+                {% endif %}
 
-            <button type="submit"
-                class="w-full bg-shelf-accent hover:bg-shelf-accent2 text-white font-medium rounded-lg px-4 py-2 transition-colors">
-                Sign In
-            </button>
-        </form>
+                {% if recovery_login_requested %}
+                <p class="text-xs text-shelf-muted">
+                    Recovery sign-in is restricted to the configured local break-glass administrator.
+                </p>
+                {% endif %}
+
+                <form method="POST" action="/login" class="space-y-4" data-testid="local-login-form">
+                    <div>
+                        <label for="username" class="block text-sm font-medium text-shelf-muted mb-1">Username</label>
+                        <input type="text" id="username" name="username" required autofocus autocomplete="username"
+                            class="w-full bg-shelf-bg border border-shelf-border rounded-lg px-3 py-2 text-shelf-text focus:outline-none focus:border-shelf-accent focus:ring-1 focus:ring-shelf-accent">
+                    </div>
+
+                    <div>
+                        <label for="password" class="block text-sm font-medium text-shelf-muted mb-1">Password</label>
+                        <input type="password" id="password" name="password" required autocomplete="current-password"
+                            class="w-full bg-shelf-bg border border-shelf-border rounded-lg px-3 py-2 text-shelf-text focus:outline-none focus:border-shelf-accent focus:ring-1 focus:ring-shelf-accent">
+                    </div>
+
+                    <button type="submit"
+                        class="w-full bg-shelf-hover hover:bg-shelf-border text-shelf-text font-medium rounded-lg px-4 py-2 transition-colors border border-shelf-border">
+                        {% if recovery_login_requested %}Recovery sign in{% else %}Sign in locally{% endif %}
+                    </button>
+                </form>
+            {% elif recovery_login_available %}
+                <div class="text-center">
+                    <a href="/login?local=1" class="text-xs text-shelf-muted hover:text-shelf-text" data-testid="recovery-login-link">
+                        Recovery administrator sign-in
+                    </a>
+                </div>
+            {% endif %}
+
+            {% if recovery_login_requested and oidc_enabled %}
+            <div class="text-center">
+                <a href="/login" class="text-xs text-shelf-muted hover:text-shelf-text">Back to single sign-on</a>
+            </div>
+            {% endif %}
+        </div>
     </div>
 </body>
 </html>

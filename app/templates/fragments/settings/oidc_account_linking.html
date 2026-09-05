@@ -1,0 +1,56 @@
+<div x-show="tab === 'users'" class="mt-8 bg-shelf-card rounded-xl border border-shelf-border p-6" data-testid="oidc-account-linking">
+    <div class="mb-5">
+        <h2 class="text-lg font-semibold">Link an existing account to OIDC</h2>
+        <p class="text-sm text-shelf-muted mt-1">
+            Use this when a person already has a Shelf account and should keep that account after moving to SSO.
+            Linking is explicit: Shelf never matches accounts automatically by username or email.
+        </p>
+    </div>
+
+    {% if request.query_params.get('oidc_linked') %}
+    <div class="mb-4 bg-shelf-success/10 border border-shelf-success/40 text-shelf-success text-sm rounded-lg px-4 py-2" role="status">
+        Linked <strong>{{ request.query_params.get('oidc_linked') }}</strong> to the configured OIDC provider. Existing local sessions for that account were invalidated.
+    </div>
+    {% endif %}
+    {% if request.query_params.get('oidc_link_error') %}
+    <div class="mb-4 bg-shelf-error/10 border border-shelf-error/30 text-shelf-error text-sm rounded-lg px-4 py-2" role="alert">
+        {{ request.query_params.get('oidc_link_error') }}
+    </div>
+    {% endif %}
+
+    <form method="POST" action="/api/oidc/link-existing" class="space-y-4">
+        <input type="hidden" name="_csrf" value="{{ request.cookies.get('csrf_token', '') }}">
+
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div>
+                <label for="oidc_link_username" class="block text-sm font-medium text-shelf-muted mb-1">Existing Shelf username</label>
+                <input id="oidc_link_username" name="shelf_username" type="text" required autocomplete="off"
+                       placeholder="robert"
+                       class="w-full bg-shelf-bg border border-shelf-border rounded-lg px-3 py-2 text-sm text-shelf-text focus:outline-none focus:border-shelf-accent">
+            </div>
+            <div>
+                <label for="oidc_link_subject" class="block text-sm font-medium text-shelf-muted mb-1">OIDC subject (<code>sub</code>)</label>
+                <input id="oidc_link_subject" name="oidc_subject" type="text" required autocomplete="off"
+                       placeholder="Stable subject value from the identity provider"
+                       class="w-full bg-shelf-bg border border-shelf-border rounded-lg px-3 py-2 text-sm text-shelf-text focus:outline-none focus:border-shelf-accent">
+                <p class="text-xs text-shelf-muted mt-1">Use the provider's stable subject identifier, not the display name or username.</p>
+            </div>
+        </div>
+
+        <div>
+            <label for="oidc_link_email" class="block text-sm font-medium text-shelf-muted mb-1">Email <span class="font-normal">(optional metadata)</span></label>
+            <input id="oidc_link_email" name="oidc_email" type="email" autocomplete="off"
+                   placeholder="person@example.com"
+                   class="w-full max-w-xl bg-shelf-bg border border-shelf-border rounded-lg px-3 py-2 text-sm text-shelf-text focus:outline-none focus:border-shelf-accent">
+        </div>
+
+        <div class="rounded-lg border border-shelf-border bg-shelf-bg/50 px-4 py-3 text-sm text-shelf-muted">
+            <p>Configured issuer: <code class="text-shelf-text break-all">{{ settings.get('oidc_issuer') or 'Not configured' }}</code></p>
+            <p class="mt-2">After linking, that account becomes OIDC-only: password login is blocked and its current Shelf sessions are invalidated. Shelf will not allow the last local administrator to be linked, preserving a break-glass recovery account.</p>
+        </div>
+
+        <button type="submit" class="px-4 py-2 bg-shelf-accent text-white rounded-lg text-sm hover:bg-shelf-accent2 transition-colors">
+            Link existing account
+        </button>
+    </form>
+</div>

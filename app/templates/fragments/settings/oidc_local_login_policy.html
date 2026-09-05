@@ -1,0 +1,67 @@
+<div x-show="tab === 'users'" class="mt-8 bg-shelf-card rounded-xl border border-shelf-border p-6" data-testid="oidc-local-login-policy">
+    <div class="mb-5">
+        <h2 class="text-lg font-semibold">Local sign-in and recovery</h2>
+        <p class="text-sm text-shelf-muted mt-1">
+            Keep normal Shelf password login available, or hide it for everyone except one local break-glass administrator.
+            Shelf does not offer a mode with no local recovery path.
+        </p>
+    </div>
+
+    {% if request.query_params.get('oidc_policy_saved') %}
+    <div class="mb-4 bg-shelf-success/10 border border-shelf-success/40 text-shelf-success text-sm rounded-lg px-4 py-2" role="status">
+        Local sign-in policy updated.
+    </div>
+    {% endif %}
+    {% if request.query_params.get('oidc_policy_error') %}
+    <div class="mb-4 bg-shelf-error/10 border border-shelf-error/30 text-shelf-error text-sm rounded-lg px-4 py-2" role="alert">
+        {{ request.query_params.get('oidc_policy_error') }}
+    </div>
+    {% endif %}
+
+    {% set local_login_mode = settings.get('oidc_local_login_mode', 'enabled') %}
+    <form method="POST" action="/api/oidc/local-login-policy" class="space-y-5">
+        <input type="hidden" name="_csrf" value="{{ request.cookies.get('csrf_token', '') }}">
+
+        <div class="space-y-3">
+            <label class="flex items-start gap-3 cursor-pointer">
+                <input type="radio" name="local_login_mode" value="enabled"
+                       {% if local_login_mode != 'recovery_only' %}checked{% endif %}
+                       class="mt-0.5 border-shelf-border bg-shelf-bg text-shelf-accent focus:ring-shelf-accent">
+                <span>
+                    <span class="block text-sm font-medium text-shelf-text">Normal local sign-in</span>
+                    <span class="block text-xs text-shelf-muted">Show and allow Shelf username/password login alongside OIDC.</span>
+                </span>
+            </label>
+            <label class="flex items-start gap-3 cursor-pointer">
+                <input type="radio" name="local_login_mode" value="recovery_only"
+                       {% if local_login_mode == 'recovery_only' %}checked{% endif %}
+                       class="mt-0.5 border-shelf-border bg-shelf-bg text-shelf-accent focus:ring-shelf-accent">
+                <span>
+                    <span class="block text-sm font-medium text-shelf-text">Recovery administrator only</span>
+                    <span class="block text-xs text-shelf-muted">Normal users sign in with OIDC. A deliberately selected local administrator remains available for IdP outages or configuration recovery.</span>
+                </span>
+            </label>
+        </div>
+
+        <div>
+            <label for="oidc_break_glass_username" class="block text-sm font-medium text-shelf-muted mb-1">Break-glass Shelf username</label>
+            <input id="oidc_break_glass_username" name="break_glass_username" type="text" autocomplete="off"
+                   placeholder="Required when Recovery administrator only is selected"
+                   class="w-full bg-shelf-bg border border-shelf-border rounded-lg px-3 py-2 text-sm text-shelf-text focus:outline-none focus:border-shelf-accent">
+            <p class="text-xs text-shelf-muted mt-1">The account must be an Admin and must remain local — it cannot itself be linked to OIDC.</p>
+        </div>
+
+        <div class="rounded-lg border border-shelf-border bg-shelf-bg/50 px-4 py-3 text-sm text-shelf-muted">
+            {% if local_login_mode == 'recovery_only' %}
+            Recovery-only mode is currently configured. The recovery form remains reachable from the OIDC login screen.
+            {% else %}
+            Normal local sign-in is currently available.
+            {% endif %}
+            If a stored recovery account ever becomes invalid, Shelf automatically restores normal local login rather than risking a lockout.
+        </div>
+
+        <button type="submit" class="px-4 py-2 bg-shelf-accent text-white rounded-lg text-sm hover:bg-shelf-accent2 transition-colors">
+            Save local sign-in policy
+        </button>
+    </form>
+</div>
