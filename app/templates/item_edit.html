@@ -1,8 +1,14 @@
 {% extends "base.html" %}
 {% block title %}Edit {{ item.title }} — Shelf{% endblock %}
+{% block head %}
+<script src="/static/vendor/html5-qrcode-2.3.8.min.js"></script>
+<script src="/static/vendor/zxing-browser-0.1.5.min.js"></script>
+{% endblock %}
 {% block content %}
 {% set is_music = item.media_type in ('vinyl', 'cassette', 'cd', 'digital_music', 'music_other') %}
 {% set is_book_family = item.media_type in ('book', 'kids_book', 'audiobook', 'ebook', 'comic', 'digital_comic') %}
+{% set is_isbn_media = item.media_type in ('book', 'kids_book', 'audiobook', 'ebook', 'comic', 'digital_comic', 'manga', 'digital_manga') %}
+{% set is_upc_media = item.media_type in ('dvd', 'vinyl', 'cassette', 'cd', 'music_other', 'comic', 'manga', 'video_game') %}
 <div class="max-w-2xl mx-auto">
     <a href="/item/{{ item.id }}{% if back.key %}?from={{ back.key }}{% endif %}" class="text-shelf-muted hover:text-shelf-text text-sm mb-4 inline-block">&larr; Back to item</a>
 
@@ -13,7 +19,7 @@
         {% endif %}
     </div>
 
-    <form action="/api/items/{{ item.id }}" method="post" enctype="multipart/form-data" class="bg-shelf-card rounded-xl border border-shelf-border p-6 space-y-4">
+    <form action="/api/items/{{ item.id }}/edit" method="post" enctype="multipart/form-data" class="bg-shelf-card rounded-xl border border-shelf-border p-6 space-y-4">
         <input type="hidden" name="from" value="{{ back.key }}">
 
         {% macro field(name, label, value, type="text", placeholder="", step="") %}
@@ -24,10 +30,34 @@
         </div>
         {% endmacro %}
 
+        {% macro barcode_field(name, label, value, placeholder="", scan_mode="", supplement_target="") %}
+        <div>
+            <div class="flex items-center justify-between gap-3 mb-1">
+                <label for="{{ name }}" class="block text-sm font-medium text-shelf-muted">{{ label }}</label>
+                <button type="button" data-scan-barcode-target="{{ name }}"{% if scan_mode %} data-scan-barcode-mode="{{ scan_mode }}"{% endif %}{% if supplement_target %} data-scan-barcode-supplement-target="{{ supplement_target }}"{% endif %}
+                        class="text-xs px-2.5 py-1 bg-shelf-hover text-shelf-text border border-shelf-border rounded-md hover:border-shelf-accent/50 hover:text-shelf-accent2 transition-colors">
+                    Scan barcode
+                </button>
+            </div>
+            <input type="text" id="{{ name }}" name="{{ name }}" value="{{ value if value is not none else '' }}" placeholder="{{ placeholder }}" autocomplete="off"
+                   class="w-full bg-shelf-bg border border-shelf-border rounded-lg px-3 py-2 text-shelf-text font-mono focus:ring-2 focus:ring-shelf-accent focus:border-transparent outline-none">
+            <p class="text-xs text-shelf-muted mt-1">Type the code or scan it. Scanning only fills this field; save the item to apply the change.</p>
+        </div>
+        {% endmacro %}
+
         {{ field("title", "Release Title" if is_music else "Title", item.title) }}
         {% if not is_music %}{{ field("subtitle", "Subtitle", item.subtitle) }}{% endif %}
         {{ field("authors", "Artist" if is_music else "Authors", item.authors) }}
-        {% if not is_music %}{{ field("isbn", "ISBN", item.isbn, placeholder="ISBN-13") }}{% endif %}
+        {% if is_isbn_media %}{{ barcode_field("isbn", "ISBN", item.isbn, placeholder="ISBN-10 or ISBN-13") }}{% endif %}
+        {% if is_upc_media or item.upc %}{{ barcode_field("upc", "Barcode (UPC / EAN)", item.upc, placeholder="UPC-A or EAN-13") }}{% endif %}
+
+        {% if item.media_type == 'magazine' and periodical_issue %}
+        <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            {{ barcode_field("magazine_barcode_ean", "Magazine barcode carrier", periodical_issue.barcode_ean, placeholder="EAN-13 or UPC-A", scan_mode="periodical-carrier", supplement_target="magazine_barcode_supplement") }}
+            {{ barcode_field("magazine_barcode_supplement", "Barcode add-on", periodical_issue.barcode_supplement, placeholder="2 or 5 digits", scan_mode="periodical-supplement") }}
+        </div>
+        <p class="text-xs text-shelf-muted">If a full magazine barcode is captured, Shelf separates the carrier and 2/5-digit add-on. The add-on is stored exactly as printed and is not interpreted as an issue number.</p>
+        {% endif %}
 
         <div>
             <label for="media_type" class="block text-sm font-medium text-shelf-muted mb-1">Media Type</label>
@@ -181,5 +211,23 @@
     </form>
 </div>
 
+<div id="edit-barcode-scanner" class="fixed inset-0 z-50 hidden items-center justify-center bg-black/80 p-4" role="dialog" aria-modal="true" aria-labelledby="edit-barcode-scanner-title">
+    <div class="w-full max-w-md rounded-xl border border-shelf-border bg-shelf-card p-4 shadow-xl">
+        <div class="flex items-start justify-between gap-4 mb-3">
+            <div>
+                <h2 id="edit-barcode-scanner-title" class="text-lg font-semibold">Scan barcode</h2>
+                <p class="text-xs text-shelf-muted mt-1">The scanned value will only be placed in the selected field.</p>
+            </div>
+            <button type="button" id="edit-barcode-scanner-close" class="text-shelf-muted hover:text-shelf-text text-2xl leading-none" aria-label="Close scanner">&times;</button>
+        </div>
+        <div id="edit-barcode-camera-reader" class="rounded-xl overflow-hidden border border-shelf-border bg-black"></div>
+        <div id="edit-barcode-zxing-container" class="rounded-xl overflow-hidden border border-shelf-border bg-black hidden" style="aspect-ratio:3/2">
+            <video id="edit-barcode-zxing-video" class="w-full" style="height:100%;object-fit:cover" autoplay muted playsinline></video>
+        </div>
+        <p id="edit-barcode-scanner-status" class="text-xs text-shelf-muted text-center mt-2">Point the camera at the barcode.</p>
+    </div>
+</div>
+
+<script src="/static/js/scanner-engine.js"></script>
 <script src="/static/js/item_edit.js"></script>
 {% endblock %}
