@@ -30,11 +30,11 @@
         </div>
         {% endmacro %}
 
-        {% macro barcode_field(name, label, value, placeholder="") %}
+        {% macro barcode_field(name, label, value, placeholder="", scan_mode="", supplement_target="") %}
         <div>
             <div class="flex items-center justify-between gap-3 mb-1">
                 <label for="{{ name }}" class="block text-sm font-medium text-shelf-muted">{{ label }}</label>
-                <button type="button" data-scan-barcode-target="{{ name }}"
+                <button type="button" data-scan-barcode-target="{{ name }}"{% if scan_mode %} data-scan-barcode-mode="{{ scan_mode }}"{% endif %}{% if supplement_target %} data-scan-barcode-supplement-target="{{ supplement_target }}"{% endif %}
                         class="text-xs px-2.5 py-1 bg-shelf-hover text-shelf-text border border-shelf-border rounded-md hover:border-shelf-accent/50 hover:text-shelf-accent2 transition-colors">
                     Scan barcode
                 </button>
@@ -50,6 +50,14 @@
         {{ field("authors", "Artist" if is_music else "Authors", item.authors) }}
         {% if is_isbn_media %}{{ barcode_field("isbn", "ISBN", item.isbn, placeholder="ISBN-10 or ISBN-13") }}{% endif %}
         {% if is_upc_media or item.upc %}{{ barcode_field("upc", "Barcode (UPC / EAN)", item.upc, placeholder="UPC-A or EAN-13") }}{% endif %}
+
+        {% if item.media_type == 'magazine' and periodical_issue %}
+        <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            {{ barcode_field("magazine_barcode_ean", "Magazine barcode carrier", periodical_issue.barcode_ean, placeholder="EAN-13 or UPC-A", scan_mode="periodical-carrier", supplement_target="magazine_barcode_supplement") }}
+            {{ barcode_field("magazine_barcode_supplement", "Barcode add-on", periodical_issue.barcode_supplement, placeholder="2 or 5 digits", scan_mode="periodical-supplement") }}
+        </div>
+        <p class="text-xs text-shelf-muted">If a full magazine barcode is captured, Shelf separates the carrier and 2/5-digit add-on. The add-on is stored exactly as printed and is not interpreted as an issue number.</p>
+        {% endif %}
 
         <div>
             <label for="media_type" class="block text-sm font-medium text-shelf-muted mb-1">Media Type</label>
