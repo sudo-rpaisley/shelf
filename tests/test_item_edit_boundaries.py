@@ -1,6 +1,7 @@
 """Request-boundary regressions for single-item edit and quick status writes."""
 
 from app.routers import items
+from app.services import periodical_records
 from tests.conftest import _insert_item
 
 
@@ -55,6 +56,77 @@ def test_edit_rejects_malformed_integer_without_mutation(editor_client, db):
     row = _row(db, item_id)
     assert row["publish_year"] == 1965
     assert row["upc"] == "0036000291452"
+
+
+def test_magazine_issue_barcode_can_be_typed_or_split_from_full_scan(editor_client, db):
+    item_id = _insert_item(db, title="Test Magazine", isbn=None, media_type="magazine")
+    publication_id = periodical_records.upsert_publication(db, title="Test Magazine")
+    periodical_records.link_issue(
+        db,
+        item_id=item_id,
+        publication_id=publication_id,
+        issue_number="1",
+        barcode_ean="9770953616115",
+        barcode_supplement="01",
+    )
+    db.commit()
+
+    edit_page = editor_client.get(f"/item/{item_id}/edit")
+    assert edit_page.status_code == 200
+    assert 'name="magazine_barcode_ean"' in edit_page.text
+    assert 'value="9770953616115"' in edit_page.text
+    assert 'name="magazine_barcode_supplement"' in edit_page.text
+    assert 'value="01"' in edit_page.text
+
+    # A scanner may return carrier + add-on as one decoded string. The edit
+    # boundary splits it while retaining the add-on as an opaque discriminator.
+    saved = editor_client.post(
+        f"/api/items/{item_id}/edit",
+        data={
+            "magazine_barcode_ean": "977095361611504",
+            "magazine_barcode_supplement": "04",
+        },
+        follow_redirects=False,
+    )
+    assert saved.status_code == 303
+    issue = db.execute(
+        "SELECT barcode_ean, barcode_supplement FROM periodical_issues WHERE item_id = ?",
+        (item_id,),
+    ).fetchone()
+    assert issue["barcode_ean"] == "9770953616115"
+    assert issue["barcode_supplement"] == "04"
+
+
+def test_magazine_issue_barcode_mismatch_rejected_before_item_edit(editor_client, db):
+    item_id = _insert_item(db, title="Keep Magazine", isbn=None, media_type="magazine")
+    publication_id = periodical_records.upsert_publication(db, title="Keep Magazine")
+    periodical_records.link_issue(
+        db,
+        item_id=item_id,
+        publication_id=publication_id,
+        barcode_ean="9770953616115",
+        barcode_supplement="01",
+    )
+    db.commit()
+
+    response = editor_client.post(
+        f"/api/items/{item_id}/edit",
+        data={
+            "title": "Do Not Save",
+            "magazine_barcode_ean": "977095361611504",
+            "magazine_barcode_supplement": "01",
+        },
+    )
+
+    assert response.status_code == 400
+    assert response.text == "Embedded barcode add-on does not match the add-on field"
+    assert _row(db, item_id)["title"] == "Keep Magazine"
+    issue = db.execute(
+        "SELECT barcode_ean, barcode_supplement FROM periodical_issues WHERE item_id = ?",
+        (item_id,),
+    ).fetchone()
+    assert issue["barcode_ean"] == "9770953616115"
+    assert issue["barcode_supplement"] == "01"
 
 
 def test_edit_rejects_malformed_float_without_mutation(editor_client, db):
