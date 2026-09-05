@@ -19,6 +19,7 @@ Set these in your `.env` file next to `docker-compose.yml`, or with `-e` on
 | `SHELF_ENCRYPTION_KEY` | *(auto)* | Key for API credentials stored in the database. If unset, generated at `data/encryption.key`. Set it (`openssl rand -hex 32`) so the data directory alone can't decrypt credentials |
 | `DATA_DIR` | `/data` | Where the database, covers and certs live. Only relevant outside Docker |
 | `SHELF_DISABLE_RATE_LIMIT` | *(unset)* | Turns off per-IP rate limiting. For tests and local development only |
+| `SHELF_OIDC_ALLOW_INSECURE_HTTP` | *(unset)* | Development-only escape hatch allowing an `http://` OIDC issuer/endpoints. Leave unset in production; normal OIDC configuration requires HTTPS |
 
 ### Credential overrides
 
@@ -100,12 +101,22 @@ checkbox, never the value. See [Integrations](user-guide/integrations.md).
 
 ### Users
 
-Add users, set roles, reset passwords. See [Users & roles](user-guide/users-and-roles.md).
+Manage local users and configure OpenID Connect (OIDC) single sign-on. The OIDC
+card contains the issuer, client credentials, scopes, group claim, optional
+required access group, group-to-role mappings, automatic provisioning, role
+synchronisation and **Save & test configuration**. OIDC client secrets are
+write-only and encrypted at rest.
+
+Local users can be added, assigned roles and have their passwords reset. OIDC
+identities are created or resolved through the provider and do not use Shelf
+passwords. See [Users & roles](user-guide/users-and-roles.md) for the complete
+OIDC setup, role-mapping and break-glass guidance.
 
 ## Account settings
 
-Every user (any role) can change their own display name and password from
-the account menu — not from Settings.
+Local users can change their own display name and password from the account
+menu. OIDC identities cannot set a Shelf password or override their provider-
+managed display name; make those changes in the identity provider instead.
 
 ## Where things are *not* configurable
 
