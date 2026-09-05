@@ -19,7 +19,7 @@
     'publisher': 'text-shelf-muted text-xs truncate max-w-[200px]',
     'identifier': 'text-shelf-muted text-xs font-mono',
 } %}
-{% set on_wishlist = item.personal_wishlist if item.personal_wishlist is defined else not item.owned %}
+{% set on_wishlist = item.personal_wishlist if item.personal_wishlist is defined else false %}
 <tr class="border-b border-shelf-border hover:bg-shelf-hover/50 transition-colors cursor-pointer"
     data-item-id="{{ item.id }}"
     @click="openOrToggle({{ item.id }}, '/item/{{ item.id }}', $event)"
