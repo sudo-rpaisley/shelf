@@ -15,21 +15,37 @@
             </p>
             {% if issue.issn %}<p class="text-xs text-shelf-muted/70 font-mono">ISSN {{ issue.issn }}</p>{% endif %}
         </div>
+        {% if for_scan %}
+        <form hx-get="/api/magazines/select-search-result"
+              hx-target="closest .scan-result" hx-swap="outerHTML">
+            <input type="hidden" name="google_volume_id" value="{{ issue.google_volume_id }}">
+            <input type="hidden" name="carrier_ean" value="{{ carrier_ean or '' }}">
+            <input type="hidden" name="barcode_supplement" value="{{ barcode_supplement or '' }}">
+            <input type="hidden" name="issn_hint" value="{{ issn_hint or '' }}">
+            <input type="hidden" name="location_id" value="{{ selected_location_id or '' }}">
+            <input type="hidden" name="mode" value="{{ mode }}">
+            <button type="submit"
+                    class="px-3 py-1.5 bg-shelf-accent text-white rounded-lg text-xs font-medium hover:bg-shelf-accent2 transition-colors whitespace-nowrap">
+                Use this match
+            </button>
+        </form>
+        {% else %}
         <form hx-post="/api/magazines/add" hx-target="#scan-results" hx-swap="afterbegin"
               data-after-request="clear-title-search">
             <input type="hidden" name="google_volume_id" value="{{ issue.google_volume_id }}">
-            <input type="hidden" name="location_id" class="book-loc-sync" value="">
-            <input type="hidden" name="mode" value="add">
+            <input type="hidden" name="location_id" class="book-loc-sync" value="{{ selected_location_id or '' }}">
+            <input type="hidden" name="mode" value="{{ mode }}">
             <button type="submit"
                     class="px-3 py-1.5 bg-shelf-accent text-white rounded-lg text-xs font-medium hover:bg-shelf-accent2 transition-colors whitespace-nowrap">
                 Add issue
             </button>
         </form>
+        {% endif %}
     </div>
     {% endfor %}
 </div>
 {% elif search_status %}
 {% include "fragments/search_status_notice.html" %}
 {% elif query %}
-<p class="text-sm text-shelf-muted">No magazine issues found for "{{ query }}". Try a different search.</p>
+<p class="text-sm text-shelf-muted">No magazine issues found for "{{ query }}". Try a different search or enter the issue details manually.</p>
 {% endif %}

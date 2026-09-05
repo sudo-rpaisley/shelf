@@ -65,6 +65,7 @@ def test_supplemented_upc_scan_opens_magazine_issue_form(
     assert 'name="barcode_supplement" value="01"' in resp.text
     assert 'name="issn" value=""' in resp.text
     assert "ISSN None" not in resp.text
+    assert "Find a magazine match" in resp.text
     assert db.execute("SELECT COUNT(*) AS c FROM items").fetchone()["c"] == 0
 
 
@@ -108,7 +109,7 @@ def test_supplemented_upc_issue_can_be_added_and_rescanned_as_duplicate(
     assert "Retro Car Monthly" in rescanned.text
 
 
-def test_next_addon_reuses_known_publication_without_retail_lookup(
+def test_next_addon_does_not_reuse_known_publication_as_barcode_authority(
     editor_client, db, monkeypatch
 ):
     first = editor_client.post(
@@ -123,16 +124,18 @@ def test_next_addon_reuses_known_publication_without_retail_lookup(
     )
     assert first.status_code == 200
 
-    async def _upc_must_not_run(upc, client):
-        raise AssertionError("Known carrier should reuse Shelf publication metadata")
+    async def _upc_miss(upc, client):
+        assert upc == REPORTED_UPC
+        return provider_result.no_match("upcitemdb")
 
-    monkeypatch.setattr(upcitemdb, "lookup", _upc_must_not_run)
+    monkeypatch.setattr(upcitemdb, "lookup", _upc_miss)
 
     next_issue = editor_client.post(
         "/api/scan",
         data={"isbn": REPORTED_UPC + "02", "media_type": "auto"},
     )
     assert next_issue.status_code == 200
-    assert 'name="title" value="Retro Car Monthly"' in next_issue.text
-    assert 'name="publisher" value="Example Publishing"' in next_issue.text
+    assert 'name="title" value=""' in next_issue.text
+    assert 'name="publisher" value=""' in next_issue.text
     assert "add-on 02" in next_issue.text
+    assert "Find a magazine match" in next_issue.text
