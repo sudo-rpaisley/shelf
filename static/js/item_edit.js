@@ -19,6 +19,52 @@ function coverDrop() {
     }
 }
 
+function writeBarcodeField(input, value) {
+    if (!input) return;
+    input.value = value;
+    input.dispatchEvent(new Event('input', { bubbles: true }));
+    input.dispatchEvent(new Event('change', { bubbles: true }));
+}
+
+function applyScannedBarcode(target, decodedText, scanMode, supplementTargetId) {
+    var raw = String(decodedText || '').trim();
+    var digits = raw.replace(/\D/g, '');
+
+    if (scanMode === 'periodical-carrier') {
+        var carrierLength = 0;
+        if (digits.length === 15 || digits.length === 18) carrierLength = 13;
+        if (digits.length === 14 || digits.length === 17) carrierLength = 12;
+
+        if (carrierLength) {
+            writeBarcodeField(target, digits.slice(0, carrierLength));
+            var supplementTarget = document.getElementById(supplementTargetId || '');
+            writeBarcodeField(supplementTarget, digits.slice(carrierLength));
+            return true;
+        }
+
+        writeBarcodeField(target, raw);
+        return true;
+    }
+
+    if (scanMode === 'periodical-supplement') {
+        var supplement = '';
+        if (digits.length === 15 || digits.length === 18) {
+            supplement = digits.slice(13);
+        } else if (digits.length === 14 || digits.length === 17) {
+            supplement = digits.slice(12);
+        } else if (digits.length === 2 || digits.length === 5) {
+            supplement = digits;
+        } else {
+            return false;
+        }
+        writeBarcodeField(target, supplement);
+        return true;
+    }
+
+    writeBarcodeField(target, raw);
+    return true;
+}
+
 function installBarcodeFieldScanner() {
     var modal = document.getElementById('edit-barcode-scanner');
     var closeButton = document.getElementById('edit-barcode-scanner-close');
@@ -30,6 +76,8 @@ function installBarcodeFieldScanner() {
 
     var scanner = false;
     var target = false;
+    var scanMode = '';
+    var supplementTargetId = '';
     var closing = false;
 
     function showModal() {
@@ -56,10 +104,14 @@ function installBarcodeFieldScanner() {
         closing = false;
     }
 
-    async function startScanner(input) {
+    async function startScanner(input, mode, supplementId) {
         await stopScanner();
         target = input;
-        status.textContent = 'Point the camera at the barcode.';
+        scanMode = mode || '';
+        supplementTargetId = supplementId || '';
+        status.textContent = scanMode === 'periodical-supplement'
+            ? 'Point the camera at the magazine barcode and include the add-on if possible.'
+            : 'Point the camera at the barcode.';
         showModal();
 
         if (!window.createBarcodeScanner) {
@@ -73,11 +125,14 @@ function installBarcodeFieldScanner() {
             html5Config: { fps: 10, qrbox: { width: 280, height: 100 }, aspectRatio: 1.5 },
             onDecode: function (decodedText) {
                 if (!target) return;
-                target.value = String(decodedText || '').trim();
-                target.dispatchEvent(new Event('input', { bubbles: true }));
-                target.dispatchEvent(new Event('change', { bubbles: true }));
+                if (!applyScannedBarcode(target, decodedText, scanMode, supplementTargetId)) {
+                    status.textContent = 'No 2- or 5-digit add-on was detected. Try again or enter it manually.';
+                    return;
+                }
                 var completedTarget = target;
                 target = false;
+                scanMode = '';
+                supplementTargetId = '';
                 stopScanner().then(function () {
                     completedTarget.focus();
                     completedTarget.select();
@@ -108,7 +163,13 @@ function installBarcodeFieldScanner() {
     buttons.forEach(function (button) {
         button.addEventListener('click', function () {
             var input = document.getElementById(button.dataset.scanBarcodeTarget);
-            if (input) startScanner(input);
+            if (input) {
+                startScanner(
+                    input,
+                    button.dataset.scanBarcodeMode || '',
+                    button.dataset.scanBarcodeSupplementTarget || ''
+                );
+            }
         });
     });
 
