@@ -18,12 +18,17 @@ router = APIRouter(prefix="/api/settings", dependencies=[Depends(require_role("a
 _INTEGRATION_KEYS = (
     "abs_url",
     "abs_token",
+    "komga_url",
+    "komga_api_key",
+    "romm_url",
+    "romm_api_token",
     "isbndb_api_key",
     "tmdb_api_key",
     "hardcover_token",
     "google_books_api_key",
     "igdb_client_id",
     "igdb_client_secret",
+    "discogs_token",
 )
 
 
@@ -58,7 +63,7 @@ async def update_settings(request: Request):
             if key not in form:
                 continue
             value = (form.get(key) or "").strip()
-            if key == "abs_url":
+            if key in ("abs_url", "komga_url", "romm_url"):
                 value = value.rstrip("/")
             _upsert_setting(db, key, value, cleared=form.get(f"clear_{key}") == "on")
     invalidate_nav_cache()  # hardcover_token gates the Discover tab
@@ -77,13 +82,44 @@ async def test_google_books(request: Request):
     if not isinstance(body, dict):
         return {"ok": False, "message": "Invalid request"}
 
-    api_key = (body.get("api_key") or "").strip()
+    raw_api_key = body.get("api_key")
+    if raw_api_key is not None and not isinstance(raw_api_key, str):
+        return {"ok": False, "message": "Invalid request"}
+    api_key = (raw_api_key or "").strip()
     if not api_key:
         with get_db() as db:
             api_key = get_setting(db, "google_books_api_key")
     if not api_key:
         return {"ok": False, "message": "No API key configured"}
     return await googlebooks.test_connection(api_key)
+
+
+@router.post("/discogs/test")
+async def test_discogs_token(discogs_token: str = Form("")):
+    """Test a typed Discogs token, falling back to the configured token."""
+    import httpx
+
+    from app.config import HTTP_TIMEOUT
+    from app.services import discogs
+
+    token = discogs_token.strip()
+    if not token:
+        with get_db() as db:
+            token = get_setting(db, "discogs_token")
+    if not token:
+        code = "missing"
+    else:
+        async with httpx.AsyncClient(timeout=HTTP_TIMEOUT) as client:
+            result = await discogs.test_connection(token, client)
+        code = {
+            "found": "ok",
+            "rejected": "rejected",
+            "rate_limited": "rate_limited",
+            "transport_failed": "unavailable",
+            "no_match": "invalid",
+            "no_credential": "missing",
+        }.get(result.outcome, "invalid")
+    return RedirectResponse(url=f"/settings?discogs_test={code}", status_code=303)
 
 
 @router.post("/vision")
@@ -153,7 +189,9 @@ async def update_lending_settings(
     days = lending_overdue_days.strip() or "28"
     if not days.isdigit():
         return {"ok": False, "message": "Overdue days must be a whole number"}
-    fmt = notify_format if notify_format in FORMATS else "ntfy"
+    fmt = (notify_format or "").strip()
+    if fmt not in FORMATS:
+        return {"ok": False, "message": "Unknown notification format"}
 
     with get_db() as db:
         for key, value in [
@@ -185,7 +223,7 @@ async def update_nav_settings(request: Request):
 
 @router.post("/display")
 async def update_display_settings(request: Request):
-    """Save the display currency and metadata search language.
+    """Save display currency, metadata language and Browse grouping.
 
     Only writes when the posted code is known — an unknown code is silently
     dropped, same posture as /nav's key filtering. Currency is display
@@ -204,6 +242,11 @@ async def update_display_settings(request: Request):
         with get_db() as db:
             _upsert_setting(db, "metadata_search_lang", search_lang)
 
+    if form.get("browse_group_digital_comics_present") == "1":
+        group_digital_comics = "1" if form.get("browse_group_digital_comics") == "on" else "0"
+        with get_db() as db:
+            _upsert_setting(db, "browse_group_digital_comics", group_digital_comics)
+
     return RedirectResponse(url="/settings", status_code=303)
 
 
@@ -216,8 +259,18 @@ async def notify_test(request: Request):
         body = await request.json()
     except Exception:
         return {"ok": False, "message": "Invalid request"}
-    url = (body.get("url") or "").strip()
-    fmt = body.get("format") or "ntfy"
+    if not isinstance(body, dict):
+        return {"ok": False, "message": "Invalid request"}
+
+    raw_url = body.get("url")
+    raw_fmt = body.get("format")
+    if (
+        (raw_url is not None and not isinstance(raw_url, str))
+        or (raw_fmt is not None and not isinstance(raw_fmt, str))
+    ):
+        return {"ok": False, "message": "Invalid request"}
+    url = (raw_url or "").strip()
+    fmt = raw_fmt or "ntfy"
     if not url:
         # Masked field posts empty — test the stored URL instead
         from app.database import get_setting

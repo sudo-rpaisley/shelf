@@ -10,10 +10,69 @@ MEDIA_TYPES = {
     "kids_book": "Kids Book",
     "audiobook": "Audiobook",
     "ebook": "eBook",
+    "magazine": "Magazine",
     "dvd": "DVD / Blu-ray",
+    "vinyl": "Vinyl",
+    "cassette": "Cassette",
     "cd": "CD",
+    "digital_music": "Digital Music",
+    "music_other": "Other Music Format",
     "comic": "Comic / Graphic Novel",
+    "digital_comic": "Digital Comic",
+    "manga": "Manga",
+    "digital_manga": "Digital Manga",
     "video_game": "Video Game",
+    "digital_game": "Digital Game",
+}
+
+# Music is a first-class media family. Keep this declaration beside
+# MEDIA_TYPES so routes/templates/services can share one membership test
+# instead of scattering near-identical tuples across the application.
+MUSIC_MEDIA_TYPES = frozenset({
+    "vinyl",
+    "cassette",
+    "cd",
+    "digital_music",
+    "music_other",
+})
+
+# Shelf's user-facing library sections are broader than storage formats.
+# Keep family membership here so Home, Collection filters, statistics and
+# future integrations all agree on where a media type belongs. Tuples are
+# deliberately ordered for predictable display and query construction.
+MEDIA_FAMILIES = {
+    "books": {
+        "label": "Books",
+        "types": ("book", "kids_book", "ebook"),
+    },
+    "magazines": {
+        "label": "Magazines",
+        "types": ("magazine",),
+    },
+    "comics": {
+        "label": "Comics",
+        "types": ("comic", "digital_comic"),
+    },
+    "manga": {
+        "label": "Manga",
+        "types": ("manga", "digital_manga"),
+    },
+    "music": {
+        "label": "Music",
+        "types": ("vinyl", "cassette", "cd", "digital_music", "music_other"),
+    },
+    "film": {
+        "label": "Film & TV",
+        "types": ("dvd",),
+    },
+    "games": {
+        "label": "Games",
+        "types": ("video_game", "digital_game"),
+    },
+    "audiobooks": {
+        "label": "Audiobooks",
+        "types": ("audiobook",),
+    },
 }
 
 # Seed data — runtime platform list comes from game_platforms table
@@ -137,6 +196,18 @@ HOST_RATE_LIMITS: dict[str, float] = {
     "images-na.ssl-images-amazon.com": 0.5,  # image CDN; politeness only
     "api.igdb.com": 0.25,  # IGDB publishes 4 req/s
     "api.themoviedb.org": 0.1,  # no hard per-second cap
+    # MusicBrainz requires ordinary clients to stay at or below one request
+    # per second. Give the limiter a little margin rather than sitting exactly
+    # on the boundary; musicbrainz.py also sends the required identifying UA.
+    "musicbrainz.org": 1.05,
+    # Cover Art Archive is a separate host. It does not publish the same hard
+    # one-request rule, but album-art fetches are never latency critical, so
+    # pace them conservatively and serially alongside other metadata sources.
+    "coverartarchive.org": 1.0,
+    # Discogs publishes request ceilings through response headers. Shelf
+    # does not need bursty collector lookups, so one request/second is a
+    # deliberately conservative client-side pace.
+    "api.discogs.com": 1.0,
     # EXPLORER (the keyless trial tier this client uses) allows 6 lookups per
     # minute and 100 per day; faster than the burst rate is declined with 429
     # (https://www.upcitemdb.com/wp/docs/main/development/api-rate-limits/).
@@ -160,12 +231,17 @@ JWT_EXPIRY_SECONDS = 7 * 24 * 3600  # 7 days
 SECRET_ENV_VARS = {
     "abs_url": "ABS_URL",
     "abs_token": "ABS_TOKEN",
+    "komga_url": "KOMGA_URL",
+    "komga_api_key": "KOMGA_API_KEY",
+    "romm_url": "ROMM_URL",
+    "romm_api_token": "ROMM_API_TOKEN",
     "hardcover_token": "HARDCOVER_TOKEN",
     "google_books_api_key": "GOOGLE_BOOKS_API_KEY",
     "isbndb_api_key": "ISBNDB_API_KEY",
     "tmdb_api_key": "TMDB_API_KEY",
     "igdb_client_id": "IGDB_CLIENT_ID",
     "igdb_client_secret": "IGDB_CLIENT_SECRET",
+    "discogs_token": "DISCOGS_TOKEN",
 }
 
 

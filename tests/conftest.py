@@ -43,71 +43,43 @@ def _isolated_db(tmp_path, monkeypatch):
     covers_dir.mkdir()
     db_path = data_dir / "shelf.db"
 
-    # app.config is the source of truth: modules imported *after* this point
-    # read these values, and so does anything that resolves them at call time.
     monkeypatch.setattr("app.config.DATA_DIR", data_dir)
     monkeypatch.setattr("app.config.DATABASE_PATH", db_path)
     monkeypatch.setattr("app.config.COVERS_DIR", covers_dir)
-
-    # Modules already imported that did `from app.config import COVERS_DIR`
-    # bound the real /data path at import time and never see the line above
-    # (app.services.archive documents the same trap), so redirect their
-    # copies too.
     _redirect_stale_path_constants(monkeypatch, data_dir, db_path, covers_dir)
 
-    # Clear every secret-credential env var so a developer's or CI runner's
-    # shell can't leak a real credential into a settings-render test. Iterate
-    # .values() — SECRET_ENV_VARS is settings-key -> ENV_NAME, and the two
-    # collide in exactly the way that makes this easy to get backwards:
-    # app/routers/pages.py iterates the *keys* (is_env_override takes a
-    # settings key), this fixture needs the *values* (actual shell variable
-    # names). `for env_name in SECRET_ENV_VARS` would yield 'tmdb_api_key'
-    # etc. and clear nothing — a silent no-op.
     from app.config import SECRET_ENV_VARS
     for env_name in SECRET_ENV_VARS.values():
         monkeypatch.delenv(env_name, raising=False)
 
-    # Reset cached secret key so each test gets a fresh one
     import app.auth as auth_mod
     monkeypatch.setattr(auth_mod, "_cached_secret_key", None)
 
-    # Reset cached encryption key — each test's key file lives in its own tmp dir
     import app.crypto as crypto_mod
     monkeypatch.setattr(crypto_mod, "_cached_encryption_key", None)
 
-    # Reset the nav settings cache — it would otherwise carry one test's
-    # integration config (and hidden-tab set) into the next test's nav.
     import app.nav as nav_mod
     monkeypatch.setattr(nav_mod, "_cached_settings", None)
 
-    # Reset the currency cache — otherwise one test's display currency
-    # leaks into the next test's money formatting.
     import app.currency as currency_mod
     monkeypatch.setattr(currency_mod, "_cached_currency", None)
 
-    # Reset the IGDB token cache — otherwise one test's cached OAuth token
-    # leaks into the next test's credential pair.
     import app.services.igdb as igdb_mod
     monkeypatch.setattr(igdb_mod, "_token_cache", {})
 
-    # Reset the per-host rate limiter registry. Its asyncio.Locks bind to the
-    # loop they are first awaited on, and each test runs its own loop, so a
-    # carried-over registry would hand a test a lock from a dead loop.
     import app.services.outbound as outbound_mod
     outbound_mod.reset()
 
-    # Reset the cover enrichment queue. Its asyncio.Queue binds to the loop
-    # it is created on, and the counters are process-global, so a carried-over
-    # queue leaks depth and gave-up counts into unrelated tests.
     import app.services.cover_queue as cover_queue_mod
     cover_queue_mod.reset()
 
-    # Initialize schema
     from app.database import init_db
     init_db()
 
-    # Pre-seed and cache the secret key so get_secret_key() never opens a
-    # second connection while a test's db fixture connection is already open.
+    # Do not add harness-only SQLite triggers here. Shelf intentionally rejects
+    # trigger-bearing backup databases during restore, and the test database
+    # should exercise that exact production security rule.
+
     from app.auth import get_secret_key
     get_secret_key()
 
@@ -136,9 +108,16 @@ def client(monkeypatch):
 
 
 def _create_user(username, password, display_name, role):
-    """Create a user using its own committed connection."""
+    """Create a test user with legacy Main Library access by default.
+
+    The general suite predates first-class libraries and models an upgraded
+    single-library installation. Dedicated permission tests create raw users
+    when they need to exercise the no-membership case.
+    """
     from app.auth import hash_password
     from app.database import get_db
+    from app.services import libraries
+
     with get_db() as conn:
         conn.execute(
             "INSERT INTO users (username, password, display_name, role) VALUES (?, ?, ?, ?)",
@@ -148,7 +127,15 @@ def _create_user(username, password, display_name, role):
             "SELECT id, username, role, display_name FROM users WHERE username = ?",
             (username,),
         ).fetchone()
-        return dict(row)
+        data = dict(row)
+        if role in ("viewer", "editor"):
+            libraries.set_membership(
+                conn,
+                libraries.DEFAULT_LIBRARY_ID,
+                data["id"],
+                role,
+            )
+        return data
 
 
 @pytest.fixture
@@ -196,18 +183,79 @@ def viewer_client(client, viewer_user):
     return client
 
 
-def _insert_item(db, title="Test Book", isbn="9780000000001", media_type="book", **kwargs):
-    """Insert a test item and return its ID."""
+def _insert_item(
+    db,
+    title="Test Book",
+    isbn="9780000000001",
+    media_type="book",
+    _library_id=1,
+    **kwargs,
+):
+    """Insert a test item and return its ID.
+
+    General tests model an upgraded single-library installation, so new fixture
+    items are assigned to Main Library by default. Pass ``_library_id=None`` in
+    a permission test when an intentionally unmapped item is required.
+
+    Legacy migration tests construct databases from before first-class
+    libraries existed. In those databases the default library row is absent;
+    the fixture must stay neutral rather than creating modern access state in
+    the middle of the historical migration under test.
+
+    Tests written before per-user state expressed activity through the legacy
+    ``items`` columns. When such a fixture is created after a test user already
+    exists, mirror those explicit personal-looking values into that user's
+    state. This models migrations 55-56's snapshot semantics without teaching
+    production code to make newly-created users inherit shared state.
+    """
     fields = {"title": title, "isbn": isbn, "media_type": media_type, "source": "test"}
     fields.update(kwargs)
     cols = ", ".join(fields.keys())
     placeholders = ", ".join("?" for _ in fields)
     cursor = db.execute(f"INSERT INTO items ({cols}) VALUES ({placeholders})", list(fields.values()))
-    return cursor.lastrowid
+    item_id = cursor.lastrowid
+
+    if _library_id is not None:
+        try:
+            library_exists = db.execute(
+                "SELECT 1 FROM libraries WHERE id = ?",
+                (int(_library_id),),
+            ).fetchone()
+        except sqlite3.OperationalError:
+            library_exists = None
+        if library_exists:
+            from app.services import libraries
+            libraries.assign_item(db, item_id, int(_library_id))
+
+    has_personal_fixture_state = (
+        fields.get("reading_status") is not None
+        or fields.get("date_started") is not None
+        or fields.get("date_finished") is not None
+        or fields.get("owned") == 0
+    )
+    if has_personal_fixture_state:
+        from app.services import user_state
+
+        user_state.ensure_schema(db)
+        users = db.execute("SELECT id FROM users").fetchall()
+        for row in users:
+            changes = {}
+            if fields.get("reading_status") is not None:
+                changes["reading_status"] = fields.get("reading_status")
+            if fields.get("date_started") is not None:
+                changes["date_started"] = fields.get("date_started")
+            if fields.get("date_finished") is not None:
+                changes["date_finished"] = fields.get("date_finished")
+            if fields.get("owned") == 0:
+                changes["wishlist"] = 1
+            if changes:
+                user_state.save_state(db, row["id"], item_id, **changes)
+
+    return item_id
 
 
 def _insert_borrower(db, name="Test Borrower"):
-    """Insert a test borrower and return their ID."""
+    """Insert a test borrower and return its ID."""
     cursor = db.execute("INSERT INTO borrowers (name) VALUES (?)", (name,))
     return cursor.lastrowid
 

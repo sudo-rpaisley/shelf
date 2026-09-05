@@ -24,6 +24,7 @@ The mode is sticky — set it once and scan a pile.
 | Mode | What happens on each scan |
 |---|---|
 | **Add** | Look up metadata, download the cover, add the item as owned. Scanning a barcode you already own shows the existing item instead of duplicating it — whatever the media-type dropdown says. A dropdown pick the barcode contradicts is corrected rather than obeyed (see [Media types](#media-types)) |
+| **Shelf Fill** | Pick a precise physical room, bookcase or shelf once, then scan items in the order they sit there. Existing items are moved; unknown items go through the normal Add lookup first. Each physical copy is appended to that location's stored position order |
 | **Wishlist** | Same lookup, but the item is added as *not owned* — your wish list |
 | **Lend** | Pick a borrower first; each scan checks that item out to them. Optional due date |
 | **Return** | Each scan checks the item back in, whoever had it |
@@ -33,6 +34,30 @@ The mode is sticky — set it once and scan a pile.
 | **Quick Rate** | Marks the item as read / finished with today's date |
 
 The Scan tab is for editors and admins; viewers don't see it.
+
+## Shelf Fill
+
+Use **Shelf Fill** when you are standing in front of a physical shelf and want
+Shelf's catalogue to match what is actually there. Choose the exact target —
+for example **Living Room › Bookcase › Shelf 1** — once, then scan from left to
+right. The selected target is remembered on that device so you can keep working
+without choosing it again for every item.
+
+Shelf Fill uses the physical-copy record rather than the older flat item
+location. That means different copies of the same title can occupy different
+places. If a copy has its own `copy_barcode`, scanning that code moves that
+exact copy; an ordinary ISBN or UPC moves the item's primary physical copy.
+
+Each successful scan is appended after the current last `position_order` at
+the target. The result card shows the full location path and assigned position.
+You can later refine the order with the existing drag-and-drop location
+organiser or its automatic title/author/series/release ordering tools.
+
+If the barcode is not already in Shelf, Shelf uses the normal **Add** metadata
+flow and then places the resulting physical copy at the selected precise
+location. Manual-add and magazine issue-detail steps keep the Shelf Fill target
+through that extra form. A wishlisted physical item becomes owned when it is
+shelved. Digital media is rejected because it has no physical shelf position.
 
 ## Title search (no barcode)
 
@@ -63,10 +88,10 @@ handy for a second edition or a duplicate copy you want as its own record.
 ## What happens after a scan
 
 Each scan lands in **Recent scans** with its cover, title and what was done
-("Added", "Lent to Sam", "Moved to Office"). Click through to the item page
-to fix anything. Cover art that wasn't immediately available is fetched in
-the background and appears on its own; a **Retry cover** button on the item
-page re-runs the chain on demand.
+("Added", "Lent to Sam", "Moved to Office", "shelved"). Click through to the
+item page to fix anything. Cover art that wasn't immediately available is
+fetched in the background and appears on its own; a **Retry cover** button on
+the item page re-runs the chain on demand.
 
 Lookups are paced per provider to stay inside each one's published rate
 limit and retried on transient failures, so a 200-book scanning session

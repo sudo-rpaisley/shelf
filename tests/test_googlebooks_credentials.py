@@ -27,6 +27,9 @@ async def test_all_request_variants_send_key_in_header_only():
 
     with patch("app.services.googlebooks.outbound.fetch", new=fake_fetch):
         await googlebooks.lookup("9780441172719", object(), api_key=sentinel)
+        await googlebooks.lookup_magazine_by_issn(
+            "0161-7370", object(), api_key=sentinel
+        )
         await googlebooks.search_by_title_author(
             "Dune", "Frank Herbert", object(), api_key=sentinel
         )
@@ -34,7 +37,7 @@ async def test_all_request_variants_send_key_in_header_only():
             "Dune", "Frank Herbert", object(), api_key=sentinel
         )
 
-    assert fake_fetch.await_count == 3
+    assert fake_fetch.await_count == 4
     for request_call in fake_fetch.await_args_list:
         assert request_call.kwargs["headers"] == {"X-Goog-Api-Key": sentinel}
         assert sentinel not in request_call.args[2]
@@ -48,10 +51,11 @@ async def test_all_request_variants_remain_anonymous_without_key():
 
     with patch("app.services.googlebooks.outbound.fetch", new=fake_fetch):
         await googlebooks.lookup("9780441172719", object())
+        await googlebooks.lookup_magazine_by_issn("0161-7370", object())
         await googlebooks.search_by_title_author("Dune", None, object())
         await googlebooks.search_covers("Dune", None, object())
 
-    assert fake_fetch.await_count == 3
+    assert fake_fetch.await_count == 4
     assert all(call.kwargs["headers"] == {} for call in fake_fetch.await_args_list)
 
 

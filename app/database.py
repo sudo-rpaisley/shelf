@@ -137,6 +137,56 @@ MIGRATIONS: Sequence[tuple[int, str, str]] = (
             ELSE NULL
         END
         WHERE language IS NULL AND isbn IS NOT NULL"""),
+    (24, "Add komga_id column", "ALTER TABLE items ADD COLUMN komga_id TEXT DEFAULT NULL"),
+    (25, "Add komga_library_id column", "ALTER TABLE items ADD COLUMN komga_library_id TEXT DEFAULT NULL"),
+    (26, "Add komga_series_id column", "ALTER TABLE items ADD COLUMN komga_series_id TEXT DEFAULT NULL"),
+    (27, "Index Komga item IDs", "CREATE INDEX IF NOT EXISTS idx_items_komga_id ON items(komga_id)"),
+    (28, "Add romm_id column", "ALTER TABLE items ADD COLUMN romm_id TEXT DEFAULT NULL"),
+    (29, "Add romm_platform_id column", "ALTER TABLE items ADD COLUMN romm_platform_id TEXT DEFAULT NULL"),
+    (30, "Index RomM item IDs", "CREATE INDEX IF NOT EXISTS idx_items_romm_id ON items(romm_id)"),
+    (31, "Add Discogs master ID", "ALTER TABLE music_releases ADD COLUMN discogs_master_id INTEGER DEFAULT NULL"),
+    (32, "Add Discogs label", "ALTER TABLE music_releases ADD COLUMN discogs_label TEXT DEFAULT NULL"),
+    (33, "Add Discogs catalogue number", "ALTER TABLE music_releases ADD COLUMN discogs_catalog_number TEXT DEFAULT NULL"),
+    (34, "Add Discogs format summary", "ALTER TABLE music_releases ADD COLUMN discogs_format_summary TEXT DEFAULT NULL"),
+    (35, "Add Discogs genres", "ALTER TABLE music_releases ADD COLUMN discogs_genres TEXT DEFAULT NULL"),
+    (36, "Add Discogs styles", "ALTER TABLE music_releases ADD COLUMN discogs_styles TEXT DEFAULT NULL"),
+    (37, "Add Discogs notes", "ALTER TABLE music_releases ADD COLUMN discogs_notes TEXT DEFAULT NULL"),
+    (38, "Add Discogs cache timestamp", "ALTER TABLE music_releases ADD COLUMN discogs_updated_at TEXT DEFAULT NULL"),
+    (39, "Add music identifier source", "ALTER TABLE music_identifiers ADD COLUMN source TEXT NOT NULL DEFAULT 'manual'"),
+    (40, "Add item-series membership table",
+     """CREATE TABLE IF NOT EXISTS item_series (
+        item_id INTEGER NOT NULL REFERENCES items(id) ON DELETE CASCADE,
+        series_name TEXT NOT NULL COLLATE NOCASE,
+        position REAL,
+        is_primary INTEGER NOT NULL DEFAULT 0,
+        created_at TEXT NOT NULL DEFAULT (datetime('now')),
+        PRIMARY KEY (item_id, series_name)
+    )"""),
+    (41, "Index item-series names",
+     "CREATE INDEX IF NOT EXISTS idx_item_series_name ON item_series(series_name COLLATE NOCASE)"),
+    (42, "Backfill primary item-series memberships",
+     """INSERT INTO item_series (item_id, series_name, position, is_primary)
+        SELECT id, TRIM(series_name), series_position, 1 FROM items
+        WHERE series_name IS NOT NULL AND TRIM(series_name) != ''
+        ON CONFLICT(item_id, series_name) DO UPDATE SET
+            position = excluded.position, is_primary = 1"""),
+    (43, "Add collections table",
+     """CREATE TABLE IF NOT EXISTS collections (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        name TEXT NOT NULL UNIQUE COLLATE NOCASE,
+        description TEXT,
+        created_at TEXT NOT NULL DEFAULT (datetime('now')),
+        updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+    )"""),
+    (44, "Add collection item membership table",
+     """CREATE TABLE IF NOT EXISTS collection_items (
+        collection_id INTEGER NOT NULL REFERENCES collections(id) ON DELETE CASCADE,
+        item_id INTEGER NOT NULL REFERENCES items(id) ON DELETE CASCADE,
+        created_at TEXT NOT NULL DEFAULT (datetime('now')),
+        PRIMARY KEY (collection_id, item_id)
+    )"""),
+    (45, "Index collection item memberships",
+     "CREATE INDEX IF NOT EXISTS idx_collection_items_item ON collection_items(item_id)"),
 )
 
 MIGRATION_TABLES = """
@@ -260,6 +310,115 @@ CREATE TABLE IF NOT EXISTS series_meta (
     hc_missing    INTEGER DEFAULT NULL,
     hc_checked_at TEXT DEFAULT NULL
 );
+
+-- Multiple ordered series memberships. The legacy items.series_name /
+-- series_position pair remains the primary membership for compatibility.
+CREATE TABLE IF NOT EXISTS item_series (
+    item_id      INTEGER NOT NULL REFERENCES items(id) ON DELETE CASCADE,
+    series_name  TEXT NOT NULL COLLATE NOCASE,
+    position     REAL,
+    is_primary   INTEGER NOT NULL DEFAULT 0,
+    created_at   TEXT NOT NULL DEFAULT (datetime('now')),
+    PRIMARY KEY (item_id, series_name)
+);
+CREATE INDEX IF NOT EXISTS idx_item_series_name ON item_series(series_name COLLATE NOCASE);
+
+-- Curated collections are intentionally separate from Series and Tags. They
+-- are shared library groupings and an item may belong to any number of them.
+CREATE TABLE IF NOT EXISTS collections (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    name        TEXT NOT NULL UNIQUE COLLATE NOCASE,
+    description TEXT,
+    created_at  TEXT NOT NULL DEFAULT (datetime('now')),
+    updated_at  TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+CREATE TABLE IF NOT EXISTS collection_items (
+    collection_id INTEGER NOT NULL REFERENCES collections(id) ON DELETE CASCADE,
+    item_id       INTEGER NOT NULL REFERENCES items(id) ON DELETE CASCADE,
+    created_at    TEXT NOT NULL DEFAULT (datetime('now')),
+    PRIMARY KEY (collection_id, item_id)
+);
+CREATE INDEX IF NOT EXISTS idx_collection_items_item ON collection_items(item_id);
+
+-- Music is intentionally relational rather than a wide set of nullable
+-- columns on items. `items` remains the owned object; this row identifies the
+-- exact release/pressing, and child rows preserve multi-disc/multi-side track
+-- structure. CREATE IF NOT EXISTS lives in MIGRATION_TABLES so both fresh and
+-- upgraded databases receive the feature without an ALTER/table-order trap.
+CREATE TABLE IF NOT EXISTS music_releases (
+    item_id                       INTEGER PRIMARY KEY REFERENCES items(id) ON DELETE CASCADE,
+    artist_credit                 TEXT,
+    musicbrainz_release_id        TEXT UNIQUE,
+    musicbrainz_release_group_id  TEXT,
+    discogs_release_id            INTEGER,
+    discogs_master_id             INTEGER,
+    discogs_label                 TEXT,
+    discogs_catalog_number        TEXT,
+    discogs_format_summary        TEXT,
+    discogs_genres                TEXT,
+    discogs_styles                TEXT,
+    discogs_notes                 TEXT,
+    discogs_updated_at            TEXT,
+    release_type                  TEXT,
+    release_status                TEXT,
+    release_date                  TEXT,
+    first_release_date            TEXT,
+    country                       TEXT,
+    label                         TEXT,
+    catalog_number                TEXT,
+    packaging                     TEXT,
+    media_count                   INTEGER,
+    format_summary                TEXT,
+    edition_notes                 TEXT,
+    media_condition               TEXT,
+    packaging_condition           TEXT,
+    condition_notes               TEXT,
+    metadata_source               TEXT,
+    metadata_updated_at           TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_music_releases_artist ON music_releases(artist_credit COLLATE NOCASE);
+CREATE INDEX IF NOT EXISTS idx_music_releases_group ON music_releases(musicbrainz_release_group_id);
+CREATE INDEX IF NOT EXISTS idx_music_releases_catalog ON music_releases(catalog_number COLLATE NOCASE);
+CREATE INDEX IF NOT EXISTS idx_music_releases_discogs ON music_releases(discogs_release_id);
+CREATE INDEX IF NOT EXISTS idx_music_releases_discogs_master ON music_releases(discogs_master_id);
+
+CREATE TABLE IF NOT EXISTS music_media (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    item_id     INTEGER NOT NULL REFERENCES items(id) ON DELETE CASCADE,
+    position    INTEGER NOT NULL,
+    format      TEXT,
+    title       TEXT,
+    track_count INTEGER,
+    UNIQUE(item_id, position)
+);
+CREATE INDEX IF NOT EXISTS idx_music_media_item ON music_media(item_id);
+
+CREATE TABLE IF NOT EXISTS music_tracks (
+    id                         INTEGER PRIMARY KEY AUTOINCREMENT,
+    medium_id                  INTEGER NOT NULL REFERENCES music_media(id) ON DELETE CASCADE,
+    position                   INTEGER NOT NULL,
+    number                     TEXT,
+    title                      TEXT NOT NULL,
+    artist_credit              TEXT,
+    duration_ms                INTEGER,
+    musicbrainz_recording_id   TEXT,
+    UNIQUE(medium_id, position)
+);
+CREATE INDEX IF NOT EXISTS idx_music_tracks_medium ON music_tracks(medium_id);
+CREATE INDEX IF NOT EXISTS idx_music_tracks_recording ON music_tracks(musicbrainz_recording_id);
+
+CREATE TABLE IF NOT EXISTS music_identifiers (
+    id               INTEGER PRIMARY KEY AUTOINCREMENT,
+    item_id          INTEGER NOT NULL REFERENCES items(id) ON DELETE CASCADE,
+    identifier_type  TEXT NOT NULL,
+    value            TEXT NOT NULL,
+    description      TEXT,
+    source           TEXT NOT NULL DEFAULT 'manual',
+    UNIQUE(item_id, identifier_type, value)
+);
+CREATE INDEX IF NOT EXISTS idx_music_identifiers_item ON music_identifiers(item_id);
+CREATE INDEX IF NOT EXISTS idx_music_identifiers_value ON music_identifiers(value COLLATE NOCASE);
 """
 
 
@@ -269,20 +428,70 @@ CREATE TABLE IF NOT EXISTS series_meta (
 _PRE_ATOMIC_MAX_VERSION = 21
 
 
-def _is_benign_migration_error(version: int, exc: sqlite3.OperationalError) -> bool:
-    """True for the two ways a migration can fail harmlessly and still count
-    as applied. Everything else is a defect in the migration SQL and must
-    reach the caller instead of being silently recorded.
+def _migration_table_has_column(table_name: str, column_name: str) -> bool:
+    """Whether G1 deliberately bakes *column_name* into this managed table.
 
-    Matching on the message alone is not enough: a typo'd table name produces
-    the same "no such table" as a table MIGRATION_TABLES has not created yet,
-    and a migration that re-adds an existing base column produces the same
-    "duplicate column name" as an interrupted replay. Both are bound here to
-    the invariant that actually makes them benign.
+    A post-atomic duplicate ALTER is only recoverable when the same column is
+    present in that table's ``MIGRATION_TABLES`` CREATE definition. A column
+    that merely happens to exist in SCHEMA or from unrelated SQL is still a
+    migration defect and must propagate.
+    """
+    table = re.search(
+        rf"CREATE TABLE IF NOT EXISTS\s+{re.escape(table_name)}\s*\((.*?)\n\);",
+        MIGRATION_TABLES,
+        re.IGNORECASE | re.DOTALL,
+    )
+    if not table:
+        return False
+    return bool(
+        re.search(
+            rf"^\s*{re.escape(column_name)}\s+",
+            table.group(1),
+            re.IGNORECASE | re.MULTILINE,
+        )
+    )
+
+
+def _is_benign_migration_error(
+    version: int,
+    exc: sqlite3.OperationalError,
+    *,
+    db: sqlite3.Connection | None = None,
+    sql: str = "",
+) -> bool:
+    """True only when a failed migration is already present by construction.
+
+    Pre-atomic migrations retain their historical duplicate-column recovery.
+    A newer duplicate is recoverable only under G1: its exact table/column is
+    explicitly baked into ``MIGRATION_TABLES`` and SQLite confirms that column
+    is already present. This heals missing version bookkeeping without hiding
+    arbitrary post-atomic migration defects.
     """
     msg = str(exc)
     if "duplicate column name" in msg:
-        return version <= _PRE_ATOMIC_MAX_VERSION
+        if version <= _PRE_ATOMIC_MAX_VERSION:
+            return True
+        if db is None or not sql:
+            return False
+        duplicate = re.search(r"duplicate column name:\s*([A-Za-z_][A-Za-z0-9_]*)", msg, re.I)
+        alter = re.match(
+            r"\s*ALTER\s+TABLE\s+([A-Za-z_][A-Za-z0-9_]*)"
+            r"\s+ADD\s+COLUMN\s+([A-Za-z_][A-Za-z0-9_]*)\b",
+            sql,
+            re.I,
+        )
+        if not duplicate or not alter:
+            return False
+        table_name, column_name = alter.groups()
+        if duplicate.group(1).casefold() != column_name.casefold():
+            return False
+        if not _migration_table_has_column(table_name, column_name):
+            return False
+        # table_name is restricted to an SQL identifier by the regex above,
+        # so quoting it here is sufficient and no user-controlled SQL enters
+        # this path.
+        columns = db.execute(f'PRAGMA table_info("{table_name}")').fetchall()
+        return any(row["name"].casefold() == column_name.casefold() for row in columns)
     match = re.search(r"no such table: (?:\w+\.)?(\w+)", msg)
     if match:
         # G1: every MIGRATION_TABLES CREATE bakes in the columns its ALTERs
@@ -308,7 +517,7 @@ def _backfill_versions(db: sqlite3.Connection) -> tuple[set[int], str]:
             # Already applied, or the table is one MIGRATION_TABLES creates
             # complete below. Anything else is a genuine defect and must not
             # be recorded as applied.
-            if not _is_benign_migration_error(version, e):
+            if not _is_benign_migration_error(version, e, db=db, sql=sql):
                 raise
         applied.add(version)
         db.execute(
@@ -369,7 +578,7 @@ def _run_migrations(db: sqlite3.Connection) -> list[str]:
             try:
                 db.execute(sql)
             except sqlite3.OperationalError as e:
-                if not _is_benign_migration_error(version, e):
+                if not _is_benign_migration_error(version, e, db=db, sql=sql):
                     raise
                 # An earlier interrupted run already applied this ALTER but
                 # never recorded it, or MIGRATION_TABLES creates the table
@@ -415,7 +624,7 @@ def get_setting(db, key: str) -> str:
 
 
 def get_all_settings(db) -> dict[str, str]:
-    """Get all settings as a dict with env var overrides applied.
+    """Get all settings as a dict with env overrides applied.
 
     Sensitive values are decrypted before being returned.
     """
@@ -490,8 +699,10 @@ def gc_orphaned_series_meta(db, *names: str | None) -> None:
             "DELETE FROM series_meta WHERE name = ? COLLATE NOCASE "
             "AND NOT EXISTS ("
             "SELECT 1 FROM items WHERE series_name = ? COLLATE NOCASE"
+            ") AND NOT EXISTS ("
+            "SELECT 1 FROM item_series WHERE series_name = ? COLLATE NOCASE"
             ")",
-            (name, name),
+            (name, name, name),
         )
 
 

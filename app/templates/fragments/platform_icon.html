@@ -1,0 +1,28 @@
+{% if platform_icon_url %}
+<img src="{{ platform_icon_url }}" alt="" aria-hidden="true"
+     data-platform-icon-source="romm"
+     class="h-4 w-4 shrink-0 object-contain">
+{% elif platform_icon_kind == 'handheld' %}
+<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"
+     data-platform-icon="handheld" class="h-4 w-4 shrink-0">
+    <rect x="6" y="2.5" width="12" height="19" rx="3"/><rect x="8.5" y="5" width="7" height="7" rx="1"/>
+    <path d="M9 16h3m-1.5-1.5v3"/><circle cx="15" cy="15.5" r=".8"/>
+</svg>
+{% elif platform_icon_kind == 'computer' %}
+<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"
+     data-platform-icon="computer" class="h-4 w-4 shrink-0">
+    <rect x="3" y="4" width="18" height="12" rx="2"/><path d="M8 20h8m-4-4v4"/>
+</svg>
+{% elif platform_icon_kind == 'arcade' %}
+<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"
+     data-platform-icon="arcade" class="h-4 w-4 shrink-0">
+    <path d="M6 2h12l2 6-2 14H6L4 8l2-6Z"/><rect x="7" y="5" width="10" height="6" rx="1"/>
+    <path d="M8 16h4m-2-2v4"/><circle cx="16" cy="16" r="1"/>
+</svg>
+{% else %}
+<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"
+     data-platform-icon="gamepad" class="h-4 w-4 shrink-0">
+    <path d="M7.5 8h9a4 4 0 0 1 3.8 2.8l1 3.1a3 3 0 0 1-5.2 2.8L14.8 15H9.2l-1.3 1.7a3 3 0 0 1-5.2-2.8l1-3.1A4 4 0 0 1 7.5 8Z"/>
+    <path d="M7 11v4m-2-2h4"/><circle cx="16" cy="12" r=".7" fill="currentColor" stroke="none"/><circle cx="18" cy="14" r=".7" fill="currentColor" stroke="none"/>
+</svg>
+{% endif %}

@@ -1,0 +1,42 @@
+{% set can_edit = user and user.role in ('admin', 'editor') %}
+<div id="item-collections" class="mt-5 pt-5 border-t border-shelf-border" data-testid="item-collections">
+    <div class="flex items-center justify-between gap-3 mb-2">
+        <h3 class="text-xs font-semibold uppercase tracking-wider text-shelf-muted">Collections</h3>
+        <a href="/collections" class="text-xs text-shelf-accent2 hover:text-white transition-colors">Browse collections</a>
+    </div>
+
+    {% if item_collections %}
+    <div class="flex flex-wrap gap-2 mb-3">
+        {% for collection in item_collections %}
+        <span class="inline-flex items-center gap-1 rounded-full bg-shelf-accent/10 border border-shelf-accent/30 text-shelf-accent2 text-xs pl-2.5 pr-1 py-1">
+            <a href="/browse?collection={{ collection.name|urlencode }}" class="hover:text-white">{{ collection.name }}</a>
+            {% if can_edit %}
+            <button type="button" hx-delete="/api/items/{{ item_id }}/collections/{{ collection.id }}"
+                    hx-target="#item-collections" hx-swap="outerHTML"
+                    aria-label="Remove from {{ collection.name }}"
+                    class="w-5 h-5 rounded-full text-shelf-muted hover:text-white hover:bg-shelf-hover">&times;</button>
+            {% endif %}
+        </span>
+        {% endfor %}
+    </div>
+    {% else %}
+    <p class="text-sm text-shelf-muted mb-3">This item is not in a collection.</p>
+    {% endif %}
+
+    {% if can_edit %}
+        {% if available_collections %}
+        <form hx-post="/api/items/{{ item_id }}/collections" hx-target="#item-collections" hx-swap="outerHTML"
+              class="flex flex-wrap items-center gap-2">
+            <label for="item-collection-select-{{ item_id }}" class="sr-only">Add to collection</label>
+            <select id="item-collection-select-{{ item_id }}" name="collection_id" required
+                    class="bg-shelf-bg border border-shelf-border rounded-lg px-3 py-1.5 text-sm text-shelf-text focus:ring-2 focus:ring-shelf-accent outline-none">
+                <option value="">Add to collection...</option>
+                {% for collection in available_collections %}<option value="{{ collection.id }}">{{ collection.name }}</option>{% endfor %}
+            </select>
+            <button type="submit" class="px-3 py-1.5 bg-shelf-hover border border-shelf-border text-shelf-text rounded-lg text-xs hover:border-shelf-accent/50 transition-colors">Add</button>
+        </form>
+        {% else %}
+        <p class="text-xs text-shelf-muted">{% if item_collections %}This item is already in every collection.{% else %}<a href="/collections" class="text-shelf-accent2 hover:text-white">Create a collection</a> to start grouping items.{% endif %}</p>
+        {% endif %}
+    {% endif %}
+</div>

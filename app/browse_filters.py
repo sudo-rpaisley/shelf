@@ -28,6 +28,8 @@ from urllib.parse import quote
 
 from markupsafe import Markup
 
+from app.config import MEDIA_FAMILIES
+
 #: Filter names become CSS attribute selectors and querystring keys, so they
 #: are held to identifier syntax. `filter_includes` marks its output safe on
 #: the strength of this check — without it, a name could inject markup.
@@ -69,8 +71,6 @@ def _column(column: str, cast: Callable[[str], object] = str) -> ConditionBuilde
             cast_value = cast(value)
         except (TypeError, ValueError):
             return _NEVER
-        # Range-checked separately: the cast succeeds for an over-large id and
-        # then blows up in the driver, two layers further out.
         if isinstance(cast_value, int) and not (
             _SQLITE_INT_MIN <= cast_value <= _SQLITE_INT_MAX
         ):
@@ -87,10 +87,20 @@ def _search(value):
     )
 
 
+def _media_family(value):
+    """Match every concrete media type that belongs to one library family."""
+    family = MEDIA_FAMILIES.get(value)
+    if not family:
+        return _NEVER
+    media_types = family["types"]
+    placeholders = ", ".join("?" for _ in media_types)
+    return f"i.media_type IN ({placeholders})", list(media_types)
+
+
 def _owned(value):
-    # Tri-state: "" (either), "1" (owned), "0" (wishlist). Note `owned = 0` binds
-    # no parameter, so the condition and its params must be built together —
-    # which is the whole reason this returns both.
+    # Tri-state: "" (either), "1" (owned), "0" (wishlist). With a user-aware
+    # Browse request, build_where handles the wishlist branch specially so it
+    # can resolve user_item_state while keeping owned inventory shared.
     if value == "1":
         return "i.owned = 1", []
     if value == "0":
@@ -110,6 +120,42 @@ def _tag(value):
         "JOIN tags t ON it.tag_id = t.id WHERE t.name = ?)",
         [value],
     )
+
+
+def _series(value):
+    return "i.series_name = ? COLLATE NOCASE", [value]
+
+
+def _collection(value):
+    return (
+        "i.id IN (SELECT ci.item_id FROM collection_items ci "
+        "JOIN collections c ON c.id = ci.collection_id "
+        "WHERE c.name = ? COLLATE NOCASE)",
+        [value],
+    )
+
+
+def personal_reading_status_sql(user_id: int) -> tuple[str, list]:
+    """SQL expression for exactly one user's consumption status.
+
+    Migrations 55-56 snapshot pre-feature shared state for users that exist at
+    upgrade time. A missing row after that snapshot means the user has no
+    personal state; it must never fall back to another person's legacy value.
+    """
+    expression = (
+        "(SELECT uis.reading_status FROM user_item_state uis "
+        "  WHERE uis.user_id = ? AND uis.item_id = i.id)"
+    )
+    return expression, [int(user_id)]
+
+
+def personal_wishlist_sql(user_id: int) -> tuple[str, list]:
+    """SQL expression for exactly one user's wishlist flag."""
+    expression = (
+        "COALESCE((SELECT uis.wishlist FROM user_item_state uis "
+        "           WHERE uis.user_id = ? AND uis.item_id = i.id), 0)"
+    )
+    return expression, [int(user_id)]
 
 
 @dataclass(frozen=True)
@@ -162,11 +208,9 @@ class BrowseFilter:
         return bool(value) and value != self.default
 
 
-# Order is the order the querystring and the filter chips are written in —
-# user-visible in the URL bar. SQL condition order follows from it and is
-# immaterial (AND commutes, and each condition's params travel with it).
 FILTERS: tuple[BrowseFilter, ...] = (
     BrowseFilter("q", prefix="Search", condition=_search),
+    BrowseFilter("media_family_filter", prefix="Family", condition=_media_family),
     BrowseFilter("media_type_filter", prefix="Type", condition=_column("i.media_type")),
     BrowseFilter("location_filter", prefix="Location", condition=_column("i.location_id", cast=int)),
     BrowseFilter("sort", prefix="Sort", default="newest", clear_to="newest"),
@@ -175,14 +219,12 @@ FILTERS: tuple[BrowseFilter, ...] = (
     BrowseFilter("lent_out", condition=_lent_out),
     BrowseFilter("tag", prefix="Tag", condition=_tag, quote_in_qs=True),
     BrowseFilter("language", prefix="Language", condition=_column("i.language")),
-    # `view` is the odd one: client-owned state (localStorage) that is sent to
-    # the server so it can pick the grid or list template. It is not a filter
-    # the user clears, chips, or reads out of the URL — hence all three opt-outs.
+    BrowseFilter("series", prefix="Series", condition=_series, quote_in_qs=True),
+    BrowseFilter("collection", prefix="Collection", condition=_collection, quote_in_qs=True),
     BrowseFilter("view", chip=False, clear_to=None, in_url=False),
 )
 
 BY_NAME: Mapping[str, BrowseFilter] = {f.name: f for f in FILTERS}
-
 FILTER_NAMES: tuple[str, ...] = tuple(f.name for f in FILTERS)
 
 
@@ -195,15 +237,7 @@ def _excluded(exclude) -> frozenset:
 
 
 def filter_includes(exclude=None) -> Markup:
-    """The `hx-include` selector list for a control, minus its own name.
-
-    A control must not include itself: htmx already serialises the element the
-    request originates from, and listing it twice sends the value twice.
-
-    Marked HTML-safe so the single quotes render as quotes rather than
-    `&#39;`. Safe because every name is validated against `_NAME_RE` when the
-    filter is constructed — nothing here comes from a request.
-    """
+    """The `hx-include` selector list for a control, minus its own name."""
     names = _excluded(exclude)
     unknown = names - set(BY_NAME)
     if unknown:
@@ -214,15 +248,19 @@ def filter_includes(exclude=None) -> Markup:
     return Markup(",".join(f"[name='{f.name}']" for f in FILTERS if f.name not in names))
 
 
-def build_where(values: Mapping[str, str], exclude=None) -> "tuple[str, list]":
+def build_where(
+    values: Mapping[str, str],
+    exclude=None,
+    *,
+    user_id: int | None = None,
+) -> "tuple[str, list]":
     """Build a WHERE clause from filter values, optionally dropping some.
 
-    Excluding a filter is how each dropdown's cross-filter counts are built:
-    the location counts are "everything except the location filter", so the
-    numbers next to each location say what selecting it would yield.
-
-    Returns ``("WHERE a AND b", params)`` or ``("", [])`` when nothing is
-    active — the empty string is what the callers interpolate.
+    When ``user_id`` is supplied, consumption status and Wishlist are resolved
+    exclusively from that user's personal-state rows. The migration snapshot
+    preserves old data for existing accounts; missing rows stay genuinely
+    empty for users created later. Owned inventory remains a shared catalogue
+    fact.
     """
     skip = _excluded(exclude)
     conditions: list[str] = []
@@ -233,6 +271,20 @@ def build_where(values: Mapping[str, str], exclude=None) -> "tuple[str, list]":
         value = values.get(f.name, "")
         if not f.is_active(value):
             continue
+
+        if user_id is not None and f.name == "reading_status":
+            expression, expression_params = personal_reading_status_sql(user_id)
+            conditions.append(f"{expression} = ?")
+            params.extend(expression_params)
+            params.append(value)
+            continue
+
+        if user_id is not None and f.name == "owned" and value == "0":
+            expression, expression_params = personal_wishlist_sql(user_id)
+            conditions.append(f"{expression} = 1")
+            params.extend(expression_params)
+            continue
+
         built = f.condition(value)
         if built is None:
             continue
@@ -245,21 +297,12 @@ def build_where(values: Mapping[str, str], exclude=None) -> "tuple[str, list]":
 
 
 def values_from(query_params: Mapping[str, str]) -> dict:
-    """Read every declared filter out of a request's query string.
-
-    Missing keys become the filter's default, so callers can index the result
-    without `.get()` and a new filter needs no route-signature change. Values
-    stay raw strings — parsing belongs to each filter's condition builder.
-    """
+    """Read every declared filter out of a request's query string."""
     return {f.name: query_params.get(f.name, f.default) or f.default for f in FILTERS}
 
 
 def has_active_filters(values: Mapping[str, str]) -> bool:
-    """True if any *narrowing* filter is set — sort and view don't count.
-
-    Drives the "clear filters" affordance. The hand-written version of this
-    check omitted `language`, so a language-only filter offered no way out.
-    """
+    """True if any *narrowing* filter is set — sort and view don't count."""
     return any(
         f.condition is not None and f.is_active(values.get(f.name, ""))
         for f in FILTERS
@@ -274,10 +317,6 @@ def querystring(values: Mapping[str, str], extra: Sequence[str] = ()) -> str:
     built — a copy of `view` baked into it goes stale the moment the user
     toggles grid/list, while the load-more sentinel's
     `hx-include="[name='view']"` reads the live hidden input on every request.
-    Emitting both put `view` on the wire twice and left which one won resting
-    on two unrelated behaviours: htmx appends included params last, and
-    Starlette's `QueryParams.get()` returns the last duplicate (G8). It
-    resolved correctly, by luck rather than by design. One live copy, no luck.
     """
     parts = []
     for f in FILTERS:
@@ -290,11 +329,7 @@ def querystring(values: Mapping[str, str], extra: Sequence[str] = ()) -> str:
 
 
 def client_config() -> list[dict]:
-    """What `static/js/browse.js` needs, serialised into the page as JSON.
-
-    CSP forbids inline executable script, so this ships in a
-    `<script type="application/json">` block rather than as a JS literal.
-    """
+    """What `static/js/browse.js` needs, serialised into the page as JSON."""
     return [
         {
             "name": f.name,

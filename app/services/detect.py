@@ -10,22 +10,17 @@ actually has:
    item. A UPC/EAN that is *not* an ISBN carries no format information by
    itself (a UPC is issued to the retail product, not to "books" or
    "discs"), so it falls through to the next tier instead of deciding here.
-2. Title markers, in four arms: platform names (PS5, Nintendo Switch,
-   PC CD, ...) say video_game; retail format tags ([DVD], Blu-ray, ...) say
-   dvd; software-medium tags (CD-ROM) say video_game; audio tags (Audio CD,
-   Compact Disc, CD) say cd. The order — platform, format, medium, audio —
-   is load-bearing at every seam and measured at each. Platform before
-   format so a game whose title happens to carry a format word in its own
-   subtitle (a DVD-ROM PC game) still resolves as a game. Format before
-   medium *and* audio because every film title in the probe corpus carrying
-   "CD" is a disc bundle that also carries a format tag ("Purple Rain
-   [DVD/CD Combo]"), so format-first files all three as discs where either
-   later arm would file a concert Blu-ray as a game or a CD. Medium before
-   audio because the bare "CD" audio marker matches *inside* "CD-ROM".
-3. Category — confirmatory only, and only for video_game and cd. See the two
-   prohibitions above `_PLATFORM_MARKERS` below; nothing here may decide dvd,
-   and no category *naming a platform* may decide video_game. Both admitted
-   categories name the medium itself.
+2. Title markers, in six arms: platform names (PS5, Nintendo Switch,
+   PC CD, ...) say video_game; retail video format tags ([DVD], Blu-ray, ...)
+   say dvd; software-medium tags (CD-ROM) say video_game; explicit vinyl
+   packaging tags say vinyl; explicit cassette tags say cassette; audio-CD
+   tags say cd. The order is deliberately conservative: a DVD bundle that
+   includes a soundtrack LP/CD/cassette must still file as the video format
+   printed on the product, and CD-ROM must beat the bare CD token.
+3. Category — only categories that name the product medium itself may decide:
+   video-game software, vinyl records, music/audio cassettes, and music CDs.
+   No category ever decides dvd, and no category merely naming a console or
+   platform decides video_game.
 4. No signal, in three parts. **First**, recognised hardware: a title
    carrying a hardware word *and* a platform marker (`_is_hardware_title`)
    is a console, controller or headset. That is a weaker answer than a
@@ -34,17 +29,16 @@ actually has:
    otherwise lose (`signal="hardware"`). It sits above the hint branch
    deliberately: a dropdown choice asserts what the item *is*, not that a
    film search on a title containing "Console" will match. Then a deliberate
-   non-book hint (`cd`, `dvd`, `video_game`) stands (`signal="hinted"`);
-   otherwise resolve to a concrete `MEDIA_TYPES` member anyway and say in
-   the reason that it is a fallback, never a detection (`signal="none"`).
-   The `media_type` is **always** a `MEDIA_TYPES` member — never `"auto"`,
-   never an unchecked hint string.
+   non-book hint stands (`signal="hinted"`); otherwise resolve to a concrete
+   `MEDIA_TYPES` member anyway and say in the reason that it is a fallback,
+   never a detection (`signal="none"`). The `media_type` is **always** a
+   `MEDIA_TYPES` member — never `"auto"`, never an unchecked hint string.
 
 The return is a `Detection`, not a bare tuple: the tier that decided is worth
 more to a caller than the verdict alone. `_scan_upc` reads `signal` to skip
 the TMDb ladder for hardware, because that ladder's shortest rung answers
 "PlayStation" with a confident match for a different film (`G46` — missing
-enrichment is recoverable, wrong enrichment is not).
+enrichment is recoverable, wrong is not).
 
 G46 (see GOTCHAS.md): this module reads the *raw* scanned title, never a
 shortened search-query rung. `app/services/upcitemdb.py`'s `search_queries`
@@ -86,39 +80,25 @@ class Detection:
 
 
 # Hints that mean "this is some kind of book" and are honoured as-is when the
-# barcode is an ISBN. Not every MEDIA_TYPES key is book-family — dvd, cd and
-# video_game are physical/digital media, not books, even though they are
-# valid hints on a non-ISBN scan.
-_BOOK_FAMILY_HINTS = frozenset({"book", "kids_book", "audiobook", "ebook", "comic"})
+# barcode is an ISBN. Not every MEDIA_TYPES key is book-family — discs, games
+# and music formats are physical/digital media, not books, even though they
+# are valid hints on a non-ISBN scan.
+_BOOK_FAMILY_HINTS = frozenset({"book", "kids_book", "audiobook", "ebook", "comic", "digital_comic"})
 
 # --- Tier 2: title markers -------------------------------------------------
 #
-# Platform names checked first, format tags second, audio tags third — "Alice
-# Madness Returns (PC DVD)" is a game whose own title carries the string
-# "DVD"; checking format first would file it as a disc. "Purple Rain [DVD/CD
-# Combo]" is a disc bundle whose own title carries the string "CD"; checking
-# audio before format would file it as an album. Each arm is checked after
-# the one that can be wrong about it.
+# Platform names checked first, video-format tags second, software media
+# third, then the music media. "Alice Madness Returns (PC DVD)" is a game
+# whose title carries "DVD"; platform-first preserves it. "Purple Rain
+# [DVD/CD Combo]" is a film bundle that carries "CD"; video-format-first
+# preserves it. The same rule applies to a DVD bundled with an LP/cassette.
 #
-# Two prohibitions, both learned from the probe sample, both apply to the
-# *category* tier (3) below, not to this title-marker tier:
-#   - No category value ever decides dvd. 2 of 2 discs in the sample were
-#     categorised as Electronics > Video > Televisions.
-#   - No category that names a *platform* (e.g. "Electronics > Video Game
-#     Consoles") ever decides video_game. A platform category describes the
-#     shelf the product sits on, not what the product is — it held a Switch
-#     cartridge and a PlayStation 5 console in the same sample.
-#
-# The second prohibition creates a title-tier problem too: "PlayStation" is
-# a plausible platform marker for a game's title, but "PlayStation 5
-# Console" is not a game — it is the console itself. Resolution: a small set
-# of hardware words (_HARDWARE_TERMS) suppresses the platform check for that
-# title. "PlayStation 5 Console" hits "console" and is excluded from the
-# platform match entirely, so it falls through this tier with no verdict and
-# lands on the tier-4 fallback (dvd, honestly labelled) rather than on
-# video_game — Shelf has no hardware media type, so "not a game" is as far
-# as detection can honestly go. "The Legend of Zelda ... - Nintendo Switch"
-# has no hardware word, so its platform marker fires normally.
+# Two prohibitions, both learned from the probe sample, apply to tier 3:
+#   - No category value ever decides dvd. Sampled discs were categorised as
+#     Electronics > Video > Televisions.
+#   - No category that merely names a platform ever decides video_game. A
+#     platform category describes the shelf the product sits on, not whether
+#     it is software; it held a cartridge and a console in the same sample.
 _PLATFORM_MARKERS = [
     "Nintendo Switch", "Wii U", "Nintendo 3DS",
     "PlayStation 5", "PlayStation 4", "PlayStation 3", "PlayStation",
@@ -143,49 +123,40 @@ def _is_hardware_title(title: str) -> bool:
     Deliberately narrow. `Sony PULSE 3D Wireless Headset` names no member of
     `_PLATFORM_MARKERS` and is a **known, accepted** false negative; widening
     either table to catch it re-opens the three film titles above.
-
-    Reading `_PLATFORM_MARKERS` means every token added there widens this
-    predicate too — a new platform token is never a purely tier-2 decision.
-    `CD-ROM` is deliberately *not* in that table (it has its own arm below),
-    so `CD-ROM drive` plus a hardware word is not recognised here; that is
-    an accepted false negative of the same kind as `Sony PULSE 3D Wireless
-    Headset`, and the price of keeping a medium out of the platform arm.
     """
     if not any(_contains_marker(title, term) for term in _HARDWARE_TERMS):
         return False
     return any(_contains_marker(title, marker) for marker in _PLATFORM_MARKERS)
 
+
 _FORMAT_MARKERS = [
     "[DVD]", "Blu-ray", "Bluray", "4K Ultra HD", "4K UHD", "UHD", "DVD",
 ]
 
-# Software-medium tags, checked *after* format tags and *before* audio ones.
-#
-# "CD-ROM" names a medium, not a platform, and the distinction is the whole
-# reason this arm exists rather than a fifth entry in `_PLATFORM_MARKERS`. A
-# platform token is allowed to beat a format tag — "Alice Madness Returns (PC
-# DVD)" is a game whose title carries "DVD". A medium token is not: a film
-# bundle can carry one alongside its own format tag ("Terminator 2 [DVD]
-# (includes bonus CD-ROM)"), and with "CD-ROM" in the platform table that row
-# filed as a *video game*, with a confident reason, ahead of its own "[DVD]".
-#
-# So it sits below format for the same measured reason `_AUDIO_MARKERS` does
-# — a bundle names its own format — and above audio because `_contains_marker`
-# treats the hyphen as a word boundary, so the bare "CD" audio marker matches
-# *inside* "CD-ROM". Without this arm a bare `Myst CD-ROM` would reach the
-# audio loop and file a PC game as a music album.
+# Software-medium tags, checked *after* video-format tags and before any music
+# medium. `_contains_marker` treats the hyphen as a word boundary, so the bare
+# CD marker also matches inside CD-ROM; this arm prevents a PC game becoming a
+# music disc.
 _MEDIUM_MARKERS = ["CD-ROM"]
 
-# Audio tags, checked *after* format and medium tags. Measured (design plan, probe 3):
-# every film title carrying "CD" is a disc bundle that also carries a format
-# marker — "Purple Rain [DVD/CD Combo]", "The Bodyguard Blu-ray + Soundtrack
-# CD" — so format-first files all three as discs, and audio-first would file a
-# concert Blu-ray as a CD. The same argument that puts platform before format,
-# one rung down. Most specific first, so the reason names the fuller tag when
-# the title has it.
-#
-# "CD" also matches *inside* "CD-ROM" — `_contains_marker` treats the hyphen as
-# a word boundary — which is why `_MEDIUM_MARKERS` above runs first.
+# Vinyl detection is intentionally stricter than a bare word "Vinyl". The
+# existing adversary tests include a film titled exactly `Vinyl`; accepting
+# that token alone would turn an explicit known false positive into a
+# confident classification. Retail format phrases/tags are much stronger.
+_VINYL_MARKERS = [
+    "[Vinyl]", "(Vinyl)", "Vinyl LP", "12\" Vinyl", "10\" Vinyl", "7\" Vinyl",
+    "12-inch Vinyl", "10-inch Vinyl", "7-inch Vinyl",
+]
+
+# Same principle for cassette: medium-specific retail phrases, not the bare
+# word in arbitrary prose. Category detection below catches records whose
+# product title contains no format suffix at all.
+_CASSETTE_MARKERS = [
+    "Audio Cassette", "Cassette Tape", "[Cassette]", "(Cassette)",
+]
+
+# Audio tags, checked after CD-ROM and after the more-specific vinyl/cassette
+# media. Most specific first so the reason names the fuller tag when present.
 _AUDIO_MARKERS = ["Audio CD", "Compact Disc", "CD"]
 
 
@@ -203,18 +174,7 @@ def _contains_marker(text: str, marker: str) -> bool:
 
 
 def _match_title_markers(title: str) -> Detection | None:
-    """Tier 2. A `Detection`, or None if the title says nothing.
-
-    Typed as the record rather than a tuple because `detect_media_type`
-    returns this value through unchanged — a helper still handing back a bare
-    pair would slip a tuple out through a signature promising a `Detection`,
-    and nothing on the call path would notice.
-    """
-    # `_is_hardware_title` here is behaviour-preserving, not a change: the
-    # bare hardware-word test it replaces could only ever alter the outcome
-    # when a platform marker would otherwise have matched, so requiring the
-    # conjunction skips the loop in exactly the same cases. One predicate now
-    # serves both this guard and the tier-4 arm, so the two cannot drift.
+    """Tier 2. A `Detection`, or None if the title says nothing."""
     if not _is_hardware_title(title):
         for marker in _PLATFORM_MARKERS:
             if _contains_marker(title, marker):
@@ -229,8 +189,17 @@ def _match_title_markers(title: str) -> Detection | None:
     for marker in _MEDIUM_MARKERS:
         if _contains_marker(title, marker):
             return Detection("video_game", (
-                f"Title carries a '{marker}' software-medium tag — "
-                f"filed as Video Game."
+                f"Title carries a '{marker}' software-medium tag — filed as Video Game."
+            ), "detected")
+    for marker in _VINYL_MARKERS:
+        if _contains_marker(title, marker):
+            return Detection("vinyl", (
+                f"Title carries a '{marker}' music-format tag — filed as Vinyl."
+            ), "detected")
+    for marker in _CASSETTE_MARKERS:
+        if _contains_marker(title, marker):
+            return Detection("cassette", (
+                f"Title carries a '{marker}' music-format tag — filed as Cassette."
             ), "detected")
     for marker in _AUDIO_MARKERS:
         if _contains_marker(title, marker):
@@ -241,69 +210,43 @@ def _match_title_markers(title: str) -> Detection | None:
 
 
 def _category_decides_video_game(category: str) -> bool:
-    """Tier 3. The only category string allowed to decide anything on its own.
-
-    "Software > Video Game Software" names the software category itself, not
-    a shelf a console could also sit on, so it is safe to decide alone. A
-    console/platform category ("Electronics > Video Game Consoles") is
-    deliberately absent from this check — see the prohibitions above the
-    marker tables. Because tier 2 already returns before tier 3 ever runs,
-    there is no code path left where a console category could "confirm" an
-    existing video_game verdict; by the time tier 3 runs, tier 2 found
-    nothing, so a console category here would be deciding alone, which is
-    exactly what it must never do.
-    """
+    """Only an actual video-game *software* category decides a game."""
     return "video game software" in category.lower()
 
 
+def _category_decides_vinyl(category: str) -> bool:
+    """A category explicitly naming vinyl records, not generic music."""
+    value = category.lower()
+    return "vinyl record" in value or "vinyl records" in value
+
+
+def _category_decides_cassette(category: str) -> bool:
+    """A category explicitly naming the cassette medium."""
+    value = category.lower()
+    return "music cassette" in value or "audio cassette" in value
+
+
 def _category_decides_cd(category: str) -> bool:
-    """Tier 3's second admitted category, and it passes the same test.
-
-    "Media > Music & Sound Recordings > Music CDs" names the *medium itself*
-    — the "Software > Video Game Software" shape, not the "Electronics >
-    Video Game Consoles" shape — so it is safe to decide alone and breaches
-    neither prohibition above `_PLATFORM_MARKERS`: it decides `cd`, not
-    `dvd`, and it names no platform. Measured over the probe corpus: true for
-    5 of 6 real CD retail records, false for both sampled disc categories
-    (Electronics > Video > Televisions), for Software > Video Game Software,
-    for Electronics > Video Game Consoles, and for Media > Books.
-
-    Deciding alone is the point. `Born in the USA` carries no title token at
-    all and is 1 of the 6 observed records, so a confirmatory rule requiring
-    a title tag too would miss it for no gain — the category has zero
-    measured false positives.
-    """
+    """A category explicitly naming Music CDs."""
     return "music cd" in category.lower()
 
 
 def detect_media_type(
     barcode_type: str, hint: str, title: str | None, category: str | None,
 ) -> Detection:
-    """Return a `Detection`. `reason` is what the card shows.
+    """Return a `Detection`. `reason` is what the scan card shows.
 
     `signal` says how much the verdict is worth: `detected` if a tier 1-3
     rule fired, `hardware` if the title names console hardware, `hinted` if
     the user's non-book dropdown choice stood, `none` if nothing at all did.
 
     `media_type` is always a member of `app.config.MEDIA_TYPES` — never
-    `"auto"`, never a hint passed through unchecked. That is the point of
-    this function: `insert_item` validates field *names*, not values, so an
-    unvalidated `"auto"` reaching it would land in the `items` table with no
-    `CHECK` to catch it.
-
-    `hint` is whatever the scan form sent — `"auto"`, `""`, `None`, or a
-    `MEDIA_TYPES` key. Any value that is not a `MEDIA_TYPES` key is treated
-    as no hint at all, at every tier below, not just the fallback.
-
-    `title` must be the raw scanned title, not a shortened search-query rung
-    (see the G46 note in the module docstring).
+    `"auto"`, never a hint passed through unchecked. `title` must be the raw
+    scanned title, not a shortened search-query rung (G46).
     """
     hint = hint if hint in MEDIA_TYPES else None
 
-    # Tier 1: barcode prefix. Only an ISBN decides anything at this tier —
-    # a UPC carries no book/disc distinction of its own, so it falls through
-    # to the title/category tiers instead (and a book-family hint on a UPC
-    # is not evidence about the barcode; it is discarded here too).
+    # Tier 1: barcode prefix. Only an ISBN decides anything at this tier.
     if barcode_type == "isbn":
         if hint in _BOOK_FAMILY_HINTS:
             return Detection(hint, (
@@ -322,55 +265,36 @@ def detect_media_type(
         if matched is not None:
             return matched
 
-    # Tier 3: category. Two admitted values, both naming a medium rather than
-    # a shelf (see the two helpers' docstrings, and the prohibitions above
-    # `_PLATFORM_MARKERS`). Reached only when tier 2 found nothing.
+    # Tier 3: categories that name the medium itself. Reached only when tier 2
+    # found nothing, so a category can never override a stronger title signal.
     if category and _category_decides_video_game(category):
         return Detection("video_game", (
-            f"Category '{category}' names video game software — filed as "
-            f"Video Game."
+            f"Category '{category}' names video game software — filed as Video Game."
+        ), "detected")
+    if category and _category_decides_vinyl(category):
+        return Detection("vinyl", (
+            f"Category '{category}' names vinyl records — filed as Vinyl."
+        ), "detected")
+    if category and _category_decides_cassette(category):
+        return Detection("cassette", (
+            f"Category '{category}' names music cassettes — filed as Cassette."
         ), "detected")
     if category and _category_decides_cd(category):
         return Detection("cd", (
             f"Category '{category}' names music CDs — filed as CD."
         ), "detected")
 
-    # Tier 4, first: Shelf recognised the item, and recognised it as
-    # something it has no media type for. That is a weaker answer than a
-    # detection and a stronger one than nothing — it says what the item is
-    # *not*, which is enough for a caller to decline a film search it would
-    # otherwise lose. It sits above the hint branch deliberately: a dropdown
-    # choice asserts what the item is, not that a film search on a title
-    # containing "Console" will match.
+    # Tier 4, first: recognised console hardware. Shelf still has no hardware
+    # media type; the signal is what lets the caller decline a false film lookup.
     if title and _is_hardware_title(title):
         return Detection("dvd", (
             "Title names console hardware, not a film or a game — filed as "
             "DVD / Blu-ray. Change it on the item if that's wrong."
         ), "hardware")
 
-    # Tier 4: no signal. Still resolve to a concrete MEDIA_TYPES member, and
-    # say plainly whether this is the user's own answer or a fallback.
-    #
-    # A hint that reached this line survived tier 1, and on a non-ISBN barcode
-    # nothing here contradicts it. The design's §1 rule is that a *book-family*
-    # hint is wrong on a UPC — not that every hint is. So a deliberate "CD",
-    # "DVD / Blu-ray" or "Video Game" choice stands, and only a book-family or
-    # absent hint falls through to the fallback below.
-    #
-    # This is still load-bearing for CDs, for a narrower reason than it once
-    # was. Tier 2 now reads an audio tag out of the retail title and tier 3
-    # reads a "Music CDs" category, so a CD is usually detected — but where
-    # the record names neither, the dropdown is the only evidence there is.
-    # Discarding it here would silently refile those albums as DVDs — a
-    # regression, not a detection, and invisible until a user noticed their
-    # music shelf had turned into films.
-    #
-    # G57: the question this branch exists to answer is "which MEDIA_TYPES
-    # values can detection never produce?", and every one of them must survive
-    # a no-signal outcome. Re-asked after the CD arms landed, the answer is
-    # now the book family only — `book`, `kids_book`, `audiobook`, `ebook`,
-    # `comic` — which is exactly `_BOOK_FAMILY_HINTS`, and those are wrong on
-    # a non-ISBN barcode for a different reason (tier 1's).
+    # Tier 4: no signal. A deliberate non-book hint stands. This is especially
+    # important for unusual music products where a retail title/category does
+    # not expose the physical format at all.
     if hint is not None and hint not in _BOOK_FAMILY_HINTS:
         return Detection(hint, (
             f"Nothing in the barcode or the product record said otherwise — "

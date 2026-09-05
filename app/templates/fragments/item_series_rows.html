@@ -1,0 +1,119 @@
+<div id="item-series-panel" class="mb-6" data-testid="item-series-panel">
+    {% if series_rows %}
+    <div class="space-y-4">
+        {% for series in series_rows %}
+        <section class="rounded-xl border border-shelf-border bg-shelf-bg/50 p-4" data-testid="item-series-row">
+            <div class="flex items-start justify-between gap-3 mb-3">
+                <div class="min-w-0">
+                    <p class="text-[10px] uppercase tracking-wider text-shelf-muted">Series</p>
+                    <h3 class="text-sm font-semibold text-shelf-text mt-0.5 truncate">{{ series.name }}</h3>
+                </div>
+                <span class="shrink-0 text-xs text-shelf-muted">{{ series.count }} items</span>
+            </div>
+
+            <div class="flex gap-3 overflow-x-auto snap-x snap-mandatory pb-2 -mb-2">
+                {% for member in series["items"] %}
+                <a href="/item/{{ member.id }}"
+                   class="group relative w-28 sm:w-32 shrink-0 snap-start"
+                   {% if member.id == item.id %}aria-current="page"{% endif %}>
+                    <div class="relative overflow-hidden rounded-lg border {% if member.id == item.id %}border-shelf-accent ring-1 ring-shelf-accent/40{% else %}border-shelf-border group-hover:border-shelf-accent/50{% endif %} bg-shelf-card transition-colors"
+                         style="aspect-ratio: 2 / 3">
+                        {% if member.cover_path %}
+                        <img src="/{{ member.cover_path }}" alt="" loading="lazy"
+                             class="w-full h-full object-contain bg-shelf-hover">
+                        {% else %}
+                        <div class="w-full h-full flex items-center justify-center p-2 text-center text-[10px] text-shelf-muted bg-shelf-hover">
+                            {{ member.title }}
+                        </div>
+                        {% endif %}
+
+                        {% if member.position is not none %}
+                        <span class="absolute top-1.5 left-1.5 rounded-md bg-shelf-bg/90 border border-shelf-border px-1.5 py-0.5 text-[10px] font-medium text-shelf-text shadow-sm">
+                            #{{ member.position|int if member.position == member.position|int else member.position }}
+                        </span>
+                        {% endif %}
+                        {% if member.id == item.id %}
+                        <span class="absolute bottom-1.5 left-1.5 rounded-md bg-shelf-accent px-1.5 py-0.5 text-[10px] font-medium text-white shadow-sm">Current</span>
+                        {% endif %}
+                    </div>
+                    <p class="mt-1.5 text-xs font-medium leading-snug text-shelf-text group-hover:text-shelf-accent2 line-clamp-2">{{ member.title }}</p>
+                    {% if member.publish_year %}<p class="text-[10px] text-shelf-muted mt-0.5">{{ member.publish_year }}</p>{% endif %}
+                </a>
+                {% endfor %}
+            </div>
+        </section>
+        {% endfor %}
+    </div>
+    {% endif %}
+
+    {% if can_edit %}
+    <details class="{% if series_rows %}mt-3{% endif %} rounded-xl border border-shelf-border bg-shelf-bg/40 px-4 py-3">
+        <summary class="cursor-pointer text-xs font-medium text-shelf-accent2 hover:text-shelf-accent">Manage series</summary>
+        <div class="mt-3 space-y-3">
+            {% if series_memberships %}
+            <div class="space-y-2">
+                {% for membership in series_memberships %}
+                <div class="rounded-lg border border-shelf-border bg-shelf-card p-2.5">
+                    <div class="flex items-center justify-between gap-2 mb-2">
+                        <div class="min-w-0">
+                            <span class="text-sm font-medium text-shelf-text truncate">{{ membership.series_name }}</span>
+                            {% if membership.is_primary %}
+                            <span class="ml-1 text-[10px] uppercase tracking-wide text-shelf-muted">Primary</span>
+                            {% endif %}
+                        </div>
+                        <form hx-post="/api/items/{{ item.id }}/series-memberships/remove"
+                              hx-target="#item-series-panel" hx-swap="outerHTML"
+                              hx-confirm="Remove this item from '{{ membership.series_name }}'?">
+                            <input type="hidden" name="_csrf" value="{{ request.cookies.get('csrf_token', '') }}">
+                            <input type="hidden" name="series_name" value="{{ membership.series_name }}">
+                            <button type="submit" class="text-xs text-shelf-muted hover:text-shelf-error transition-colors">Remove</button>
+                        </form>
+                    </div>
+                    <form hx-post="/api/items/{{ item.id }}/series-memberships"
+                          hx-target="#item-series-panel" hx-swap="outerHTML"
+                          class="flex items-end gap-2">
+                        <input type="hidden" name="_csrf" value="{{ request.cookies.get('csrf_token', '') }}">
+                        <input type="hidden" name="series_name" value="{{ membership.series_name }}">
+                        <label class="min-w-0 flex-1">
+                            <span class="block text-[10px] uppercase tracking-wide text-shelf-muted mb-1">Position</span>
+                            <input type="number" step="any" name="position"
+                                   value="{{ membership.position if membership.position is not none else '' }}"
+                                   placeholder="e.g. 6"
+                                   class="w-full bg-shelf-bg border border-shelf-border rounded-lg px-2.5 py-1.5 text-sm text-shelf-text focus:ring-2 focus:ring-shelf-accent outline-none">
+                        </label>
+                        <button type="submit" class="px-3 py-1.5 rounded-lg bg-shelf-hover text-xs text-shelf-text hover:bg-shelf-border transition-colors">Save</button>
+                    </form>
+                </div>
+                {% endfor %}
+            </div>
+            {% else %}
+            <p class="text-xs text-shelf-muted">This item is not in a series yet.</p>
+            {% endif %}
+
+            <form hx-post="/api/items/{{ item.id }}/series-memberships"
+                  hx-target="#item-series-panel" hx-swap="outerHTML"
+                  class="rounded-lg border border-dashed border-shelf-border p-3">
+                <input type="hidden" name="_csrf" value="{{ request.cookies.get('csrf_token', '') }}">
+                <p class="text-xs font-medium text-shelf-text mb-2">Add to another series</p>
+                <div class="grid grid-cols-1 sm:grid-cols-[minmax(0,1fr)_7rem_auto] gap-2 items-end">
+                    <label>
+                        <span class="block text-[10px] uppercase tracking-wide text-shelf-muted mb-1">Series</span>
+                        <input type="text" name="series_name" required list="known-series-names"
+                               placeholder="Series name"
+                               class="w-full bg-shelf-bg border border-shelf-border rounded-lg px-2.5 py-1.5 text-sm text-shelf-text focus:ring-2 focus:ring-shelf-accent outline-none">
+                    </label>
+                    <label>
+                        <span class="block text-[10px] uppercase tracking-wide text-shelf-muted mb-1">Position</span>
+                        <input type="number" step="any" name="position" placeholder="#"
+                               class="w-full bg-shelf-bg border border-shelf-border rounded-lg px-2.5 py-1.5 text-sm text-shelf-text focus:ring-2 focus:ring-shelf-accent outline-none">
+                    </label>
+                    <button type="submit" class="px-3 py-1.5 rounded-lg bg-shelf-accent text-white text-xs hover:bg-shelf-accent2 transition-colors">Add</button>
+                </div>
+                <datalist id="known-series-names">
+                    {% for name in known_series_names %}<option value="{{ name }}"></option>{% endfor %}
+                </datalist>
+            </form>
+        </div>
+    </details>
+    {% endif %}
+</div>

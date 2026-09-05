@@ -107,13 +107,60 @@ document.body.addEventListener('showToast', function(e) {
 
 // --- Keyboard shortcuts ---
 document.addEventListener('keydown', function(e) {
+    if (e.key === 'Escape') {
+        var shortcutModal = document.getElementById('shortcut-modal');
+        if (shortcutModal && !shortcutModal.classList.contains('hidden')) {
+            shortcutModal.classList.add('hidden');
+            return;
+        }
+    }
+
     var tag = document.activeElement.tagName;
     if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return;
-    if (e.key === '/' ) { e.preventDefault(); var q = document.querySelector('[name="q"]'); if (q) q.focus(); }
+    if (e.key === '/' ) {
+        e.preventDefault();
+        var q = document.querySelector('[name="q"]');
+        if (!q) {
+            var navSearches = document.querySelectorAll('[data-nav-search-input]');
+            for (var i = 0; i < navSearches.length; i++) {
+                if (navSearches[i].offsetParent !== null) { q = navSearches[i]; break; }
+            }
+        }
+        if (q) q.focus();
+    }
     else if (e.key === 's') { window.location.href = '/scan'; }
     else if (e.key === 'b') { window.location.href = '/browse'; }
     else if (e.key === '?') { document.getElementById('shortcut-modal').classList.toggle('hidden'); }
 });
+
+// Keyboard-shortcut dialog controls live in this external script so they work
+// under Shelf's no-inline CSP. The old floating trigger is optional: newer
+// navigation opens the same dialog from the account-menu Alpine component.
+(function() {
+    var modal = document.getElementById('shortcut-modal');
+    if (!modal) return;
+
+    var trigger = document.querySelector('[title="Keyboard shortcuts (?)"]');
+    if (trigger) {
+        trigger.removeAttribute('onclick');
+        trigger.addEventListener('click', function() {
+            modal.classList.toggle('hidden');
+        });
+    }
+
+    modal.removeAttribute('onclick');
+    modal.addEventListener('click', function(e) {
+        if (e.target === modal) modal.classList.add('hidden');
+    });
+
+    var close = modal.querySelector('[data-shortcut-close], button[onclick]');
+    if (close) {
+        close.removeAttribute('onclick');
+        close.addEventListener('click', function() {
+            modal.classList.add('hidden');
+        });
+    }
+})();
 
 // --- Search-result form sync ---
 // Replaces the inline scripts formerly embedded in the book/dvd/game

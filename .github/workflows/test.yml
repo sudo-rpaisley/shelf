@@ -19,7 +19,7 @@ jobs:
           cache: pip
 
       - name: Install dependencies
-        run: pip install -r requirements.txt -r requirements-dev.txt
+        run: pip install -r requirements-dev.txt
 
       - name: Run unit and integration tests
         run: make test
@@ -60,6 +60,9 @@ jobs:
       - name: Committed build output must match the rebuild
         run: |
           git diff --exit-code --stat static/css/app.css static/sw.js || {
+            echo "::group::Generated asset diff"
+            git diff -- static/css/app.css static/sw.js
+            echo "::endgroup::"
             echo "::error::Committed build output is stale — run 'make css' and commit the result."
             echo "static/css/app.css is the Tailwind build; static/sw.js carries the"
             echo "SW_VERSION stamped from the precache digest. Both are generated."
@@ -80,7 +83,7 @@ jobs:
           cache: pip
 
       - name: Install dependencies
-        run: pip install -r requirements.txt -r requirements-dev.txt
+        run: pip install -r requirements-dev.txt
 
       - name: Install Chromium
         run: playwright install --with-deps chromium

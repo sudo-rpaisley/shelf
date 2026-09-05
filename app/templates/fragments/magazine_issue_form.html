@@ -1,0 +1,100 @@
+<div class="scan-result bg-shelf-card rounded-lg border border-shelf-border p-4"
+     data-scan-status="not_found">
+    {% set display_carrier = carrier_ean[1:] if carrier_ean and carrier_ean|length == 13 and carrier_ean[0] == '0' else carrier_ean %}
+    {% set search_key = (carrier_ean or 'manual') ~ '-' ~ (supplement or 'base') %}
+    <div class="flex items-center gap-4 mb-3">
+        <div class="w-12 h-16 bg-shelf-hover rounded flex items-center justify-center text-shelf-muted text-lg">M</div>
+        <div class="flex-1 min-w-0">
+            <p class="font-medium" data-scan-title>{{ title or 'Magazine' }}</p>
+            {% if issn %}
+            <p class="text-sm text-shelf-muted">ISSN {{ issn }}{% if supplement %} · barcode add-on {{ supplement }}{% endif %}</p>
+            {% if issn_hint and issn_hint != issn %}
+            <p class="text-xs text-shelf-muted mt-1">Barcode search hint: ISSN {{ issn_hint }}.</p>
+            {% endif %}
+            {% elif issn_hint %}
+            <p class="text-sm text-shelf-muted">Barcode ISSN hint {{ issn_hint }}{% if supplement %} · add-on {{ supplement }}{% endif %}</p>
+            {% else %}
+            <p class="text-sm text-shelf-muted">Barcode {{ display_carrier }}{% if supplement %} · add-on {{ supplement }}{% endif %}</p>
+            {% endif %}
+            <p class="text-xs text-shelf-muted mt-1">Shelf keeps the scanned barcode as issue data, but does not assume the carrier uniquely identifies a publication or issue.</p>
+            {% if match_source %}
+            <p class="text-xs text-shelf-success mt-1">Selected from {{ match_source }} search.</p>
+            {% endif %}
+        </div>
+        <span class="text-xs px-2 py-1 rounded-full shrink-0 bg-shelf-warning/20 text-shelf-warning" data-scan-badge>issue details</span>
+    </div>
+
+    <div class="border-t border-shelf-border pt-3 mb-3">
+        <p class="text-sm font-medium mb-1">Find a magazine match</p>
+        <p class="text-xs text-shelf-muted mb-2">If the automatic barcode lookup is missing or wrong, search by publication title and choose a result. The scanned barcode and add-on will be kept.</p>
+        <form hx-get="/api/magazines/search"
+              hx-target="#magazine-search-{{ search_key }}"
+              hx-swap="innerHTML"
+              class="flex flex-col sm:flex-row gap-2">
+            <input type="text" name="q" value="{{ title or '' }}"
+                   placeholder="Magazine title..."
+                   class="flex-1 bg-shelf-bg border border-shelf-border rounded-lg px-3 py-2 text-shelf-text focus:ring-2 focus:ring-shelf-accent outline-none">
+            <input type="hidden" name="carrier_ean" value="{{ carrier_ean or '' }}">
+            <input type="hidden" name="barcode_supplement" value="{{ supplement or '' }}">
+            <input type="hidden" name="issn_hint" value="{{ issn_hint or '' }}">
+            <input type="hidden" name="location_id" value="{{ selected_location_id or '' }}">
+            <input type="hidden" name="mode" value="{{ mode }}">
+            <input type="hidden" name="for_scan" value="1">
+            <button type="submit" class="px-4 py-2 bg-shelf-hover border border-shelf-border rounded-lg text-sm hover:border-shelf-accent/50 transition-colors">Search</button>
+        </form>
+        {% if carrier_ean %}
+        <div class="flex flex-wrap gap-x-4 gap-y-1 mt-2 text-xs">
+            <a href="https://www.ebay.co.uk/sch/i.html?_nkw={{ carrier_ean }}" target="_blank" rel="noopener noreferrer" class="text-shelf-accent2 hover:underline">Search eBay for barcode</a>
+            <a href="https://www.google.com/search?q=%22{{ carrier_ean }}%22" target="_blank" rel="noopener noreferrer" class="text-shelf-accent2 hover:underline">Search web for barcode</a>
+        </div>
+        {% endif %}
+        <div id="magazine-search-{{ search_key }}" class="mt-3"></div>
+    </div>
+
+    <form hx-post="/api/magazines/add" hx-target="closest .scan-result" hx-swap="outerHTML"
+          class="border-t border-shelf-border pt-3 space-y-3">
+        <input type="hidden" name="google_volume_id" value="{{ google_volume_id or '' }}">
+        <input type="hidden" name="issn" value="{{ issn or '' }}">
+        <input type="hidden" name="publisher" value="{{ publisher or '' }}">
+        <input type="hidden" name="language" value="{{ language or '' }}">
+        <input type="hidden" name="description" value="{{ description or '' }}">
+        <input type="hidden" name="cover_date_label" value="{{ cover_date_label or issue_date or '' }}">
+        <input type="hidden" name="carrier_ean" value="{{ carrier_ean or '' }}">
+        <input type="hidden" name="barcode_supplement" value="{{ supplement or '' }}">
+        <input type="hidden" name="mode" value="{{ mode }}">
+
+        <label class="block text-sm">
+            <span class="text-shelf-muted">Publication title</span>
+            <input type="text" name="title" value="{{ title or '' }}" required maxlength="300"
+                   class="mt-1 w-full bg-shelf-bg border border-shelf-border rounded-lg px-3 py-2 text-shelf-text focus:ring-2 focus:ring-shelf-accent outline-none">
+        </label>
+        <div class="grid grid-cols-2 gap-3">
+            <label class="block text-sm">
+                <span class="text-shelf-muted">Volume <span class="text-xs">(optional)</span></span>
+                <input type="text" name="volume" value="{{ volume or '' }}" maxlength="80"
+                       class="mt-1 w-full bg-shelf-bg border border-shelf-border rounded-lg px-3 py-2 text-shelf-text focus:ring-2 focus:ring-shelf-accent outline-none">
+            </label>
+            <label class="block text-sm">
+                <span class="text-shelf-muted">Issue number</span>
+                <input type="text" name="issue_number" value="{{ issue_number or '' }}" maxlength="80"
+                       class="mt-1 w-full bg-shelf-bg border border-shelf-border rounded-lg px-3 py-2 text-shelf-text focus:ring-2 focus:ring-shelf-accent outline-none">
+            </label>
+            <label class="block text-sm">
+                <span class="text-shelf-muted">Issue date</span>
+                <input type="text" name="issue_date" value="{{ issue_date or '' }}" maxlength="10"
+                       placeholder="YYYY, YYYY-MM or YYYY-MM-DD"
+                       class="mt-1 w-full bg-shelf-bg border border-shelf-border rounded-lg px-3 py-2 text-shelf-text focus:ring-2 focus:ring-shelf-accent outline-none">
+            </label>
+            <label class="block text-sm">
+                <span class="text-shelf-muted">Location</span>
+                <select name="location_id" class="mt-1 w-full bg-shelf-bg border border-shelf-border rounded-lg px-3 py-2 text-shelf-text">
+                    <option value="">No location</option>
+                    {% for loc in locations %}
+                    <option value="{{ loc.id }}" {% if selected_location_id == loc.id %}selected{% endif %}>{{ loc.name }}</option>
+                    {% endfor %}
+                </select>
+            </label>
+        </div>
+        <button type="submit" class="px-4 py-2 bg-shelf-accent text-white rounded-lg text-sm hover:bg-shelf-accent2 transition-colors">Add issue</button>
+    </form>
+</div>

@@ -1,0 +1,34 @@
+<section id="personal-in-progress" data-testid="personal-in-progress">
+    {% if in_progress %}
+    <div class="flex items-center justify-between mb-4">
+        <div>
+            <h2 class="text-xl font-bold">In progress</h2>
+            <p class="text-sm text-shelf-muted mt-1">Your current reading, watching, playing and listening.</p>
+        </div>
+        <a href="/browse?reading_status=reading" class="text-sm text-shelf-accent2 hover:text-white transition-colors">View all</a>
+    </div>
+    <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+        {% for item in in_progress %}
+        <a href="/item/{{ item.id }}"
+           class="flex items-center gap-4 bg-shelf-card border border-shelf-border rounded-xl p-3 hover:border-shelf-accent/50 hover:bg-shelf-hover transition-colors min-w-0">
+            <div class="w-12 h-16 shrink-0 bg-shelf-hover rounded overflow-hidden flex items-center justify-center">
+                {% if item.cover_path %}
+                <img src="/{{ item.cover_path }}" alt="" class="w-full h-full" style="object-fit:contain">
+                {% else %}
+                <span class="text-xs text-shelf-muted">{{ item.title[0] }}</span>
+                {% endif %}
+            </div>
+            <div class="min-w-0 flex-1">
+                <p class="font-medium truncate">{{ item.title }}</p>
+                <p class="text-sm text-shelf-muted truncate mt-1">{{ item.authors or media_types.get(item.media_type, item.media_type) }}</p>
+                {% if item.progress_value is not none %}
+                <p class="text-xs text-shelf-accent2 mt-1">
+                    {{ item.progress_value|int if item.progress_value == item.progress_value|int else item.progress_value }}{% if item.progress_total is not none %} / {{ item.progress_total|int if item.progress_total == item.progress_total|int else item.progress_total }}{% endif %}{% if item.progress_unit %} {{ item.progress_unit }}{% endif %}
+                </p>
+                {% endif %}
+            </div>
+        </a>
+        {% endfor %}
+    </div>
+    {% endif %}
+</section>

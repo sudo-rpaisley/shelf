@@ -1,0 +1,23 @@
+{% if candidates %}
+<div class="space-y-1 max-h-64 overflow-y-auto">
+    {% for candidate in candidates %}
+    <form action="/api/items/{{ item_id }}/related/{{ candidate.id }}" method="post"
+          class="flex items-center gap-2 rounded-lg border border-shelf-border bg-shelf-card p-2">
+        <input type="hidden" name="_csrf" value="{{ request.cookies.get('csrf_token', '') }}">
+        <div class="min-w-0 flex-1">
+            <p class="text-sm text-shelf-text truncate">{{ candidate.title }}</p>
+            <p class="text-xs text-shelf-muted truncate">
+                {{ media_types.get(candidate.media_type, candidate.media_type) }}
+                {% if candidate.platform %} · {{ game_platforms.get(candidate.platform, candidate.platform) }}{% endif %}
+                {% if candidate.narrator %} · {{ candidate.narrator }}{% endif %}
+                {% if candidate.authors %} · {{ candidate.authors }}{% endif %}
+                {% if candidate.publish_year %} · {{ candidate.publish_year }}{% endif %}
+            </p>
+        </div>
+        <button type="submit" class="px-2.5 py-1 bg-shelf-accent/20 text-shelf-accent2 rounded text-xs hover:bg-shelf-accent/30 transition-colors">Link</button>
+    </form>
+    {% endfor %}
+</div>
+{% else %}
+<p class="text-xs text-shelf-muted py-2">No unlinked matches found.</p>
+{% endif %}

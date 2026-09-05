@@ -1,12 +1,25 @@
 {% extends "base.html" %}
 {% block title %}Edit {{ item.title }} — Shelf{% endblock %}
+{% block head %}
+<script src="/static/vendor/html5-qrcode-2.3.8.min.js"></script>
+<script src="/static/vendor/zxing-browser-0.1.5.min.js"></script>
+{% endblock %}
 {% block content %}
+{% set is_music = item.media_type in ('vinyl', 'cassette', 'cd', 'digital_music', 'music_other') %}
+{% set is_book_family = item.media_type in ('book', 'kids_book', 'audiobook', 'ebook', 'comic', 'digital_comic') %}
+{% set is_isbn_media = item.media_type in ('book', 'kids_book', 'audiobook', 'ebook', 'comic', 'digital_comic', 'manga', 'digital_manga') %}
+{% set is_upc_media = item.media_type in ('dvd', 'vinyl', 'cassette', 'cd', 'music_other', 'comic', 'manga', 'video_game') %}
 <div class="max-w-2xl mx-auto">
     <a href="/item/{{ item.id }}{% if back.key %}?from={{ back.key }}{% endif %}" class="text-shelf-muted hover:text-shelf-text text-sm mb-4 inline-block">&larr; Back to item</a>
 
-    <h1 class="text-2xl font-bold mb-6">Edit Item</h1>
+    <div class="flex items-center justify-between gap-4 mb-6">
+        <h1 class="text-2xl font-bold">Edit Item</h1>
+        {% if is_music %}
+        <a href="/music/item/{{ item.id }}/edit" class="text-sm px-3 py-2 bg-shelf-accent/20 text-shelf-accent2 rounded-lg hover:bg-shelf-accent/30 transition-colors">Pressing &amp; condition details</a>
+        {% endif %}
+    </div>
 
-    <form action="/api/items/{{ item.id }}" method="post" enctype="multipart/form-data" class="bg-shelf-card rounded-xl border border-shelf-border p-6 space-y-4">
+    <form action="/api/items/{{ item.id }}/edit" method="post" enctype="multipart/form-data" class="bg-shelf-card rounded-xl border border-shelf-border p-6 space-y-4">
         <input type="hidden" name="from" value="{{ back.key }}">
 
         {% macro field(name, label, value, type="text", placeholder="", step="") %}
@@ -17,10 +30,34 @@
         </div>
         {% endmacro %}
 
-        {{ field("title", "Title", item.title) }}
-        {{ field("subtitle", "Subtitle", item.subtitle) }}
-        {{ field("authors", "Authors", item.authors) }}
-        {{ field("isbn", "ISBN", item.isbn, placeholder="ISBN-13") }}
+        {% macro barcode_field(name, label, value, placeholder="", scan_mode="", supplement_target="") %}
+        <div>
+            <div class="flex items-center justify-between gap-3 mb-1">
+                <label for="{{ name }}" class="block text-sm font-medium text-shelf-muted">{{ label }}</label>
+                <button type="button" data-scan-barcode-target="{{ name }}"{% if scan_mode %} data-scan-barcode-mode="{{ scan_mode }}"{% endif %}{% if supplement_target %} data-scan-barcode-supplement-target="{{ supplement_target }}"{% endif %}
+                        class="text-xs px-2.5 py-1 bg-shelf-hover text-shelf-text border border-shelf-border rounded-md hover:border-shelf-accent/50 hover:text-shelf-accent2 transition-colors">
+                    Scan barcode
+                </button>
+            </div>
+            <input type="text" id="{{ name }}" name="{{ name }}" value="{{ value if value is not none else '' }}" placeholder="{{ placeholder }}" autocomplete="off"
+                   class="w-full bg-shelf-bg border border-shelf-border rounded-lg px-3 py-2 text-shelf-text font-mono focus:ring-2 focus:ring-shelf-accent focus:border-transparent outline-none">
+            <p class="text-xs text-shelf-muted mt-1">Type the code or scan it. Scanning only fills this field; save the item to apply the change.</p>
+        </div>
+        {% endmacro %}
+
+        {{ field("title", "Release Title" if is_music else "Title", item.title) }}
+        {% if not is_music %}{{ field("subtitle", "Subtitle", item.subtitle) }}{% endif %}
+        {{ field("authors", "Artist" if is_music else "Authors", item.authors) }}
+        {% if is_isbn_media %}{{ barcode_field("isbn", "ISBN", item.isbn, placeholder="ISBN-10 or ISBN-13") }}{% endif %}
+        {% if is_upc_media or item.upc %}{{ barcode_field("upc", "Barcode (UPC / EAN)", item.upc, placeholder="UPC-A or EAN-13") }}{% endif %}
+
+        {% if item.media_type == 'magazine' and periodical_issue %}
+        <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            {{ barcode_field("magazine_barcode_ean", "Magazine barcode carrier", periodical_issue.barcode_ean, placeholder="EAN-13 or UPC-A", scan_mode="periodical-carrier", supplement_target="magazine_barcode_supplement") }}
+            {{ barcode_field("magazine_barcode_supplement", "Barcode add-on", periodical_issue.barcode_supplement, placeholder="2 or 5 digits", scan_mode="periodical-supplement") }}
+        </div>
+        <p class="text-xs text-shelf-muted">If a full magazine barcode is captured, Shelf separates the carrier and 2/5-digit add-on. The add-on is stored exactly as printed and is not interpreted as an issue number.</p>
+        {% endif %}
 
         <div>
             <label for="media_type" class="block text-sm font-medium text-shelf-muted mb-1">Media Type</label>
@@ -43,28 +80,30 @@
             </select>
         </div>
 
-        <!-- Owned / Wishlist -->
         <div>
             <label class="flex items-center gap-2 text-sm cursor-pointer">
                 <input type="hidden" name="owned" value="0">
                 <input type="checkbox" name="owned" value="1" {% if item.owned %}checked{% endif %}
                        class="rounded border-shelf-border bg-shelf-bg text-shelf-accent focus:ring-shelf-accent">
-                <span class="font-medium text-shelf-muted">I own this item</span>
+                <span class="font-medium text-shelf-muted">This item is owned</span>
             </label>
-            <p class="text-xs text-shelf-muted mt-1 ml-6">Uncheck for wishlist items you don't physically have yet</p>
+            <p class="text-xs text-shelf-muted mt-1 ml-6">Ownership is shared across Shelf. Your status, rating, favourite and wishlist are managed separately on the item page.</p>
         </div>
 
         <div class="grid grid-cols-2 gap-4">
-            {{ field("publisher", "Publisher", item.publisher) }}
-            {{ field("publish_year", "Year", item.publish_year, type="number") }}
+            {{ field("publisher", "Label" if is_music else "Publisher", item.publisher) }}
+            {{ field("publish_year", "Release Year" if is_music else "Year", item.publish_year, type="number") }}
         </div>
 
+        {% if not is_music %}
         <div class="grid grid-cols-1 sm:grid-cols-3 gap-4">
             {{ field("page_count", "Pages", item.page_count, type="number") }}
             {{ field("series_name", "Series", item.series_name) }}
             {{ field("series_position", "Series #", item.series_position, type="number", step="any") }}
         </div>
+        {% endif %}
 
+        {% if is_book_family %}
         <div>
             <label for="language" class="block text-sm font-medium text-shelf-muted mb-1">Language</label>
             <select id="language" name="language"
@@ -78,14 +117,16 @@
                 {% endif %}
             </select>
         </div>
+        {% endif %}
 
         <div>
             <label for="manual_value" class="block text-sm font-medium text-shelf-muted mb-1">Value ({{ currency().symbol }})</label>
             <input type="number" id="manual_value" name="manual_value" value="{{ item.manual_value if item.manual_value is not none else '' }}" step="0.01" min="0"
                    class="w-full bg-shelf-bg border border-shelf-border rounded-lg px-3 py-2 text-shelf-text focus:ring-2 focus:ring-shelf-accent focus:border-transparent outline-none">
-            <p class="text-xs text-shelf-muted mt-1">Overrides the ISBNdb estimate everywhere it's shown{% if item.estimated_value %} &mdash; ISBNdb estimate: {{ item.estimated_value|money }}{% endif %}</p>
+            <p class="text-xs text-shelf-muted mt-1">Overrides the automatic estimate everywhere it's shown{% if item.estimated_value %} &mdash; current estimate: {{ item.estimated_value|money }}{% endif %}</p>
         </div>
 
+        {% if item.media_type in ('video_game', 'digital_game') %}
         <div>
             <label for="platform" class="block text-sm font-medium text-shelf-muted mb-1">Platform</label>
             <select id="platform" name="platform"
@@ -96,27 +137,14 @@
                 {% endfor %}
             </select>
         </div>
+        {% endif %}
 
+        {% if item.media_type == 'audiobook' %}
         <div class="grid grid-cols-2 gap-4">
             {{ field("narrator", "Narrator", item.narrator) }}
             {{ field("duration_mins", "Duration (min)", item.duration_mins, type="number") }}
         </div>
-
-        <!-- Reading Status -->
-        <div>
-            <label for="reading_status" class="block text-sm font-medium text-shelf-muted mb-1">Reading Status</label>
-            <select id="reading_status" name="reading_status"
-                    class="w-full bg-shelf-bg border border-shelf-border rounded-lg px-3 py-2 text-shelf-text focus:ring-2 focus:ring-shelf-accent outline-none">
-                <option value="">None</option>
-                <option value="want_to_read" {% if item.reading_status == 'want_to_read' %}selected{% endif %}>Want to Read</option>
-                <option value="reading" {% if item.reading_status == 'reading' %}selected{% endif %}>Reading</option>
-                <option value="read" {% if item.reading_status == 'read' %}selected{% endif %}>Read</option>
-            </select>
-        </div>
-        <div class="grid grid-cols-2 gap-4">
-            {{ field("date_started", "Date Started", item.date_started, type="date") }}
-            {{ field("date_finished", "Date Finished", item.date_finished, type="date") }}
-        </div>
+        {% endif %}
 
         <div>
             <label for="description" class="block text-sm font-medium text-shelf-muted mb-1">Description</label>
@@ -125,19 +153,20 @@
         </div>
 
         <div>
-            <label for="notes" class="block text-sm font-medium text-shelf-muted mb-1">Notes</label>
+            <label for="notes" class="block text-sm font-medium text-shelf-muted mb-1">Shared Notes</label>
             <textarea id="notes" name="notes" rows="2"
                       class="w-full bg-shelf-bg border border-shelf-border rounded-lg px-3 py-2 text-shelf-text focus:ring-2 focus:ring-shelf-accent focus:border-transparent outline-none">{{ item.notes or '' }}</textarea>
+            <p class="text-xs text-shelf-muted mt-1">Visible to everyone using this Shelf. Use “My notes” on the item page for private account-specific notes.</p>
         </div>
 
         <div x-data="coverDrop">
             <label class="block text-sm font-medium text-shelf-muted mb-1">Cover Image</label>
             <div class="flex items-center gap-4">
                 {% if item.cover_path %}
-                <img :src="preview || '/{{ item.cover_path }}'" class="w-16 h-24 object-cover rounded" alt="">
+                <img :src="preview || '/{{ item.cover_path }}'" class="w-16 {% if is_music %}h-16{% else %}h-24{% endif %} object-cover rounded" alt="">
                 {% else %}
-                <img x-show="preview" :src="preview" class="w-16 h-24 object-cover rounded" alt="" style="display:none">
-                <div x-show="!preview" class="w-16 h-24 bg-shelf-hover rounded flex items-center justify-center text-shelf-muted text-xs">None</div>
+                <img x-show="preview" :src="preview" class="w-16 {% if is_music %}h-16{% else %}h-24{% endif %} object-cover rounded" alt="" style="display:none">
+                <div x-show="!preview" class="w-16 {% if is_music %}h-16{% else %}h-24{% endif %} bg-shelf-hover rounded flex items-center justify-center text-shelf-muted text-xs">None</div>
                 {% endif %}
                 <div class="flex-1">
                     <div @dragover.prevent="dragging = true" @dragleave="dragging = false"
@@ -164,5 +193,23 @@
     </form>
 </div>
 
+<div id="edit-barcode-scanner" class="fixed inset-0 z-50 hidden items-center justify-center bg-black/80 p-4" role="dialog" aria-modal="true" aria-labelledby="edit-barcode-scanner-title">
+    <div class="w-full max-w-md rounded-xl border border-shelf-border bg-shelf-card p-4 shadow-xl">
+        <div class="flex items-start justify-between gap-4 mb-3">
+            <div>
+                <h2 id="edit-barcode-scanner-title" class="text-lg font-semibold">Scan barcode</h2>
+                <p class="text-xs text-shelf-muted mt-1">The scanned value will only be placed in the selected field.</p>
+            </div>
+            <button type="button" id="edit-barcode-scanner-close" class="text-shelf-muted hover:text-shelf-text text-2xl leading-none" aria-label="Close scanner">&times;</button>
+        </div>
+        <div id="edit-barcode-camera-reader" class="rounded-xl overflow-hidden border border-shelf-border bg-black"></div>
+        <div id="edit-barcode-zxing-container" class="rounded-xl overflow-hidden border border-shelf-border bg-black hidden" style="aspect-ratio:3/2">
+            <video id="edit-barcode-zxing-video" class="w-full" style="height:100%;object-fit:cover" autoplay muted playsinline></video>
+        </div>
+        <p id="edit-barcode-scanner-status" class="text-xs text-shelf-muted text-center mt-2">Point the camera at the barcode.</p>
+    </div>
+</div>
+
+<script src="/static/js/scanner-engine.js"></script>
 <script src="/static/js/item_edit.js"></script>
 {% endblock %}

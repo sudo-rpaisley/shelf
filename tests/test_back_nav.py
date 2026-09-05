@@ -1,4 +1,4 @@
-"""'Back to collection' honors its origin (T5).
+"""'Back to browse' honors its origin (T5).
 
 Covers:
 - app.nav.back_target: the whitelist resolver hostile/unknown `from` values
@@ -30,12 +30,12 @@ class TestBackTargetResolver:
 
     def test_none_falls_back_to_browse(self):
         assert nav.back_target(None) == {
-            "key": "", "path": "/browse", "label": "Back to collection",
+            "key": "", "path": "/browse", "label": "Back to browse",
         }
 
     def test_empty_string_falls_back_to_browse(self):
         assert nav.back_target("") == {
-            "key": "", "path": "/browse", "label": "Back to collection",
+            "key": "", "path": "/browse", "label": "Back to browse",
         }
 
     def test_unknown_key_falls_back_to_browse(self):
@@ -51,7 +51,7 @@ class TestBackTargetResolver:
         ):
             result = nav.back_target(hostile)
             assert result == {
-                "key": "", "path": "/browse", "label": "Back to collection",
+                "key": "", "path": "/browse", "label": "Back to browse",
             }
 
 
@@ -66,7 +66,7 @@ class TestItemDetailBackLink:
         assert resp.status_code == 200
         assert 'href="/series"' in resp.text
         assert "Back to series" in resp.text
-        assert "Back to collection" not in resp.text
+        assert "Back to browse" not in resp.text
 
     def test_from_stats_renders_stats_target(self, viewer_client, db):
         item_id = _insert_item(db, title="Stats Origin Book", isbn="9780910000002")
@@ -84,7 +84,7 @@ class TestItemDetailBackLink:
         resp = viewer_client.get(f"/item/{item_id}")
         assert resp.status_code == 200
         assert 'href="/browse"' in resp.text
-        assert "Back to collection" in resp.text
+        assert "Back to browse" in resp.text
 
     def test_unknown_from_renders_browse_default(self, viewer_client, db):
         item_id = _insert_item(db, title="Unknown Origin Book", isbn="9780910000004")
@@ -93,7 +93,7 @@ class TestItemDetailBackLink:
         resp = viewer_client.get(f"/item/{item_id}?from=bogus")
         assert resp.status_code == 200
         assert 'href="/browse"' in resp.text
-        assert "Back to collection" in resp.text
+        assert "Back to browse" in resp.text
 
     def test_hostile_from_never_reaches_html(self, viewer_client, db):
         item_id = _insert_item(db, title="Hostile Origin Book", isbn="9780910000005")
@@ -112,7 +112,7 @@ class TestItemDetailBackLink:
             assert "javascript:alert" not in resp.text
             assert "etc/passwd" not in resp.text
             assert 'href="/browse"' in resp.text
-            assert "Back to collection" in resp.text
+            assert "Back to browse" in resp.text
 
     def test_invalid_from_not_propagated_to_edit_button(self, editor_client, db):
         """An invalid `from` degrades silently — no stray `?from=` anywhere."""

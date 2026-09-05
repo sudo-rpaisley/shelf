@@ -5,13 +5,14 @@ import re
 
 import httpx
 from fastapi import APIRouter, Depends, Form, Request
-from fastapi.responses import RedirectResponse
+from fastapi.responses import JSONResponse, RedirectResponse
 from starlette.responses import StreamingResponse
 
 from app.auth import require_role
 from app.config import HTTP_TIMEOUT
 from app.database import get_db, get_setting
 from app.services import hardcover, covers
+from app.services import series_memberships as series_memberships_svc
 from app.services.item_write import insert_item
 
 logger = logging.getLogger(__name__)
@@ -31,8 +32,17 @@ HC_STATUSES = {
 @router.post("/test")
 async def test_hardcover(request: Request, _=Depends(require_role("admin"))):
     """Test a Hardcover API token."""
-    data = await request.json()
-    token = data.get("token", "").strip()
+    try:
+        data = await request.json()
+    except Exception:
+        return {"ok": False, "message": "Invalid request body"}
+    if not isinstance(data, dict):
+        return {"ok": False, "message": "Invalid request body"}
+
+    raw_token = data.get("token")
+    if raw_token is not None and not isinstance(raw_token, str):
+        return {"ok": False, "message": "Invalid request body"}
+    token = (raw_token or "").strip()
     if not token:
         # Masked field posts empty — test the stored token instead
         with get_db() as db:
@@ -79,8 +89,34 @@ async def search_hardcover(request: Request, q: str = "", _=Depends(require_role
 @router.post("/add-to-shelf")
 async def add_hardcover_to_shelf(request: Request, _=Depends(require_role("editor"))):
     """Add a book from Hardcover search to Shelf as a wishlist item."""
-    data = await request.json()
-    title = data.get("title", "").strip()
+    try:
+        data = await request.json()
+    except Exception:
+        return {"ok": False, "message": "Invalid request body"}
+    if not isinstance(data, dict):
+        return {"ok": False, "message": "Invalid request body"}
+
+    raw_title = data.get("title")
+    if raw_title is not None and not isinstance(raw_title, str):
+        return {"ok": False, "message": "Invalid request body"}
+    for key in ("authors", "isbn", "publisher", "description", "series_name", "cover_url"):
+        value = data.get(key)
+        if value is not None and not isinstance(value, str):
+            return {"ok": False, "message": "Invalid request body"}
+    for key in ("hardcover_book_id", "year", "pages"):
+        value = data.get(key)
+        if value is not None and (isinstance(value, bool) or not isinstance(value, int)):
+            return {"ok": False, "message": "Invalid request body"}
+    series_position = data.get("series_position")
+    if series_position is not None and (
+        isinstance(series_position, bool) or not isinstance(series_position, (int, float))
+    ):
+        return {"ok": False, "message": "Invalid request body"}
+    series_memberships = data.get("series_memberships")
+    if series_memberships is not None and not isinstance(series_memberships, list):
+        return {"ok": False, "message": "Invalid request body"}
+
+    title = (raw_title or "").strip()
     if not title:
         return {"ok": False, "message": "Title required"}
 
@@ -119,6 +155,7 @@ async def add_hardcover_to_shelf(request: Request, _=Depends(require_role("edito
             description=data.get("description"),
             series_name=data.get("series_name"),
             series_position=data.get("series_position"),
+            series_memberships=series_memberships,
             reading_status="want_to_read",
             source="hardcover",
             owned=0,
@@ -140,7 +177,9 @@ async def add_hardcover_to_shelf(request: Request, _=Depends(require_role("edito
 async def set_hardcover_schedule(interval: str = Form("off"), _=Depends(require_role("admin"))):
     """Set the Hardcover sync schedule."""
     if interval not in ("off", "daily", "weekly"):
-        interval = "off"
+        return JSONResponse(
+            {"ok": False, "message": "Invalid sync interval"}, status_code=400
+        )
     with get_db() as db:
         db.execute(
             "INSERT INTO settings (key, value) VALUES ('hc_sync_interval', ?) "
@@ -483,14 +522,20 @@ def _import_single_book_metadata(book: dict, overwrite: bool, title_index: dict)
                     updates["reading_status"] = book["reading_status"]
 
                 _apply_updates(db, existing["id"], updates)
+                series_added = series_memberships_svc.add_metadata_memberships(
+                    db, existing["id"], book.get("series_memberships")
+                )
                 cover_job = None if existing["cover_path"] else _cover_job(existing["id"], book)
-                return ("updated" if updates else "skipped", cover_job)
+                return ("updated" if updates or series_added else "skipped", cover_job)
             else:
                 updates = _build_hc_id_updates(book)
                 for field in (*_MERGE_FIELDS, "reading_status"):
                     if book.get(field) is not None:
                         updates[field] = book[field]
                 _apply_updates(db, existing["id"], updates)
+                series_memberships_svc.add_metadata_memberships(
+                    db, existing["id"], book.get("series_memberships")
+                )
                 return ("updated", _cover_job(existing["id"], book))
 
         # New item — insert
@@ -516,6 +561,7 @@ def _import_single_book_metadata(book: dict, overwrite: bool, title_index: dict)
             description=book.get("description"),
             series_name=book.get("series_name"),
             series_position=book.get("series_position"),
+            series_memberships=book.get("series_memberships"),
             reading_status=book.get("reading_status"),
             source="hardcover",
             owned=is_owned,

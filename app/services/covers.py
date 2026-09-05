@@ -1,5 +1,8 @@
+import asyncio
+import ipaddress
 import logging
-from urllib.parse import urlparse
+import socket
+from urllib.parse import urljoin, urlparse
 
 import httpx
 
@@ -23,10 +26,13 @@ ALLOWED_COVER_DOMAINS = {
     "images.igdb.com",
     "image.tmdb.org",  # TMDb posters (tmdb.TMDB_IMAGE_BASE)
     "portal.dnb.de",  # DNB/MVB cover service for German (978-3) ISBNs
+    "coverartarchive.org",  # MusicBrainz release artwork
+    "archive.org",  # Cover Art Archive redirect target
 }
 
-# Suffix-matched domains (subdomain rotates): covers.openlibrary.org serves
-# images via redirects to Internet Archive hosts like ia800505.us.archive.org.
+# Suffix-matched domains (subdomain rotates): covers.openlibrary.org and the
+# Cover Art Archive serve images via Internet Archive hosts such as
+# ia800505.us.archive.org.
 ALLOWED_COVER_SUFFIXES = (".us.archive.org",)
 
 
@@ -103,6 +109,104 @@ def save_uploaded_cover(item_id: int, content: bytes) -> str | None:
         return None
     dest.write_bytes(content)
     return f"covers/{item_id}.jpg"
+
+
+_MANUAL_REDIRECT_STATUSES = frozenset({301, 302, 303, 307, 308})
+_MANUAL_MAX_REDIRECTS = 5
+
+
+async def _resolve_host_addresses(host: str) -> set[ipaddress.IPv4Address | ipaddress.IPv6Address]:
+    """Resolve a hostname away from the event loop for manual cover safety."""
+    def _resolve():
+        return socket.getaddrinfo(host, None, type=socket.SOCK_STREAM)
+
+    infos = await asyncio.to_thread(_resolve)
+    addresses = set()
+    for info in infos:
+        raw = info[4][0]
+        try:
+            addresses.add(ipaddress.ip_address(raw))
+        except ValueError:
+            continue
+    return addresses
+
+
+def _address_is_public(address: ipaddress.IPv4Address | ipaddress.IPv6Address) -> bool:
+    """Only globally routable destinations are valid manual cover sources."""
+    return address.is_global
+
+
+async def is_public_cover_url(url: str) -> bool:
+    """Validate a user-pasted image URL before the server requests it.
+
+    Provider cover URLs use the tighter static allowlist elsewhere. Manual
+    covers intentionally support arbitrary sites, so the boundary here is
+    public HTTPS: no credentials, localhost, RFC1918, link-local, multicast,
+    reserved or otherwise non-global destinations. Every redirect is checked
+    again by ``download_manual_cover``.
+    """
+    try:
+        parsed = urlparse((url or "").strip())
+        if parsed.scheme != "https" or not parsed.hostname:
+            return False
+        if parsed.username is not None or parsed.password is not None:
+            return False
+        host = parsed.hostname.rstrip(".")
+        try:
+            literal = ipaddress.ip_address(host)
+        except ValueError:
+            try:
+                addresses = await _resolve_host_addresses(host)
+            except (OSError, socket.gaierror):
+                return False
+            return bool(addresses) and all(_address_is_public(addr) for addr in addresses)
+        return _address_is_public(literal)
+    except (ValueError, UnicodeError):
+        return False
+
+
+async def download_manual_cover(
+    item_id: int, url: str, client: httpx.AsyncClient
+) -> str | None:
+    """Download a manually supplied public HTTPS image into Shelf.
+
+    Redirects are followed manually rather than through httpx so each target
+    is revalidated before a request is sent. Bytes are checked before the
+    destination file is touched, so a failed URL never destroys an existing
+    manually selected/uploaded cover.
+    """
+    current = (url or "").strip()
+    for _ in range(_MANUAL_MAX_REDIRECTS + 1):
+        if not await is_public_cover_url(current):
+            return None
+        try:
+            resp = await outbound.fetch(
+                client, "GET", current, follow_redirects=False, retry_timeouts=True
+            )
+        except Exception:
+            logger.debug("Manual cover download failed for %s", current, exc_info=True)
+            return None
+
+        if resp.status_code in _MANUAL_REDIRECT_STATUSES:
+            location = resp.headers.get("location")
+            if not location:
+                return None
+            current = urljoin(current, location)
+            continue
+        if resp.status_code != 200:
+            return None
+
+        content = resp.content
+        if len(content) < MIN_COVER_SIZE or len(content) > MAX_COVER_SIZE:
+            return None
+        if not _looks_like_image(content):
+            return None
+
+        COVERS_DIR.mkdir(parents=True, exist_ok=True)
+        dest = COVERS_DIR / f"{item_id}.jpg"
+        dest.write_bytes(content)
+        return f"covers/{item_id}.jpg"
+    return None
 
 
 async def search_cover_by_title(

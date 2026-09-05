@@ -17,8 +17,11 @@ pytestmark = pytest.mark.e2e
 
 # Mirrors app.nav.HIDEABLE_KEYS — kept literal here so a change to that set
 # is a visible diff in this test rather than a silent behavior change.
-HIDEABLE_KEYS = ("scan", "intake", "store", "series", "discover", "stats", "logs")
-ALL_NAV_KEYS = ("browse", "scan", "intake", "store", "series", "discover", "stats", "settings", "logs")
+HIDEABLE_KEYS = ("series", "discover", "scan", "intake", "music", "store", "stats", "logs")
+ALL_NAV_KEYS = (
+    "home", "browse", "series", "discover", "scan", "intake", "music", "store",
+    "stats", "settings", "logs",
+)
 
 
 def _csrf_headers(page):
@@ -63,12 +66,20 @@ def nav_page(live_server, authed_page):
 # ---------------------------------------------------------------------------
 
 
-def test_unconfigured_instance_hides_intake_and_discover(live_server, nav_page):
+def test_unconfigured_instance_groups_secondary_destinations(live_server, nav_page):
     nav_page.goto(f"{live_server['url']}/browse")
     nav_page.wait_for_load_state("networkidle")
 
-    for key in ("browse", "store", "series", "stats"):
+    # The permanent top-level row is deliberately small.
+    for key in ("home", "browse", "series"):
         expect(nav_page.locator(f'[data-nav-tab="{key}"]')).to_be_visible()
+
+    # Secondary destinations still exist in the desktop DOM, but stay inside
+    # Add / More until their disclosure is opened.
+    for key in ("scan", "music", "store", "stats"):
+        expect(nav_page.locator(f'[data-nav-tab="{key}"]')).to_have_count(1)
+        expect(nav_page.locator(f'[data-nav-tab="{key}"]')).to_be_hidden()
+
     for key in ("intake", "discover"):
         expect(nav_page.locator(f'[data-nav-tab="{key}"]')).to_have_count(0)
 
@@ -177,9 +188,8 @@ def test_configure_jumps_to_the_integrations_tab(live_server, nav_page):
 # ---------------------------------------------------------------------------
 
 
-def test_no_horizontal_overflow_with_all_tabs_configured(live_server, nav_page):
-    """Width sweep with all 9 tabs configured/visible — the worst case that
-    motivated the nav redesign. No width in the sweep should overflow."""
+def test_no_horizontal_overflow_with_all_destinations_configured(live_server, nav_page):
+    """Width sweep with every destination available and nothing manually hidden."""
     base = live_server["url"]
     headers = _csrf_headers(nav_page)
     resp = nav_page.request.post(
@@ -284,7 +294,7 @@ def test_back_link_defaults_to_browse(live_server, nav_page):
     nav_page.goto(f"{live_server['url']}/item/{item_id}")
     nav_page.wait_for_load_state("networkidle")
 
-    back_link = nav_page.get_by_role("link", name=re.compile("Back to collection"))
+    back_link = nav_page.get_by_role("link", name=re.compile("Back to browse"))
     expect(back_link).to_be_visible()
     back_link.click()
     nav_page.wait_for_url(f"{live_server['url']}/browse")

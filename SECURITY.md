@@ -2,22 +2,24 @@
 
 ## Reporting a Vulnerability
 
-Please report vulnerabilities privately via
-[GitHub private vulnerability reporting](https://github.com/dgahagan/shelf/security/advisories/new)
-— do **not** open a public issue for security problems.
+Please **do not** open a public issue for security problems. Use GitHub private
+vulnerability reporting from the repository's Security tab when it is enabled;
+otherwise contact the maintainer privately using the email address on their
+GitHub profile.
 
-You can expect an acknowledgement within a few days. This is a personal
-project, so there's no formal SLA, but security reports get priority over
-everything else.
+This is a personal project with no formal SLA, but security reports should be
+handled before routine feature work.
 
 ## Supported Versions
 
-Only the latest release (and `main`) receive security fixes.
+Security fixes for this fork target the current `main` branch. Until this fork
+publishes its own releases, stable release packages and images remain those of
+the upstream project.
 
 ## Security Posture
 
-Shelf is designed to run on a private home network, but it's hardened as if
-it weren't:
+Shelf is designed to run on a private home network, but it is hardened as if
+it were exposed more broadly:
 
 - Strict Content-Security-Policy — no `unsafe-inline`, no `unsafe-eval`, no
   CDNs (all assets vendored)
@@ -33,4 +35,5 @@ it weren't:
 - Container runs as a non-root user
 
 If you're exposing Shelf beyond your LAN, put it behind a reverse proxy with
-a real certificate and set `SHELF_TRUST_PROXY=1`.
+a real certificate and set `SHELF_TRUST_PROXY=1` only when that proxy
+correctly overwrites the trusted forwarding headers.

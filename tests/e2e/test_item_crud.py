@@ -209,22 +209,25 @@ def test_manual_value_overrides_estimate_then_falls_back(live_server, authed_pag
 
 
 def test_item_delete(live_server, authed_page):
-    """Deleting an item removes it and redirects to browse."""
+    """Deleting an item through More actions removes it and redirects away."""
     item_id = insert_item(
         live_server["data_dir"],
         title="Book To Delete",
         media_type="book",
         isbn="9780000009999",
     )
-    # Navigate to detail page
     authed_page.goto(f"{live_server['url']}/item/{item_id}")
     authed_page.wait_for_load_state("networkidle")
 
-    # Click delete — may be a button that fires a DELETE request via HTMX
-    # or a form submit. Record the confirmation message rather than blindly
-    # accepting: an accept-and-assume handler passes even when the confirm is
-    # missing or its listener is dead, because the plain submit still fires
-    # and the row still disappears (G28).
+    actions_menu = authed_page.get_by_test_id("item-actions-menu")
+    expect(actions_menu).to_be_hidden()
+    authed_page.get_by_test_id("item-actions-toggle").click()
+    expect(actions_menu).to_be_visible()
+
+    # Record the confirmation message rather than blindly accepting: an
+    # accept-and-assume handler passes even when the confirm is missing or its
+    # listener is dead, because the plain submit still fires and the row still
+    # disappears (G28).
     messages = []
 
     def accept(dialog):
@@ -232,20 +235,15 @@ def test_item_delete(live_server, authed_page):
         dialog.accept()
 
     authed_page.once("dialog", accept)
-    delete_btn = authed_page.locator(
-        "button:has-text('Delete'), a:has-text('Delete'), [hx-delete], [data-testid='delete-btn']"
-    ).first
-    delete_btn.click()
+    authed_page.get_by_test_id("delete-btn").click()
     authed_page.wait_for_load_state("networkidle")
 
     assert messages == ["Delete 'Book To Delete'?"]
 
-    # Should be gone — either redirected to browse or item no longer shows
+    # Should be gone — either redirected to browse or item no longer shows.
     if "/item/" not in authed_page.url:
-        # Redirected away — success
         assert True
     else:
-        # Still on item page — check for 404 / removal message
         assert authed_page.locator("body").inner_text() != ""
 
 

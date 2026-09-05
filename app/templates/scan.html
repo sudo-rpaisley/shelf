@@ -39,9 +39,10 @@
             <div id="zxing-video-container"
                  class="rounded-xl overflow-hidden border border-shelf-border bg-black"
                  x-show="isZxingFallback"
-                 style="display:none">
+                 style="display:none;aspect-ratio:3/2">
                 <video id="zxing-video"
                        class="w-full"
+                       style="height:100%;object-fit:cover"
                        autoplay
                        muted
                        playsinline>
@@ -161,7 +162,7 @@
 
             <!-- Validation warnings -->
             <p x-show="mode === 'lend' && !borrowerId" class="text-xs text-shelf-warning mt-3" style="display:none">Select a borrower before scanning.</p>
-            <p x-show="mode === 'move' && !location" class="text-xs text-shelf-warning mt-3" style="display:none">Select a target location before scanning.</p>
+            <p x-show="mode === 'move' && !location" class="text-xs text-shelf-warning mt-3" style="display:none">Select a target location first.</p>
             <p x-show="mode === 'inventory' && !location" class="text-xs text-shelf-warning mt-3" style="display:none">Select the location you are auditing before scanning.</p>
         </div>
     </form>

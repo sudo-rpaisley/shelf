@@ -15,9 +15,10 @@ from fastapi.responses import JSONResponse
 from starlette.responses import Response
 
 from app.auth import require_role
+from app.config import MEDIA_TYPES
 from app.database import get_db
 from app.routers import items_common
-from app.services import cover_queue
+from app.services import cover_queue, user_state
 from app.services import isbn as isbn_svc
 from app.services.item_write import insert_item
 
@@ -57,13 +58,29 @@ async def export_csv(_=Depends(require_role("viewer"))):
         headers={"Content-Disposition": "attachment; filename=shelf_export.csv"},
     )
 
+
+def _save_imported_personal_state(db, user_id: int, item_id: int, norm: dict, owned: bool) -> None:
+    """Map reading-tracker concepts onto the importing user's personal state."""
+    changes = {}
+    if norm.get("reading_status"):
+        changes["reading_status"] = norm["reading_status"]
+    if norm.get("date_finished"):
+        changes["date_finished"] = norm["date_finished"]
+    if not owned:
+        changes["wishlist"] = 1
+    if changes:
+        user_state.save_state(db, user_id, item_id, **changes)
+
+
 @router.post("/import/csv")
 async def import_csv(request: Request, _=Depends(require_role("admin"))):
     """Import items from a CSV file upload.
 
     Accepts Shelf's own CSV format plus Goodreads and StoryGraph exports —
     the source is auto-detected from the header row (see
-    services/reading_imports.py for the column mappings).
+    services/reading_imports.py for the column mappings). Reading status and
+    wishlist intent belong to the importing account; catalogue metadata and
+    physical ownership remain shared.
     """
     import csv
     import io
@@ -73,6 +90,13 @@ async def import_csv(request: Request, _=Depends(require_role("admin"))):
 
     form = await request.form()
     mode = form.get("mode", "skip")  # skip or update
+    if mode not in ("skip", "update"):
+        return {
+            "error": "Invalid import mode",
+            "imported": 0,
+            "skipped": 0,
+            "errors": [],
+        }
     to_read_wishlist = form.get("to_read_wishlist") in ("1", "true", "on")
     enrich_covers = form.get("enrich_covers") in ("1", "true", "on")
     csv_file = form.get("file")
@@ -85,25 +109,24 @@ async def import_csv(request: Request, _=Depends(require_role("admin"))):
     content = raw.decode("utf-8-sig")
     reader = csv.DictReader(io.StringIO(content))
 
-    # Normalize headers (lowercase, strip)
     if reader.fieldnames:
         reader.fieldnames = [f.strip().lower().replace(" ", "_") for f in reader.fieldnames]
 
     fmt = reading_imports.detect_format(reader.fieldnames)
     normalize = reading_imports.NORMALIZERS[fmt]
     source = "csv_import" if fmt == reading_imports.GENERIC else f"{fmt}_import"
+    user_id = int(request.state.user["id"])
 
     imported = 0
     skipped = 0
     errors = []
     new_item_ids: list[int] = []
-    # Keyed ('isbn', isbn, media) or ('title', title, authors, media) — the
-    # tag keeps the two key spaces from colliding.
     seen_in_file: set[tuple] = set()
 
     _CSV_MAX_TEXT = 1000
 
     with get_db() as db:
+        user_state.ensure_schema(db)
         for i, row in enumerate(reader, start=2):
             try:
                 norm = normalize(row)
@@ -125,32 +148,33 @@ async def import_csv(request: Request, _=Depends(require_role("admin"))):
                     errors.append(f"Row {i}: series_name too long (max {_CSV_MAX_TEXT} chars)")
                     continue
 
-                isbn_val = norm["isbn"]
+                raw_isbn = norm["isbn"]
+                if raw_isbn:
+                    isbn_pair = isbn_svc.canonical_isbn_pair(raw_isbn)
+                    if isbn_pair is None:
+                        errors.append(f"Row {i}: invalid ISBN")
+                        continue
+                else:
+                    isbn_pair = None
+                isbn_val = isbn_pair[0] if isbn_pair else None
+                isbn10_val = isbn_pair[1] if isbn_pair else None
+
                 media = norm["media_type"]
+                if media not in MEDIA_TYPES:
+                    errors.append(f"Row {i}: invalid media_type")
+                    continue
 
                 owned = norm["owned"]
                 if to_read_wishlist and norm["reading_status"] == "want_to_read":
                     owned = False
 
-                # Check duplicate (within this file, then against the DB).
-                #
-                # ISBN is the strong key, but roughly 40% of a real library
-                # has none — every video game and DVD, and any book catalogued
-                # without one. Those rows used to get no duplicate check at
-                # all, so re-importing Shelf's own export silently created a
-                # second copy of each. Fall back to title+authors+media_type.
-                #
-                # The fallback deliberately only matches rows that *also* lack
-                # an ISBN: a CSV row with no ISBN should not collapse onto a
-                # different edition of the same title that does have one.
-                # Comparison is done in SQL so both sides go through the same
-                # collation.
                 authors_val = norm["authors"] or ""
                 if isbn_val:
                     file_key = ("isbn", isbn_val, media)
                     existing = db.execute(
-                        "SELECT id FROM items WHERE isbn = ? AND media_type = ?",
-                        (isbn_val, media),
+                        "SELECT id FROM items WHERE media_type = ? AND "
+                        "(isbn = ? OR (? IS NOT NULL AND isbn10 = ?))",
+                        (media, isbn_val, isbn10_val, isbn10_val),
                     ).fetchone()
                 else:
                     file_key = ("title", title.strip().lower(), authors_val.strip().lower(), media)
@@ -169,18 +193,29 @@ async def import_csv(request: Request, _=Depends(require_role("admin"))):
 
                 if existing:
                     if mode == "skip":
+                        # "Skip" protects shared catalogue metadata from a
+                        # duplicate import. A Goodreads/StoryGraph row also
+                        # carries account-specific reading state, however, so
+                        # preserve that for the importing user even when the
+                        # catalogue record itself is left untouched.
+                        if fmt != reading_imports.GENERIC:
+                            _save_imported_personal_state(
+                                db, user_id, existing["id"], norm, bool(owned)
+                            )
                         skipped += 1
                         continue
-                    # mode == update: refresh metadata, and reading state
-                    # for reading-tracker imports
                     _update_from_csv_row(db, existing["id"], norm)
                     if fmt != reading_imports.GENERIC:
+                        # Keep the old columns populated as a compatibility
+                        # shadow for exports/integrations, but all built-in
+                        # personal UI reads user_item_state.
                         db.execute(
                             "UPDATE items SET reading_status = COALESCE(?, reading_status), "
                             "date_finished = COALESCE(?, date_finished), owned = ?, "
                             "updated_at = datetime('now') WHERE id = ?",
                             (norm["reading_status"], norm["date_finished"], int(owned), existing["id"]),
                         )
+                    _save_imported_personal_state(db, user_id, existing["id"], norm, bool(owned))
                     imported += 1
                     continue
 
@@ -192,6 +227,7 @@ async def import_csv(request: Request, _=Depends(require_role("admin"))):
                     title=title,
                     authors=norm["authors"],
                     isbn=isbn_val,
+                    isbn10=isbn10_val,
                     media_type=media,
                     publisher=norm["publisher"],
                     publish_year=int(pub_year) if pub_year and str(pub_year).isdigit() else None,
@@ -203,6 +239,7 @@ async def import_csv(request: Request, _=Depends(require_role("admin"))):
                     owned=int(owned),
                     source=source,
                 )
+                _save_imported_personal_state(db, user_id, new_id, norm, bool(owned))
                 if isbn_val:
                     new_item_ids.append(new_id)
                 imported += 1
@@ -213,8 +250,6 @@ async def import_csv(request: Request, _=Depends(require_role("admin"))):
     if enrich_covers and new_item_ids and not os.environ.get("SHELF_DISABLE_COVER_ENRICH"):
         eligible = cover_queue.filter_cover_eligible(new_item_ids)
         covers_queued = len(eligible)
-        # The hand-off filters again — deliberate, keeps it idempotent and
-        # safe for any future producer (G29).
         asyncio.create_task(items_common._enrich_import_covers(eligible))
 
     return {

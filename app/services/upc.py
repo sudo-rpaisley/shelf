@@ -25,7 +25,14 @@ def normalize_upc(raw: str) -> str:
 
 
 def detect_barcode_type(code: str) -> str:
-    """Detect barcode type: 'isbn', 'upc', or 'unknown'."""
+    """Detect barcode type: 'isbn', 'upc', or 'unknown'.
+
+    Periodicals can arrive as a carrier followed by a 2- or 5-digit add-on.
+    A 977 EAN therefore appears as 15/18 digits, while a UPC-A magazine appears
+    as 14/17 digits. Non-ISBN EAN-13 + add-on is also admitted to the UPC
+    dispatch path; the periodical parser performs the stricter carrier/check
+    validation before it can be treated as a magazine.
+    """
     code = normalize_barcode(code)
 
     if len(code) == 10:
@@ -36,6 +43,10 @@ def detect_barcode_type(code: str) -> str:
         return "upc"  # EAN-13 (non-ISBN)
     if len(code) == 12:
         return "upc"  # UPC-A
+    if len(code) in (14, 17):
+        return "upc"  # UPC-A + 2/5 digit add-on
+    if len(code) in (15, 18) and not code.startswith(("978", "979")):
+        return "upc"  # non-ISBN EAN-13 + 2/5 digit add-on
     return "unknown"
 
 

@@ -74,14 +74,15 @@ class TestAlsoInAbsBadge:
     def test_physical_item_deep_links_to_abs(self, admin_client, db):
         book, _ = self._seed_linked(db)
         html = admin_client.get(f"/item/{book}").text
-        assert "Also in Audiobookshelf (Audiobook)" in html
+        assert "Available in" in html
+        assert "Audiobookshelf" in html
         assert "https://abs.example/item/li_abc" in html
 
     def test_abs_item_shows_listen_not_also(self, admin_client, db):
         _, audio = self._seed_linked(db)
         html = admin_client.get(f"/item/{audio}").text
         assert "Listen on Audiobookshelf" in html
-        assert "Also in Audiobookshelf (Audiobook)" not in html
+        assert "Available in" not in html
 
     def test_no_badge_without_abs_url_setting(self, admin_client, db):
         book = _insert_item(db, title="Dune", isbn="9780900000625", media_type="book")

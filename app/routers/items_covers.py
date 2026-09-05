@@ -179,6 +179,16 @@ async def cover_select(
     _=Depends(require_role("editor")),
 ):
     """Download a selected cover URL and save it for an item."""
+    # The downloader writes directly to the item-id-derived cover path. A
+    # stale link must therefore be rejected before network I/O, otherwise an
+    # unknown id can leave an orphan file and still receive a success redirect.
+    with get_db() as db:
+        item_exists = db.execute(
+            "SELECT 1 FROM items WHERE id = ?", (item_id,)
+        ).fetchone()
+    if not item_exists:
+        return HTMLResponse("Not found", status_code=404)
+
     async with httpx.AsyncClient(timeout=HTTP_TIMEOUT) as client:
         cover_path = await covers._download_to_item(item_id, url, client)
 
@@ -224,6 +234,40 @@ async def cover_select(
     )
     resp.headers["HX-Trigger"] = items_common._toast_header("Failed to download cover", "error")
     return resp
+
+@router.post("/items/{item_id}/cover-url")
+async def cover_from_url(
+    item_id: int,
+    url: str = Form(...),
+    _=Depends(require_role("editor")),
+):
+    """Use a user-pasted public HTTPS image as an item's cover."""
+    with get_db() as db:
+        item = db.execute("SELECT id FROM items WHERE id = ?", (item_id,)).fetchone()
+    if not item:
+        return HTMLResponse("Not found", status_code=404)
+
+    async with httpx.AsyncClient(timeout=HTTP_TIMEOUT) as client:
+        cover_path = await covers.download_manual_cover(item_id, url, client)
+
+    if not cover_path:
+        resp = HTMLResponse("")
+        resp.headers["HX-Trigger"] = items_common._toast_header(
+            "Could not use that cover URL — use a public HTTPS JPEG, PNG, GIF or WebP under 10 MB",
+            "error",
+        )
+        return resp
+
+    with get_db() as db:
+        db.execute(
+            "UPDATE items SET cover_path = ?, updated_at = datetime('now') WHERE id = ?",
+            (cover_path, item_id),
+        )
+    resp = HTMLResponse("")
+    resp.headers["HX-Trigger"] = items_common._toast_header("Cover updated")
+    resp.headers["HX-Redirect"] = f"/item/{item_id}"
+    return resp
+
 
 @router.post("/items/{item_id}/cover-upload")
 async def cover_upload(request: Request, item_id: int, _=Depends(require_role("editor"))):

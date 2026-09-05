@@ -1,31 +1,32 @@
 {% extends "base.html" %}
 {% block title %}Settings — Shelf{% endblock %}
+{% block head %}
+<script src="/static/js/komga-library-types.js"></script>
+{% endblock %}
 {% block content %}
-<div class="max-w-2xl mx-auto" x-data="settingsTabs">
-    <h1 class="text-2xl font-bold mb-6">Settings</h1>
+<div class="max-w-7xl mx-auto" x-data="settingsTabs">
+    {% include "fragments/settings/page_header.html" %}
 
-    <!-- Tab Bar -->
-    <div class="flex gap-1 mb-6 border-b border-shelf-border">
-        <button @click="setTab('library')" data-testid="tab-library"
-                :class="tab === 'library' ? 'text-white border-shelf-accent' : 'text-shelf-muted border-transparent hover:text-white'"
-                class="px-2 sm:px-4 py-2 text-sm font-medium border-b-2 -mb-px whitespace-nowrap transition-colors">Library</button>
-        <button @click="setTab('integrations')" data-testid="tab-integrations"
-                :class="tab === 'integrations' ? 'text-white border-shelf-accent' : 'text-shelf-muted border-transparent hover:text-white'"
-                class="px-2 sm:px-4 py-2 text-sm font-medium border-b-2 -mb-px whitespace-nowrap transition-colors">Integrations</button>
-        <button @click="setTab('data')" data-testid="tab-data"
-                :class="tab === 'data' ? 'text-white border-shelf-accent' : 'text-shelf-muted border-transparent hover:text-white'"
-                class="px-2 sm:px-4 py-2 text-sm font-medium border-b-2 -mb-px whitespace-nowrap transition-colors">Data</button>
-        <button @click="setTab('users')" data-testid="tab-users"
-                :class="tab === 'users' ? 'text-white border-shelf-accent' : 'text-shelf-muted border-transparent hover:text-white'"
-                class="px-2 sm:px-4 py-2 text-sm font-medium border-b-2 -mb-px whitespace-nowrap transition-colors">Users</button>
+    <div class="flex flex-col lg:flex-row gap-6">
+        {% include "fragments/settings/sidebar.html" %}
+
+        <section class="min-w-0 flex-1">
+            {% include "fragments/settings/section_headers.html" %}
+
+            {% include "fragments/settings/library.html" %}
+
+            <div x-show="tab === 'integrations'">
+                {% include "fragments/settings/integration_index.html" %}
+            </div>
+            {% include "fragments/settings/integrations.html" %}
+
+            {% include "fragments/settings/data.html" %}
+            <div x-show="tab === 'data'" class="mt-8">
+                {% include "fragments/settings/connection_rebuild.html" %}
+            </div>
+
+            {% include "fragments/settings/users.html" %}
+        </section>
     </div>
-
-    {% include "fragments/settings/library.html" %}
-
-    {% include "fragments/settings/integrations.html" %}
-
-    {% include "fragments/settings/data.html" %}
-
-    {% include "fragments/settings/users.html" %}
 </div>
 {% endblock %}

@@ -5,13 +5,13 @@ from urllib.parse import urlparse
 
 import httpx
 from fastapi import APIRouter, Depends, Request, Form
-from fastapi.responses import RedirectResponse
+from fastapi.responses import JSONResponse, RedirectResponse
 from starlette.responses import StreamingResponse
 
 from app.auth import require_role
 from app.config import HTTP_TIMEOUT
 from app.database import get_db, get_setting
-from app.services import audiobookshelf
+from app.services import audiobookshelf, sync_jobs
 
 logger = logging.getLogger(__name__)
 
@@ -34,15 +34,26 @@ router = APIRouter(prefix="/api/sync", dependencies=[Depends(require_role("admin
 @router.post("/audiobookshelf/test")
 async def test_audiobookshelf(request: Request):
     """Test whether ABS URL and token are valid. Accepts values from POST body or falls back to DB."""
-    # Try to read from request body first (user may not have saved yet)
-    url = ""
-    token = ""
+    # Try to read from request body first (user may not have saved yet).
+    # Empty or absent values deliberately fall back to the stored setting, but
+    # a supplied value must still have the request shape the UI/API promises.
     try:
         body = await request.json()
-        url = (body.get("url") or "").strip().rstrip("/")
-        token = (body.get("token") or "").strip()
     except Exception:
-        pass
+        body = {}
+    if body is None:
+        body = {}
+    if not isinstance(body, dict):
+        return {"ok": False, "message": "Invalid request body"}
+
+    raw_url = body.get("url")
+    raw_token = body.get("token")
+    if ((raw_url is not None and not isinstance(raw_url, str)) or
+            (raw_token is not None and not isinstance(raw_token, str))):
+        return {"ok": False, "message": "Invalid request body"}
+
+    url = (raw_url or "").strip().rstrip("/")
+    token = (raw_token or "").strip()
 
     # Fall back to database (with env var override) if not provided in body
     if not url or not token:
@@ -74,6 +85,30 @@ async def test_audiobookshelf(request: Request):
         return {"ok": False, "message": f"Cannot connect to {url}"}
     except Exception:
         return {"ok": False, "message": "Connection failed — check URL and network"}
+
+
+@router.post("/audiobookshelf/public-url")
+async def save_abs_public_url(abs_public_url: str = Form("")):
+    """Save the browser-facing ABS root used for item deep links.
+
+    Sync and API traffic deliberately continue to use ``abs_url``. This
+    separate value is for deployments where Shelf reaches Audiobookshelf via
+    an internal Docker/LAN address while users reach it through a public or
+    reverse-proxy hostname.
+    """
+    public_url = abs_public_url.strip().rstrip("/")
+    if public_url and _validate_abs_url(public_url):
+        return RedirectResponse(
+            url="/settings?abs_public_url_error=invalid", status_code=303
+        )
+
+    with get_db() as db:
+        db.execute(
+            "INSERT INTO settings (key, value) VALUES ('abs_public_url', ?) "
+            "ON CONFLICT(key) DO UPDATE SET value = ?",
+            (public_url, public_url),
+        )
+    return RedirectResponse(url="/settings", status_code=303)
 
 
 @router.get("/audiobookshelf/libraries")
@@ -108,9 +143,14 @@ async def save_abs_libraries(request: Request):
     """Save which ABS libraries to sync. Body: {excluded: [library_id, ...]}."""
     try:
         body = await request.json()
-        excluded = [str(x) for x in (body.get("excluded") or [])]
+        raw_excluded = body.get("excluded") or []
     except Exception:
         return {"ok": False, "message": "Invalid request body"}
+    if not isinstance(raw_excluded, list) or not all(
+        isinstance(value, str) for value in raw_excluded
+    ):
+        return {"ok": False, "message": "Invalid request body"}
+    excluded = raw_excluded
 
     with get_db() as db:
         db.execute(
@@ -178,6 +218,33 @@ async def cleanup_excluded_libraries():
 
     logger.info("Removed %d items from %d excluded ABS libraries", deleted, len(excluded))
     return {"ok": True, "deleted": deleted}
+
+
+@router.get("/audiobookshelf/job")
+async def audiobookshelf_job_status():
+    """Return the current/most recent detached Audiobookshelf sync job."""
+    return sync_jobs.get_status("audiobookshelf")
+
+
+@router.post("/audiobookshelf/job")
+async def start_audiobookshelf_job():
+    """Start ABS sync on the server and return without holding the browser open."""
+    with get_db() as db:
+        abs_url_val = get_setting(db, "abs_url")
+        abs_token_val = get_setting(db, "abs_token")
+
+    if not abs_url_val or not abs_token_val:
+        return {"state": "error", "error": "Audiobookshelf URL and API token must be configured in Settings"}
+    url_err = _validate_abs_url(abs_url_val)
+    if url_err:
+        return {"state": "error", "error": url_err}
+
+    async def runner(on_progress):
+        return await audiobookshelf.sync(
+            abs_url_val, abs_token_val, on_progress=on_progress
+        )
+
+    return sync_jobs.start("audiobookshelf", runner, source="manual")
 
 
 @router.post("/audiobookshelf")
@@ -253,7 +320,9 @@ async def sync_audiobookshelf_stream(request: Request):
 async def set_sync_schedule(interval: str = Form("off")):
     """Set the Audiobookshelf sync schedule. Values: off, daily, weekly."""
     if interval not in ("off", "daily", "weekly"):
-        interval = "off"
+        return JSONResponse(
+            {"ok": False, "message": "Invalid sync interval"}, status_code=400
+        )
     with get_db() as db:
         db.execute(
             "INSERT INTO settings (key, value) VALUES ('abs_sync_interval', ?) "
