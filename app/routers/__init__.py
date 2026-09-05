@@ -21,6 +21,7 @@ from app.routers import home_dashboard as home_dashboard  # noqa: F401,E402
 from app.routers import location_tree as location_tree  # noqa: F401,E402
 from app.routers import item_copies as item_copies  # noqa: F401,E402
 from app.routers import attention as attention  # noqa: F401,E402
+from app.routers import user_state as user_state  # noqa: F401,E402
 
 from app.routers import items_common as items_common  # noqa: F401,E402
 from app.routers import items_magazines as items_magazines  # noqa: F401,E402
