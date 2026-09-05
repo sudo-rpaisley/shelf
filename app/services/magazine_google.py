@@ -66,7 +66,7 @@ async def search_issues(
     api_key: str | None = None,
     limit: int = 10,
 ) -> provider_result.ProviderResult:
-    """Search exact Google Books magazine volumes by title/search text."""
+    """Search Google Books magazine volumes by publication title."""
     value = (query or "").strip()
     if not value:
         return provider_result.no_match("google")
@@ -76,7 +76,11 @@ async def search_issues(
             "GET",
             googlebooks.VOLUMES_URL,
             params={
-                "q": value,
+                # A bare q is a full-text search and returned unrelated scanned
+                # magazines merely containing words such as "VW" and
+                # "motoring". Manual magazine search is intentionally title-
+                # scoped so the candidate list is useful for confirmation.
+                "q": f'intitle:"{value}"',
                 "printType": "magazines",
                 "maxResults": str(max(1, min(limit, 20))),
                 "orderBy": "relevance",
