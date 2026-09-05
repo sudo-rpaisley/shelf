@@ -57,6 +57,17 @@ jobs:
       - name: Rebuild the stylesheet and restamp the service worker
         run: make css
 
+      # Temporary while this feature branch is being forward-ported: expose the
+      # exact generated files so they can be committed without hand-editing
+      # minified Tailwind output. Remove this step once the generated files land.
+      - name: Upload generated build output
+        uses: actions/upload-artifact@v4
+        with:
+          name: oidc-generated-build
+          path: |
+            static/css/app.css
+            static/sw.js
+
       - name: Committed build output must match the rebuild
         run: |
           git diff --exit-code --stat static/css/app.css static/sw.js || {
