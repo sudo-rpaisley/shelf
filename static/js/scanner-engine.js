@@ -5,7 +5,7 @@
 // construction and teardown only — decode dedupe, toasts and page state stay with the caller.
 //
 // Contract:
-//   window.createBarcodeScanner({ html5ElId, videoEl, html5Config, onDecode })
+//   window.createBarcodeScanner({ html5ElId, videoEl, html5Config, onDecode, forceZxing? })
 //     -> { engine: 'zxing'|'html5-qrcode', start(), stop(), pause(), resume() }
 //
 //   start() and stop() return Promises under both strategies. start() rejects
@@ -224,9 +224,10 @@
         // the small 280x100 framing rectangle configured by scan.js.
         //
         // iOS retains ZXing, where that engine is the established compatibility
-        // path. Periodical supplement handling remains supported server-side for
-        // scanners that provide carrier+supplement together.
-        var engine = isIosDevice()
+        // path. A caller may explicitly opt into ZXing for a targeted operation
+        // such as reading UPC_EAN_EXTENSION metadata from a magazine add-on;
+        // this does not change the normal Android carrier-scanning path.
+        var engine = (opts.forceZxing || isIosDevice())
             ? createZxingEngine(guardedOpts)
             : createHtml5Engine(guardedOpts);
         return guardedEngine(engine, guard);
