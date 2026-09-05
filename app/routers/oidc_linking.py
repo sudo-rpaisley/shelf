@@ -19,6 +19,7 @@ from app.oidc_policy import (
     OIDCPolicyError,
     get_local_login_policy,
     save_local_login_policy,
+    save_oidc_session_hours,
 )
 from app.routers.auth_routes import router
 
@@ -30,6 +31,31 @@ _MAX_EMAIL_LENGTH = 320
 
 def _settings_redirect(**params: str) -> RedirectResponse:
     return RedirectResponse(url="/settings?" + urlencode(params), status_code=303)
+
+
+@router.post("/api/oidc/session-policy")
+async def update_oidc_session_policy(
+    request: Request,
+    oidc_session_hours: str = Form("24"),
+    _=Depends(require_role("admin")),
+):
+    """Set the fixed, non-sliding OIDC reauthentication interval."""
+    try:
+        hours = save_oidc_session_hours(oidc_session_hours)
+    except OIDCPolicyError as exc:
+        logger.warning(
+            "OIDC session policy rejected for admin '%s': %s",
+            request.state.user["username"],
+            exc,
+        )
+        return _settings_redirect(oidc_session_error=str(exc))
+
+    logger.info(
+        "OIDC reauthentication interval changed to %d hours by admin '%s'",
+        hours,
+        request.state.user["username"],
+    )
+    return _settings_redirect(oidc_session_saved=str(hours))
 
 
 @router.post("/api/oidc/local-login-policy")
