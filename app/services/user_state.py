@@ -4,12 +4,12 @@ Catalogue metadata, holdings, locations and lending remain shared. This module
 stores the parts that belong to a person: consumption status/progress, rating,
 personal wishlist/favourite flags and private notes.
 
-The current application historically stored reading status and reading history
-on the shared item. To avoid a destructive migration, an account with no
-personal row inherits that legacy item state as its baseline. The first personal
-change snapshots that baseline into ``user_item_state``. Legacy reading-log
-rows remain a common historical baseline, while all new completions are written
-to ``user_reading_log`` for the acting user only.
+Older Shelf versions stored reading status/history and wishlist intent on the
+shared catalogue item. Migrations 55-56 take a one-time snapshot of that legacy
+state for every user that exists during upgrade. After that point a missing
+personal row means "no personal state" rather than "inherit somebody else's
+state". This is especially important for users created later through OIDC or
+ordinary local user management.
 """
 
 from __future__ import annotations
@@ -70,6 +70,37 @@ _USER_STATE_MIGRATIONS = (
     (52, "Index per-user favourites", "CREATE INDEX IF NOT EXISTS idx_user_item_state_favourite ON user_item_state(user_id, favourite)"),
     (53, "Add per-user reading history table", _CREATE_USER_READING_LOG),
     (54, "Index per-user reading history", "CREATE INDEX IF NOT EXISTS idx_user_reading_log_user_item ON user_reading_log(user_id, item_id)"),
+    (
+        55,
+        "Snapshot legacy shared activity for existing users",
+        """INSERT OR IGNORE INTO user_item_state
+               (user_id, item_id, reading_status, date_started, date_finished, wishlist)
+             SELECT u.id,
+                    i.id,
+                    i.reading_status,
+                    i.date_started,
+                    i.date_finished,
+                    CASE WHEN i.owned = 0 THEN 1 ELSE 0 END
+               FROM users u CROSS JOIN items i
+              WHERE i.reading_status IS NOT NULL
+                 OR i.date_started IS NOT NULL
+                 OR i.date_finished IS NOT NULL
+                 OR i.owned = 0""",
+    ),
+    (
+        56,
+        "Snapshot legacy reading history for existing users",
+        """INSERT INTO user_reading_log
+               (user_id, item_id, status, date_started, date_finished, notes, created_at)
+             SELECT u.id,
+                    rl.item_id,
+                    rl.status,
+                    rl.date_started,
+                    rl.date_finished,
+                    rl.notes,
+                    rl.created_at
+               FROM users u CROSS JOIN reading_log rl""",
+    ),
 )
 
 
@@ -98,18 +129,10 @@ def ensure_schema(db) -> None:
         db.execute(statement)
 
 
-def _item_baseline(db, item_id: int):
-    return db.execute(
-        "SELECT id, reading_status, date_started, date_finished, owned "
-        "FROM items WHERE id = ?",
-        (item_id,),
-    ).fetchone()
-
-
 def get_state(db, user_id: int, item_id: int) -> dict | None:
-    """Return one user's state, inheriting the legacy shared state if needed."""
+    """Return one user's state; a missing row is a clean personal state."""
     ensure_schema(db)
-    item = _item_baseline(db, item_id)
+    item = db.execute("SELECT id FROM items WHERE id = ?", (item_id,)).fetchone()
     if not item:
         return None
 
@@ -125,13 +148,11 @@ def get_state(db, user_id: int, item_id: int) -> dict | None:
     return {
         "user_id": user_id,
         "item_id": item_id,
-        "reading_status": item["reading_status"],
-        "date_started": item["date_started"],
-        "date_finished": item["date_finished"],
+        "reading_status": None,
+        "date_started": None,
+        "date_finished": None,
         "rating": None,
-        # Preserve the old household wishlist as the starting point. Once a
-        # user changes it, their explicit personal row wins independently.
-        "wishlist": 0 if item["owned"] else 1,
+        "wishlist": 0,
         "favourite": 0,
         "personal_notes": None,
         "progress_value": None,
@@ -198,7 +219,7 @@ def _normalise_state_values(state: dict) -> dict:
 
 
 def save_state(db, user_id: int, item_id: int, **changes) -> dict:
-    """Persist selected personal fields, snapshotting the legacy baseline first."""
+    """Persist selected personal fields for one user/item pair."""
     state = get_state(db, user_id, item_id)
     if state is None:
         raise LookupError("Item not found")
@@ -288,23 +309,15 @@ def set_reading_status(db, user_id: int, item_id: int, status: str | None) -> di
 
 
 def get_reading_history(db, user_id: int, item_id: int) -> list[dict]:
-    """Legacy shared history plus completions created by this user."""
+    """Return only the acting user's completion history."""
     ensure_schema(db)
-    legacy = [
-        {
-            "id": row["id"],
-            "status": row["status"],
-            "date_started": row["date_started"],
-            "date_finished": row["date_finished"],
-            "source": "legacy",
-        }
-        for row in db.execute(
-            "SELECT id, status, date_started, date_finished FROM reading_log "
-            "WHERE item_id = ?",
-            (item_id,),
-        ).fetchall()
-    ]
-    personal = [
+    rows = db.execute(
+        "SELECT id, status, date_started, date_finished FROM user_reading_log "
+        "WHERE user_id = ? AND item_id = ? "
+        "ORDER BY COALESCE(date_finished, '') DESC, id DESC",
+        (user_id, item_id),
+    ).fetchall()
+    return [
         {
             "id": row["id"],
             "status": row["status"],
@@ -312,18 +325,13 @@ def get_reading_history(db, user_id: int, item_id: int) -> list[dict]:
             "date_finished": row["date_finished"],
             "source": "personal",
         }
-        for row in db.execute(
-            "SELECT id, status, date_started, date_finished FROM user_reading_log "
-            "WHERE user_id = ? AND item_id = ?",
-            (user_id, item_id),
-        ).fetchall()
+        for row in rows
     ]
-    rows = legacy + personal
-    rows.sort(
-        key=lambda row: (row.get("date_finished") or "", row["id"]),
-        reverse=True,
-    )
-    return rows
+
+
+def seed_wishlist_for_user(db, user_id: int, item_id: int) -> dict:
+    """Mark a newly catalogued not-owned item as wanted by the acting user."""
+    return save_state(db, user_id, item_id, wishlist=1)
 
 
 def status_labels(media_type: str) -> dict[str, str]:
