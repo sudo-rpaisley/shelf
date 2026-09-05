@@ -108,9 +108,16 @@ def client(monkeypatch):
 
 
 def _create_user(username, password, display_name, role):
-    """Create a user using its own committed connection."""
+    """Create a test user with legacy Main Library access by default.
+
+    The general suite predates first-class libraries and models an upgraded
+    single-library installation. Dedicated permission tests create raw users
+    when they need to exercise the no-membership case.
+    """
     from app.auth import hash_password
     from app.database import get_db
+    from app.services import libraries
+
     with get_db() as conn:
         conn.execute(
             "INSERT INTO users (username, password, display_name, role) VALUES (?, ?, ?, ?)",
@@ -120,7 +127,15 @@ def _create_user(username, password, display_name, role):
             "SELECT id, username, role, display_name FROM users WHERE username = ?",
             (username,),
         ).fetchone()
-        return dict(row)
+        data = dict(row)
+        if role in ("viewer", "editor"):
+            libraries.set_membership(
+                conn,
+                libraries.DEFAULT_LIBRARY_ID,
+                data["id"],
+                role,
+            )
+        return data
 
 
 @pytest.fixture
@@ -168,8 +183,19 @@ def viewer_client(client, viewer_user):
     return client
 
 
-def _insert_item(db, title="Test Book", isbn="9780000000001", media_type="book", **kwargs):
+def _insert_item(
+    db,
+    title="Test Book",
+    isbn="9780000000001",
+    media_type="book",
+    _library_id=1,
+    **kwargs,
+):
     """Insert a test item and return its ID.
+
+    General tests model an upgraded single-library installation, so new fixture
+    items are assigned to Main Library by default. Pass ``_library_id=None`` in
+    a permission test when an intentionally unmapped item is required.
 
     Tests written before per-user state expressed activity through the legacy
     ``items`` columns. When such a fixture is created after a test user already
@@ -183,6 +209,10 @@ def _insert_item(db, title="Test Book", isbn="9780000000001", media_type="book",
     placeholders = ", ".join("?" for _ in fields)
     cursor = db.execute(f"INSERT INTO items ({cols}) VALUES ({placeholders})", list(fields.values()))
     item_id = cursor.lastrowid
+
+    if _library_id is not None:
+        from app.services import libraries
+        libraries.assign_item(db, item_id, int(_library_id))
 
     has_personal_fixture_state = (
         fields.get("reading_status") is not None
