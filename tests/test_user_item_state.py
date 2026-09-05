@@ -28,6 +28,11 @@ def _raw_item(db, **values):
 
 
 def _run_snapshot(db):
+    # The general test harness mirrors legacy inserts into personal tables so
+    # old tests model an upgraded database. These tests exercise migrations
+    # 55-56 themselves, so clear that harness-only mirror first.
+    db.execute("DELETE FROM user_item_state")
+    db.execute("DELETE FROM user_reading_log")
     for version in (55, 56):
         sql = next(sql for number, _description, sql in user_state._USER_STATE_MIGRATIONS if number == version)
         db.execute(sql)
@@ -183,7 +188,7 @@ def test_personal_state_fragment_uses_media_specific_labels(viewer_client, db):
     response = viewer_client.get(f"/api/items/{item_id}/personal-state")
 
     assert response.status_code == 200
-    assert "Watching status" in response.text
+    assert "Watching Status" in response.text
     assert "Want to Watch" in response.text
     assert "Add to my wishlist" in response.text
 
