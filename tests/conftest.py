@@ -106,6 +106,26 @@ def _isolated_db(tmp_path, monkeypatch):
     from app.database import init_db
     init_db()
 
+    # Older tests create pre-feature reading history directly in reading_log.
+    # Mirror those rows to users that already exist at insert time, which is
+    # exactly what migration 56 does during a real upgrade. The trigger exists
+    # only in isolated test databases; production writes go through user_state.
+    from app.database import get_db
+    from app.services import user_state
+    with get_db() as conn:
+        user_state.ensure_schema(conn)
+        conn.executescript(
+            """CREATE TRIGGER IF NOT EXISTS test_mirror_legacy_reading_log
+               AFTER INSERT ON reading_log
+               BEGIN
+                   INSERT INTO user_reading_log
+                       (user_id, item_id, status, date_started, date_finished, notes, created_at)
+                   SELECT id, NEW.item_id, NEW.status, NEW.date_started,
+                          NEW.date_finished, NEW.notes, NEW.created_at
+                     FROM users;
+               END;"""
+        )
+
     # Pre-seed and cache the secret key so get_secret_key() never opens a
     # second connection while a test's db fixture connection is already open.
     from app.auth import get_secret_key
@@ -240,12 +260,12 @@ def _insert_item(db, title="Test Book", isbn="9780000000001", media_type="book",
 
 
 def _insert_borrower(db, name="Test Borrower"):
-    """Insert a test borrower and return their ID."""
+    """Insert a test borrower and return its ID."""
     cursor = db.execute("INSERT INTO borrowers (name) VALUES (?)", (name,))
     return cursor.lastrowid
 
 
 def _insert_location(db, name="Test Location"):
-    """Insert a test location and return their ID."""
+    """Insert a test location and return its ID."""
     cursor = db.execute("INSERT INTO locations (name) VALUES (?)", (name,))
     return cursor.lastrowid
