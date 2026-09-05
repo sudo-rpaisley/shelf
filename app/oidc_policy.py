@@ -1,4 +1,4 @@
-"""Local-login policy for installations using OIDC.
+"""Local authentication/session policy for installations using OIDC.
 
 Shelf never has a true "no local recovery" mode. Administrators may leave
 normal local login enabled or restrict it to one explicitly selected local
@@ -16,6 +16,10 @@ logger = logging.getLogger(__name__)
 LOCAL_LOGIN_ENABLED = "enabled"
 LOCAL_LOGIN_RECOVERY_ONLY = "recovery_only"
 _VALID_MODES = {LOCAL_LOGIN_ENABLED, LOCAL_LOGIN_RECOVERY_ONLY}
+
+DEFAULT_OIDC_SESSION_HOURS = 24
+MIN_OIDC_SESSION_HOURS = 1
+MAX_OIDC_SESSION_HOURS = 168
 
 
 class OIDCPolicyError(ValueError):
@@ -141,3 +145,43 @@ def local_password_login_allowed(user_id: int) -> bool:
     if not policy.recovery_only:
         return True
     return user_id == policy.break_glass_user_id
+
+
+def get_oidc_session_hours() -> int:
+    """Return the configured fixed OIDC reauthentication interval.
+
+    Invalid persisted values fall back to the conservative 24-hour default.
+    OIDC sessions remain non-sliding regardless of this setting.
+    """
+    with get_db() as db:
+        raw = (get_setting(db, "oidc_session_hours") or str(DEFAULT_OIDC_SESSION_HOURS)).strip()
+    try:
+        hours = int(raw)
+    except (TypeError, ValueError):
+        return DEFAULT_OIDC_SESSION_HOURS
+    if not MIN_OIDC_SESSION_HOURS <= hours <= MAX_OIDC_SESSION_HOURS:
+        return DEFAULT_OIDC_SESSION_HOURS
+    return hours
+
+
+def get_oidc_session_ttl_seconds() -> int:
+    return get_oidc_session_hours() * 3600
+
+
+def save_oidc_session_hours(value: str | int) -> int:
+    """Validate and persist an OIDC reauthentication interval in hours."""
+    try:
+        hours = int(str(value).strip())
+    except (TypeError, ValueError) as exc:
+        raise OIDCPolicyError("OIDC reauthentication interval must be a whole number of hours") from exc
+    if not MIN_OIDC_SESSION_HOURS <= hours <= MAX_OIDC_SESSION_HOURS:
+        raise OIDCPolicyError(
+            f"OIDC reauthentication interval must be between {MIN_OIDC_SESSION_HOURS} and {MAX_OIDC_SESSION_HOURS} hours"
+        )
+    with get_db() as db:
+        db.execute(
+            "INSERT INTO settings (key, value) VALUES ('oidc_session_hours', ?) "
+            "ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+            (str(hours),),
+        )
+    return hours
