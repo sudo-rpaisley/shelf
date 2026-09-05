@@ -1,4 +1,11 @@
-"""Browse-facing projections of per-user media state."""
+"""Browse-facing projections of per-user media state.
+
+Migrations 55-56 snapshot the old shared activity for users that exist during
+upgrade. After that snapshot a missing ``user_item_state`` row means genuinely
+unset personal state. This module installs the corresponding SQL expressions
+into the central Browse registry so every user-aware Browse query follows the
+same rule.
+"""
 
 from __future__ import annotations
 
@@ -6,8 +13,32 @@ from app import browse_filters
 from app.services import user_state
 
 
+def _personal_reading_status_sql(user_id: int) -> tuple[str, list]:
+    return (
+        "(SELECT uis.reading_status FROM user_item_state uis "
+        "WHERE uis.user_id = ? AND uis.item_id = i.id)",
+        [int(user_id)],
+    )
+
+
+def _personal_wishlist_sql(user_id: int) -> tuple[str, list]:
+    return (
+        "COALESCE((SELECT uis.wishlist FROM user_item_state uis "
+        "WHERE uis.user_id = ? AND uis.item_id = i.id), 0)",
+        [int(user_id)],
+    )
+
+
+# browse_filters owns the declarative filter registry. Its user-aware hook
+# functions are intentionally replaceable so this focused feature can change
+# personal-state semantics without duplicating that registry. The pattern
+# mirrors the existing focused scan dispatch extensions in app.routers.
+browse_filters.personal_reading_status_sql = _personal_reading_status_sql
+browse_filters.personal_wishlist_sql = _personal_wishlist_sql
+
+
 def overlay_items(db, user_id: int, items: list[dict]) -> list[dict]:
-    """Replace legacy personal fields on Browse rows with one user's values.
+    """Replace personal fields on Browse rows with one user's values.
 
     Browse grouping returns mutable dictionaries, so the projection can happen
     after grouping without changing group identity, pagination or catalogue
@@ -45,10 +76,11 @@ def overlay_items(db, user_id: int, items: list[dict]) -> list[dict]:
             item["personal_progress_unit"] = row["progress_unit"]
             item["personal_state_persisted"] = True
         else:
-            # Legacy fallback mirrors get_state(): existing installations keep
-            # their old status/wishlist appearance until a user changes it.
+            item["reading_status"] = None
+            item["date_started"] = None
+            item["date_finished"] = None
             item["personal_rating"] = None
-            item["personal_wishlist"] = not bool(item.get("owned"))
+            item["personal_wishlist"] = False
             item["personal_favourite"] = False
             item["personal_notes"] = None
             item["personal_progress_value"] = None
