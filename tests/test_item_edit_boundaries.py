@@ -24,16 +24,37 @@ def test_edit_rejects_blank_title_without_mutation(editor_client, db):
 
 
 def test_edit_rejects_malformed_integer_without_mutation(editor_client, db):
-    item_id = _insert_item(db, title="Keep Year", isbn="9780441172719", publish_year=1965)
+    item_id = _insert_item(
+        db,
+        title="Keep Year",
+        isbn=None,
+        media_type="dvd",
+        publish_year=1965,
+    )
     db.commit()
 
+    # A hand-entered or camera-populated UPC-A is accepted by the edit wrapper
+    # and stored in Shelf's canonical EAN-13 form.
+    saved = editor_client.post(
+        f"/api/items/{item_id}/edit",
+        data={"upc": "036000291452"},
+        follow_redirects=False,
+    )
+    assert saved.status_code == 303
+    assert _row(db, item_id)["upc"] == "0036000291452"
+
+    # Ordinary edit validation still runs before a newly supplied barcode can
+    # replace the existing one, so a failed save cannot partially alter it.
     response = editor_client.post(
-        f"/api/items/{item_id}", data={"publish_year": "nineteen-sixty-five"}
+        f"/api/items/{item_id}/edit",
+        data={"publish_year": "nineteen-sixty-five", "upc": "042100005264"},
     )
 
     assert response.status_code == 400
     assert response.text == "Invalid publish year"
-    assert _row(db, item_id)["publish_year"] == 1965
+    row = _row(db, item_id)
+    assert row["publish_year"] == 1965
+    assert row["upc"] == "0036000291452"
 
 
 def test_edit_rejects_malformed_float_without_mutation(editor_client, db):
