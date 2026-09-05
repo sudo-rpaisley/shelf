@@ -26,6 +26,7 @@ from app.oidc import (
     save_oidc_config,
     set_flow_cookie,
 )
+from app.oidc_policy import get_local_login_policy, save_local_login_policy
 
 logger = logging.getLogger(__name__)
 
@@ -45,12 +46,17 @@ _DUMMY_PASSWORD_HASH = hash_password("dummy")
 router = APIRouter()
 
 
-def _login_context(error: str | None = None) -> dict:
+def _login_context(request: Request, error: str | None = None) -> dict:
     config = get_oidc_config()
+    policy = get_local_login_policy()
+    recovery_requested = request.query_params.get("local") == "1"
     return {
         "error": error,
         "oidc_enabled": config.enabled and config.configured,
         "oidc_provider_name": config.provider_name,
+        "show_local_login": not policy.recovery_only or recovery_requested,
+        "recovery_login_available": policy.recovery_only,
+        "recovery_login_requested": policy.recovery_only and recovery_requested,
     }
 
 
@@ -59,7 +65,7 @@ def _render_login(request: Request, error: str | None = None, status_code: int =
     response = templates.TemplateResponse(
         request,
         "login.html",
-        _login_context(error),
+        _login_context(request, error),
         status_code=status_code,
     )
     # Authorization responses can carry short-lived codes/state in the URL.
@@ -139,6 +145,7 @@ async def login_page(request: Request):
 
 @router.post("/login")
 async def login(request: Request, username: str = Form(...), password: str = Form(...)):
+    policy = get_local_login_policy()
     with get_db() as db:
         user = db.execute(
             "SELECT id, username, password, role, display_name, token_version FROM users WHERE username = ?",
@@ -151,9 +158,18 @@ async def login(request: Request, username: str = Form(...), password: str = For
         logger.warning("Failed login attempt for username=%s from %s", username, get_client_ip(request))
         return _render_login(request, "Invalid username or password", 401)
 
-    # Always perform the password verification before deciding whether this is
-    # an OIDC identity so the route does not create a useful timing distinction.
+    # Always perform password verification before account-policy decisions so
+    # recovery-only mode does not become a useful username/timing oracle.
     password_valid = verify_password(password, user["password"])
+
+    if policy.recovery_only and user["id"] != policy.break_glass_user_id:
+        logger.warning(
+            "Blocked local login outside recovery account username=%s from %s",
+            username,
+            get_client_ip(request),
+        )
+        return _render_login(request, "Invalid username or password", 401)
+
     if _is_oidc_account(user["id"]):
         logger.warning("Blocked local login for OIDC account username=%s from %s", username, get_client_ip(request))
         return _render_login(request, "This account signs in through the configured identity provider", 401)
@@ -283,6 +299,11 @@ async def update_oidc_settings(
                 "sync_roles": oidc_sync_roles,
             }
         )
+        # If OIDC is disabled, restore normal local login immediately. Keeping
+        # a recovery-only restriction without an active IdP would strand every
+        # non-recovery user for no benefit.
+        if not oidc_enabled:
+            save_local_login_policy("enabled")
     except OIDCError as exc:
         logger.warning("OIDC settings rejected for admin '%s': %s", request.state.user["username"], exc)
         return RedirectResponse(
@@ -317,6 +338,7 @@ async def update_oidc_settings(
 async def list_users(request: Request, _=Depends(require_role("admin"))):
     managed = managed_user_ids()
     oidc_users = _oidc_user_ids()
+    policy = get_local_login_policy()
     with get_db() as db:
         users = db.execute(
             "SELECT id, username, display_name, role, created_at FROM users ORDER BY created_at"
@@ -326,6 +348,7 @@ async def list_users(request: Request, _=Depends(require_role("admin"))):
         item = dict(user)
         item["role_managed"] = user["id"] in managed
         item["auth_provider"] = "OIDC" if user["id"] in oidc_users else "Local"
+        item["break_glass"] = policy.recovery_only and user["id"] == policy.break_glass_user_id
         result.append(item)
     return result
 
@@ -373,6 +396,10 @@ async def update_user_role(
         return {"ok": False, "message": "Invalid role"}
     if is_role_managed(user_id):
         return {"ok": False, "message": "This user's role is managed by OIDC group mapping"}
+
+    policy = get_local_login_policy()
+    if policy.recovery_only and user_id == policy.break_glass_user_id and role != "admin":
+        return {"ok": False, "message": "The break-glass recovery account must remain an administrator"}
 
     current_user = request.state.user
     with get_db() as db:
@@ -496,6 +523,10 @@ async def delete_user(request: Request, user_id: int, _=Depends(require_role("ad
     current_user = request.state.user
     if current_user["id"] == user_id:
         return {"ok": False, "message": "Cannot delete your own account"}
+
+    policy = get_local_login_policy()
+    if policy.recovery_only and user_id == policy.break_glass_user_id:
+        return {"ok": False, "message": "Cannot delete the configured break-glass recovery account"}
 
     with get_db() as db:
         target = db.execute("SELECT id, role FROM users WHERE id = ?", (user_id,)).fetchone()
