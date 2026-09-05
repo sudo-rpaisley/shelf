@@ -12,8 +12,12 @@ the shared routers.
 
 # Register focused schema extensions before application startup calls init_db.
 from app.services import libraries as libraries_service  # noqa: F401,E402
+from app.services import provider_series as provider_series_service  # noqa: F401,E402
+from app.services import provider_series_sync as provider_series_sync_service  # noqa: F401,E402
 # Adapt the existing Users API before app.main mounts auth_routes.router.
 from app.routers import library_user_defaults as library_user_defaults  # noqa: F401,E402
+
+provider_series_sync_service.install()
 
 # Import the base routers first, then extensions which decorate them.
 from app.routers import series as series  # noqa: F401,E402
@@ -38,8 +42,11 @@ from app.routers import item_barcode_edit as item_barcode_edit  # noqa: F401,E40
 items_magazines.install_scan_dispatch()
 
 # Load the large items router once its lower-level scan dispatchers are ready,
-# then apply focused route replacements in increasing specificity. Personal
-# destinations are built on the final ACL-aware read stack.
+# then apply focused route replacements in increasing specificity. Provider
+# series detail decorates the ACL-scoped Series route; the barcode-aware edit
+# guard remains after broad item access so current magazine edit context and
+# per-library Editor permissions both survive. Personal Home/My List routes sit
+# on top of the same secured catalogue view.
 from app.routers import items as items  # noqa: F401,E402
 from app.routers import user_state_items as user_state_items  # noqa: F401,E402
 from app.routers import library_access as library_access  # noqa: F401,E402
@@ -48,5 +55,6 @@ from app.routers import library_secondary_reads as library_secondary_reads  # no
 from app.routers import library_series_check as library_series_check  # noqa: F401,E402
 from app.routers import library_item_edit_guard as library_item_edit_guard  # noqa: F401,E402
 from app.routers import library_item_guard as library_item_guard  # noqa: F401,E402
+from app.routers import provider_series_detail as provider_series_detail  # noqa: F401,E402
 from app.routers import my_list as my_list  # noqa: F401,E402
 from app.routers import continue_home as continue_home  # noqa: F401,E402

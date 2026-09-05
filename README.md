@@ -3,7 +3,7 @@
 [![Release](https://img.shields.io/github/v/release/dgahagan/shelf)](https://github.com/dgahagan/shelf/releases)
 [![Docker Pulls](https://img.shields.io/docker/pulls/dangahagan/shelf)](https://hub.docker.com/r/dangahagan/shelf)
 [![CI](https://github.com/sudo-rpaisley/shelf/actions/workflows/test.yml/badge.svg)](https://github.com/sudo-rpaisley/shelf/actions/workflows/test.yml)
-[![Unit tests](https://img.shields.io/badge/unit%20tests-2621%20passing-brightgreen)](https://github.com/sudo-rpaisley/shelf/actions/workflows/test.yml)
+[![Unit tests](https://img.shields.io/badge/unit%20tests-2628%20passing-brightgreen)](https://github.com/sudo-rpaisley/shelf/actions/workflows/test.yml)
 [![E2E tests](https://img.shields.io/badge/e2e%20tests-215%20passing-brightgreen)](https://github.com/sudo-rpaisley/shelf/actions/workflows/test.yml)
 [![License: AGPL-3.0](https://img.shields.io/github/license/sudo-rpaisley/shelf)](LICENSE)
 
@@ -36,11 +36,12 @@ responsive web interface.
   cassettes, CDs, digital music, comics, Manga, children's books and video games
   alongside physical books.
 - **Collection management** — locations, tags, bulk editing, series tracking,
-  bulk issue ranges for physical comics and magazines, lending and collection
-  statistics.
+  provider-backed series details, bulk issue ranges for physical comics and
+  magazines, lending and collection statistics.
 - **Personal media state** — each user has their own reading/watching/listening/
-  playing status, progress, history, rating, favourites, wishlist and private
-  notes without changing the shared catalogue.
+  playing status, progress, history, rating, favourites, wishlist, cross-media
+  My List, automatic Continue/Up Next series progression and private notes
+  without changing the shared catalogue.
 - **Import, export and backup** — CSV migration, Goodreads/StoryGraph import,
   portable collection archives and database backup/restore.
 - **Offline Store Mode** — a PWA workflow for checking your collection while
@@ -169,8 +170,9 @@ richer metadata or additional workflows.
 | MusicBrainz | Exact music release/pressing metadata, track listings and release-group identity |
 | Cover Art Archive | Release-specific music cover artwork |
 | ISBNdb | Collection valuation |
-| Audiobookshelf | Link and sync selected audiobook libraries |
-| Komga | Link and sync selected Comic and Manga libraries |
+| Audiobookshelf | Link and sync selected audiobook libraries; enrich series totals and duration |
+| Komga | Link and sync selected Comic and Manga libraries; enrich series synopsis, publisher, status and totals |
+| RomM | Link and sync digital games; import unordered game collections and franchises |
 | Anthropic / OpenAI-compatible / Ollama | Photo Intake vision backends |
 
 See [Integrations](docs/user-guide/integrations.md) for configuration and what
