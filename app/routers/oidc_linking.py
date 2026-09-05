@@ -15,6 +15,7 @@ from fastapi.responses import RedirectResponse
 from app.auth import require_role
 from app.database import get_db
 from app.oidc import get_oidc_config
+from app.oidc_logout import save_provider_logout
 from app.oidc_policy import (
     OIDCPolicyError,
     get_local_login_policy,
@@ -31,6 +32,27 @@ _MAX_EMAIL_LENGTH = 320
 
 def _settings_redirect(**params: str) -> RedirectResponse:
     return RedirectResponse(url="/settings?" + urlencode(params), status_code=303)
+
+
+@router.post("/api/oidc/logout-policy")
+async def update_oidc_logout_policy(
+    request: Request,
+    oidc_provider_logout: bool = Form(False),
+    _=Depends(require_role("admin")),
+):
+    """Enable best-effort sign-out at the OIDC provider after Shelf logout."""
+    config = get_oidc_config()
+    if oidc_provider_logout and not config.configured:
+        return _settings_redirect(
+            oidc_logout_error="Configure the OIDC issuer and Client ID before enabling provider logout"
+        )
+    save_provider_logout(oidc_provider_logout)
+    logger.info(
+        "OIDC provider logout %s by admin '%s'",
+        "enabled" if oidc_provider_logout else "disabled",
+        request.state.user["username"],
+    )
+    return _settings_redirect(oidc_logout_saved="1" if oidc_provider_logout else "0")
 
 
 @router.post("/api/oidc/session-policy")
