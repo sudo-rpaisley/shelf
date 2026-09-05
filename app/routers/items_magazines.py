@@ -1,16 +1,16 @@
 """Magazine and periodical-specific barcode scan flow.
 
-A 977 barcode identifies a serial publication by ISSN. North American consumer
+A 977 barcode carries an ISSN-shaped serial identifier. North American consumer
 magazines may instead use an ordinary UPC-A carrier with a 2/5-digit add-on.
 Neither form safely identifies human-readable issue semantics on its own, so
-Shelf preserves the add-on as issue-discriminator data and asks for issue
-number/date rather than guessing a publisher-specific encoding.
+Shelf preserves the carrier/add-on and uses them as search hints rather than as
+an application-local title mapping.
 
-For ISSN-bearing carriers the lookup ladder deliberately favours serial-aware
-sources: Google Books, ISSN Portal and Crossref, then UPC Item DB. Supplemented
-retail UPC/EAN periodicals first reuse publication metadata already learned by
-Shelf, then try UPC Item DB. Generic category labels such as ``Magazine`` are
-never accepted as publication titles.
+For ISSN-bearing carriers the automatic lookup ladder deliberately favours
+serial-aware sources: Google Books, ISSN Portal and Crossref, then UPC Item DB.
+When those sources cannot make a useful match, the issue form keeps the scanned
+barcode context and offers an assisted title search. Generic category labels
+such as ``Magazine`` are never accepted as publication titles.
 """
 
 import re
@@ -68,32 +68,6 @@ def _metadata_with_usable_title(result):
     return metadata
 
 
-def _known_publication_metadata(carrier_ean: str) -> dict | None:
-    """Reuse publication identity from an earlier issue with this carrier."""
-    with get_db() as db:
-        periodical_records.ensure_extended_schema(db)
-        row = db.execute(
-            "SELECT pp.title, pp.publisher, pp.language, pp.issn "
-            "FROM periodical_issues pi "
-            "JOIN periodical_publications pp ON pp.id = pi.publication_id "
-            "WHERE pi.barcode_ean = ? "
-            "ORDER BY pi.item_id DESC LIMIT 1",
-            (carrier_ean,),
-        ).fetchone()
-    if row is None:
-        return None
-    title = _usable_publication_title(row["title"])
-    if not title:
-        return None
-    return {
-        "title": title,
-        "publisher": row["publisher"],
-        "description": None,
-        "language": row["language"],
-        "issn": row["issn"],
-    }
-
-
 def _known_issue(serial: periodicals.PeriodicalBarcode) -> dict | None:
     """Return an exact previously catalogued issue for carrier+supplement."""
     if not serial.supplement:
@@ -146,14 +120,17 @@ async def scan_magazine(
     with get_db() as db:
         google_api_key = get_setting(db, "google_books_api_key") or None
 
-    metadata = _known_publication_metadata(serial.ean13)
+    # Do not infer a publication title from another local issue merely because
+    # it used the same carrier. Historical periodical carriers can be ambiguous;
+    # only an exact carrier+supplement duplicate is resolved locally above.
+    metadata = None
     google_result = None
     issn_result = None
     crossref_result = None
     fallback_result = None
 
     async with httpx.AsyncClient(timeout=HTTP_TIMEOUT) as client:
-        if metadata is None and serial.issn:
+        if serial.issn:
             google_result = await googlebooks.lookup_magazine_by_issn(
                 serial.issn, client, api_key=google_api_key
             )
@@ -182,6 +159,7 @@ async def scan_magazine(
                         "publisher": product.get("brand"),
                         "description": None,
                         "language": None,
+                        "issn": None,
                     }
 
     if metadata is None:
@@ -212,8 +190,10 @@ async def scan_magazine(
             "publisher": None,
             "description": None,
             "language": None,
+            "issn": None,
         }
 
+    metadata_issn = periodical_records.normalise_issn(metadata.get("issn"))
     items_common._log_scan(serial.full_code, "magazine", "not_found", mode=mode)
     return templates.TemplateResponse(
         request,
@@ -223,7 +203,10 @@ async def scan_magazine(
             "publisher": metadata.get("publisher"),
             "description": metadata.get("description"),
             "language": metadata.get("language"),
-            "issn": serial.issn,
+            # A publication ISSN is stored only when a provider supplied one.
+            # The value encoded by a 977 carrier remains a search/display hint.
+            "issn": metadata_issn or "",
+            "issn_hint": serial.issn,
             "carrier_ean": serial.ean13,
             "supplement": serial.supplement,
             "mode": mode,
