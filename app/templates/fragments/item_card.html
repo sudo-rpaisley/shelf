@@ -5,7 +5,7 @@
          {% if is_music %}style="aspect-ratio: 1 / 1"{% endif %}
          :class="selectedIds.includes({{ item.id }}) ? 'ring-2 ring-shelf-accent' : ''">
         {% if on_wishlist %}
-        <div class="absolute top-2 right-2 z-10 px-1.5 py-0.5 rounded text-[10px] font-medium bg-shelf-warning/90 text-black shadow">My Wishlist</div>
+        <div class="absolute top-2 right-2 z-10 px-1.5 py-0.5 rounded text-[10px] font-medium bg-shelf-warning/90 text-black shadow">Wishlist</div>
         {% elif item.lent_to %}
         <div x-data="{ show: false }" @click.stop.prevent="show = !show" @mouseleave="show = false"
              class="absolute top-2 right-2 z-10 px-1.5 py-0.5 rounded text-[10px] font-medium {% if item.lent_overdue %}bg-shelf-error/90{% else %}bg-orange-500/90{% endif %} text-white shadow cursor-pointer max-w-[140px] truncate"
