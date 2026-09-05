@@ -99,8 +99,13 @@ async def search_magazines(
     q: str = "",
     location_id: int | None = None,
     mode: str = "add",
+    carrier_ean: str = "",
+    barcode_supplement: str = "",
+    issn_hint: str = "",
+    for_scan: bool = False,
     _=Depends(require_role("editor")),
 ):
+    """Search Google Books for magazine candidates, optionally from a scan."""
     templates = request.app.state.templates
     if not q.strip():
         return HTMLResponse("")
@@ -120,6 +125,67 @@ async def search_magazines(
             "mode": mode if mode in ("add", "wishlist") else "add",
             "search_status": scan_outcome.not_found_status(result),
             "search_provider": scan_outcome.provider_label(result),
+            "for_scan": for_scan,
+            "carrier_ean": carrier_ean.strip(),
+            "barcode_supplement": barcode_supplement.strip(),
+            "issn_hint": periodical_records.normalise_issn(issn_hint),
+        },
+    )
+
+
+@router.get("/magazines/select-search-result")
+async def select_magazine_search_result(
+    request: Request,
+    google_volume_id: str = "",
+    carrier_ean: str = "",
+    barcode_supplement: str = "",
+    issn_hint: str = "",
+    location_id: int | None = None,
+    mode: str = "add",
+    _=Depends(require_role("editor")),
+):
+    """Turn a searched Google issue into a prefilled, still-confirmable scan form."""
+    templates = request.app.state.templates
+    mode = mode if mode in ("add", "wishlist") else "add"
+    with get_db() as db:
+        api_key = get_setting(db, "google_books_api_key") or None
+    async with httpx.AsyncClient(timeout=HTTP_TIMEOUT) as client:
+        result = await magazine_google.lookup_issue(
+            google_volume_id.strip(), client, api_key=api_key
+        )
+    if not result.found:
+        return templates.TemplateResponse(
+            request,
+            "fragments/scan_result.html",
+            {
+                "status": "error",
+                "isbn": carrier_ean,
+                "message": "Could not fetch that magazine issue from Google Books",
+                "enrich_status": scan_outcome.not_found_status(result),
+                "enrich_provider": scan_outcome.provider_label(result),
+            },
+        )
+
+    issue = result.payload or {}
+    return templates.TemplateResponse(
+        request,
+        "fragments/magazine_issue_form.html",
+        {
+            "google_volume_id": google_volume_id.strip(),
+            "title": issue.get("title") or "",
+            "publisher": issue.get("publisher"),
+            "description": issue.get("description"),
+            "language": issue.get("language"),
+            "issn": periodical_records.normalise_issn(issue.get("issn")) or "",
+            "issn_hint": periodical_records.normalise_issn(issn_hint),
+            "issue_date": issue.get("issue_date") or "",
+            "cover_date_label": issue.get("issue_date") or "",
+            "carrier_ean": carrier_ean.strip(),
+            "supplement": barcode_supplement.strip(),
+            "mode": mode,
+            "locations": items_common._manual_form_locations(),
+            "selected_location_id": location_id if location_id and location_id > 0 else None,
+            "match_source": "Google Books",
         },
     )
 
@@ -208,6 +274,16 @@ async def add_magazine_issue(
     title = title.strip()
     issue_number = issue_number.strip()
     volume = volume.strip()
+    submitted_issn = issn.strip()
+    issn_value = periodical_records.normalise_issn(submitted_issn)
+    if submitted_issn and not issn_value:
+        return templates.TemplateResponse(
+            request,
+            "fragments/scan_result.html",
+            {"status": "error", "isbn": carrier_ean, "message": "Invalid magazine ISSN"},
+        )
+    issn = issn_value or ""
+
     try:
         issue_date_value = _normalise_issue_date(issue_date)
     except ValueError as exc:
@@ -245,13 +321,9 @@ async def add_magazine_issue(
                 "fragments/scan_result.html",
                 {"status": "error", "isbn": carrier_ean, "message": "Invalid magazine barcode"},
             )
-        if issn and periodical_records.normalise_issn(issn) != serial.issn:
-            return templates.TemplateResponse(
-                request,
-                "fragments/scan_result.html",
-                {"status": "error", "isbn": carrier_ean, "message": "Barcode ISSN does not match the selected publication"},
-            )
-        issn = serial.issn
+        # The barcode's derived ISSN is a lookup hint, not an authority over a
+        # provider/user-confirmed publication. Preserve the raw barcode and keep
+        # an explicitly supplied publication ISSN when one exists.
         barcode_supplement = serial.supplement or ""
         carrier_ean = serial.ean13
 
