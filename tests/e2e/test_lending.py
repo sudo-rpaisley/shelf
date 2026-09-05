@@ -32,6 +32,19 @@ def _insert_active_checkout(data_dir, item_id: int, borrower_id: int) -> None:
         conn.close()
 
 
+def _assign_items_to_main(data_dir, *item_ids: int) -> None:
+    """Mirror normal modern Shelf writes for direct-SQL E2E fixtures."""
+    conn = sqlite3.connect(str(data_dir / "shelf.db"))
+    try:
+        conn.executemany(
+            "INSERT OR REPLACE INTO library_items (item_id, library_id) VALUES (?, 1)",
+            [(item_id,) for item_id in item_ids],
+        )
+        conn.commit()
+    finally:
+        conn.close()
+
+
 def _csrf_headers(page):
     return {"X-CSRF-Token": page.evaluate("() => window.csrfToken()")}
 
@@ -105,6 +118,11 @@ def test_viewer_sees_read_only_product_ui_without_editor_mutations(
         isbn="9780907000031",
         series_name="E2E Viewer Saga",
         series_position=1,
+    )
+    _assign_items_to_main(
+        live_server["data_dir"],
+        lent_item_id,
+        available_item_id,
     )
     _insert_active_checkout(live_server["data_dir"], lent_item_id, borrower_id)
 
