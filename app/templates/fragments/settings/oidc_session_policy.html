@@ -1,0 +1,39 @@
+<div x-show="tab === 'users'" class="mt-8 bg-shelf-card rounded-xl border border-shelf-border p-6" data-testid="oidc-session-policy">
+    <div class="mb-5">
+        <h2 class="text-lg font-semibold">OIDC session reauthentication</h2>
+        <p class="text-sm text-shelf-muted mt-1">
+            Choose how long an OIDC-authenticated Shelf session may remain valid before Shelf sends the user back through the identity provider and refreshes group/role claims.
+        </p>
+    </div>
+
+    {% if request.query_params.get('oidc_session_saved') %}
+    <div class="mb-4 bg-shelf-success/10 border border-shelf-success/40 text-shelf-success text-sm rounded-lg px-4 py-2" role="status">
+        OIDC reauthentication interval updated to {{ request.query_params.get('oidc_session_saved') }} hours.
+    </div>
+    {% endif %}
+    {% if request.query_params.get('oidc_session_error') %}
+    <div class="mb-4 bg-shelf-error/10 border border-shelf-error/30 text-shelf-error text-sm rounded-lg px-4 py-2" role="alert">
+        {{ request.query_params.get('oidc_session_error') }}
+    </div>
+    {% endif %}
+
+    {% set oidc_session_hours = settings.get('oidc_session_hours', '24') %}
+    <form method="POST" action="/api/oidc/session-policy" class="space-y-4">
+        <input type="hidden" name="_csrf" value="{{ request.cookies.get('csrf_token', '') }}">
+        <div>
+            <label for="oidc_session_hours" class="block text-sm font-medium text-shelf-muted mb-1">Reauthenticate every</label>
+            <select id="oidc_session_hours" name="oidc_session_hours"
+                    class="w-full bg-shelf-bg border border-shelf-border rounded-lg px-3 py-2 text-sm text-shelf-text focus:outline-none focus:border-shelf-accent">
+                <option value="1" {% if oidc_session_hours == '1' %}selected{% endif %}>1 hour</option>
+                <option value="8" {% if oidc_session_hours == '8' %}selected{% endif %}>8 hours</option>
+                <option value="24" {% if oidc_session_hours == '24' %}selected{% endif %}>24 hours (recommended default)</option>
+                <option value="72" {% if oidc_session_hours == '72' %}selected{% endif %}>3 days</option>
+                <option value="168" {% if oidc_session_hours == '168' %}selected{% endif %}>7 days</option>
+            </select>
+            <p class="text-xs text-shelf-muted mt-1">OIDC sessions never use Shelf's sliding renewal. Shorter intervals make IdP group removals and role changes take effect sooner.</p>
+        </div>
+        <button type="submit" class="px-4 py-2 bg-shelf-accent text-white rounded-lg text-sm hover:bg-shelf-accent2 transition-colors">
+            Save session policy
+        </button>
+    </form>
+</div>
