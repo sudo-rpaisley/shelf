@@ -193,6 +193,15 @@ async def import_csv(request: Request, _=Depends(require_role("admin"))):
 
                 if existing:
                     if mode == "skip":
+                        # "Skip" protects shared catalogue metadata from a
+                        # duplicate import. A Goodreads/StoryGraph row also
+                        # carries account-specific reading state, however, so
+                        # preserve that for the importing user even when the
+                        # catalogue record itself is left untouched.
+                        if fmt != reading_imports.GENERIC:
+                            _save_imported_personal_state(
+                                db, user_id, existing["id"], norm, bool(owned)
+                            )
                         skipped += 1
                         continue
                     _update_from_csv_row(db, existing["id"], norm)
