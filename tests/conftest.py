@@ -197,6 +197,11 @@ def _insert_item(
     items are assigned to Main Library by default. Pass ``_library_id=None`` in
     a permission test when an intentionally unmapped item is required.
 
+    Legacy migration tests construct databases from before first-class
+    libraries existed. In those databases the default library row is absent;
+    the fixture must stay neutral rather than creating modern access state in
+    the middle of the historical migration under test.
+
     Tests written before per-user state expressed activity through the legacy
     ``items`` columns. When such a fixture is created after a test user already
     exists, mirror those explicit personal-looking values into that user's
@@ -211,8 +216,16 @@ def _insert_item(
     item_id = cursor.lastrowid
 
     if _library_id is not None:
-        from app.services import libraries
-        libraries.assign_item(db, item_id, int(_library_id))
+        try:
+            library_exists = db.execute(
+                "SELECT 1 FROM libraries WHERE id = ?",
+                (int(_library_id),),
+            ).fetchone()
+        except sqlite3.OperationalError:
+            library_exists = None
+        if library_exists:
+            from app.services import libraries
+            libraries.assign_item(db, item_id, int(_library_id))
 
     has_personal_fixture_state = (
         fields.get("reading_status") is not None
