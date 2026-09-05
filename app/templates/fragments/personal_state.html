@@ -2,7 +2,7 @@
     {% set state = personal_state %}
     {% set rs = state.reading_status %}
 
-    <div>
+    <div id="reading-status-section">
         <p class="text-sm font-medium text-shelf-muted mb-2">{{ status_labels.heading }}</p>
         <div class="flex flex-wrap items-center gap-2">
             <button hx-post="/api/items/{{ item.id }}/reading-status"
