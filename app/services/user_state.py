@@ -12,6 +12,7 @@ another account's legacy values.
 
 from __future__ import annotations
 
+from collections import Counter
 from datetime import date
 
 
@@ -299,16 +300,32 @@ def set_reading_status(db, user_id: int, item_id: int, status: str | None) -> di
     return save_state(db, user_id, item_id, **changes)
 
 
+def _history_key(row) -> tuple:
+    return (
+        row["status"],
+        row["date_started"],
+        row["date_finished"],
+        row["notes"],
+    )
+
+
 def get_reading_history(db, user_id: int, item_id: int) -> list[dict]:
-    """Return only the acting user's completion history."""
+    """Return the acting user's history without leaking household activity.
+
+    Migrations copy legacy ``reading_log`` rows into personal history. For a
+    true single-user installation only, we also surface later legacy rows from
+    old integrations during the transition. Matching migrated rows are removed
+    as a multiset so the same completion is not displayed twice. Once Shelf has
+    more than one user, legacy shared history is never consulted.
+    """
     ensure_schema(db)
-    rows = db.execute(
-        "SELECT id, status, date_started, date_finished FROM user_reading_log "
-        "WHERE user_id = ? AND item_id = ? "
-        "ORDER BY COALESCE(date_finished, '') DESC, id DESC",
+    personal_rows = db.execute(
+        "SELECT id, status, date_started, date_finished, notes "
+        "FROM user_reading_log WHERE user_id = ? AND item_id = ?",
         (user_id, item_id),
     ).fetchall()
-    return [
+
+    result = [
         {
             "id": row["id"],
             "status": row["status"],
@@ -316,8 +333,37 @@ def get_reading_history(db, user_id: int, item_id: int) -> list[dict]:
             "date_finished": row["date_finished"],
             "source": "personal",
         }
-        for row in rows
+        for row in personal_rows
     ]
+
+    user_count = db.execute("SELECT COUNT(*) AS c FROM users").fetchone()["c"]
+    if user_count == 1:
+        matched = Counter(_history_key(row) for row in personal_rows)
+        legacy_rows = db.execute(
+            "SELECT id, status, date_started, date_finished, notes "
+            "FROM reading_log WHERE item_id = ?",
+            (item_id,),
+        ).fetchall()
+        for row in legacy_rows:
+            key = _history_key(row)
+            if matched[key] > 0:
+                matched[key] -= 1
+                continue
+            result.append(
+                {
+                    "id": row["id"],
+                    "status": row["status"],
+                    "date_started": row["date_started"],
+                    "date_finished": row["date_finished"],
+                    "source": "legacy",
+                }
+            )
+
+    result.sort(
+        key=lambda row: (row.get("date_finished") or "", row["id"]),
+        reverse=True,
+    )
+    return result
 
 
 def seed_wishlist_for_user(db, user_id: int, item_id: int) -> dict:
