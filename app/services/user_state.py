@@ -4,12 +4,10 @@ Catalogue metadata, holdings, locations and lending remain shared. This module
 stores the parts that belong to a person: consumption status/progress, rating,
 personal wishlist/favourite flags and private notes.
 
-Older Shelf versions stored reading status/history and wishlist intent on the
-shared catalogue item. Migrations 55-56 take a one-time snapshot of that legacy
-state for every user that exists during upgrade. After that point a missing
-personal row means "no personal state" rather than "inherit somebody else's
-state". This is especially important for users created later through OIDC or
-ordinary local user management.
+Existing users receive a one-time snapshot of the old shared reading status,
+wishlist and reading history through migrations 55-56. Users created after the
+upgrade start with clean personal state; missing personal rows never inherit
+another account's legacy values.
 """
 
 from __future__ import annotations
@@ -70,48 +68,34 @@ _USER_STATE_MIGRATIONS = (
     (52, "Index per-user favourites", "CREATE INDEX IF NOT EXISTS idx_user_item_state_favourite ON user_item_state(user_id, favourite)"),
     (53, "Add per-user reading history table", _CREATE_USER_READING_LOG),
     (54, "Index per-user reading history", "CREATE INDEX IF NOT EXISTS idx_user_reading_log_user_item ON user_reading_log(user_id, item_id)"),
-    (
-        55,
-        "Snapshot legacy shared activity for existing users",
-        """INSERT OR IGNORE INTO user_item_state
-               (user_id, item_id, reading_status, date_started, date_finished, wishlist)
-             SELECT u.id,
-                    i.id,
-                    i.reading_status,
-                    i.date_started,
-                    i.date_finished,
-                    CASE WHEN i.owned = 0 THEN 1 ELSE 0 END
-               FROM users u CROSS JOIN items i
-              WHERE i.reading_status IS NOT NULL
-                 OR i.date_started IS NOT NULL
-                 OR i.date_finished IS NOT NULL
-                 OR i.owned = 0""",
-    ),
-    (
-        56,
-        "Snapshot legacy reading history for existing users",
-        """INSERT INTO user_reading_log
-               (user_id, item_id, status, date_started, date_finished, notes, created_at)
-             SELECT u.id,
-                    rl.item_id,
-                    rl.status,
-                    rl.date_started,
-                    rl.date_finished,
-                    rl.notes,
-                    rl.created_at
-               FROM users u CROSS JOIN reading_log rl""",
-    ),
+    (55, "Snapshot legacy item state for existing users", """
+        INSERT OR IGNORE INTO user_item_state (
+            user_id, item_id, reading_status, date_started, date_finished,
+            wishlist, favourite
+        )
+        SELECT u.id, i.id, i.reading_status, i.date_started, i.date_finished,
+               CASE WHEN i.owned = 0 THEN 1 ELSE 0 END, 0
+          FROM users u
+          CROSS JOIN items i
+         WHERE i.reading_status IS NOT NULL
+            OR i.date_started IS NOT NULL
+            OR i.date_finished IS NOT NULL
+            OR i.owned = 0
+    """),
+    (56, "Snapshot legacy reading history for existing users", """
+        INSERT INTO user_reading_log (
+            user_id, item_id, status, date_started, date_finished, notes, created_at
+        )
+        SELECT u.id, r.item_id, r.status, r.date_started, r.date_finished,
+               r.notes, r.created_at
+          FROM users u
+          CROSS JOIN reading_log r
+    """),
 )
 
 
 def _register_migrations() -> None:
-    """Register this focused module's migrations with the central runner.
-
-    Router-package extensions are imported before ``init_db`` at application
-    startup, and this service is imported during test collection too. Keeping
-    the migration definitions beside the feature avoids a large, conflict-prone
-    edit to ``database.py`` while still using Shelf's atomic migration runner.
-    """
+    """Register this focused module's migrations with the central runner."""
     from app import database
 
     existing = {version for version, _description, _sql in database.MIGRATIONS}
@@ -129,10 +113,17 @@ def ensure_schema(db) -> None:
         db.execute(statement)
 
 
+def _item_baseline(db, item_id: int):
+    return db.execute(
+        "SELECT id FROM items WHERE id = ?",
+        (item_id,),
+    ).fetchone()
+
+
 def get_state(db, user_id: int, item_id: int) -> dict | None:
-    """Return one user's state; a missing row is a clean personal state."""
+    """Return exactly one user's state; missing personal state stays blank."""
     ensure_schema(db)
-    item = db.execute("SELECT id FROM items WHERE id = ?", (item_id,)).fetchone()
+    item = _item_baseline(db, item_id)
     if not item:
         return None
 
@@ -219,7 +210,7 @@ def _normalise_state_values(state: dict) -> dict:
 
 
 def save_state(db, user_id: int, item_id: int, **changes) -> dict:
-    """Persist selected personal fields for one user/item pair."""
+    """Persist selected fields for one user and one catalogue item."""
     state = get_state(db, user_id, item_id)
     if state is None:
         raise LookupError("Item not found")
@@ -338,27 +329,27 @@ def status_labels(media_type: str) -> dict[str, str]:
     """Human labels for the same stored status values across media families."""
     if media_type == "audiobook" or media_type in {"vinyl", "cassette", "cd", "digital_music", "music_other"}:
         return {
-            "heading": "Listening status",
+            "heading": "Listening Status",
             "want_to_read": "Want to Listen",
             "reading": "Listening",
             "read": "Listened",
         }
     if media_type == "dvd":
         return {
-            "heading": "Watching status",
+            "heading": "Watching Status",
             "want_to_read": "Want to Watch",
             "reading": "Watching",
             "read": "Watched",
         }
     if media_type in {"video_game", "digital_game"}:
         return {
-            "heading": "Playing status",
+            "heading": "Playing Status",
             "want_to_read": "Want to Play",
             "reading": "Playing",
             "read": "Completed",
         }
     return {
-        "heading": "Reading status",
+        "heading": "Reading Status",
         "want_to_read": "Want to Read",
         "reading": "Reading",
         "read": "Read",
