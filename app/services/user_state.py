@@ -1,0 +1,326 @@
+"""Per-user state layered on top of Shelf's shared catalogue.
+
+Catalogue metadata, holdings, locations and lending remain shared. This module
+stores the parts that belong to a person: consumption status/progress, rating,
+personal wishlist/favourite flags and private notes.
+
+The current application historically stored reading status and reading history
+on the shared item. To avoid a destructive migration, an account with no
+personal row inherits that legacy item state as its baseline. The first personal
+change snapshots that baseline into ``user_item_state``. Legacy reading-log
+rows remain a common historical baseline, while all new completions are written
+to ``user_reading_log`` for the acting user only.
+"""
+
+from __future__ import annotations
+
+from datetime import date
+
+
+VALID_READING_STATUSES = {None, "want_to_read", "reading", "read"}
+
+_SCHEMA_STATEMENTS = (
+    """CREATE TABLE IF NOT EXISTS user_item_state (
+        user_id         INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        item_id         INTEGER NOT NULL REFERENCES items(id) ON DELETE CASCADE,
+        reading_status  TEXT CHECK(reading_status IS NULL OR reading_status IN ('want_to_read','reading','read')),
+        date_started    TEXT,
+        date_finished   TEXT,
+        rating          INTEGER CHECK(rating IS NULL OR (rating >= 1 AND rating <= 5)),
+        wishlist        INTEGER NOT NULL DEFAULT 0 CHECK(wishlist IN (0,1)),
+        favourite       INTEGER NOT NULL DEFAULT 0 CHECK(favourite IN (0,1)),
+        personal_notes  TEXT,
+        progress_value  REAL,
+        progress_total  REAL,
+        progress_unit   TEXT,
+        created_at      TEXT NOT NULL DEFAULT (datetime('now')),
+        updated_at      TEXT NOT NULL DEFAULT (datetime('now')),
+        PRIMARY KEY (user_id, item_id)
+    )""",
+    "CREATE INDEX IF NOT EXISTS idx_user_item_state_item ON user_item_state(item_id)",
+    "CREATE INDEX IF NOT EXISTS idx_user_item_state_status ON user_item_state(user_id, reading_status)",
+    "CREATE INDEX IF NOT EXISTS idx_user_item_state_wishlist ON user_item_state(user_id, wishlist)",
+    "CREATE INDEX IF NOT EXISTS idx_user_item_state_favourite ON user_item_state(user_id, favourite)",
+    """CREATE TABLE IF NOT EXISTS user_reading_log (
+        id            INTEGER PRIMARY KEY AUTOINCREMENT,
+        user_id       INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        item_id       INTEGER NOT NULL REFERENCES items(id) ON DELETE CASCADE,
+        status        TEXT NOT NULL,
+        date_started  TEXT,
+        date_finished TEXT,
+        notes         TEXT,
+        created_at    TEXT NOT NULL DEFAULT (datetime('now'))
+    )""",
+    "CREATE INDEX IF NOT EXISTS idx_user_reading_log_user_item ON user_reading_log(user_id, item_id)",
+)
+
+
+def ensure_schema(db) -> None:
+    """Create the additive per-user tables if this database predates them.
+
+    The tables are deliberately additive and do not alter ``items``. Keeping
+    creation idempotent also makes this branch safe to run before or after the
+    OIDC branch; central migration numbers 46-47 are reserved there, and this
+    schema can later be folded into migrations 48+ without changing data.
+    """
+    for statement in _SCHEMA_STATEMENTS:
+        db.execute(statement)
+
+
+def _item_baseline(db, item_id: int):
+    return db.execute(
+        "SELECT id, reading_status, date_started, date_finished, owned "
+        "FROM items WHERE id = ?",
+        (item_id,),
+    ).fetchone()
+
+
+def get_state(db, user_id: int, item_id: int) -> dict | None:
+    """Return one user's state, inheriting the legacy shared state if needed."""
+    ensure_schema(db)
+    item = _item_baseline(db, item_id)
+    if not item:
+        return None
+
+    row = db.execute(
+        "SELECT * FROM user_item_state WHERE user_id = ? AND item_id = ?",
+        (user_id, item_id),
+    ).fetchone()
+    if row:
+        state = dict(row)
+        state["persisted"] = True
+        return state
+
+    return {
+        "user_id": user_id,
+        "item_id": item_id,
+        "reading_status": item["reading_status"],
+        "date_started": item["date_started"],
+        "date_finished": item["date_finished"],
+        "rating": None,
+        # Preserve the old household wishlist as the starting point. Once a
+        # user changes it, their explicit personal row wins independently.
+        "wishlist": 0 if item["owned"] else 1,
+        "favourite": 0,
+        "personal_notes": None,
+        "progress_value": None,
+        "progress_total": None,
+        "progress_unit": None,
+        "created_at": None,
+        "updated_at": None,
+        "persisted": False,
+    }
+
+
+def _normalise_state_values(state: dict) -> dict:
+    status = state.get("reading_status")
+    if status not in VALID_READING_STATUSES:
+        raise ValueError("Invalid reading status")
+
+    rating = state.get("rating")
+    if rating is not None:
+        rating = int(rating)
+        if rating < 1 or rating > 5:
+            raise ValueError("Rating must be between 1 and 5")
+        state["rating"] = rating
+
+    for field in ("wishlist", "favourite"):
+        value = state.get(field, 0)
+        if isinstance(value, bool):
+            value = int(value)
+        else:
+            value = int(value)
+        if value not in (0, 1):
+            raise ValueError(f"{field.title()} must be 0 or 1")
+        state[field] = value
+
+    progress_value = state.get("progress_value")
+    progress_total = state.get("progress_total")
+    if progress_value is not None:
+        progress_value = float(progress_value)
+        if progress_value < 0:
+            raise ValueError("Progress cannot be negative")
+        state["progress_value"] = progress_value
+    if progress_total is not None:
+        progress_total = float(progress_total)
+        if progress_total <= 0:
+            raise ValueError("Progress total must be greater than zero")
+        state["progress_total"] = progress_total
+    if progress_value is not None and progress_total is not None and progress_value > progress_total:
+        raise ValueError("Progress cannot exceed the total")
+
+    notes = state.get("personal_notes")
+    if notes is not None:
+        notes = str(notes).strip()
+        if len(notes) > 10000:
+            raise ValueError("Personal notes are too long")
+        state["personal_notes"] = notes or None
+
+    unit = state.get("progress_unit")
+    if unit is not None:
+        unit = str(unit).strip()
+        if len(unit) > 32:
+            raise ValueError("Progress unit is too long")
+        state["progress_unit"] = unit or None
+
+    return state
+
+
+def save_state(db, user_id: int, item_id: int, **changes) -> dict:
+    """Persist selected personal fields, snapshotting the legacy baseline first."""
+    state = get_state(db, user_id, item_id)
+    if state is None:
+        raise LookupError("Item not found")
+
+    allowed = {
+        "reading_status", "date_started", "date_finished", "rating", "wishlist",
+        "favourite", "personal_notes", "progress_value", "progress_total", "progress_unit",
+    }
+    unknown = set(changes) - allowed
+    if unknown:
+        raise ValueError(f"Unsupported personal state field: {sorted(unknown)[0]}")
+
+    for key, value in changes.items():
+        state[key] = value
+    state = _normalise_state_values(state)
+
+    db.execute(
+        """INSERT INTO user_item_state (
+            user_id, item_id, reading_status, date_started, date_finished,
+            rating, wishlist, favourite, personal_notes,
+            progress_value, progress_total, progress_unit
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ON CONFLICT(user_id, item_id) DO UPDATE SET
+            reading_status = excluded.reading_status,
+            date_started = excluded.date_started,
+            date_finished = excluded.date_finished,
+            rating = excluded.rating,
+            wishlist = excluded.wishlist,
+            favourite = excluded.favourite,
+            personal_notes = excluded.personal_notes,
+            progress_value = excluded.progress_value,
+            progress_total = excluded.progress_total,
+            progress_unit = excluded.progress_unit,
+            updated_at = datetime('now')""",
+        (
+            user_id,
+            item_id,
+            state["reading_status"],
+            state["date_started"],
+            state["date_finished"],
+            state["rating"],
+            state["wishlist"],
+            state["favourite"],
+            state["personal_notes"],
+            state["progress_value"],
+            state["progress_total"],
+            state["progress_unit"],
+        ),
+    )
+    saved = get_state(db, user_id, item_id)
+    assert saved is not None
+    return saved
+
+
+def set_reading_status(db, user_id: int, item_id: int, status: str | None) -> dict:
+    """Set the acting user's status and maintain their dates/history."""
+    status = status or None
+    if status not in VALID_READING_STATUSES:
+        raise ValueError("Invalid reading status")
+
+    state = get_state(db, user_id, item_id)
+    if state is None:
+        raise LookupError("Item not found")
+
+    today = date.today().isoformat()
+    changes: dict = {"reading_status": status}
+
+    if status == "reading":
+        if not state.get("date_started"):
+            changes["date_started"] = today
+        changes["date_finished"] = None
+    elif status == "read":
+        started = state.get("date_started") or today
+        changes["date_started"] = started
+        changes["date_finished"] = today
+        db.execute(
+            "INSERT INTO user_reading_log "
+            "(user_id, item_id, status, date_started, date_finished) "
+            "VALUES (?, ?, 'read', ?, ?)",
+            (user_id, item_id, started, today),
+        )
+    elif status is None:
+        changes["date_started"] = None
+        changes["date_finished"] = None
+
+    return save_state(db, user_id, item_id, **changes)
+
+
+def get_reading_history(db, user_id: int, item_id: int) -> list[dict]:
+    """Legacy shared history plus completions created by this user."""
+    ensure_schema(db)
+    legacy = [
+        {
+            "id": row["id"],
+            "status": row["status"],
+            "date_started": row["date_started"],
+            "date_finished": row["date_finished"],
+            "source": "legacy",
+        }
+        for row in db.execute(
+            "SELECT id, status, date_started, date_finished FROM reading_log "
+            "WHERE item_id = ?",
+            (item_id,),
+        ).fetchall()
+    ]
+    personal = [
+        {
+            "id": row["id"],
+            "status": row["status"],
+            "date_started": row["date_started"],
+            "date_finished": row["date_finished"],
+            "source": "personal",
+        }
+        for row in db.execute(
+            "SELECT id, status, date_started, date_finished FROM user_reading_log "
+            "WHERE user_id = ? AND item_id = ?",
+            (user_id, item_id),
+        ).fetchall()
+    ]
+    rows = legacy + personal
+    rows.sort(
+        key=lambda row: (row.get("date_finished") or "", row["id"]),
+        reverse=True,
+    )
+    return rows
+
+
+def status_labels(media_type: str) -> dict[str, str]:
+    """Human labels for the same stored status values across media families."""
+    if media_type == "audiobook" or media_type in {"vinyl", "cassette", "cd", "digital_music", "music_other"}:
+        return {
+            "heading": "Listening status",
+            "want_to_read": "Want to Listen",
+            "reading": "Listening",
+            "read": "Listened",
+        }
+    if media_type == "dvd":
+        return {
+            "heading": "Watching status",
+            "want_to_read": "Want to Watch",
+            "reading": "Watching",
+            "read": "Watched",
+        }
+    if media_type in {"video_game", "digital_game"}:
+        return {
+            "heading": "Playing status",
+            "want_to_read": "Want to Play",
+            "reading": "Playing",
+            "read": "Completed",
+        }
+    return {
+        "heading": "Reading status",
+        "want_to_read": "Want to Read",
+        "reading": "Reading",
+        "read": "Read",
+    }
