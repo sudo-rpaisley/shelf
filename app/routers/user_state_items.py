@@ -11,7 +11,7 @@ from __future__ import annotations
 import json
 from datetime import datetime, timedelta
 
-from fastapi import Depends, Form, Query, Request
+from fastapi import Depends, Form, Request
 from fastapi.responses import HTMLResponse
 from starlette.requests import Request as StarletteRequest
 
@@ -27,11 +27,12 @@ from app.services import browse_grouping, user_state, user_state_browse
 def _remove_route(path: str, method: str) -> None:
     """Remove one route from the not-yet-mounted items router."""
     method = method.upper()
+    full_path = f"{items.router.prefix}{path}" if items.router.prefix else path
     items.router.routes[:] = [
         route
         for route in items.router.routes
         if not (
-            getattr(route, "path", None) == path
+            getattr(route, "path", None) == full_path
             and method in (getattr(route, "methods", None) or set())
         )
     ]
