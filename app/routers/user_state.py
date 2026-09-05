@@ -111,27 +111,17 @@ async def personal_in_progress(
     request: Request,
     _=Depends(require_role("viewer")),
 ):
-    """Home's in-progress rail for only the signed-in user.
-
-    A persisted row is authoritative even when its status is NULL, because
-    NULL can mean the user explicitly cleared a legacy shared status. The CASE
-    expression therefore checks row existence rather than using COALESCE.
-    """
+    """Home's in-progress rail for only the signed-in user."""
     user_id = _user_id(request)
     with get_db() as db:
         user_state.ensure_schema(db)
         rows = db.execute(
             """SELECT i.id, i.title, i.authors, i.media_type, i.cover_path,
                       uis.progress_value, uis.progress_total, uis.progress_unit
-                 FROM items i
-                 LEFT JOIN user_item_state uis
-                   ON uis.item_id = i.id AND uis.user_id = ?
-                WHERE CASE WHEN uis.user_id IS NOT NULL
-                           THEN uis.reading_status
-                           ELSE i.reading_status END = 'reading'
-                ORDER BY CASE WHEN uis.user_id IS NOT NULL
-                              THEN uis.updated_at ELSE i.updated_at END DESC,
-                         i.id DESC
+                 FROM user_item_state uis
+                 JOIN items i ON i.id = uis.item_id
+                WHERE uis.user_id = ? AND uis.reading_status = 'reading'
+                ORDER BY uis.updated_at DESC, i.id DESC
                 LIMIT 6""",
             (user_id,),
         ).fetchall()
