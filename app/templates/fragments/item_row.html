@@ -48,7 +48,7 @@
             <a href="/item/{{ item.id }}" @click.prevent
                class="text-shelf-text text-sm font-medium truncate max-w-xs hover:underline">{{ item.title }}</a>
             {% if on_wishlist %}
-            <span class="px-1.5 py-0.5 rounded text-[10px] font-medium bg-shelf-warning/90 text-black shrink-0">My Wishlist</span>
+            <span class="px-1.5 py-0.5 rounded text-[10px] font-medium bg-shelf-warning/90 text-black shrink-0">Wishlist</span>
             {% endif %}
             {% if item.lent_to %}
             <span x-data="{ show: false }" @click.stop.prevent="show = !show" @mouseleave="show = false"
