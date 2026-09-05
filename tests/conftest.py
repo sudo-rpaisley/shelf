@@ -43,91 +43,43 @@ def _isolated_db(tmp_path, monkeypatch):
     covers_dir.mkdir()
     db_path = data_dir / "shelf.db"
 
-    # app.config is the source of truth: modules imported *after* this point
-    # read these values, and so does anything that resolves them at call time.
     monkeypatch.setattr("app.config.DATA_DIR", data_dir)
     monkeypatch.setattr("app.config.DATABASE_PATH", db_path)
     monkeypatch.setattr("app.config.COVERS_DIR", covers_dir)
-
-    # Modules already imported that did `from app.config import COVERS_DIR`
-    # bound the real /data path at import time and never see the line above
-    # (app.services.archive documents the same trap), so redirect their
-    # copies too.
     _redirect_stale_path_constants(monkeypatch, data_dir, db_path, covers_dir)
 
-    # Clear every secret-credential env var so a developer's or CI runner's
-    # shell can't leak a real credential into a settings-render test. Iterate
-    # .values() — SECRET_ENV_VARS is settings-key -> ENV_NAME, and the two
-    # collide in exactly the way that makes this easy to get backwards:
-    # app/routers/pages.py iterates the *keys* (is_env_override takes a
-    # settings key), this fixture needs the *values* (actual shell variable
-    # names). `for env_name in SECRET_ENV_VARS` would yield 'tmdb_api_key'
-    # etc. and clear nothing — a silent no-op.
     from app.config import SECRET_ENV_VARS
     for env_name in SECRET_ENV_VARS.values():
         monkeypatch.delenv(env_name, raising=False)
 
-    # Reset cached secret key so each test gets a fresh one
     import app.auth as auth_mod
     monkeypatch.setattr(auth_mod, "_cached_secret_key", None)
 
-    # Reset cached encryption key — each test's key file lives in its own tmp dir
     import app.crypto as crypto_mod
     monkeypatch.setattr(crypto_mod, "_cached_encryption_key", None)
 
-    # Reset the nav settings cache — it would otherwise carry one test's
-    # integration config (and hidden-tab set) into the next test's nav.
     import app.nav as nav_mod
     monkeypatch.setattr(nav_mod, "_cached_settings", None)
 
-    # Reset the currency cache — otherwise one test's display currency
-    # leaks into the next test's money formatting.
     import app.currency as currency_mod
     monkeypatch.setattr(currency_mod, "_cached_currency", None)
 
-    # Reset the IGDB token cache — otherwise one test's cached OAuth token
-    # leaks into the next test's credential pair.
     import app.services.igdb as igdb_mod
     monkeypatch.setattr(igdb_mod, "_token_cache", {})
 
-    # Reset the per-host rate limiter registry. Its asyncio.Locks bind to the
-    # loop they are first awaited on, and each test runs its own loop, so a
-    # carried-over registry would hand a test a lock from a dead loop.
     import app.services.outbound as outbound_mod
     outbound_mod.reset()
 
-    # Reset the cover enrichment queue. Its asyncio.Queue binds to the loop
-    # it is created on, and the counters are process-global, so a carried-over
-    # queue leaks depth and gave-up counts into unrelated tests.
     import app.services.cover_queue as cover_queue_mod
     cover_queue_mod.reset()
 
-    # Initialize schema
     from app.database import init_db
     init_db()
 
-    # Older tests create pre-feature reading history directly in reading_log.
-    # Mirror those rows to users that already exist at insert time, which is
-    # exactly what migration 56 does during a real upgrade. The trigger exists
-    # only in isolated test databases; production writes go through user_state.
-    from app.database import get_db
-    from app.services import user_state
-    with get_db() as conn:
-        user_state.ensure_schema(conn)
-        conn.executescript(
-            """CREATE TRIGGER IF NOT EXISTS test_mirror_legacy_reading_log
-               AFTER INSERT ON reading_log
-               BEGIN
-                   INSERT INTO user_reading_log
-                       (user_id, item_id, status, date_started, date_finished, notes, created_at)
-                   SELECT id, NEW.item_id, NEW.status, NEW.date_started,
-                          NEW.date_finished, NEW.notes, NEW.created_at
-                     FROM users;
-               END;"""
-        )
+    # Do not add harness-only SQLite triggers here. Shelf intentionally rejects
+    # trigger-bearing backup databases during restore, and the test database
+    # should exercise that exact production security rule.
 
-    # Pre-seed and cache the secret key so get_secret_key() never opens a
-    # second connection while a test's db fixture connection is already open.
     from app.auth import get_secret_key
     get_secret_key()
 
