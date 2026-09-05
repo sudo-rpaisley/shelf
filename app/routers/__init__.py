@@ -36,9 +36,10 @@ items_magazines.install_scan_dispatch()
 
 # Load the large items router once its lower-level scan dispatchers are ready,
 # then apply focused route replacements in increasing specificity: personal
-# state first, Browse/search visibility second, and direct/core read surfaces
-# last so every replacement sees the final library access model.
+# state first, Browse/search visibility, direct/core reads, then one final
+# personal-state guard which removes both historical route generations.
 from app.routers import items as items  # noqa: F401,E402
 from app.routers import user_state_items as user_state_items  # noqa: F401,E402
 from app.routers import library_access as library_access  # noqa: F401,E402
 from app.routers import library_item_access as library_item_access  # noqa: F401,E402
+from app.routers import library_item_guard as library_item_guard  # noqa: F401,E402
