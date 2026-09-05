@@ -100,9 +100,9 @@ def _media_family(value):
 
 
 def _owned(value):
-    # Tri-state: "" (either), "1" (owned), "0" (wishlist). Note `owned = 0` binds
-    # no parameter, so the condition and its params must be built together —
-    # which is the whole reason this returns both.
+    # Tri-state: "" (either), "1" (owned), "0" (wishlist). With a user-aware
+    # Browse request, build_where handles the wishlist branch specially so it
+    # can resolve user_item_state while keeping owned inventory shared.
     if value == "1":
         return "i.owned = 1", []
     if value == "0":
@@ -135,6 +135,35 @@ def _collection(value):
         "WHERE c.name = ? COLLATE NOCASE)",
         [value],
     )
+
+
+def personal_reading_status_sql(user_id: int) -> tuple[str, list]:
+    """SQL expression for one user's effective consumption status.
+
+    A personal row is authoritative even when ``reading_status`` is NULL: NULL
+    can be an explicit "clear my old shared status" choice. EXISTS therefore
+    distinguishes "no personal row yet" from "personal row with no status".
+    """
+    expression = (
+        "CASE WHEN EXISTS (SELECT 1 FROM user_item_state uis "
+        "                  WHERE uis.user_id = ? AND uis.item_id = i.id) "
+        "THEN (SELECT uis.reading_status FROM user_item_state uis "
+        "      WHERE uis.user_id = ? AND uis.item_id = i.id) "
+        "ELSE i.reading_status END"
+    )
+    return expression, [int(user_id), int(user_id)]
+
+
+def personal_wishlist_sql(user_id: int) -> tuple[str, list]:
+    """SQL expression for one user's wishlist, with legacy owned=0 fallback."""
+    expression = (
+        "CASE WHEN EXISTS (SELECT 1 FROM user_item_state uis "
+        "                  WHERE uis.user_id = ? AND uis.item_id = i.id) "
+        "THEN (SELECT uis.wishlist FROM user_item_state uis "
+        "      WHERE uis.user_id = ? AND uis.item_id = i.id) "
+        "ELSE CASE WHEN i.owned = 0 THEN 1 ELSE 0 END END"
+    )
+    return expression, [int(user_id), int(user_id)]
 
 
 @dataclass(frozen=True)
@@ -242,8 +271,18 @@ def filter_includes(exclude=None) -> Markup:
     return Markup(",".join(f"[name='{f.name}']" for f in FILTERS if f.name not in names))
 
 
-def build_where(values: Mapping[str, str], exclude=None) -> "tuple[str, list]":
+def build_where(
+    values: Mapping[str, str],
+    exclude=None,
+    *,
+    user_id: int | None = None,
+) -> "tuple[str, list]":
     """Build a WHERE clause from filter values, optionally dropping some.
+
+    When ``user_id`` is supplied, consumption status and Wishlist are personal
+    state. Users without a personal row inherit the old shared values so an
+    upgrade is non-destructive. Owned inventory remains a shared catalogue
+    fact.
 
     Excluding a filter is how each dropdown's cross-filter counts are built:
     the location counts are "everything except the location filter", so the
@@ -261,6 +300,20 @@ def build_where(values: Mapping[str, str], exclude=None) -> "tuple[str, list]":
         value = values.get(f.name, "")
         if not f.is_active(value):
             continue
+
+        if user_id is not None and f.name == "reading_status":
+            expression, expression_params = personal_reading_status_sql(user_id)
+            conditions.append(f"{expression} = ?")
+            params.extend(expression_params)
+            params.append(value)
+            continue
+
+        if user_id is not None and f.name == "owned" and value == "0":
+            expression, expression_params = personal_wishlist_sql(user_id)
+            conditions.append(f"{expression} = 1")
+            params.extend(expression_params)
+            continue
+
         built = f.condition(value)
         if built is None:
             continue
