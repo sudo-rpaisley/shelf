@@ -109,7 +109,7 @@ async def library_browse(
             where,
             params,
             order_clause,
-            limit=DEFAULT_PAGE_SIZE,
+            limit=pages.DEFAULT_PAGE_SIZE,
             offset=0,
             values=values,
             visibility_sql=access_sql,
