@@ -10,6 +10,11 @@ personal-state modules adapt the narrow workflows they own without enlarging
 the shared routers.
 """
 
+# Register focused schema extensions before application startup calls init_db.
+# First-class libraries have no routes in their schema-only slice yet, but the
+# migration registration belongs here with the other extension foundations.
+from app.services import libraries as libraries_service  # noqa: F401,E402
+
 # Import the base routers first, then extensions which decorate them.
 from app.routers import series as series  # noqa: F401,E402
 from app.routers import series_detail as series_detail  # noqa: F401,E402
