@@ -184,6 +184,9 @@ def test_progress_validation(db, viewer_user):
 
 def test_personal_state_fragment_uses_media_specific_labels(viewer_client, db):
     item_id = _insert_item(db, title="Film", isbn=None, media_type="dvd")
+    # The HTTP request uses a separate SQLite connection, so publish the
+    # fixture row before crossing that boundary.
+    db.commit()
 
     response = viewer_client.get(f"/api/items/{item_id}/personal-state")
 
@@ -195,6 +198,9 @@ def test_personal_state_fragment_uses_media_specific_labels(viewer_client, db):
 
 def test_viewer_can_update_personal_state(viewer_client, viewer_user, db):
     item_id = _insert_item(db)
+    # The route opens its own connection; commit the fixture first so it can
+    # see the catalogue item and persist the user's state against it.
+    db.commit()
 
     response = viewer_client.post(
         f"/api/items/{item_id}/personal-state",
