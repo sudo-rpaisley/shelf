@@ -9,6 +9,7 @@ from fastapi import Depends, Request
 from fastapi.responses import HTMLResponse
 
 from app.auth import require_role
+from app.config import MEDIA_TYPES
 from app.database import get_db
 from app.routers import pages
 from app.services import user_state
@@ -103,3 +104,40 @@ async def update_personal_state(
         return HTMLResponse("Item not found", status_code=404)
 
     return _render(request, item_id)
+
+
+@pages.router.get("/api/home/personal-in-progress")
+async def personal_in_progress(
+    request: Request,
+    _=Depends(require_role("viewer")),
+):
+    """Home's in-progress rail for only the signed-in user.
+
+    A persisted row is authoritative even when its status is NULL, because
+    NULL can mean the user explicitly cleared a legacy shared status. The CASE
+    expression therefore checks row existence rather than using COALESCE.
+    """
+    user_id = _user_id(request)
+    with get_db() as db:
+        user_state.ensure_schema(db)
+        rows = db.execute(
+            """SELECT i.id, i.title, i.authors, i.media_type, i.cover_path,
+                      uis.progress_value, uis.progress_total, uis.progress_unit
+                 FROM items i
+                 LEFT JOIN user_item_state uis
+                   ON uis.item_id = i.id AND uis.user_id = ?
+                WHERE CASE WHEN uis.user_id IS NOT NULL
+                           THEN uis.reading_status
+                           ELSE i.reading_status END = 'reading'
+                ORDER BY CASE WHEN uis.user_id IS NOT NULL
+                              THEN uis.updated_at ELSE i.updated_at END DESC,
+                         i.id DESC
+                LIMIT 6""",
+            (user_id,),
+        ).fetchall()
+
+    return request.app.state.templates.TemplateResponse(
+        request,
+        "fragments/personal_in_progress.html",
+        {"in_progress": rows, "media_types": MEDIA_TYPES},
+    )
