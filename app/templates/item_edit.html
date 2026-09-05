@@ -50,15 +50,14 @@
             </select>
         </div>
 
-        <!-- Owned / Wishlist -->
         <div>
             <label class="flex items-center gap-2 text-sm cursor-pointer">
                 <input type="hidden" name="owned" value="0">
                 <input type="checkbox" name="owned" value="1" {% if item.owned %}checked{% endif %}
                        class="rounded border-shelf-border bg-shelf-bg text-shelf-accent focus:ring-shelf-accent">
-                <span class="font-medium text-shelf-muted">I own this item</span>
+                <span class="font-medium text-shelf-muted">This item is owned</span>
             </label>
-            <p class="text-xs text-shelf-muted mt-1 ml-6">Uncheck for wishlist items you don't physically have yet</p>
+            <p class="text-xs text-shelf-muted mt-1 ml-6">Ownership is shared across Shelf. Your status, rating, favourite and wishlist are managed separately on the item page.</p>
         </div>
 
         <div class="grid grid-cols-2 gap-4">
@@ -117,24 +116,6 @@
         </div>
         {% endif %}
 
-        {% if is_book_family %}
-        <!-- Reading Status -->
-        <div>
-            <label for="reading_status" class="block text-sm font-medium text-shelf-muted mb-1">Reading Status</label>
-            <select id="reading_status" name="reading_status"
-                    class="w-full bg-shelf-bg border border-shelf-border rounded-lg px-3 py-2 text-shelf-text focus:ring-2 focus:ring-shelf-accent outline-none">
-                <option value="">None</option>
-                <option value="want_to_read" {% if item.reading_status == 'want_to_read' %}selected{% endif %}>Want to Read</option>
-                <option value="reading" {% if item.reading_status == 'reading' %}selected{% endif %}>Reading</option>
-                <option value="read" {% if item.reading_status == 'read' %}selected{% endif %}>Read</option>
-            </select>
-        </div>
-        <div class="grid grid-cols-2 gap-4">
-            {{ field("date_started", "Date Started", item.date_started, type="date") }}
-            {{ field("date_finished", "Date Finished", item.date_finished, type="date") }}
-        </div>
-        {% endif %}
-
         <div>
             <label for="description" class="block text-sm font-medium text-shelf-muted mb-1">Description</label>
             <textarea id="description" name="description" rows="3"
@@ -142,9 +123,10 @@
         </div>
 
         <div>
-            <label for="notes" class="block text-sm font-medium text-shelf-muted mb-1">Notes</label>
+            <label for="notes" class="block text-sm font-medium text-shelf-muted mb-1">Shared Notes</label>
             <textarea id="notes" name="notes" rows="2"
                       class="w-full bg-shelf-bg border border-shelf-border rounded-lg px-3 py-2 text-shelf-text focus:ring-2 focus:ring-shelf-accent focus:border-transparent outline-none">{{ item.notes or '' }}</textarea>
+            <p class="text-xs text-shelf-muted mt-1">Visible to everyone using this Shelf. Use “My notes” on the item page for private account-specific notes.</p>
         </div>
 
         <div x-data="coverDrop">
