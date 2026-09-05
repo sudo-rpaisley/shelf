@@ -14,8 +14,17 @@ def test_camera_scanner_requires_a_confirmed_read_and_keeps_html5_qrcode_off_ios
     assert ": createHtml5Engine(guardedOpts);" in source
 
 
-def test_scan_page_keeps_original_compact_barcode_framing_rectangle():
-    source = (ROOT / "static/js/scan.js").read_text(encoding="utf-8")
+def test_scan_page_and_edit_fields_share_compact_barcode_camera_behavior():
+    scan_source = (ROOT / "static/js/scan.js").read_text(encoding="utf-8")
+    edit_source = (ROOT / "static/js/item_edit.js").read_text(encoding="utf-8")
+    edit_template = (ROOT / "app/templates/item_edit.html").read_text(encoding="utf-8")
 
-    assert "qrbox: { width: 280, height: 100 }" in source
-    assert "aspectRatio: 1.5" in source
+    assert "qrbox: { width: 280, height: 100 }" in scan_source
+    assert "aspectRatio: 1.5" in scan_source
+    assert "qrbox: { width: 280, height: 100 }" in edit_source
+    assert "window.createBarcodeScanner" in edit_source
+    assert "target.value = String(decodedText || '').trim();" in edit_source
+    assert "fetch(" not in edit_source
+    assert 'data-scan-barcode-target="{{ name }}"' in edit_template
+    assert 'barcode_field("isbn", "ISBN"' in edit_template
+    assert 'src="/static/js/scanner-engine.js"' in edit_template
