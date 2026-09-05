@@ -76,7 +76,9 @@ async def test_exact_issue_search_keeps_issue_date_and_cover():
     assert issue["issue_date"] == "2008-05"
     assert issue["publish_year"] == 2008
     assert issue["cover_url"] == "https://books.google.com/issue.jpg"
-    assert fake_fetch.await_args.kwargs["params"]["printType"] == "magazines"
+    params = fake_fetch.await_args.kwargs["params"]
+    assert params["printType"] == "magazines"
+    assert params["q"] == 'intitle:"Popular Science"'
 
 
 def test_scan_page_title_search_routes_magazines_to_exact_issue_search(
@@ -104,6 +106,123 @@ def test_scan_page_title_search_routes_magazines_to_exact_issue_search(
     assert "2008-05" in response.text
     assert 'name="google_volume_id" value="ps-2008-05"' in response.text
     assert 'hx-post="/api/magazines/add"' in response.text
+
+
+def test_scanned_magazine_search_preserves_barcode_context(
+    editor_client, monkeypatch
+):
+    async def _search(query, client, *, api_key=None, limit=10):
+        assert query == "Diecast Collector"
+        return provider_result.found("google", [{
+            "google_volume_id": "diecast-55",
+            "title": "Diecast Collector",
+            "publisher": "Example Publisher",
+            "issn": "1396-5363",
+            "issue_date": "2002-05",
+            "cover_url": None,
+        }])
+
+    monkeypatch.setattr(magazine_google, "search_issues", _search)
+    response = editor_client.get(
+        "/api/magazines/search",
+        params={
+            "q": "Diecast Collector",
+            "for_scan": "1",
+            "carrier_ean": "9770953616115",
+            "barcode_supplement": "04",
+            "issn_hint": "0953-6167",
+        },
+    )
+
+    assert response.status_code == 200
+    assert "Use this match" in response.text
+    assert 'hx-get="/api/magazines/select-search-result"' in response.text
+    assert 'name="carrier_ean" value="9770953616115"' in response.text
+    assert 'name="barcode_supplement" value="04"' in response.text
+    assert 'name="issn_hint" value="0953-6167"' in response.text
+
+
+def test_select_search_result_prefills_issue_without_adding(
+    editor_client, db, monkeypatch
+):
+    async def _lookup(volume_id, client, *, api_key=None):
+        assert volume_id == "diecast-55"
+        return provider_result.found("google", {
+            "google_volume_id": volume_id,
+            "title": "Diecast Collector",
+            "publisher": "Example Publisher",
+            "description": "Model collecting magazine.",
+            "issn": "1396-5363",
+            "issue_date": "2002-05",
+            "publish_year": 2002,
+            "page_count": 96,
+            "cover_url": None,
+            "language": "en",
+        })
+
+    monkeypatch.setattr(magazine_google, "lookup_issue", _lookup)
+    response = editor_client.get(
+        "/api/magazines/select-search-result",
+        params={
+            "google_volume_id": "diecast-55",
+            "carrier_ean": "9770953616115",
+            "barcode_supplement": "04",
+            "issn_hint": "0953-6167",
+        },
+    )
+
+    assert response.status_code == 200
+    assert 'name="title" value="Diecast Collector"' in response.text
+    assert 'name="issue_date" value="2002-05"' in response.text
+    assert 'name="google_volume_id" value="diecast-55"' in response.text
+    assert 'name="carrier_ean" value="9770953616115"' in response.text
+    assert 'name="barcode_supplement" value="04"' in response.text
+    assert 'name="issn" value="1396-5363"' in response.text
+    assert "Barcode search hint: ISSN 0953-6167" in response.text
+    assert "Selected from Google Books search" in response.text
+    assert db.execute("SELECT COUNT(*) AS c FROM items").fetchone()["c"] == 0
+
+
+def test_selected_search_result_can_override_barcode_issn_hint(
+    editor_client, db, monkeypatch
+):
+    async def _lookup(volume_id, client, *, api_key=None):
+        assert volume_id == "diecast-55"
+        return provider_result.found("google", {
+            "google_volume_id": volume_id,
+            "title": "Diecast Collector",
+            "publisher": "Example Publisher",
+            "description": None,
+            "issn": "1396-5363",
+            "issue_date": "2002-05",
+            "publish_year": 2002,
+            "page_count": 96,
+            "cover_url": None,
+            "language": "en",
+        })
+
+    monkeypatch.setattr(magazine_google, "lookup_issue", _lookup)
+    response = editor_client.post(
+        "/api/magazines/add",
+        data={
+            "google_volume_id": "diecast-55",
+            "carrier_ean": "9770953616115",
+            "barcode_supplement": "04",
+        },
+    )
+
+    assert response.status_code == 200
+    assert "Diecast Collector" in response.text
+    publication = db.execute(
+        "SELECT title, issn FROM periodical_publications"
+    ).fetchone()
+    assert publication["title"] == "Diecast Collector"
+    assert publication["issn"] == "1396-5363"
+    issue = db.execute(
+        "SELECT barcode_ean, barcode_supplement FROM periodical_issues"
+    ).fetchone()
+    assert issue["barcode_ean"] == "9770953616115"
+    assert issue["barcode_supplement"] == "04"
 
 
 def test_selected_google_issue_creates_exact_issue_record(editor_client, db, monkeypatch):
