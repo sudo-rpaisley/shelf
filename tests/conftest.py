@@ -197,13 +197,46 @@ def viewer_client(client, viewer_user):
 
 
 def _insert_item(db, title="Test Book", isbn="9780000000001", media_type="book", **kwargs):
-    """Insert a test item and return its ID."""
+    """Insert a test item and return its ID.
+
+    Tests written before per-user state expressed activity through the legacy
+    ``items`` columns. When such a fixture is created after a test user already
+    exists, mirror those explicit personal-looking values into that user's
+    state. This models migrations 55-56's snapshot semantics without teaching
+    production code to make newly-created users inherit shared state.
+    """
     fields = {"title": title, "isbn": isbn, "media_type": media_type, "source": "test"}
     fields.update(kwargs)
     cols = ", ".join(fields.keys())
     placeholders = ", ".join("?" for _ in fields)
     cursor = db.execute(f"INSERT INTO items ({cols}) VALUES ({placeholders})", list(fields.values()))
-    return cursor.lastrowid
+    item_id = cursor.lastrowid
+
+    has_personal_fixture_state = (
+        fields.get("reading_status") is not None
+        or fields.get("date_started") is not None
+        or fields.get("date_finished") is not None
+        or fields.get("owned") == 0
+    )
+    if has_personal_fixture_state:
+        from app.services import user_state
+
+        user_state.ensure_schema(db)
+        users = db.execute("SELECT id FROM users").fetchall()
+        for row in users:
+            changes = {}
+            if fields.get("reading_status") is not None:
+                changes["reading_status"] = fields.get("reading_status")
+            if fields.get("date_started") is not None:
+                changes["date_started"] = fields.get("date_started")
+            if fields.get("date_finished") is not None:
+                changes["date_finished"] = fields.get("date_finished")
+            if fields.get("owned") == 0:
+                changes["wishlist"] = 1
+            if changes:
+                user_state.save_state(db, row["id"], item_id, **changes)
+
+    return item_id
 
 
 def _insert_borrower(db, name="Test Borrower"):
@@ -213,6 +246,6 @@ def _insert_borrower(db, name="Test Borrower"):
 
 
 def _insert_location(db, name="Test Location"):
-    """Insert a test location and return its ID."""
+    """Insert a test location and return their ID."""
     cursor = db.execute("INSERT INTO locations (name) VALUES (?)", (name,))
     return cursor.lastrowid
