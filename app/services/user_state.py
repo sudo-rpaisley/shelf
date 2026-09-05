@@ -19,50 +19,81 @@ from datetime import date
 
 VALID_READING_STATUSES = {None, "want_to_read", "reading", "read"}
 
+_CREATE_USER_ITEM_STATE = """CREATE TABLE IF NOT EXISTS user_item_state (
+    user_id         INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    item_id         INTEGER NOT NULL REFERENCES items(id) ON DELETE CASCADE,
+    reading_status  TEXT CHECK(reading_status IS NULL OR reading_status IN ('want_to_read','reading','read')),
+    date_started    TEXT,
+    date_finished   TEXT,
+    rating          INTEGER CHECK(rating IS NULL OR (rating >= 1 AND rating <= 5)),
+    wishlist        INTEGER NOT NULL DEFAULT 0 CHECK(wishlist IN (0,1)),
+    favourite       INTEGER NOT NULL DEFAULT 0 CHECK(favourite IN (0,1)),
+    personal_notes  TEXT,
+    progress_value  REAL,
+    progress_total  REAL,
+    progress_unit   TEXT,
+    created_at      TEXT NOT NULL DEFAULT (datetime('now')),
+    updated_at      TEXT NOT NULL DEFAULT (datetime('now')),
+    PRIMARY KEY (user_id, item_id)
+)"""
+
+_CREATE_USER_READING_LOG = """CREATE TABLE IF NOT EXISTS user_reading_log (
+    id            INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id       INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    item_id       INTEGER NOT NULL REFERENCES items(id) ON DELETE CASCADE,
+    status        TEXT NOT NULL,
+    date_started  TEXT,
+    date_finished TEXT,
+    notes         TEXT,
+    created_at    TEXT NOT NULL DEFAULT (datetime('now'))
+)"""
+
 _SCHEMA_STATEMENTS = (
-    """CREATE TABLE IF NOT EXISTS user_item_state (
-        user_id         INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-        item_id         INTEGER NOT NULL REFERENCES items(id) ON DELETE CASCADE,
-        reading_status  TEXT CHECK(reading_status IS NULL OR reading_status IN ('want_to_read','reading','read')),
-        date_started    TEXT,
-        date_finished   TEXT,
-        rating          INTEGER CHECK(rating IS NULL OR (rating >= 1 AND rating <= 5)),
-        wishlist        INTEGER NOT NULL DEFAULT 0 CHECK(wishlist IN (0,1)),
-        favourite       INTEGER NOT NULL DEFAULT 0 CHECK(favourite IN (0,1)),
-        personal_notes  TEXT,
-        progress_value  REAL,
-        progress_total  REAL,
-        progress_unit   TEXT,
-        created_at      TEXT NOT NULL DEFAULT (datetime('now')),
-        updated_at      TEXT NOT NULL DEFAULT (datetime('now')),
-        PRIMARY KEY (user_id, item_id)
-    )""",
+    _CREATE_USER_ITEM_STATE,
     "CREATE INDEX IF NOT EXISTS idx_user_item_state_item ON user_item_state(item_id)",
     "CREATE INDEX IF NOT EXISTS idx_user_item_state_status ON user_item_state(user_id, reading_status)",
     "CREATE INDEX IF NOT EXISTS idx_user_item_state_wishlist ON user_item_state(user_id, wishlist)",
     "CREATE INDEX IF NOT EXISTS idx_user_item_state_favourite ON user_item_state(user_id, favourite)",
-    """CREATE TABLE IF NOT EXISTS user_reading_log (
-        id            INTEGER PRIMARY KEY AUTOINCREMENT,
-        user_id       INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-        item_id       INTEGER NOT NULL REFERENCES items(id) ON DELETE CASCADE,
-        status        TEXT NOT NULL,
-        date_started  TEXT,
-        date_finished TEXT,
-        notes         TEXT,
-        created_at    TEXT NOT NULL DEFAULT (datetime('now'))
-    )""",
+    _CREATE_USER_READING_LOG,
     "CREATE INDEX IF NOT EXISTS idx_user_reading_log_user_item ON user_reading_log(user_id, item_id)",
 )
 
+# OIDC's in-flight branch owns 46-47. Starting this independent feature at 48
+# keeps both branches merge-order independent: a database may legitimately have
+# 48+ recorded before 46-47 and Shelf's migration runner will still apply the
+# missing lower-numbered migrations later.
+_USER_STATE_MIGRATIONS = (
+    (48, "Add per-user item state table", _CREATE_USER_ITEM_STATE),
+    (49, "Index per-user item state by item", "CREATE INDEX IF NOT EXISTS idx_user_item_state_item ON user_item_state(item_id)"),
+    (50, "Index per-user consumption status", "CREATE INDEX IF NOT EXISTS idx_user_item_state_status ON user_item_state(user_id, reading_status)"),
+    (51, "Index per-user wishlist", "CREATE INDEX IF NOT EXISTS idx_user_item_state_wishlist ON user_item_state(user_id, wishlist)"),
+    (52, "Index per-user favourites", "CREATE INDEX IF NOT EXISTS idx_user_item_state_favourite ON user_item_state(user_id, favourite)"),
+    (53, "Add per-user reading history table", _CREATE_USER_READING_LOG),
+    (54, "Index per-user reading history", "CREATE INDEX IF NOT EXISTS idx_user_reading_log_user_item ON user_reading_log(user_id, item_id)"),
+)
+
+
+def _register_migrations() -> None:
+    """Register this focused module's migrations with the central runner.
+
+    Router-package extensions are imported before ``init_db`` at application
+    startup, and this service is imported during test collection too. Keeping
+    the migration definitions beside the feature avoids a large, conflict-prone
+    edit to ``database.py`` while still using Shelf's atomic migration runner.
+    """
+    from app import database
+
+    existing = {version for version, _description, _sql in database.MIGRATIONS}
+    pending = tuple(migration for migration in _USER_STATE_MIGRATIONS if migration[0] not in existing)
+    if pending:
+        database.MIGRATIONS = tuple(database.MIGRATIONS) + pending
+
+
+_register_migrations()
+
 
 def ensure_schema(db) -> None:
-    """Create the additive per-user tables if this database predates them.
-
-    The tables are deliberately additive and do not alter ``items``. Keeping
-    creation idempotent also makes this branch safe to run before or after the
-    OIDC branch; central migration numbers 46-47 are reserved there, and this
-    schema can later be folded into migrations 48+ without changing data.
-    """
+    """Idempotent safety net for callers outside normal application startup."""
     for statement in _SCHEMA_STATEMENTS:
         db.execute(statement)
 
