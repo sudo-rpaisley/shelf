@@ -101,16 +101,35 @@ checkbox, never the value. See [Integrations](user-guide/integrations.md).
 
 ### Users
 
-Manage local users and configure OpenID Connect (OIDC) single sign-on. The OIDC
-card contains the issuer, client credentials, scopes, group claim, optional
-required access group, group-to-role mappings, automatic provisioning, role
-synchronisation and **Save & test configuration**. OIDC client secrets are
-write-only and encrypted at rest.
+Manage local users and configure OpenID Connect (OIDC) single sign-on.
+
+The main **OpenID Connect** card contains the issuer, client credentials,
+scopes, group claim, optional required access group, group-to-role mappings,
+automatic provisioning, role synchronisation and **Save & test
+configuration**. OIDC client secrets are write-only and encrypted at rest.
+
+Additional OIDC policy cards provide:
+
+| Card | Options |
+|---|---|
+| **Local sign-in and recovery** | Keep normal Shelf username/password login alongside OIDC, or restrict local login to one explicitly selected local break-glass Admin. There is deliberately no mode that removes all local recovery access |
+| **OIDC session reauthentication** | Fixed non-sliding OIDC session ceiling. Default 24 hours; UI presets are 1h, 8h, 24h, 3d and 7d. The backend accepts 1–168 whole hours |
+| **OIDC provider sign-out** | Optionally redirect OIDC-authenticated users to the provider's discovered `end_session_endpoint` after Shelf has cleared its own session. Best-effort only; local Shelf logout never depends on it |
+| **Link an existing account to OIDC** | Explicitly bind an existing Shelf username to the configured issuer and provider `sub`, preserving the Shelf user instead of creating a separate JIT account. Shelf never infers this from matching email/username |
 
 Local users can be added, assigned roles and have their passwords reset. OIDC
 identities are created or resolved through the provider and do not use Shelf
-passwords. See [Users & roles](user-guide/users-and-roles.md) for the complete
-OIDC setup, role-mapping and break-glass guidance.
+passwords. Linking an existing account invalidates its current local sessions
+and disables Shelf password login for that identity. The final local Admin and
+the configured break-glass Admin cannot be linked.
+
+If **Recovery administrator only** is enabled, the selected account must remain
+a local Admin; Shelf prevents it being demoted, deleted or linked to OIDC. If
+that recovery configuration becomes invalid, Shelf restores normal local login
+rather than risking a lockout. Disabling OIDC also restores normal local login.
+
+See [Users & roles](user-guide/users-and-roles.md) for the recommended OIDC
+migration sequence, role mapping and recovery guidance.
 
 ## Account settings
 
@@ -123,7 +142,6 @@ managed display name; make those changes in the identity provider instead.
 - Metadata source order (DNB for German ISBNs → Open Library → Hardcover →
   Google Books) is fixed; see [Architecture](architecture.md).
 - Outbound API pacing per host is fixed to each provider's published limit.
-- Media types are a fixed list: book, kids book, audiobook, eBook, DVD /
-  Blu-ray, CD, comic / graphic novel, video game. The scan tab's **Auto** is a
-  choice about how to scan, not a ninth type — it is never stored on an item;
-  see [Scanning → Media types](user-guide/scanning.md#media-types).
+- Media types are defined by Shelf's media registry; the scan tab's **Auto** is
+  a choice about how to scan, not a stored media type. See
+  [Scanning → Media types](user-guide/scanning.md#media-types).
