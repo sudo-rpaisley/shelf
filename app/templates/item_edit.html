@@ -7,6 +7,8 @@
 {% block content %}
 {% set is_music = item.media_type in ('vinyl', 'cassette', 'cd', 'digital_music', 'music_other') %}
 {% set is_book_family = item.media_type in ('book', 'kids_book', 'audiobook', 'ebook', 'comic', 'digital_comic') %}
+{% set is_isbn_media = item.media_type in ('book', 'kids_book', 'audiobook', 'ebook', 'comic', 'digital_comic', 'manga', 'digital_manga') %}
+{% set is_upc_media = item.media_type in ('dvd', 'vinyl', 'cassette', 'cd', 'music_other', 'comic', 'manga', 'video_game') %}
 <div class="max-w-2xl mx-auto">
     <a href="/item/{{ item.id }}{% if back.key %}?from={{ back.key }}{% endif %}" class="text-shelf-muted hover:text-shelf-text text-sm mb-4 inline-block">&larr; Back to item</a>
 
@@ -17,7 +19,7 @@
         {% endif %}
     </div>
 
-    <form action="/api/items/{{ item.id }}" method="post" enctype="multipart/form-data" class="bg-shelf-card rounded-xl border border-shelf-border p-6 space-y-4">
+    <form action="/api/items/{{ item.id }}/edit" method="post" enctype="multipart/form-data" class="bg-shelf-card rounded-xl border border-shelf-border p-6 space-y-4">
         <input type="hidden" name="from" value="{{ back.key }}">
 
         {% macro field(name, label, value, type="text", placeholder="", step="") %}
@@ -37,7 +39,7 @@
                     Scan barcode
                 </button>
             </div>
-            <input type="text" id="{{ name }}" name="{{ name }}" value="{{ value if value is not none else '' }}" placeholder="{{ placeholder }}" inputmode="numeric" autocomplete="off"
+            <input type="text" id="{{ name }}" name="{{ name }}" value="{{ value if value is not none else '' }}" placeholder="{{ placeholder }}" autocomplete="off"
                    class="w-full bg-shelf-bg border border-shelf-border rounded-lg px-3 py-2 text-shelf-text font-mono focus:ring-2 focus:ring-shelf-accent focus:border-transparent outline-none">
             <p class="text-xs text-shelf-muted mt-1">Type the code or scan it. Scanning only fills this field; save the item to apply the change.</p>
         </div>
@@ -46,7 +48,8 @@
         {{ field("title", "Release Title" if is_music else "Title", item.title) }}
         {% if not is_music %}{{ field("subtitle", "Subtitle", item.subtitle) }}{% endif %}
         {{ field("authors", "Artist" if is_music else "Authors", item.authors) }}
-        {% if not is_music %}{{ barcode_field("isbn", "ISBN", item.isbn, placeholder="ISBN-13") }}{% endif %}
+        {% if is_isbn_media %}{{ barcode_field("isbn", "ISBN", item.isbn, placeholder="ISBN-10 or ISBN-13") }}{% endif %}
+        {% if is_upc_media or item.upc %}{{ barcode_field("upc", "Barcode (UPC / EAN)", item.upc, placeholder="UPC-A or EAN-13") }}{% endif %}
 
         <div>
             <label for="media_type" class="block text-sm font-medium text-shelf-muted mb-1">Media Type</label>
