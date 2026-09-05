@@ -40,7 +40,7 @@ def test_upgrade_snapshot_preserves_existing_single_library_access(db):
     viewer = _user(db, "legacy-viewer", "viewer")
     editor = _user(db, "legacy-editor", "editor")
     admin = _user(db, "legacy-admin", "admin")
-    item_id = _insert_item(db, title="Legacy Catalogue Item")
+    item_id = _insert_item(db, title="Legacy Catalogue Item", _library_id=None)
 
     # Re-run only the idempotent data migrations as if these rows existed at
     # upgrade time. Existing installations should wake up as one Main Library.
@@ -89,7 +89,12 @@ def test_global_admin_can_recover_every_library_and_mapped_or_unmapped_item(db):
     first = libraries.create_library(db, "First")
     second = libraries.create_library(db, "Second")
     mapped = _insert_item(db, title="Mapped", isbn="9780000007723")
-    unmapped = _insert_item(db, title="Unmapped", isbn="9780000007730")
+    unmapped = _insert_item(
+        db,
+        title="Unmapped",
+        isbn="9780000007730",
+        _library_id=None,
+    )
     libraries.assign_item(db, mapped, first["id"])
 
     assert libraries.has_library_role(db, admin, first["id"], "editor") is True

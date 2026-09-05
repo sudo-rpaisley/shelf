@@ -9,6 +9,11 @@ Grouping is performed before LIMIT/OFFSET so a group cannot consume a page or
 reappear later. ``item_links`` remains the only source of truth for linked
 media: Browse derives connected-component roots with a recursive CTE rather
 than storing a second group id on ``items``.
+
+Callers may also supply a visibility predicate. When present, inaccessible
+items are removed from group metadata *and* from the linked-media graph itself,
+so a hidden item cannot leak a title/cover/count or act as a bridge between two
+otherwise visible records.
 """
 
 from __future__ import annotations
@@ -60,6 +65,46 @@ media_walk(seed, node) AS (
       FROM media_walk
       JOIN item_links il
         ON il.item_a_id = media_walk.node OR il.item_b_id = media_walk.node
+),
+media_roots(id, root) AS (
+    SELECT seed, MIN(node)
+      FROM media_walk
+     GROUP BY seed
+)"""
+
+
+def _media_roots_cte(visibility_sql: str = "") -> str:
+    """Return the linked-media CTE, optionally restricted to visible nodes."""
+    normalized = (visibility_sql or "").strip().replace(" ", "")
+    if not normalized or normalized == "1=1":
+        return _MEDIA_ROOTS_CTE
+
+    return f"""WITH RECURSIVE
+visible_items(id) AS (
+    SELECT i.id FROM items i WHERE {visibility_sql}
+),
+linked_edges(item_a_id, item_b_id) AS (
+    SELECT il.item_a_id, il.item_b_id
+      FROM item_links il
+      JOIN visible_items va ON va.id = il.item_a_id
+      JOIN visible_items vb ON vb.id = il.item_b_id
+),
+linked_nodes(id) AS (
+    SELECT item_a_id FROM linked_edges
+    UNION
+    SELECT item_b_id FROM linked_edges
+),
+media_walk(seed, node) AS (
+    SELECT id, id FROM linked_nodes
+    UNION
+    SELECT media_walk.seed,
+           CASE
+             WHEN le.item_a_id = media_walk.node THEN le.item_b_id
+             ELSE le.item_a_id
+           END
+      FROM media_walk
+      JOIN linked_edges le
+        ON le.item_a_id = media_walk.node OR le.item_b_id = media_walk.node
 ),
 media_roots(id, root) AS (
     SELECT seed, MIN(node)
@@ -129,11 +174,18 @@ def _plain_page(db, where: str, params: list, order_clause: str, *, limit: int, 
     return items, raw_total, raw_total
 
 
-def _earliest_group_covers(db, group_keys: list[str]) -> dict[str, str | None]:
-    """Return the cover belonging to the earliest item in each comic/Manga series."""
+def _earliest_group_covers(
+    db,
+    group_keys: list[str],
+    *,
+    visibility_sql: str = "",
+    visibility_params: list | None = None,
+) -> dict[str, str | None]:
+    """Return the earliest *visible* cover in each comic/Manga series."""
     if not group_keys:
         return {}
     placeholders = ",".join("?" for _ in group_keys)
+    visible_clause = f" AND ({visibility_sql})" if visibility_sql else ""
     rows = db.execute(
         f"""WITH ranked AS (
             SELECT {_GROUP_KEY} AS browse_group_key, cover_path,
@@ -146,33 +198,39 @@ def _earliest_group_covers(db, group_keys: list[str]) -> dict[str, str | None]:
              WHERE media_type IN ('digital_comic', 'digital_manga')
                AND series_name IS NOT NULL AND TRIM(series_name) != ''
                AND {_GROUP_KEY} IN ({placeholders})
+               {visible_clause}
         )
         SELECT browse_group_key, cover_path FROM ranked WHERE issue_rank = 1""",
-        group_keys,
+        list(group_keys) + list(visibility_params or []),
     ).fetchall()
     return {row["browse_group_key"]: row["cover_path"] for row in rows}
 
 
-def _media_group_metadata(db, roots: list[int]) -> dict[int, dict]:
+def _media_group_metadata(
+    db,
+    roots: list[int],
+    *,
+    visibility_sql: str = "",
+    visibility_params: list | None = None,
+) -> dict[int, dict]:
     """Return stable display metadata for visible linked-media components.
 
-    The minimum item id is the component root and therefore the canonical
-    navigation target/title. A missing root cover falls back to the first cover
-    found in the component. Counts and format labels intentionally describe the
-    full linked component, even when the current Browse filter matched only one
-    member.
+    The minimum visible item id is the component root and therefore the
+    canonical navigation target/title. Counts and format labels describe only
+    the visible component. Hidden nodes never participate in the CTE.
     """
     if not roots:
         return {}
     placeholders = ",".join("?" for _ in roots)
+    cte = _media_roots_cte(visibility_sql)
     rows = db.execute(
-        f"""{_MEDIA_ROOTS_CTE}
+        f"""{cte}
         SELECT mr.root, i.id, i.title, i.authors, i.cover_path, i.media_type
           FROM items i
           JOIN media_roots mr ON mr.id = i.id
          WHERE mr.root IN ({placeholders})
          ORDER BY mr.root, i.id""",
-        roots,
+        list(visibility_params or []) + list(roots),
     ).fetchall()
 
     by_root: dict[int, list] = defaultdict(list)
@@ -215,12 +273,19 @@ def fetch_page(
     limit: int,
     offset: int,
     values: dict,
+    visibility_sql: str = "",
+    visibility_params: list | None = None,
 ):
     """Fetch one Browse page after collapsing enabled display groups.
 
     Returns ``(items, raw_total, display_total)``. ``raw_total`` remains the
     catalogue-item count used by filters. ``display_total`` is the number of
     visible cards/rows after grouping and therefore drives pagination.
+
+    ``where`` decides which rows match the current Browse request. The optional
+    visibility predicate is intentionally separate: group metadata should span
+    every item the user may see, but never an inaccessible item, regardless of
+    the currently selected media/search filters.
     """
     group_comics = grouping_enabled(db, values)
     group_media = media_grouping_enabled(db)
@@ -237,22 +302,26 @@ def fetch_page(
 
     display_key = _display_group_key(group_comics, group_media)
     media_join = _media_join(group_media)
+    vis_params = list(visibility_params or [])
     if group_media:
+        media_cte = _media_roots_cte(visibility_sql)
         display_total = db.execute(
-            f"""{_MEDIA_ROOTS_CTE}
+            f"""{media_cte}
             SELECT COUNT(DISTINCT {display_key}) AS c
               FROM items i
               {media_join}
               {where}""",
-            params,
+            vis_params + list(params),
         ).fetchone()["c"]
-        grouped_prefix = _MEDIA_ROOTS_CTE + ",\ngrouped AS ("
+        grouped_prefix = media_cte + ",\ngrouped AS ("
+        ranked_prefix_params = vis_params
     else:
         display_total = db.execute(
             f"SELECT COUNT(DISTINCT {display_key}) AS c FROM items i {where}",
             params,
         ).fetchone()["c"]
         grouped_prefix = "WITH grouped AS ("
+        ranked_prefix_params = []
 
     # The member that determines a group's position in the current sort can be
     # different from the member that supplies its stable displayed identity.
@@ -275,7 +344,7 @@ def fetch_page(
          WHERE g.browse_group_rank = 1
          ORDER BY {order_clause}
          LIMIT ? OFFSET ?""",
-        list(params) + [limit, offset],
+        ranked_prefix_params + list(params) + [limit, offset],
     ).fetchall()
 
     if not ranked:
@@ -301,14 +370,24 @@ def fetch_page(
         for row in ranked
         if row["browse_group_key"].startswith(("series:", "komga:"))
     ]
-    earliest_covers = _earliest_group_covers(db, series_keys)
+    earliest_covers = _earliest_group_covers(
+        db,
+        series_keys,
+        visibility_sql=visibility_sql,
+        visibility_params=vis_params,
+    )
 
     media_roots = [
         int(row["browse_group_key"][6:])
         for row in ranked
         if row["browse_group_key"].startswith("media:")
     ]
-    media_metadata = _media_group_metadata(db, media_roots)
+    media_metadata = _media_group_metadata(
+        db,
+        media_roots,
+        visibility_sql=visibility_sql,
+        visibility_params=vis_params,
+    )
 
     items = []
     for item_id in ids:
@@ -336,7 +415,9 @@ def fetch_page(
             item["browse_series_url"] = "/series/detail?" + urlencode(detail_params)
         elif is_media:
             root = int(group_key[6:])
-            item.update(media_metadata[root])
+            metadata = media_metadata.get(root)
+            if metadata:
+                item.update(metadata)
 
         items.append(item)
 
