@@ -17,7 +17,7 @@ PYTEST_PAR   ?= -n auto --dist loadfile
 
 .PHONY: setup css test test-verbose test-fast test-e2e test-all \
         check-deps check-licenses check-secrets check-csrf check-alpine check-sw-version check-tests \
-        badges check-badges \
+        badges check-badges check-roadmap \
         checks checks-fast \
         report-review report-security report-test reports \
         qa fix verify release-check status \
@@ -95,10 +95,13 @@ check-licenses:
 # `indexOf('csrf_token=') === 0` (a quote boundary) no longer trip it, while an
 # actual pasted key still does. Case-insensitive: the original recipe was
 # not, so a literal in an API_TOKEN or SECRET constant walked straight past.
+# Markdown is scanned too: a pasted key lands in a README or a docs page more
+# readily than in source. The tests/ exclusion stays because fixtures need
+# fake-looking token values.
 check-secrets:
 	@echo "Scanning tracked files for hardcoded secrets..."
 	@if git grep -niE '(password|secret|token|api_key)\s*=\s*["'"'"'][A-Za-z0-9_./+-]{8,}["'"'"']' \
-		-- ':!*.md' ':!tests/' ':!requirements*.txt'; then \
+		-- ':!tests/' ':!requirements*.txt'; then \
 		echo "ERROR: hardcoded secret literal(s) above. Move them to .env or the encrypted settings table."; \
 		exit 1; \
 	else \
@@ -125,8 +128,14 @@ badges:
 check-badges:
 	python scripts/stamp_test_badges.py --check
 
+# docs/roadmap.md is a projection of the private .devdocs/ROADMAP.md; the map in
+# .devdocs ties them together. Skips itself in a public clone, where .devdocs
+# (a symlink into the private repo) does not exist.
+check-roadmap:
+	python scripts/check_roadmap_map.py
+
 # Instant, offline lints — the inner-loop target.
-checks-fast: check-secrets check-csrf check-alpine check-sw-version check-tests check-badges
+checks-fast: check-secrets check-csrf check-alpine check-sw-version check-tests check-badges check-roadmap
 
 # Everything, including the network-bound pip-audit and the dated report files.
 # Keep this the full set: the release procedure in ../CLAUDE.md step 1 calls it.

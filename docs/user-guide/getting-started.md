@@ -28,6 +28,9 @@ Out of the box:
 | **Discover** | Hardcover-powered recommendations (appears with a Hardcover token) |
 | **Settings** | Admin only. [Configuration](../configuration.md) |
 
+Press **?** on any page (or the **?** button, bottom left) for the keyboard
+shortcut list; **Escape** closes it.
+
 ## 3. Add your first book
 
 On a phone: open **Scan**, leave the mode on **Add**, tap the camera button,
@@ -35,7 +38,8 @@ point it at the barcode. On a desktop with a USB scanner: click into the
 barcode field and scan. Or type the ISBN and press Enter.
 
 Shelf looks the ISBN up (Open Library, then Hardcover and Google Books as
-fallbacks; German ISBNs go to the Deutsche Nationalbibliothek first),
+fallbacks; German ISBNs go to the Deutsche Nationalbibliothek first, and
+Italian ones to the Servizio Bibliotecario Nazionale),
 downloads a cover, and the item appears in the **Recent scans** strip with a
 link to its page. Series and descriptions are fetched too when a source has
 them.

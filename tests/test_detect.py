@@ -4,11 +4,12 @@ import typing
 
 import pytest
 
-from app.config import MEDIA_TYPES
+from app.config import MEDIA_TYPES, BOOK_MEDIA_TYPES
+from app.services import detect
 from app.services.detect import SIGNALS, Signal, detect_media_type
 from app.services.upc import detect_barcode_type
 
-_BOOK_FAMILY_HINTS_FOR_TEST = ["book", "kids_book", "audiobook", "ebook", "comic"]
+_BOOK_FAMILY_HINTS_FOR_TEST = sorted(BOOK_MEDIA_TYPES)
 
 # --- The six resolved probe rows from the design doc -----------------------
 #
@@ -260,8 +261,10 @@ class TestTheSignalVocabularyStaysInStep:
 
 class TestRecognisedHardwareAnswersHardware:
     """Issue #43. The predicate is the conjunction — a hardware word *and* a
-    platform marker — and both halves are pinned, because widening either
-    table is the tempting "fix" that re-opens the film titles below.
+    platform marker or a hardware brand — and both halves are pinned. The
+    second half widened to brands on 2026-09-01 (roadmap residual (ii)); the
+    film pin below is what keeps the conjunction honest, because dropping the
+    hardware-word half is the tempting "fix" that re-opens those titles.
     """
 
     @pytest.mark.parametrize("title", [
@@ -297,17 +300,87 @@ class TestRecognisedHardwareAnswersHardware:
         assert d.media_type == "video_game"
         assert d.signal == "detected"
 
-    def test_an_unbranded_accessory_is_a_known_false_negative(self):
-        """`Sony PULSE 3D Wireless Headset` names no `_PLATFORM_MARKERS` member.
+    @pytest.mark.parametrize("title", [
+        "Logitech G Pro X Gaming Headset",
+        "SteelSeries Arctis 7 Wireless Headset",
+        "Corsair HS80 RGB Wireless Headset",
+        "Thrustmaster T300 RS Racing Controller",
+        "Turtle Beach Stealth 600 Headset",
+        "Sony PULSE 3D Wireless Headset",
+        "Sony PULSE 3D Wireless Headset CD-ROM",
+        "Sony PULSE 3D Wireless Headset [DVD]",
+        "PS5 PULSE 3D Wireless Headset",
+        "8BitDo Pro 2 Controller",
+    ])
+    def test_a_brand_named_accessory_is_hardware(self, title):
+        """The design's ten measured hardware rows — roadmap residual (ii).
 
-        **Deliberate, not an oversight.** Do not "fix" this by adding "Sony"
-        or bare accessory words to either table: probe 2 showed that widening
-        is exactly what re-opens `Console Wars` and `Air Traffic Controller`
-        as false positives. The design plan lists it under
-        `## Explicitly out of scope`.
+        This used to pin `Sony PULSE 3D Wireless Headset` as an *accepted*
+        false negative, on the argument that its shortened search stops at
+        three words. That argument was measured to depend on brand length:
+        `Logitech G Pro X Gaming Headset` descends to the bare one-word rung
+        `Logitech` (G46). The second half of the conjunction is now a
+        platform marker *or* a `_HARDWARE_BRANDS` member.
         """
-        d = detect_media_type("upc", "auto", "Sony PULSE 3D Wireless Headset", None)
-        assert d.signal != "hardware"
+        d = detect_media_type("upc", "auto", title, None)
+        assert d.signal == "hardware"
+        assert d.media_type == "dvd"
+        assert "console hardware" in d.reason.lower()
+
+    @pytest.mark.parametrize("title,check", [
+        ("Astro Boy", ("signal", "none")),
+        ("Turtle Beach [DVD]", ("detected", "dvd")),
+        ("Ghost in the Shell [Blu-ray]", ("detected", "dvd")),
+        ("Mission Control [DVD]", ("detected", "dvd")),
+        ("Sony Pictures Classics Presents Whiplash", ("not-hardware", None)),
+        ("The Sony Betamax Story", ("not-hardware", None)),
+        ("Corsair", ("not-hardware", None)),
+        ("The Corsair 1931", ("not-hardware", None)),
+        ("Turtle Beach", ("not-hardware", None)),
+    ])
+    def test_a_brand_alone_is_not_hardware(self, title, check):
+        """The design's adversaries: a brand word without a hardware word.
+
+        `Sony` is the one film-industry name in the table, so both Sony rows
+        are the specific judgment a reviewer should check. The three films
+        that carry a hardware word and no brand are pinned separately in
+        `test_a_hardware_word_alone_is_not_hardware`, not duplicated here.
+        """
+        d = detect_media_type("upc", "auto", title, None)
+        kind, expected = check
+        if kind == "signal":
+            assert d.signal == expected
+        elif kind == "detected":
+            assert d.signal == "detected"
+            assert d.media_type == expected
+        else:
+            assert d.signal != "hardware"
+
+    def test_the_brand_table_is_discoverable(self):
+        """Guard for the structural pin below (G31): a rename must not make
+        it iterate an empty list and pass vacuously."""
+        assert detect._HARDWARE_BRANDS
+        assert detect._HARDWARE_TERMS
+        assert "Sony" in detect._HARDWARE_BRANDS
+
+    @pytest.mark.parametrize("brand,term", [
+        pytest.param(b, t, id=f"{b}-{t}")
+        for b in detect._HARDWARE_BRANDS
+        for t in detect._HARDWARE_TERMS
+    ])
+    def test_every_brand_conjoined_with_every_hardware_word_is_hardware(
+        self, brand, term,
+    ):
+        """The structural pin, built by introspection like `_EVERY_MARKER`.
+
+        A brand added to `_HARDWARE_BRANDS` later is covered here without
+        editing the test — every brand × every hardware word answers
+        `hardware`, and every brand on its own does not.
+        """
+        d = detect_media_type("upc", "auto", f"{brand} Wireless {term.title()}", None)
+        assert d.signal == "hardware", f"{brand!r} + {term!r} not recognised"
+        alone = detect_media_type("upc", "auto", f"{brand} Anthology", None)
+        assert alone.signal != "hardware", f"{brand!r} alone decided hardware"
 
     @pytest.mark.parametrize("title", [
         "Blade Runner 2049 4-Disc Ultimate Collector Edition",
@@ -352,6 +425,156 @@ class TestRecognisedHardwareAnswersHardware:
         assert d.media_type == "video_game"
         assert d.signal == "detected"
 
+
+
+# --- G68: the hardware guard covers every tier-2 arm, not just the platform one
+
+
+_EVERY_MARKER = [
+    pytest.param(name, marker, id=f"{name.strip('_').lower()}-{marker}")
+    for name, table in sorted(vars(detect).items())
+    if name.endswith("_MARKERS")
+    for marker in table
+]
+
+
+class TestAHardwareTitleSkipsEveryTitleMarkerArm:
+    """`_is_hardware_title` gates all four tier-2 arms, not the platform loop.
+
+    Before this, the guard wrapped only the platform loop, so a hardware title
+    carrying a format, medium or audio word was decided by that word. The
+    `CD-ROM` row is the one that mattered: it filed as `video_game`, which
+    `UPC_METADATA_PROVIDERS` maps to IGDB, so a scanned PS5 headset sent a real
+    provider request. The guard is now the function's **first statement** — an
+    arm added below it cannot sit above it.
+    """
+
+    @pytest.mark.parametrize("tag", [
+        "",              # the control: already `hardware` before this change
+        " DVD", " [DVD]", " Blu-ray",   # the format arm
+        " CD-ROM",                      # the medium arm — filed `video_game`
+        " CD", " Audio CD",             # the audio arm
+    ])
+    def test_a_tag_on_a_hardware_title_does_not_decide(self, tag):
+        """The design plan's measured rows. Only `""` was green before."""
+        d = detect_media_type(
+            "upc", "auto", "PlayStation 5 Wireless Headset" + tag, None,
+        )
+        assert d.signal == "hardware"
+        assert d.media_type == "dvd"
+        assert "console hardware" in d.reason.lower()
+
+    @pytest.mark.parametrize("title", [
+        "Nintendo Switch Pro Controller DVD",
+        "Xbox Series X Console Blu-ray",
+    ])
+    def test_a_controller_or_console_carrying_a_tag_is_still_hardware(self, title):
+        d = detect_media_type("upc", "auto", title, None)
+        assert d.signal == "hardware"
+        assert d.media_type == "dvd"
+
+    def test_the_marker_tables_are_discoverable(self):
+        """Guard for the structural pin below — introspection must match something.
+
+        Without this, renaming the tables would make
+        `test_no_marker_in_any_table_decides_a_hardware_title` iterate an empty
+        list and pass vacuously.
+        """
+        names = {n for n in vars(detect) if n.endswith("_MARKERS")}
+        assert {
+            "_PLATFORM_MARKERS", "_FORMAT_MARKERS",
+            "_MEDIUM_MARKERS", "_AUDIO_MARKERS",
+        } <= names
+        assert _EVERY_MARKER
+
+    @pytest.mark.parametrize("table_name,marker", _EVERY_MARKER)
+    def test_no_marker_in_any_table_decides_a_hardware_title(self, table_name, marker):
+        """The structural pin: every marker in every `*_MARKERS` table.
+
+        A new table added to `detect`, or a new loop over an existing one, is
+        covered here without anyone editing this test — the parametrise list is
+        built by introspection. The only way to re-open G68 is to insert an arm
+        *above* the guard, and the guard is the function's first statement.
+
+        14 of these rows (the bare platform tokens) were green before the fix;
+        the other 13 were red, so judge a mutation on those — `PC DVD` filed
+        `dvd` off the format arm, `PC CD` filed `cd` off the audio arm.
+        """
+        d = detect_media_type(
+            "upc", "auto", f"PlayStation 5 Wireless Headset {marker}", None,
+        )
+        assert d.signal == "hardware", f"{table_name} member {marker!r} decided"
+
+    @pytest.mark.parametrize("title,expected", [
+        ("Console Wars [DVD]", "dvd"),
+        ("Air Traffic Controller Blu-ray", "dvd"),
+        ("The Controller 2019 DVD", "dvd"),
+        ("Console Wars CD", "cd"),
+    ])
+    def test_a_film_carrying_a_tag_is_still_detected(self, title, expected):
+        """The guard's scope grew; the predicate's recall did not.
+
+        These name a hardware word and no platform marker, so
+        `_is_hardware_title` is false and the tier-2 arm decides them exactly
+        as before. If this reddens, someone widened `_HARDWARE_TERMS`,
+        `_PLATFORM_MARKERS` or `_HARDWARE_BRANDS` — see `_is_hardware_title`'s
+        docstring.
+        """
+        d = detect_media_type("upc", "auto", title, None)
+        assert d.media_type == expected
+        assert d.signal == "detected"
+
+    @pytest.mark.parametrize("tag", ["", " CD-ROM", " [DVD]", " Audio CD"])
+    def test_a_brand_named_accessory_survives_a_tag(self, tag):
+        """Roadmap residual (ii), shapes (ii-a) and (ii-c), closed 2026-09-01.
+
+        This used to pin the tagged Sony headset as `detected` off the format
+        arm — an accepted false negative. It was not harmless: the `CD-ROM`
+        shape filed `video_game` and reached IGDB, and the `[DVD]` shape made
+        a confident format claim about a headset. With `Sony` in
+        `_HARDWARE_BRANDS`, the guard declines every arm for it exactly as it
+        does for `PlayStation 5 Wireless Headset`.
+        """
+        d = detect_media_type(
+            "upc", "auto", "Sony PULSE 3D Wireless Headset" + tag, None,
+        )
+        assert d.signal == "hardware"
+        assert d.media_type == "dvd"
+
+    def test_the_platform_arm_is_unchanged_for_a_non_hardware_title(self):
+        """The guard did not cost the platform loop its own job."""
+        d = detect_media_type(
+            "upc", "auto", "Alice Madness Returns (PC DVD)", None,
+        )
+        assert d.media_type == "video_game"
+        assert d.signal == "detected"
+        assert "PC DVD" in d.reason
+
+    @pytest.mark.parametrize("category,expected", [
+        ("Software > Video Game Software", "video_game"),
+        ("Media > Music & Sound Recordings > Music CDs", "cd"),
+    ])
+    def test_tier_3_still_outranks_the_guard(self, category, expected):
+        """The early return is inside tier 2; tier 3 is untouched.
+
+        The `Music CDs` row was red before the fix — the medium arm decided
+        `video_game` before tier 3 ever ran. Re-deciding tier 3 for a
+        mis-categorised accessory is out of scope: the category is a real
+        detection either way, and the design's boundary is tier 2 only.
+        """
+        d = detect_media_type(
+            "upc", "auto", "PlayStation 5 Wireless Headset CD-ROM", category,
+        )
+        assert d.media_type == expected
+        assert d.signal == "detected"
+
+    def test_hardware_still_outranks_a_hint_when_the_title_carries_a_tag(self):
+        """The tier-4 arm sits above the hint branch, tag or no tag."""
+        d = detect_media_type(
+            "upc", "video_game", "PlayStation 5 Wireless Headset DVD", None,
+        )
+        assert d.signal == "hardware"
+        assert d.media_type == "dvd"
 
 # --- Issue: a scanned music CD is detected, not guessed as a film ----------
 #
@@ -549,3 +772,15 @@ class TestAMusicDiscIsDetectedAsACD:
         """
         d = detect_media_type("upc", hint, None, None)
         assert d.media_type == hint or hint in set(_BOOK_FAMILY_HINTS_FOR_TEST)
+
+
+def test_every_five_type_book_family_declaration_agrees_with_config():
+    """config.BOOK_MEDIA_TYPES is the family's home; the three older five-type
+    literals are deferred repoints (design §1) and must not drift from it.
+    synopsis.BOOK_MEDIA_TYPES is deliberately four and is not compared."""
+    from app.routers import items_catalog, series
+
+    assert BOOK_MEDIA_TYPES <= set(MEDIA_TYPES)
+    assert detect._BOOK_FAMILY_HINTS == BOOK_MEDIA_TYPES
+    assert set(series.UNASSIGNED_MEDIA_TYPES) == BOOK_MEDIA_TYPES
+    assert items_catalog.BOOK_MEDIA_TYPES == BOOK_MEDIA_TYPES

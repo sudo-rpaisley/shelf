@@ -3,8 +3,8 @@
 [![Release](https://img.shields.io/github/v/release/dgahagan/shelf)](https://github.com/dgahagan/shelf/releases)
 [![Docker Pulls](https://img.shields.io/docker/pulls/dangahagan/shelf)](https://hub.docker.com/r/dangahagan/shelf)
 [![CI](https://github.com/dgahagan/shelf/actions/workflows/test.yml/badge.svg)](https://github.com/dgahagan/shelf/actions/workflows/test.yml)
-[![Unit tests](https://img.shields.io/badge/unit%20tests-2113%20passing-brightgreen)](https://github.com/dgahagan/shelf/actions/workflows/test.yml)
-[![E2E tests](https://img.shields.io/badge/e2e%20tests-203%20passing-brightgreen)](https://github.com/dgahagan/shelf/actions/workflows/test.yml)
+[![Unit tests](https://img.shields.io/badge/unit%20tests-2620%20passing-brightgreen)](https://github.com/dgahagan/shelf/actions/workflows/test.yml)
+[![E2E tests](https://img.shields.io/badge/e2e%20tests-212%20passing-brightgreen)](https://github.com/dgahagan/shelf/actions/workflows/test.yml)
 [![License: AGPL-3.0](https://img.shields.io/github/license/dgahagan/shelf)](LICENSE)
 
 A self-hosted home library catalog with barcode scanning, multi-mode scanning workflows, automatic metadata lookup, cover art, and collection management — all in a single Docker container.
@@ -20,7 +20,7 @@ A self-hosted home library catalog with barcode scanning, multi-mode scanning wo
 Most home library apps are cloud-hosted, mobile-only, or require you to manually enter every book. Shelf takes a different approach:
 
 - **Scan and done** — point your phone camera at a barcode or use a USB/Bluetooth barcode scanner and the book is cataloged in seconds, complete with cover art, author, series info, and description. Works out of the box with any scanner that sends Enter after the barcode (most do by default), and camera scanning works on iPhones and iPads as well as Android
-- **Bulk-add from a photo** — snap a picture of a full shelf, a stack, or books laid face-up, and a vision model reads the spines and recognizes the covers. Review the candidate list — each row carries the ISBN read off a back cover, a per-row media type, and a marker on rows the model recognized rather than read — then import them all. Works with the Anthropic API, any OpenAI-compatible endpoint, or a fully local Ollama model
+- **Bulk-add from a photo** — snap a picture of a full shelf, a stack, or books laid face-up, and a vision model reads the spines and recognizes the covers. Review the candidate list — each row carries the ISBN read off a back cover, a per-row media type, and a marker on rows the model recognized rather than read — then import them all. Set a row to DVD or Video Game and it is looked up on TMDb or IGDB at confirm, not merely filed, on an exact title match. Works with the Anthropic API, any OpenAI-compatible endpoint, or a fully local Ollama model
 - **The barcode decides the media type** — an ISBN is a book even if the dropdown still says DVD, and a game UPC reaches IGDB even if it says Book. Leave it on **Auto** and scan a mixed pile; the card says what it detected and why, and says plainly when a record came back thin — because a provider key is missing, was rejected, is rate-limiting you right now, has no source for that format yet, or simply had no match
 - **8 scan modes** — Add, Wishlist, Lend, Return, Move, Inventory, Lookup, and Quick Rate. The scan tab adapts to whatever you're doing: adding new items, lending to a friend, reorganizing shelves, or auditing a room
 - **Title search** — don't have a barcode? Search by title across Open Library (books), TMDb (movies), and IGDB (video games) and add directly from results. Like the scan card, the result box says *why* it is empty — a rejected key, a rate-limited provider, one that could not be reached — so "No books found" means only that the provider answered and had nothing
@@ -61,7 +61,7 @@ Full docs live in [`docs/`](docs/README.md):
 
 - [Installation](docs/installation.md) · [Configuration](docs/configuration.md) · [HTTPS & reverse proxy](docs/https-and-reverse-proxy.md) · [Upgrading & backups](docs/upgrading-and-backups.md)
 - **User guide:** [Getting started](docs/user-guide/getting-started.md) · [Scanning](docs/user-guide/scanning.md) · [Photo Intake](docs/user-guide/photo-intake.md) · [Browse](docs/user-guide/browse-and-search.md) · [Items](docs/user-guide/items.md) · [Series](docs/user-guide/series.md) · [Lending](docs/user-guide/lending.md) · [Wishlist & Store Mode](docs/user-guide/wishlist-and-store-mode.md) · [Sharing](docs/user-guide/sharing.md) · [Stats & valuation](docs/user-guide/stats-and-valuation.md) · [Import & export](docs/user-guide/import-and-export.md) · [Integrations](docs/user-guide/integrations.md) · [Users & roles](docs/user-guide/users-and-roles.md)
-- [FAQ](docs/faq.md) · [Troubleshooting](docs/troubleshooting.md) · [Development](docs/development.md) · [Architecture](docs/architecture.md)
+- [FAQ](docs/faq.md) · [Troubleshooting](docs/troubleshooting.md) · [Development](docs/development.md) · [Architecture](docs/architecture.md) · [Roadmap](docs/roadmap.md)
 
 ## Quick Start
 
@@ -83,7 +83,7 @@ CERT_SAN=IP:192.168.1.100,DNS:shelf,DNS:localhost
 | Variable | Default | Description |
 |----------|---------|-------------|
 | `CERT_SAN` | `DNS:shelf,DNS:localhost` | TLS certificate Subject Alternative Names |
-| `SECRET_KEY` | *(auto-generated)* | JWT signing key (auto-generated and stored in DB if not set) |
+| `SECRET_KEY` | *(auto-generated)* | JWT signing key. If unset, generated at `data/signing.key` (0600) on first start; an existing key from before 0.30 is moved there from the database on the first start after upgrading, so sessions survive. Set it explicitly to run several instances against one database |
 | `SHELF_ENCRYPTION_KEY` | *(auto-generated)* | Encryption key for stored API credentials. Auto-generated at `data/encryption.key` if not set — never stored in the DB, so backups contain ciphertext only. Set it (e.g. `openssl rand -hex 32`) so the data directory alone can't decrypt credentials |
 
 ### Data
@@ -96,8 +96,13 @@ data/
   covers/         — cached cover images
   certs/          — auto-generated TLS certificates
   encryption.key  — key for credentials stored in the DB (unless
-                    SHELF_ENCRYPTION_KEY is set); keep it out of shared copies
+                    SHELF_ENCRYPTION_KEY is set)
+  signing.key     — signs login sessions (unless SECRET_KEY is set)
 ```
+
+Keep both key files out of shared copies. The database holds no key material,
+so a database backup is ciphertext without anything that opens it — but a copy
+of this whole directory carries the keys next to the data they protect.
 
 ## Features
 
@@ -105,9 +110,9 @@ data/
 - **Camera barcode scanning** on mobile — tap to scan ISBNs and UPCs
 - **8 scan modes** — Add, Wishlist, Lend, Return, Move, Inventory, Lookup, and Quick Rate
 - **Media-type detection** — the barcode outranks the scan form's dropdown when it is certain; Auto reads the barcode and decides. It reads platform, format, medium and audio wording out of the retail title, and the product category behind it, so a music CD and a PC CD-ROM game are each filed as themselves rather than guessed at against a film database
-- **Photo intake** — bulk-add books from a photo of your shelves using a vision model, snapped with the phone or webcam or uploaded (see [Photo Intake](#photo-intake))
+- **Photo intake** — bulk-add from a photo of your shelves using a vision model, snapped with the phone or webcam or uploaded. Rows typed DVD or Video Game are looked up on TMDb or IGDB at confirm, on an exact title match (see [Photo Intake](#photo-intake))
 - **Title search** — search Open Library, TMDb, or IGDB by title when you don't have a barcode; an empty result box names the reason when the search failed rather than missed
-- **Cascading metadata lookup** — Open Library, Hardcover, and Google Books, with German (978-3) ISBNs routed through the Deutsche Nationalbibliothek (DNB) first
+- **Cascading metadata lookup** — Open Library, Hardcover, and Google Books, with national bibliographies consulted first for the groups they cover: German (978-3) ISBNs go to the Deutsche Nationalbibliothek (DNB), Italian ones (978-88 and 979-12) to the Servizio Bibliotecario Nazionale (SBN)
 - **Edition language** — captured on lookup, editable on items, filterable in Browse; a settings dropdown picks the preferred language for title searches
 - **Cover art pipeline** — Open Library, Hardcover, DNB (German ISBNs), Amazon, Google Books, IGDB, and manual search/upload/remove, on any item. Cover search is media-type aware: books search Google Books and Open Library, DVDs the film's TMDb poster set, video games IGDB cover art and artwork. The picker reports a missing key, a rejected key, a spent quota and an unreachable provider by name, so "No covers found for this title." is only ever a genuine miss
 - **UPC support** — scan DVDs and Blu-rays with TMDb lookup, and music CDs, which are detected on Auto and filed under their own title (no music metadata provider is wired up yet, and the card says so)
@@ -144,9 +149,12 @@ reads the spines it can read and recognizes the covers it can't. Open
 as an editable candidate list: title, author, the ISBN read off a back cover
 if one was in frame, a per-row media type, and a marker on rows identified
 from the cover rather than read. Nothing is imported until you confirm.
-Rows with an ISBN then get the same lookup a barcode scan does; the rest are
-matched on title and author behind an author-match guard, and the Done panel
-shows which rows found no metadata.
+Rows with an ISBN then get the same lookup a barcode scan does; books are
+matched on title and author behind an author-match guard; and a row set to
+DVD or Video Game is looked up on TMDb or IGDB, which fills in its year,
+description and cover when the title matches the catalogue exactly. The Done
+panel shows which rows found no metadata, and marks separately the rows whose
+lookup was **declined** because the title did not match.
 
 Configure a vision backend under Settings → Integrations → Photo Intake:
 
@@ -258,6 +266,8 @@ Shelf queries free, public APIs to look up book and game information — no API 
 
 | Source | What it provides | API key required? |
 |--------|-----------------|-------------------|
+| [Deutsche Nationalbibliothek](https://portal.dnb.de) | German (978-3) ISBNs, consulted before the rest: title, author, publisher, year, language; cover art | No |
+| [Servizio Bibliotecario Nazionale](https://opac.sbn.it) | Italian (978-88, 979-12) ISBNs, consulted before the rest: title, subtitle, author, publisher, year, language | No |
 | [Open Library](https://openlibrary.org) | Title, author, description, cover art, publish info, title search | No |
 | [Google Books](https://books.google.com) | Fallback metadata and cover art | No (optional key supported) |
 | [Amazon Images](https://www.amazon.com) | Fallback cover art via ISBN | No |
@@ -273,9 +283,9 @@ Configure in Settings to unlock additional features:
 |---------|---------|------|
 | **Hardcover** | Reading status sync, richer metadata, import/export, Discover page | [hardcover.app](https://hardcover.app) |
 | **Google Books** | Optional credentialed metadata, synopsis, and cover requests; anonymous access remains available | [Google Books API](https://developers.google.com/books) |
-| **IGDB** (Twitch) | Video game metadata, cover art, and platform info | [dev.twitch.tv/console](https://dev.twitch.tv/console) |
+| **IGDB** (Twitch) | Video game metadata, cover art, and platform info — on UPC scan, title search, and Photo Intake confirm | [dev.twitch.tv/console](https://dev.twitch.tv/console) |
 | **ISBNdb** | Collection valuation with market prices | [isbndb.com](https://isbndb.com) |
-| **TMDb** | DVD/Blu-ray metadata and title search via UPC barcode | [themoviedb.org](https://www.themoviedb.org) |
+| **TMDb** | DVD/Blu-ray metadata — on UPC scan, title search, and Photo Intake confirm | [themoviedb.org](https://www.themoviedb.org) |
 | **Anthropic** | Photo Intake — reads spines and recognizes covers (best accuracy) | [console.anthropic.com](https://console.anthropic.com) |
 | **OpenAI-compatible** | Photo Intake via any OpenAI Chat Completions endpoint (OpenAI, OpenRouter, vLLM, LM Studio…) | [platform.openai.com](https://platform.openai.com) |
 | **Ollama** | Photo Intake with a fully local vision model — no key needed | [ollama.com](https://ollama.com) |

@@ -137,6 +137,16 @@ MIGRATIONS: Sequence[tuple[int, str, str]] = (
             ELSE NULL
         END
         WHERE language IS NULL AND isbn IS NOT NULL"""),
+    (24, "Add confirmed legacy book barcode mappings",
+     """CREATE TABLE IF NOT EXISTS legacy_book_mappings (
+            barcode      TEXT PRIMARY KEY,
+            isbn13       TEXT NOT NULL,
+            confirmed_at TEXT NOT NULL DEFAULT (datetime('now')),
+            CHECK(length(barcode) = 17 AND barcode NOT GLOB '*[^0-9]*'),
+            CHECK(length(isbn13) = 13
+                  AND isbn13 NOT GLOB '*[^0-9]*'
+                  AND substr(isbn13, 1, 3) IN ('978', '979'))
+        )"""),
 )
 
 MIGRATION_TABLES = """
@@ -259,6 +269,18 @@ CREATE TABLE IF NOT EXISTS series_meta (
     hc_total      INTEGER DEFAULT NULL,
     hc_missing    INTEGER DEFAULT NULL,
     hc_checked_at TEXT DEFAULT NULL
+);
+
+-- The table is also created by migration 24 for upgrades. Keeping its
+-- complete definition here makes the fresh-database path explicit too.
+CREATE TABLE IF NOT EXISTS legacy_book_mappings (
+    barcode      TEXT PRIMARY KEY,
+    isbn13       TEXT NOT NULL,
+    confirmed_at TEXT NOT NULL DEFAULT (datetime('now')),
+    CHECK(length(barcode) = 17 AND barcode NOT GLOB '*[^0-9]*'),
+    CHECK(length(isbn13) = 13
+          AND isbn13 NOT GLOB '*[^0-9]*'
+          AND substr(isbn13, 1, 3) IN ('978', '979'))
 );
 """
 
@@ -410,7 +432,7 @@ def get_setting(db, key: str) -> str:
     row = db.execute("SELECT value FROM settings WHERE key = ?", (key,)).fetchone()
     raw = row["value"] if row else None
     if raw and key in SENSITIVE_KEYS:
-        raw = decrypt_value(raw, get_encryption_key())
+        raw = decrypt_value(raw, get_encryption_key(), key_name=key)
     return get_setting_value(key, raw)
 
 
@@ -427,7 +449,7 @@ def get_all_settings(db) -> dict[str, str]:
     for r in rows:
         val = r["value"]
         if val and r["key"] in SENSITIVE_KEYS:
-            val = decrypt_value(val, secret)
+            val = decrypt_value(val, secret, key_name=r["key"])
         settings[r["key"]] = val
     return {k: get_setting_value(k, v) for k, v in settings.items()}
 

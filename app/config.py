@@ -16,6 +16,11 @@ MEDIA_TYPES = {
     "video_game": "Video Game",
 }
 
+# The book family: media types that are read, carry ISBNs, and belong to a
+# series. Everything else in MEDIA_TYPES (dvd, cd, video_game) is a disc or a
+# cartridge. Declared here, beside the types themselves.
+BOOK_MEDIA_TYPES = frozenset({"book", "kids_book", "audiobook", "ebook", "comic"})
+
 # Seed data — runtime platform list comes from game_platforms table
 GAME_PLATFORMS = {
     "atari2600": "Atari 2600",
@@ -131,6 +136,7 @@ HOST_RATE_LIMITS: dict[str, float] = {
     "covers.openlibrary.org": 3.0,
     "services.dnb.de": 1.0,  # DNB SRU catalog — good citizenship
     "portal.dnb.de": 1.0,  # DNB cover host, same citizenship
+    "opac.sbn.it": 1.0,  # SBN publishes no rate limit; matches DNB, a comparable national library
     "api.hardcover.app": 1.0,  # 60/min API limit
     "api2.isbndb.com": 3.0,  # was isbndb's own 3s post-request sleep
     "www.googleapis.com": 0.25,  # Google Books quota is per-day; light pacing only
@@ -151,7 +157,7 @@ HTTP_TIMEOUT = 15  # seconds for external API calls
 DEFAULT_PAGE_SIZE = 60
 
 # Auth
-SECRET_KEY = os.environ.get("SECRET_KEY", "")  # auto-generated and stored in DB if empty
+SECRET_KEY = os.environ.get("SECRET_KEY", "")  # auto-generated into DATA_DIR/signing.key if empty
 JWT_ALGORITHM = "HS256"
 JWT_EXPIRY_SECONDS = 7 * 24 * 3600  # 7 days
 
@@ -159,6 +165,7 @@ JWT_EXPIRY_SECONDS = 7 * 24 * 3600  # 7 days
 # Map: settings key -> env var name
 SECRET_ENV_VARS = {
     "abs_url": "ABS_URL",
+    "abs_public_url": "ABS_PUBLIC_URL",
     "abs_token": "ABS_TOKEN",
     "hardcover_token": "HARDCOVER_TOKEN",
     "google_books_api_key": "GOOGLE_BOOKS_API_KEY",

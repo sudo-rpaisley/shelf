@@ -19,6 +19,11 @@ Hardcover, and the **Discover** tab (recommendations).
 Hardcover card. Choose a sync schedule for reading status; run **Import
 library** once if you have history there.
 
+An ISBN that arrives from Hardcover — or from an Open Library title search —
+and fails its check digit is dropped rather than stored, with a line in the
+server log naming it. The item is still added; it just arrives without an
+ISBN, and you can type the right one into **Edit**.
+
 ## Audiobookshelf
 
 [audiobookshelf.org](https://www.audiobookshelf.org) — self-hosted
@@ -33,6 +38,33 @@ URL and token, **Test**, then choose which libraries to include. Set an
 interval for automatic sync or run it by hand. Items removed from ABS can be
 cleaned up from the same card.
 
+**If Shelf reaches ABS at a different address than your browser does, fill in
+the Browser URL.** Shelf commonly talks to Audiobookshelf over a Docker network
+or a LAN hostname — `http://audiobookshelf:80` — while you open it through a
+reverse proxy at `https://audiobooks.example.com`. The **Listen on
+Audiobookshelf** and **Read on Audiobookshelf** links on an item page are built
+from the URL you configured, so with only the internal address set they point
+somewhere your browser cannot follow. The optional **Browser URL** field is used
+for those links and nothing else — sync, library discovery and cleanup keep
+using the Audiobookshelf URL above it. Leave it blank and the links behave
+exactly as before.
+
+**Repeat syncs are cheap and safe to run.** An item whose metadata has not
+changed since the last sync is left alone — not rewritten, and its cover is
+not downloaded again — and the summary on the card counts it under
+**Unchanged**, beside Added, Updated and Skipped. An audiobook or eBook whose
+ISBN you had already catalogued by hand in the same format is adopted and
+linked rather than added a second time; a duplicate of the same ISBN inside
+ABS is skipped with a reason. If one library times out, the others still sync
+and the timeout is reported for that library alone.
+
+An ABS item that has only an ASIN (no ISBN) syncs **without** an ISBN —
+an ASIN isn't one, and storing it there broke the edit form and the
+duplicate checks. A row that got an ASIN in its ISBN field from an earlier
+sync is cleared on the next sync and counted under **Updated**. An item
+whose ISBN in ABS fails its check digit is treated the same way, with a line
+in the server log naming it.
+
 A scan that comes back thin tells you **on the card** which of five things
 happened: no credential configured, a credential the provider rejected, a
 provider that is rate-limiting you right now, a format Shelf has no metadata
@@ -45,7 +77,8 @@ See [Troubleshooting](../troubleshooting.md#a-scan-added-only-a-title).
 [IGDB](https://www.igdb.com) via Twitch developer credentials — free.
 
 **Adds:** video-game metadata, cover art, platform and series on UPC scan;
-title search for retro cartridges.
+title search for retro cartridges; and the title lookup a Photo Intake row
+typed Video Game runs when you confirm it.
 
 **Setup:** [dev.twitch.tv/console](https://dev.twitch.tv/console) → Register
 Your Application (category "Application Integration", any redirect URL) →
@@ -55,7 +88,8 @@ copy Client ID and generate a Client Secret → paste both.
 
 [themoviedb.org](https://www.themoviedb.org) — free API key.
 
-**Adds:** film metadata and posters from UPC scans, movie title search.
+**Adds:** film metadata and posters from UPC scans, movie title search, and
+the title lookup a Photo Intake row typed DVD runs when you confirm it.
 
 **Setup:** TMDb account → Settings → API → request access → paste **either**
 credential the API page shows: the 32-character **API Key (v3 auth)** or the
@@ -90,8 +124,10 @@ perfectly idle Shelf. A key gives you a quota of your own.
 
 You will notice this only where Google Books is actually reached, which is
 less often than it sounds. It is the **last** book source tried on an ISBN
-scan — behind the Deutsche Nationalbibliothek for 978-3 ISBNs, Open Library,
-and Hardcover — so it answers for the books the others missed. It also backs
+scan — behind the national bibliographies (the Deutsche Nationalbibliothek for
+978-3 ISBNs, the Servizio Bibliotecario Nazionale for Italian 978-88 and
+979-12 ones), Open Library, and Hardcover — so it answers for the books the
+others missed. It also backs
 synopsis lookups and book cover search. If Open Library is answering your
 scans, a key will change nothing you can see; if you regularly scan books
 that come back thin, or you run bulk operations like the synopsis backfill or
@@ -137,8 +173,9 @@ same idea: an ntfy topic or JSON webhook URL for the overdue-loan digest. See
 
 ## Always-on sources (no key)
 
-Open Library, Google Books (anonymous by default), Amazon cover images, UPC Item DB, and
-the Deutsche Nationalbibliothek for German ISBNs. Apart from credentials you
+Open Library, Google Books (anonymous by default), Amazon cover images, UPC Item DB,
+the Deutsche Nationalbibliothek for German ISBNs, and the Servizio
+Bibliotecario Nazionale for Italian ones. Apart from credentials you
 explicitly configure, lookups send only the ISBN or UPC — never your account,
 collection or personal data. Requests to every provider are paced to its
 published rate limit. UPC Item DB's free tier is

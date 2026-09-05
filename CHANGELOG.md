@@ -4,6 +4,677 @@ All notable changes to Shelf are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and versions follow
 [Semantic Versioning](https://semver.org/).
 
+## [Unreleased]
+
+## [0.34.0] - 2026-09-05
+
+Shelf and your browser do not always reach Audiobookshelf at the same address.
+Shelf commonly talks to it over a Docker network or a LAN hostname, while you
+open Audiobookshelf through a reverse proxy on a public name. The **Listen on
+Audiobookshelf** and **Read on Audiobookshelf** links on an item page were
+built from the address Shelf uses for its own API calls, so in those setups
+they pointed somewhere your browser could not follow. There is now a second,
+optional URL for the links alone.
+
+This release is the work of [@sudo-rpaisley](https://github.com/sudo-rpaisley).
+
+### Added
+
+- **An optional browser URL for Audiobookshelf links.** Shelf often reaches
+  Audiobookshelf over a Docker network or a LAN hostname while your browser
+  reaches the same server through a reverse proxy. The **Listen on
+  Audiobookshelf** and **Read on Audiobookshelf** links on an item page were
+  built from that internal address, so they opened somewhere the browser could
+  not follow. Settings → Integrations → Audiobookshelf Sync now has a **Browser
+  URL** field, used for those links and nothing else — sync, library discovery
+  and cleanup keep using the Audiobookshelf URL above it. Leave it blank and
+  nothing changes. It can also be supplied as `ABS_PUBLIC_URL`. Contributed by
+  [@sudo-rpaisley](https://github.com/sudo-rpaisley) in
+  [#80](https://github.com/dgahagan/shelf/pull/80)
+
+## [0.33.1] - 2026-09-05
+
+Adding the same item twice at the same moment could file it twice. Every place
+Shelf adds something after first checking whether you already own it — Photo
+Intake's confirm, *Add* on a video-game or DVD search result, *Add to shelf* on
+a Hardcover result — did the check and the write as two separate steps, with a
+gap in between. Two confirmations of the same photo, a double-clicked *Add*, or
+a retried request could both pass the check and both insert. Titles were the
+exposed case: an ISBN or a barcode already had a database constraint behind it
+that caught the second write, but a title had nothing.
+
+### Fixed
+
+- **A duplicate is now reported instead of filed.** Photo Intake's confirm,
+  *Add* on a video-game or DVD search result, and *Add to shelf* on a Hardcover
+  result each take the database's write lock before they check, so the second
+  request sees the first one's row and reports "already in library" rather than
+  adding a second copy. Nothing changes about a single, ordinary add.
+  ([#83](https://github.com/dgahagan/shelf/issues/83))
+
+Photo Intake still checks once, quickly, *before* it looks a book up online —
+that check only skips the lookup for something you plainly own, and it no
+longer decides anything on its own. Deliberately not done: no uniqueness rule
+was added on title. Two editions of one book — a hardcover and a paperback,
+different ISBNs — are legitimately separate rows, and a rule against them would
+break scanning, manual entry, CSV import and archive import for anyone who owns
+both.
+
+## [0.33.0] - 2026-09-05
+
+Importing a CSV was quietly lying to you in two directions. If a row carried an
+ISBN-10 — or a hyphenated one — for a book already on your shelves, Shelf did
+not recognise it as the same book: the import stopped on a raw database error
+instead of reporting a skip, and in update mode the refresh you asked for never
+ran. Worse, if the import mode was anything other than the two Shelf knows, it
+did not refuse the file — it fell through and *updated*, overwriting metadata on
+every matched row. Both are fixed. This release also publishes a roadmap, so the
+answer to "is this planned?" is a page rather than a guess. Carrying two fixes
+first reported by [@sudo-rpaisley](https://github.com/sudo-rpaisley).
+
+### Added
+
+- **A public roadmap.** [`docs/roadmap.md`](docs/roadmap.md) groups what Shelf
+  is likely to grow next into eight themes, with no dates and no ordering — it
+  is direction, not a schedule. It also lists the last five releases, and says
+  where to suggest something. Feature requests that fit get folded into a group
+  rather than sitting unanswered.
+
+### Fixed
+
+- **CSV import now matches an ISBN in either form.** The duplicate check
+  compared the raw value from the file, so an ISBN-10 row — or a hyphenated
+  one — never matched the ISBN-13 twin already in your library. It failed with
+  a raw `UNIQUE constraint failed` error instead of reporting a skip, and in
+  update mode the refresh never ran. Matching is now on the canonical ISBN-13,
+  and it also finds older rows that still hold an ISBN-10. Contributed by
+  [@sudo-rpaisley](https://github.com/sudo-rpaisley) in
+  [#70](https://github.com/dgahagan/shelf/pull/70)
+- **CSV import refuses an unrecognised mode instead of updating.** Any value
+  other than `skip` or `update` fell through into the update branch, so a
+  typo'd mode overwrote metadata on every matched row. It is now rejected
+  whole, before the file is read, and nothing is written. Contributed by
+  [@sudo-rpaisley](https://github.com/sudo-rpaisley) in
+  [#70](https://github.com/dgahagan/shelf/pull/70)
+
+## [0.32.0] - 2026-09-04
+
+Some books never had an ISBN barcode. Before Bookland EAN, Scholastic and others
+printed an ordinary retail UPC plus a five-digit supplement — and the UPC alone
+names a publisher and a price band, not a title, so scanning one filed whatever
+product happened to share that code. This release teaches Shelf to read those
+barcodes properly: it works out which ISBNs the supplement could mean, checks
+each one, and asks you which book is in your hand when more than one is real
+rather than guessing. A release carrying contributions from
+[@martialartistslife](https://github.com/martialartistslife) and
+[@mattbasta](https://github.com/mattbasta).
+
+### Added
+
+- **Legacy Scholastic price-point book barcodes can be scanned.** Before
+  Bookland EAN, some Scholastic books carried a shared UPC-A identifying a
+  publisher and price band, with the title carried in a five-digit supplement
+  — so the UPC alone cannot name a book. Shelf now generates only the
+  checksum-valid ISBN candidates that barcode implies and verifies each one
+  through the normal metadata cascade. A single verified match files itself; two
+  verified matches stop and ask which book is in your hand, and that choice is
+  remembered for the next scan. A provider being unreachable is never treated
+  as "no such book". Contributed by
+  [@martialartistslife](https://github.com/martialartistslife) in
+  [#88](https://github.com/dgahagan/shelf/pull/88)
+
+### Changed
+
+- **Adding a book by ISBN makes one fewer Open Library request.** The work
+  record backs both the author chain and the description, and each resolver
+  was fetching it separately — the same document twice, a round trip and a
+  rate limiter gate apart. Open Library edition and work requests routinely
+  take a second or more each, so scanning now settles noticeably sooner. The
+  result is unchanged, including a failed work or author request still
+  returning the edition it already had. Contributed by
+  [@mattbasta](https://github.com/mattbasta) in
+  [#85](https://github.com/dgahagan/shelf/pull/85)
+
+### Fixed
+
+- **UPC-A check digits are validated with the standard weighting** (odd
+  positions x3, even positions x1). The weights were reversed, which rejected
+  valid retail barcodes such as `036000291452` and `078073003501`. Nothing in
+  the app called this validator before now, so no scan was affected — but the
+  legacy book barcode support above is its first consumer, and it needs the
+  answer to be right. Contributed by
+  [@martialartistslife](https://github.com/martialartistslife) in
+  [#82](https://github.com/dgahagan/shelf/pull/82)
+
+## [0.31.0] - 2026-09-03
+
+Photo Intake could read a DVD or a game off a shelf photo, but it could not look
+one up. Setting a row's type to DVD or Video Game did exactly one thing — it kept
+the row out of the book catalogue — so the item landed carrying its title and
+nothing else: no year, no description, no cover. This release gives those two
+types the lookup the book rows have always had, and it makes the Done panel say
+which of the two ways a row can come back empty actually happened.
+
+The lookup runs at the moment you confirm, so rows you confirmed before this
+release keep the fields they were filed with — nothing is rewritten in place.
+Delete and re-scan the ones you want filled in.
+
+### Added
+
+- **Photo Intake looks up discs and games.** Setting a row to DVD or Video Game
+  used to do one thing: keep it out of the book catalogue. The row was filed
+  under its title with no year, no description and no cover, and the limitation
+  was stated outright in v0.15.0. It is now lifted for those two types — the row
+  is looked up on TMDb or IGDB when you confirm, and a hit fills in the year,
+  description, series and cover art. CDs are unchanged; there is still no music
+  metadata provider.
+- **A declined lookup says so.** The Done panel could previously only say a row
+  found no metadata, which conflated *we asked and refused the answer* with
+  *there was nobody to ask*. Those are now separate, and a declined row points
+  you at the item page to fix it.
+
+### Changed
+
+- **The disc and game title match is exact, on purpose.** A spine has to match
+  the catalogue once case, punctuation and accents are set aside — `MAD MAX FURY
+  ROAD` matches *Mad Max: Fury Road* — but a near miss is refused rather than
+  guessed at, so a wrong film is never filed against your row. Measured against
+  31 retail titles, the looser guard the book path uses would have accepted
+  *Dune* for *Dune: Part Two*. Titles where the spine drops a franchise name
+  (*No Way Home*) are declined and marked rather than matched.
+
+## [0.30.0] - 2026-09-03
+
+Shelf kept the key that signs your login sessions in the database, in plain
+text, in a row anyone could read. Every database backup carried it, so a backup
+file was not just a copy of your collection — it was enough to mint a valid
+session token for any account, including the admin. Changing your password did
+not help. This release takes that key out of the database, and then takes the
+other secrets out of the logs, because the logs are written to the database too
+and ride along in the same backup.
+
+There is nothing to do and nothing to set. On the first start after upgrading,
+the existing key is **moved** to a file — the value is preserved, so nobody is
+signed out and every stored credential stays readable. See
+[GHSA-8rv4-m3cc-j9v3](https://github.com/dgahagan/shelf/security/advisories/GHSA-8rv4-m3cc-j9v3),
+published with this release.
+
+### Security
+
+- **The JWT signing key is no longer stored in the database.** It is now a
+  `0600` file in the data directory (`data/signing.key`), resolved the same way
+  the credential-encryption key already was: `SECRET_KEY` if set, else the key
+  file, else generated. An existing key is moved there on the first start after
+  upgrading rather than regenerated, so nobody is signed out and stored
+  credentials stay readable. If the data directory cannot be written, Shelf
+  keeps using the key exactly as before and logs a warning naming the reason —
+  the hardening is skipped, never the login. The database now holds no key
+  material at all, so a database backup is ciphertext and password hashes with
+  nothing in it that opens either.
+
+- **A credential that will not decrypt now says so instead of being sent as if
+  it were the credential.** A stored API key that does not open under the
+  current encryption key logs one warning naming the setting, and reads as
+  unset. It previously returned the raw ciphertext, which went to the provider
+  as though it were your key — so a replaced or lost `encryption.key` looked
+  exactly like a revoked API key, with nothing in the log to search for. If you
+  see this, re-enter the affected credential in Settings.
+
+- **A failed notification no longer logs the webhook URL.** Only the target's
+  scheme and host are logged, because an ntfy topic URL and a Discord webhook
+  both carry their secret in the URL *path* — and those log lines are written
+  to the database and ride along in every backup.
+
+- **Outbound request URLs are no longer written to the container log at all.**
+  The HTTP client logged the whole URL of every request it completed, which put
+  an authenticated ntfy topic — username, password and topic path — into the log
+  on every *successful* notification, undoing the redaction on the line above
+  it. Any URL that still reaches a log now has its userinfo stripped as well as
+  its credential-named query values blanked. Container logs are shareable again.
+
+- **`make check-secrets` now scans Markdown files.** Documentation was excluded
+  from the scan, and it is a more likely place for a pasted key to land than
+  source is.
+
+### Changed
+
+- **`docker logs` no longer carries a line per outbound request.** This is the
+  cost of the leak fix above and it is deliberate: the per-request trace and the
+  credential were the same line, and no filter can know which segment of a
+  provider's URL path is the secret. Retries are still logged at debug level.
+
+**Deliberately not in this release:** neither key is rotated, and there is no
+command to rotate one — the relocation preserves the existing value on purpose,
+because regenerating it would sign everyone out and orphan every stored
+credential. Restoring a backup taken before 0.30 puts the old row back; the
+next start removes it again, so a restore needs no special handling.
+
+## [0.29.0] - 2026-09-02
+
+Scanning an Italian book gave you the least of what is known about it. Open
+Library's coverage of Italian publishing is thin, so a 978-88 barcode often
+came back with a bare title and no publisher, no year and no author — or with
+no match at all — even though the book is fully catalogued in Italy's own
+national library network. This release sends those ISBNs there first, the same
+way German ISBNs have gone to the Deutsche Nationalbibliothek since 0.11.
+
+Nothing changes for books already in your collection. There is no migration and
+no setting to turn on; the new source runs the next time you scan an Italian
+ISBN.
+
+### Added
+
+- **SBN as a national metadata source for Italian ISBNs.** An ISBN in the
+  978-88 or 979-12 registration group is now looked up in the Servizio
+  Bibliotecario Nazionale, the Italian national library network run by ICCU,
+  before the general cascade. Title and subtitle are split out of SBN's single
+  ISBD title string, the author is stored in display order, and publisher, year
+  and language come from the record. No key is needed and there is nothing to
+  configure. The scan card and the item page both read `via sbn`, so you can
+  see where a row came from. If SBN has no record, the scan falls through to
+  Open Library and Google Books exactly as before. Requested in
+  [#55](https://github.com/dgahagan/shelf/issues/55) by
+  [@alibiss](https://github.com/alibiss), who also identified the endpoint and
+  supplied a sample payload.
+- **Only a record carrying the exact ISBN you scanned is used.** SBN often
+  returns several related records for one query — other editions, other
+  printings. Shelf takes only a record whose own ISBN matches the one you
+  scanned, preferring one that names an author; anything else falls through to
+  Open Library rather than filing a different edition's publisher and year.
+- **A book SBN records in two languages is left without a language, not
+  guessed.** A bilingual edition — a Greek text with an Italian translation,
+  say — carries two language codes, and Shelf files neither rather than
+  choosing one for you. You can set it yourself on the item page.
+
+### Fixed
+
+- A copyright glyph on an imprint is no longer kept as part of the publisher
+  name: `Roma : 66thand2nd, ©2019` stored the publisher as `66thand2nd, ©`.
+  Copyright-marked imprints are routine in Italian records, so this surfaced
+  with the SBN source above.
+
+### Known limitations
+
+- **SBN writes an elided Italian article with a space after it**, and Shelf
+  stores the title exactly as catalogued — so a book prints *L'enigma del
+  faraone* on its cover but files as `L' enigma del faraone`, and searching
+  Browse for `L'enigma` finds nothing. Searching for any later word
+  (`enigma del faraone`) finds it. This is SBN's cataloguing convention rather
+  than a parsing error, and normalising it is a change to the shared
+  bibliographic normaliser that will come with its own release.
+- **Classical authors arrive in SBN's Latin authority form** — `Homerus` for
+  Omero, `Thucydides` for Tucidide. This is the same trade the Deutsche
+  Nationalbibliothek source makes: the authority heading is the only field that
+  reliably holds the author rather than a translator or an illustrator.
+- **979-12 books still get no cover from the Amazon fallback**, which is
+  restricted to 978- ISBNs. Open Library covers them where it has them.
+
+## [0.28.0] - 2026-09-02
+
+Until this release, every way of getting an item into Shelf checked its values
+differently, or not at all. An ISBN whose check digit doesn't add up was
+refused by the scanner but accepted by the edit form, by CSV import, by the
+store queue and by a sync — so a collection filled up with ISBNs that no
+lookup would ever match and no duplicate check would ever catch, and the only
+sign was a book that wouldn't find its own cover. This release puts a single
+value stage in front of every write. The same ISBN is now refused the same way
+everywhere, with the same message, and the item edit form gets its first error
+banner (#54).
+
+The canonical ISBN rule at the centre of it is taken verbatim from
+[@sudo-rpaisley](https://github.com/sudo-rpaisley)'s work in
+[#79](https://github.com/dgahagan/shelf/pull/79).
+
+Nothing rewrites your existing data. There is no migration: a row that already
+holds an invalid ISBN keeps it, and Browse, search and the lookup scan modes
+still find it. You will meet the new rule the next time you edit that row.
+
+### Added
+
+- **The item edit form tells you what was wrong.** A refused save shows a
+  banner at the top of the form naming the problem — an ISBN whose check digit
+  doesn't add up, a media type, location, game platform or reading status
+  Shelf doesn't recognise, or a non-number in a number field — and **nothing
+  else on the form is saved**. Until now the edit form had no error surface at
+  all.
+- **A Store Mode scan that can't be read is kept, not dropped.** A barcode
+  queued offline whose check digit fails is saved as a wishlist row titled
+  `Unreadable barcode — <code>` with no ISBN, logged like any other scan, and
+  the flush reports how many couldn't be read. Store Mode's whole promise is
+  that a queued scan is never lost, and a misread digit is exactly the case
+  where you are standing in a shop with no other record of it. Rescanning the
+  same bad barcode matches the row it already made instead of queueing a
+  second one.
+
+### Changed
+
+- **Every path that writes an item now checks its values, once.** The ISBN
+  check digit, the media type, the location, the game platform, the reading
+  status and the owned flag are validated in the write layer itself, on add,
+  edit, bulk edit, merge, CSV import, the store queue and the scan card's
+  move / inventory modes — so an ISBN whose digit doesn't add up is refused
+  everywhere with the same message, entering an ISBN-10 stores the ISBN-13
+  and ISBN-10 pair, and changing an ISBN in Edit rewrites its ISBN-10 instead
+  of leaving the old one behind (#54). A typed ISBN in Add mode is checked
+  *before* the lookup, so a mistyped digit costs no network call; the lookup
+  modes stay lenient on purpose, so an old row with a bad ISBN is still found
+  when you scan it. Contributed by
+  [@sudo-rpaisley](https://github.com/sudo-rpaisley) in
+  [#79](https://github.com/dgahagan/shelf/pull/79).
+- **Audiobookshelf ASINs are no longer stored as ISBNs.** An ABS item with
+  only an ASIN syncs without an ISBN, and a row that carried an ASIN in its
+  ISBN field from an earlier sync is cleared on the next sync (counted under
+  Updated) — you do not have to hunt those rows down by hand any more. A
+  provider ISBN that fails its check digit — from ABS, Hardcover, or a title
+  search — is dropped with a line in the log rather than refusing the whole
+  item.
+- **Portable archive import keeps a row whose ISBN is invalid.** The row is
+  imported without the ISBN and named in the import report; a row with an
+  unknown media type or platform is refused and named the same way. The rest
+  of the archive still applies.
+- **CSV import lists the rows it rejected, not just how many.** The panel
+  reported `Errors: 37` and stopped there, which told you nothing you could
+  act on. It now lists the offending rows under the summary — `Row N:` and
+  the reason — up to twenty of them, and always reports the true total. This
+  matters more now that the value stage refuses rows a long Goodreads or
+  StoryGraph export used to import silently.
+- **A refused merge names the record it rejected.** Merging several records
+  stops on the first one whose values fail, and it used to report only the bad
+  value, leaving you to work out which item carried it. The message now gives
+  that record's title and id.
+
+### Fixed
+
+- **Deleting a location no longer breaks a form that was already open.** Manual
+  add, bulk edit and the scan card used to answer with a server error when the
+  location you picked had been deleted in the meantime. They now refuse the
+  save with a message that says so.
+
+## [0.27.2] - 2026-09-01
+
+A fix release for German books. Every 978-3 ISBN is looked up at the Deutsche
+Nationalbibliothek (DNB) first, and two habits of its records left marks on
+the item: invisible control characters around a title's leading article and a
+name's particle, and the same author listed twice on a translation. Both are
+fixed. Underneath, the DNB parser now runs on a shared bibliographic
+normaliser so the next national provider reuses it — every DNB field parses
+to the same value as before.
+
+### Changed
+
+- **The DNB parser runs on a shared bibliographic normaliser.** Author-name
+  inversion, imprint and year parsing, and the MARC → ISO 639-1 language
+  mapping now live in one module that any national ISBN provider can call,
+  instead of being copied per provider. Nothing a user sees changes: the
+  four DNB fixture records parse to identical values, and the metadata
+  order (DNB → Open Library → Hardcover → Google Books) is untouched.
+
+### Fixed
+
+- **German titles and author names no longer carry invisible control
+  characters.** DNB wraps a title's article and a name's particle in MARC
+  non-sorting markers (U+0098 / U+009C), so "Der Kontrabaß" and "Johann
+  Wolfgang von Goethe" arrived with control characters that rendered as
+  boxes on the scan card and the item page and made a search for the full
+  title return nothing. New DNB lookups now store clean text. Rows stored
+  before this release are not rewritten — no migration touches your data —
+  so a title that shows boxes today is fixed by retyping it in Edit.
+- **A translated book no longer lists its author twice.** When a DNB record
+  carries a name/title added entry for the original work — a translation's
+  700 `$t` — the same person was appended again ("Milan Kundera, Milan
+  Kundera"). Those entries are skipped, and the remaining names are
+  de-duplicated with the same author matching the rest of the app uses, so
+  a genuine second author still survives.
+
+## [0.27.1] - 2026-09-01
+
+A tidy-up of the item page. Since 0.26.0 every scanned album lands on a page
+that was built for books, so a CD offered a **Retry ISBN** button, a **Push to
+Hardcover** button and a **Reading Status** row it could do nothing with — and
+a video game page had always done the same. Those controls now show only where
+they can act.
+
+### Changed
+
+- **The item page shows only the controls its item can use.** A CD, DVD or
+  video game page used to offer **Retry ISBN**, **Push to Hardcover** and a
+  **Reading Status** row, all inert: the first two need an ISBN and Hardcover
+  is a books service, and an album is not read. Retry ISBN now appears only
+  when the item has an ISBN; Push to Hardcover only on a book-family item
+  with an ISBN (or one already linked to Hardcover); and Reading Status only
+  on books, kids' books, audiobooks, ebooks and comics — or while a status is
+  still set on anything else, so a stale one can be cleared. Adding an ISBN
+  in Edit brings the first two back.
+
+## [0.27.0] - 2026-09-01
+
+A community audit release. [@sudo-rpaisley](https://github.com/sudo-rpaisley)
+opened 23 pull requests in a single day (2026-08-31), then two more, against one
+coherent theme:
+**a write that cannot be honoured should say so, not quietly do something
+else.** Endpoints that coerced a bad value into a plausible default — an unknown
+share scope into `wishlist`, an unknown import mode into `skip`, an invalid role
+into `viewer`, an unsupported sync interval into `off` — now reject it and leave
+what was there alone. Twenty-one of those pull requests ship here; the remaining
+four are still under review and will follow. Alongside them, a hardware
+recognition gap left open in 0.26.1 is closed: a brand-named accessory that
+names no platform is filed as hardware and asks no provider.
+
+### Fixed
+
+- **Share-link mutations reject what they cannot honour.** An unknown share scope
+  was silently converted to `wishlist`, so a malformed or forged request could
+  succeed while creating a different kind of link than it asked for; revoking a
+  link that does not exist redirected as though it had worked. Both are now
+  rejected, the second with a 404. Contributed by
+  [@sudo-rpaisley](https://github.com/sudo-rpaisley) in
+  [#58](https://github.com/dgahagan/shelf/pull/58).
+- **Valuation credential tests validate their request body.** Malformed ISBNdb
+  and TMDb test payloads and non-string keys are refused, so a bad supplied value
+  can no longer fall through and silently test the *saved* credentials instead.
+  Blank and missing keys still fall back to the configured ones, as before.
+  Contributed by [@sudo-rpaisley](https://github.com/sudo-rpaisley) in
+  [#63](https://github.com/dgahagan/shelf/pull/63).
+- **Archive import rejects an unknown mode instead of coercing it to `skip`.**
+  The same check now covers legacy import, preview planning and staged apply, and
+  an invalid apply mode is refused before any staged work is touched. Contributed
+  by [@sudo-rpaisley](https://github.com/sudo-rpaisley) in
+  [#65](https://github.com/dgahagan/shelf/pull/65).
+- **Removing a tag is truthful about what it removed.** Removing a tag from an
+  item that no longer exists, or a tag that was never attached to it, returned
+  success; orphan tags were then garbage-collected on the strength of a removal
+  that never happened. Both cases now return 404, unrelated associations survive
+  a stale or forged request, and the cleanup runs only after a real removal.
+  Contributed by [@sudo-rpaisley](https://github.com/sudo-rpaisley) in
+  [#68](https://github.com/dgahagan/shelf/pull/68).
+- **A failed scan request is reported as a failure.** Recent-scan HTML, Inventory
+  Missing and camera scans all consumed the response body without checking the
+  status first, so an HTTP error page could render as if it were content. All
+  three now check the status and surface a concise error. Contributed by
+  [@sudo-rpaisley](https://github.com/sudo-rpaisley) in
+  [#69](https://github.com/dgahagan/shelf/pull/69).
+- **The valuation report's Print button works again.** Its action was an inline
+  `onclick="window.print()"`, which Shelf's own `script-src 'self'` policy blocks
+  — the report rendered correctly and its main output control was inert. The
+  handler moved to a vendored script. Unit coverage proved the report's HTML and
+  totals all along; only a browser-level click could expose this. Contributed by
+  [@sudo-rpaisley](https://github.com/sudo-rpaisley) in
+  [#78](https://github.com/dgahagan/shelf/pull/78).
+- **Creating a user rejects an unknown role.** The create-user endpoint treated
+  any unrecognised role as `viewer`, so a malformed or forged request could
+  succeed while creating an account with permissions other than the ones asked
+  for. It now refuses, matching the role-*update* endpoint, which had rejected
+  the same input all along. Contributed by
+  [@sudo-rpaisley](https://github.com/sudo-rpaisley) in
+  [#57](https://github.com/dgahagan/shelf/pull/57).
+- **Lending settings reject an unknown notification format.** An unrecognised
+  `notify_format` was coerced to `ntfy`, and the rest of the lending settings in
+  the same request were saved along with it — so one malformed field could change
+  settings the sender never named. Contributed by
+  [@sudo-rpaisley](https://github.com/sudo-rpaisley) in
+  [#56](https://github.com/dgahagan/shelf/pull/56).
+- **Settings integration tests validate their request body.** Non-object
+  notification-test payloads and non-string URL, format and Google Books key
+  values are refused before any outbound request is made. The masked-field
+  fallback to configured credentials is unchanged. Contributed by
+  [@sudo-rpaisley](https://github.com/sudo-rpaisley) in
+  [#64](https://github.com/dgahagan/shelf/pull/64).
+- **Login no longer leaks whether a username exists through timing.** An unknown
+  username generated a fresh bcrypt hash per request to pad the response; that
+  work is now constant and does not hash per attempt. First-admin setup is also
+  serialised, re-checking the zero-user invariant inside the write transaction,
+  and a duplicate-user integrity error is handled without swallowing unrelated
+  database failures. Contributed by
+  [@sudo-rpaisley](https://github.com/sudo-rpaisley) in
+  [#71](https://github.com/dgahagan/shelf/pull/71).
+- **A brand-named accessory is hardware, whatever platform it omits.** `Logitech
+  G Pro X Gaming Headset` or `Sony PULSE 3D Wireless Headset` used to be searched
+  on The Movie Database, and a `CD-ROM`- or `[DVD]`-tagged one reached IGDB or
+  claimed a format detection it had no grounds for. The shortest search for a
+  long brand name — `Logitech` on its own — is exactly the one-word query that
+  comes back with someone else's film. Recognition now needs a hardware word
+  together with a platform name *or* a known peripheral brand; the film titles
+  that share a hardware word (`Console Wars`, `Air Traffic Controller`) are
+  unaffected, and a listing whose brand is not known is filed as before.
+- **Adding a game or film from a provider search rejects bad form values.** An
+  unknown game platform was silently cleared before the IGDB request went out; a
+  blank film title or a malformed publish year was quietly dropped. All three are
+  now refused before any provider request is made or anything is stored.
+  Contributed by [@sudo-rpaisley](https://github.com/sudo-rpaisley) in
+  [#59](https://github.com/dgahagan/shelf/pull/59).
+- **Manual add rejects a malformed publish year and an unknown game platform.** A
+  non-numeric year used to become a server error at insert time, and an
+  unrecognised platform was stored as no platform at all. Both are refused and
+  no item is created. Valid manual adds are unchanged. Contributed by
+  [@sudo-rpaisley](https://github.com/sudo-rpaisley) in
+  [#60](https://github.com/dgahagan/shelf/pull/60).
+- **An unknown Hardcover sync interval no longer switches the schedule off.**
+  Anything other than `off`, `daily` or `weekly` was saved as `off`, so a
+  malformed or stale request could silently disable a working schedule. It is
+  now refused and the stored schedule is kept. Contributed by
+  [@sudo-rpaisley](https://github.com/sudo-rpaisley) in
+  [#61](https://github.com/dgahagan/shelf/pull/61).
+- **Audiobookshelf settings reject what they cannot honour.** A malformed
+  connection-test URL or token is refused before the saved-credential fallback
+  runs, a malformed excluded-library selection is refused instead of being
+  coerced, and an unsupported sync interval no longer silently disables the
+  sync. Contributed by [@sudo-rpaisley](https://github.com/sudo-rpaisley) in
+  [#62](https://github.com/dgahagan/shelf/pull/62).
+- **Location administration says when it did not do what you asked.** A blank or
+  duplicate location name is refused with a message in Settings, renaming a
+  location that no longer exists reports that rather than a database error, and
+  deleting one that does not exist reports failure instead of success. Only
+  fixed, known messages are rendered. Contributed by
+  [@sudo-rpaisley](https://github.com/sudo-rpaisley) in
+  [#67](https://github.com/dgahagan/shelf/pull/67).
+- **Check-in is truthful, and a loan closes once.** Checking in a loan that does
+  not exist returns 404 and one already returned returns 409, the close is
+  conditional so two concurrent check-ins cannot both succeed, and a due date
+  beyond the supported range is refused rather than raising a server error.
+  Contributed by [@sudo-rpaisley](https://github.com/sudo-rpaisley) in
+  [#72](https://github.com/dgahagan/shelf/pull/72).
+- **Audiobookshelf sync survives collisions and timeouts, and stops rewriting
+  what has not changed.** An ISBN you had already catalogued by hand in the same
+  format is adopted rather than attempted as a duplicate insert; a duplicate
+  same-format ISBN inside Audiobookshelf is skipped with a reason instead of
+  aborting the run; one library timing out no longer stops the healthy ones;
+  unchanged items are not rewritten and their covers are not downloaded again;
+  and every skipped item says why. Contributed by
+  [@sudo-rpaisley](https://github.com/sudo-rpaisley) in
+  [#73](https://github.com/dgahagan/shelf/pull/73).
+- **Browse's bulk "move to location" Apply works again, and the shortcut help
+  closes on Escape.** The Apply button's expression never evaluated under
+  Alpine's CSP build, and the keyboard-shortcut help modal's inline handlers were
+  inert under Shelf's own policy. Both moved to vendored scripts, and a browser
+  test now asserts the journey raises no CSP violation. Contributed by
+  [@sudo-rpaisley](https://github.com/sudo-rpaisley) in
+  [#75](https://github.com/dgahagan/shelf/pull/75).
+- **Photo Intake refuses a location that no longer exists.** A stale location id
+  used to surface as a foreign-key failure only after the metadata lookups had
+  already been made; it is now rejected before any settings read, provider
+  request or insert, with a stable message. Leaving the location unset behaves
+  as before. Contributed by
+  [@sudo-rpaisley](https://github.com/sudo-rpaisley) in
+  [#76](https://github.com/dgahagan/shelf/pull/76).
+
+### Changed
+
+- **The Viewer role's UI now matches what its endpoints allow.** Item-detail
+  lending, check-in and Push-to-Hardcover, the Editor-only Series mutations, and
+  Discover's wishlist controls and Settings link were all rendered for Viewer
+  accounts whose requests the backend would refuse. They are hidden now; loan
+  context, read-only Series, Discover search and Viewer-permitted reading status
+  are all preserved. Contributed by
+  [@sudo-rpaisley](https://github.com/sudo-rpaisley) in
+  [#77](https://github.com/dgahagan/shelf/pull/77).
+- **A pull-request build no longer fails on a stale test-count badge.** Every PR
+  that adds a test made the README badge stale, and a PR that restamped it
+  collided with every other restamping PR on the same line, so a batch of
+  otherwise-disjoint pull requests became mutually unmergeable. The check now
+  reports and passes on pull-request builds; on `main` and locally it still
+  fails, so the badge cannot drift anywhere it can actually be fixed.
+
+### Added
+
+- **A browser-level product journey for the Stats dashboard**, covering the
+  headline KPIs, all four charts, the media-type and location breakdowns,
+  drill-down back to a real item, and a clean console. Test-only. Contributed by
+  [@sudo-rpaisley](https://github.com/sudo-rpaisley) in
+  [#74](https://github.com/dgahagan/shelf/pull/74).
+- **The Audiobookshelf sync summary in Settings shows an Unchanged count**, so a
+  repeat sync that touched nothing reads as such rather than as a run that
+  updated everything. Contributed by
+  [@sudo-rpaisley](https://github.com/sudo-rpaisley) in
+  [#73](https://github.com/dgahagan/shelf/pull/73).
+
+
+## [0.26.1] - 2026-09-01
+
+A scanned console accessory was decided by whatever disc word its retail title
+happened to carry. `PlayStation 5 Wireless Headset DVD` was filed as a film and
+searched on TMDb; `… CD` was filed as a CD; and `… CD-ROM` was filed as a
+**video game and looked up on IGDB** — a real provider request for a headset.
+The hardware check was there and had been since 0.25.1, but it guarded only the
+arm it was written beside, so every arm added below it inherited a hole rather
+than the guard.
+
+### Fixed
+
+- **A console accessory is still hardware, whatever disc word is on the box.**
+  The hardware check now runs before any format, medium or audio wording is
+  read, so `PlayStation 5 Wireless Headset DVD`, `… CD` and `… CD-ROM` are each
+  filed under the title as read with no lookup attempted, exactly as
+  `PlayStation 5 Console` has been since 0.25.1. The `CD-ROM` case was the one
+  that mattered: it reached IGDB and could store another game's title, year and
+  cover on an accessory.
+- **The check is now the first thing tier 2 does**, so an arm added below it
+  cannot re-open the gap. `Console Wars [DVD]`, `Air Traffic Controller
+  Blu-ray` and `The Controller 2019 DVD` are films and are still detected and
+  searched normally — the recognition needs a hardware word *and* a platform
+  name, and that has not changed.
+
+### Changed
+
+- **A `DVD`-tagged hardware title now reports itself as hardware.** It used to
+  say *"Title carries a 'DVD' format tag"* and file the item as a disc
+  detection; it now says it names console hardware. This is deliberate: a
+  format tag on a hardware listing is a shelf-listing artifact, not evidence
+  that the object is media, so the disc reading was never earned. What Shelf
+  stores is unchanged — the item is still filed as DVD / Blu-ray, since Shelf
+  has no type for hardware — but the card no longer claims a detection it did
+  not make.
+
+A hardware listing that names **no** platform, such as `Sony PULSE 3D Wireless
+Headset`, is still not recognised and is still searched. That remains accepted
+rather than overlooked: widening the check to catch it would catch the three
+film titles above with it, and the shortened title here stops at three words,
+which is not the kind of query that returns a confident wrong film. One
+sub-case takes a different route: the same unrecognised listing tagged `CD-ROM`
+is read as software, filed as a video game and looked up on IGDB rather than
+climbing the film ladder — so the three-word argument above does not cover it.
+If a wrong match on such a title is ever reported, by either route, that is the
+trigger to look again.
+
 ## [0.26.0] - 2026-08-30
 
 A music CD scanned on **Auto** was filed as a DVD and then searched against a
@@ -2212,6 +2883,18 @@ First public release.
   protection, encrypted credential storage, optional passphrase-encrypted
   backups, HTTPS out of the box, non-root container
 
+[0.34.0]: https://github.com/dgahagan/shelf/releases/tag/v0.34.0
+[0.33.1]: https://github.com/dgahagan/shelf/releases/tag/v0.33.1
+[0.33.0]: https://github.com/dgahagan/shelf/releases/tag/v0.33.0
+[0.32.0]: https://github.com/dgahagan/shelf/releases/tag/v0.32.0
+[0.31.0]: https://github.com/dgahagan/shelf/releases/tag/v0.31.0
+[0.30.0]: https://github.com/dgahagan/shelf/releases/tag/v0.30.0
+[0.29.0]: https://github.com/dgahagan/shelf/releases/tag/v0.29.0
+[0.28.0]: https://github.com/dgahagan/shelf/releases/tag/v0.28.0
+[0.27.2]: https://github.com/dgahagan/shelf/releases/tag/v0.27.2
+[0.27.1]: https://github.com/dgahagan/shelf/releases/tag/v0.27.1
+[0.27.0]: https://github.com/dgahagan/shelf/releases/tag/v0.27.0
+[0.26.1]: https://github.com/dgahagan/shelf/releases/tag/v0.26.1
 [0.26.0]: https://github.com/dgahagan/shelf/releases/tag/v0.26.0
 [0.25.1]: https://github.com/dgahagan/shelf/releases/tag/v0.25.1
 [0.25.0]: https://github.com/dgahagan/shelf/releases/tag/v0.25.0

@@ -46,9 +46,15 @@ function scanPage() {
 
         loadRecentScans(m) {
             fetch('/api/recent-scans?mode=' + encodeURIComponent(m))
-                .then(function(r) { return r.text(); })
+                .then(function(r) {
+                    if (!r.ok) throw new Error('HTTP ' + r.status);
+                    return r.text();
+                })
                 .then(function(html) {
                     document.getElementById('scan-results').innerHTML = html;
+                })
+                .catch(function() {
+                    showToast('Could not load recent scans', 'error');
                 });
         },
 
@@ -99,15 +105,51 @@ function scanPage() {
                     }
                 });
             }
+
+            // A legacy ambiguity is submitted by a nested HTMX form rather
+            // than by onScan's fetch. The replacement card carries the item
+            // link only after the user confirms it, so account for that
+            // response here before the inventory missing check runs.
+            document.body.addEventListener('htmx:afterSwap', function(e) {
+                var target = e.detail && e.detail.target;
+                var card = target && target.matches &&
+                    target.matches('.scan-result[data-scan-inventory-confirmed]')
+                    ? target
+                    : document.querySelector('.scan-result[data-scan-inventory-confirmed]');
+                if (!card) return;
+                self.recordInventoryItem(card);
+                card.removeAttribute('data-scan-inventory-confirmed');
+            });
+        },
+
+        recordInventoryItem(root) {
+            if (this.mode !== 'inventory' || !root) return;
+            var linkEl = root.querySelector('a[href^="/item/"]');
+            if (!linkEl) return;
+            var match = linkEl.getAttribute('href').match(/\/item\/(\d+)/);
+            if (!match) return;
+            var itemId = parseInt(match[1]);
+            if (this.inventoryScannedIds.indexOf(itemId) === -1) {
+                this.inventoryScannedIds.push(itemId);
+            }
         },
 
         async showMissing() {
             var form = new FormData();
             form.set('location_id', this.location);
             form.set('scanned_ids', this.inventoryScannedIds.join(','));
-            var resp = await fetch('/api/inventory/missing', {method: 'POST', headers: {'X-CSRF-Token': window.csrfToken()}, body: form});
-            var html = await resp.text();
-            document.getElementById('inventory-missing').innerHTML = html;
+            try {
+                var resp = await fetch('/api/inventory/missing', {
+                    method: 'POST',
+                    headers: {'X-CSRF-Token': window.csrfToken()},
+                    body: form
+                });
+                if (!resp.ok) throw new Error('HTTP ' + resp.status);
+                var html = await resp.text();
+                document.getElementById('inventory-missing').innerHTML = html;
+            } catch (e) {
+                showToast('Could not check missing items', 'error');
+            }
         },
 
         async toggleCamera() {
@@ -218,6 +260,7 @@ function scanPage() {
             if (this.mode === 'lend') formData.set('borrower_id', this.borrowerId);
             try {
                 var resp = await fetch('/api/scan', { method: 'POST', headers: { 'X-CSRF-Token': window.csrfToken() }, body: formData });
+                if (!resp.ok) throw new Error('HTTP ' + resp.status);
                 var html = await resp.text();
 
                 // Insert result into the scan results list
@@ -233,6 +276,22 @@ function scanPage() {
                 tmp.innerHTML = html;
                 var outcome = scanCardOutcome(tmp.querySelector('.scan-result'));
 
+                // An ambiguity requires the user's interaction with the card
+                // below the camera. Stop scanning so another frame cannot
+                // enqueue a second unresolved choice.
+                if (outcome && outcome.status === 'legacy_ambiguous') {
+                    if (this.scanner) {
+                        try { await this.scanner.stop(); } catch (e) {}
+                        this.scanner = false;
+                    }
+                    this.cameraActive = false;
+                    this.scanPaused = false;
+                    this.scanLoading = false;
+                    this.scanResult = false;
+                    showToast('Choose the matching book below', 'warning');
+                    return;
+                }
+
                 this.scanResult = {
                     ok: outcome.ok,
                     warn: outcome.warn,
@@ -244,15 +303,9 @@ function scanPage() {
                 };
 
                 // Track item IDs for inventory mode
-                if (this.mode === 'inventory') {
-                    var linkEl = tmp.querySelector('a[href^="/item/"]');
-                    if (linkEl) {
-                        var match = linkEl.getAttribute('href').match(/\/item\/(\d+)/);
-                        if (match) this.inventoryScannedIds.push(parseInt(match[1]));
-                    }
-                }
+                this.recordInventoryItem(tmp);
             } catch (err) {
-                this.scanResult = { ok: false, warn: false, label: 'error', title: 'Network error', isbn: code };
+                this.scanResult = { ok: false, warn: false, label: 'error', title: 'Scan failed', isbn: code };
             }
             this.scanLoading = false;
         }

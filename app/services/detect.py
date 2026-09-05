@@ -13,7 +13,10 @@ actually has:
 2. Title markers, in four arms: platform names (PS5, Nintendo Switch,
    PC CD, ...) say video_game; retail format tags ([DVD], Blu-ray, ...) say
    dvd; software-medium tags (CD-ROM) say video_game; audio tags (Audio CD,
-   Compact Disc, CD) say cd. The order — platform, format, medium, audio —
+   Compact Disc, CD) say cd. All four run only when `_is_hardware_title` is
+   false: this tier **declines to decide a hardware title at all**, because a
+   format, medium or audio word on a hardware listing is a shelf-listing
+   artifact rather than evidence about the object (`G68`). The order — platform, format, medium, audio —
    is load-bearing at every seam and measured at each. Platform before
    format so a game whose title happens to carry a format word in its own
    subtitle (a DVD-ROM PC game) still resolves as a game. Format before
@@ -27,8 +30,10 @@ actually has:
    and no category *naming a platform* may decide video_game. Both admitted
    categories name the medium itself.
 4. No signal, in three parts. **First**, recognised hardware: a title
-   carrying a hardware word *and* a platform marker (`_is_hardware_title`)
-   is a console, controller or headset. That is a weaker answer than a
+   carrying a hardware word *and* a platform marker or a hardware brand
+   (`_is_hardware_title`) is a console, controller or headset. Because tier 2 declines such a title
+   outright, this arm is the only thing that decides one — unless tier 3's
+   medium-naming category fires, which still outranks it. That is a weaker answer than a
    detection and a stronger one than nothing — it says what the item is
    *not*, which is enough for a caller to decline a film search it would
    otherwise lose (`signal="hardware"`). It sits above the hint branch
@@ -118,7 +123,9 @@ _BOOK_FAMILY_HINTS = frozenset({"book", "kids_book", "audiobook", "ebook", "comi
 # lands on the tier-4 fallback (dvd, honestly labelled) rather than on
 # video_game — Shelf has no hardware media type, so "not a game" is as far
 # as detection can honestly go. "The Legend of Zelda ... - Nintendo Switch"
-# has no hardware word, so its platform marker fires normally.
+# has no hardware word, so its platform marker fires normally. The same
+# predicate also reads `_HARDWARE_BRANDS` below, so a headset that names its
+# maker rather than its platform is recognised the same way.
 _PLATFORM_MARKERS = [
     "Nintendo Switch", "Wii U", "Nintendo 3DS",
     "PlayStation 5", "PlayStation 4", "PlayStation 3", "PlayStation",
@@ -129,31 +136,57 @@ _PLATFORM_MARKERS = [
 
 _HARDWARE_TERMS = ["console", "controller", "headset"]
 
+# Peripheral makers. A *brand* table, deliberately not named `*_MARKERS`: the
+# suite sweeps every `*_MARKERS` attribute as a tier-2 deciding table, and a
+# brand decides nothing on its own — it is only ever the second half of the
+# conjunction in `_is_hardware_title`. `_contains_marker` is case-insensitive,
+# bounds the match on non-alphanumerics and `re.escape`s the token, so the
+# space in "Turtle Beach" and the leading digit in "8BitDo" need no special
+# case. `Sony` is the one film-industry name here; see the predicate's
+# docstring for why it stays.
+_HARDWARE_BRANDS = [
+    "Logitech", "SteelSeries", "Corsair", "Thrustmaster", "Turtle Beach",
+    "HyperX", "Razer", "Astro", "Nacon", "PowerA", "Scuf", "8BitDo", "Sony",
+]
+
 
 def _is_hardware_title(title: str) -> bool:
-    """A hardware word *conjoined with* a platform marker.
+    """A hardware word *conjoined with* a platform marker or a hardware brand.
 
     A hardware word alone is not enough — `Console Wars`, `Air Traffic
-    Controller` and `The Controller 2019` are films. The conjunction is also
-    what the suppression below has always meant in practice: `is_hardware`
-    can only change the outcome when a platform marker would otherwise have
-    matched, so requiring both is behaviour-preserving for tier 2 while
-    being narrow enough to act on at tier 4.
+    Controller` and `The Controller 2019` are films. The conjunction is what
+    lets this predicate gate *all* of tier 2 without catching those three: a
+    bare hardware-word test would suppress `Console Wars [DVD]`'s own format
+    tag and file a film with no detection at all. Narrow enough to act on at
+    tier 4, and narrow enough to decline every tier-2 arm on.
 
-    Deliberately narrow. `Sony PULSE 3D Wireless Headset` names no member of
-    `_PLATFORM_MARKERS` and is a **known, accepted** false negative; widening
-    either table to catch it re-opens the three film titles above.
+    The second half is a platform name *or* a listed brand, because a
+    peripheral usually names its maker and not its platform: `Sony PULSE 3D
+    Wireless Headset`, `Logitech G Pro X Gaming Headset`. A brand alone is
+    not enough either — `Astro Boy`, `Turtle Beach` and `The Corsair` are
+    films — so the conjunction still gates. `Sony` is the only film-industry
+    name in the table and the conjunction is what defends it: `Sony Pictures
+    Classics Presents Whiplash` carries no hardware word and is False.
+
+    Recall is bounded by the brand table. A hardware listing whose brand is
+    not listed still falls through as before — filed as `dvd` with the honest
+    tier-4 fallback reason, and searched — which is no worse than it was.
+    Revisit trigger: a reported wrong film or game match on a hardware title
+    whose brand is not in the table.
 
     Reading `_PLATFORM_MARKERS` means every token added there widens this
     predicate too — a new platform token is never a purely tier-2 decision.
     `CD-ROM` is deliberately *not* in that table (it has its own arm below),
     so `CD-ROM drive` plus a hardware word is not recognised here; that is
-    an accepted false negative of the same kind as `Sony PULSE 3D Wireless
-    Headset`, and the price of keeping a medium out of the platform arm.
+    an accepted false negative of the same kind as an unlisted brand, and
+    the price of keeping a medium out of the platform arm.
     """
     if not any(_contains_marker(title, term) for term in _HARDWARE_TERMS):
         return False
-    return any(_contains_marker(title, marker) for marker in _PLATFORM_MARKERS)
+    return (
+        any(_contains_marker(title, marker) for marker in _PLATFORM_MARKERS)
+        or any(_contains_marker(title, brand) for brand in _HARDWARE_BRANDS)
+    )
 
 _FORMAT_MARKERS = [
     "[DVD]", "Blu-ray", "Bluray", "4K Ultra HD", "4K UHD", "UHD", "DVD",
@@ -210,17 +243,23 @@ def _match_title_markers(title: str) -> Detection | None:
     pair would slip a tuple out through a signature promising a `Detection`,
     and nothing on the call path would notice.
     """
-    # `_is_hardware_title` here is behaviour-preserving, not a change: the
-    # bare hardware-word test it replaces could only ever alter the outcome
-    # when a platform marker would otherwise have matched, so requiring the
-    # conjunction skips the loop in exactly the same cases. One predicate now
-    # serves both this guard and the tier-4 arm, so the two cannot drift.
-    if not _is_hardware_title(title):
-        for marker in _PLATFORM_MARKERS:
-            if _contains_marker(title, marker):
-                return Detection("video_game", (
-                    f"Title names the {marker} platform — filed as Video Game."
-                ), "detected")
+    # G68. The predicate answers "is this input the kind of thing a
+    # title-marker lookup is for?", and the answer is no for every arm below,
+    # not just the platform loop it used to wrap. A format, medium or audio
+    # word on a hardware listing is a shelf-listing artifact, not evidence
+    # that the object is media — "PlayStation 5 Wireless Headset CD-ROM" is a
+    # headset, and while only the platform loop was guarded it filed as a
+    # *video game* and sent a real IGDB request. First statement,
+    # deliberately: an arm added below cannot sit above it, so the next arm
+    # inherits the guard instead of the hole. Tier 3 and then the tier-4
+    # hardware arm answer.
+    if _is_hardware_title(title):
+        return None
+    for marker in _PLATFORM_MARKERS:
+        if _contains_marker(title, marker):
+            return Detection("video_game", (
+                f"Title names the {marker} platform — filed as Video Game."
+            ), "detected")
     for marker in _FORMAT_MARKERS:
         if _contains_marker(title, marker):
             return Detection("dvd", (

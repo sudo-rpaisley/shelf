@@ -12,18 +12,20 @@ from pydantic import BaseModel, field_validator
 from app.auth import require_role
 from app.config import HTTP_TIMEOUT, LOW_RES_LONG_EDGE, MEDIA_TYPES, TILING_THRESHOLD
 from app.database import get_db, get_all_settings, get_setting
-from app.services import cover_queue, openlibrary, tiling, vision
+from app.services import cover_queue, covers, openlibrary, tiling, title_lookup, vision
 from app.services import isbn as isbn_svc
 from app.services import authors as authors_svc
 from app.services import national
-from app.services.title_match import titles_agree
-from app.services.item_write import insert_item
+from app.services.title_match import titles_agree, titles_match_exactly
+from app.services.item_write import ItemValueError, insert_item, update_item_fields
+from app.services.write_targets import UnknownLocationError, validated_location_id
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/intake", dependencies=[Depends(require_role("editor"))])
 
 MAX_PHOTO_DIMENSION = 100_000  # sanity bound on client-reported pixels
+_LOCATION_ERROR = "Selected location no longer exists — choose another location"
 
 # Same five types cover enrichment treats as the book catalogue.
 BOOK_SEARCH_MEDIA_TYPES = cover_queue.COVER_REQUEUE_MEDIA_TYPES
@@ -146,10 +148,28 @@ def _isbn_taken(isbn13: str, media_type: str) -> bool:
         ).fetchone() is not None
 
 
+def _title_taken(db, title: str, authors: str, media_type: str) -> bool:
+    """True when (title, authors, media_type) is already in the library.
+
+    Takes the caller's connection, unlike `_isbn_taken`, and the difference is
+    deliberate. `_isbn_taken` exists to classify an IntegrityError raised by
+    `_save_item`, which manages a connection of its own, so it opens one too.
+    This one is called twice on two different terms: once by the unlocked
+    pre-check at step 1, and once by the re-check inside the insert block,
+    which *must* run on that block's connection or the write lock buys nothing
+    (G18). Declared once so the two cannot drift.
+    """
+    return db.execute(
+        "SELECT id FROM items WHERE title = ? COLLATE NOCASE "
+        "AND IFNULL(authors, '') = ? COLLATE NOCASE AND media_type = ?",
+        (title, authors, media_type),
+    ).fetchone() is not None
+
+
 async def _confirm_one(
     book: IntakeBook, client: httpx.AsyncClient, search_lang: str, preferred_marc: str,
     location_id: int | None, owned: bool, hc_token: str | None,
-    google_api_key: str | None,
+    google_api_key: str | None, creds: dict[str, str | None],
 ) -> tuple[str, dict, int | None]:
     """Resolve one confirmed row to an ``added``/``skipped`` entry.
 
@@ -161,15 +181,20 @@ async def _confirm_one(
     title = book.title.strip()
     media_type = book.media_type
 
-    # 1. Title+authors dupe check, scoped to media type.
+    # 1. Title+authors pre-check, scoped to media type — and *only* a
+    # pre-check. It exists to spare a plainly-owned row the two paced outbound
+    # lookups below (steps 2 and 3); a photo of thirty owned books would
+    # otherwise spend thirty provider calls to learn nothing. It runs on its
+    # own connection, outside the write lock, deliberately: taking the lock
+    # here would hold SQLite's single writer across up to HTTP_TIMEOUT of
+    # network I/O, and the logger.warning calls in that window are the G3 trap.
+    # **It decides nothing.** The re-check inside the insert block below runs
+    # the same query under BEGIN IMMEDIATE and is the guard that decides
+    # (G18). Do not collapse this into that one as a duplicate, and do not
+    # promote it back into the decision.
     with get_db() as db:
-        dupe = db.execute(
-            "SELECT id FROM items WHERE title = ? COLLATE NOCASE "
-            "AND IFNULL(authors, '') = ? COLLATE NOCASE AND media_type = ?",
-            (title, book.authors or "", media_type),
-        ).fetchone()
-    if dupe:
-        return "skipped", {"title": title, "reason": "already in library"}, None
+        if _title_taken(db, title, book.authors or "", media_type):
+            return "skipped", {"title": title, "reason": "already in library"}, None
 
     # 2. A printed ISBN, if one survives re-validation, buys the full scan
     # cascade. The client value is re-cleaned server-side — the review field
@@ -200,18 +225,20 @@ async def _confirm_one(
                     item_id = items_common._save_item(metadata, printed_isbn13, media_type,
                                          location_id, "photo_intake", hc_ids)
                 except sqlite3.IntegrityError:
-                    # A bad location_id raises the same exception (FK,
-                    # PRAGMA foreign_keys=ON) — classify before labelling.
+                    # A location deleted after the boundary check can still
+                    # raise the same FK exception; classify ISBN races before
+                    # allowing the invariant failure to propagate.
                     if _isbn_taken(printed_isbn13, media_type):
                         return "skipped", {
                             "title": title, "reason": "ISBN already in library"}, None
                     raise
                 if not owned:
                     with get_db() as db:
-                        db.execute("UPDATE items SET owned = 0 WHERE id = ?", (item_id,))
+                        update_item_fields(db, item_id, {"owned": 0})
                 # The catalogue's title is the record; the row's was the query.
                 return "added", {
-                    "title": metadata["title"], "id": item_id, "matched": True}, item_id
+                    "title": metadata["title"], "id": item_id, "matched": True,
+                    "lookup": "matched"}, item_id
 
             # 6b. The cascade resolved the identifier and it names a different
             # book, so the identifier is known untrusted. Clear it rather than
@@ -225,9 +252,22 @@ async def _confirm_one(
         # 6a. Cascade miss or transport failure: nothing has contradicted the
         # printed digits, so they stay and seed the fallback INSERT below.
 
-    # 3. Weak path is book-family only: DVDs/games/CDs get a title-only
-    # insert with no outbound call at all.
+    # 3. Weak path, by media type. The book family is searched on Open Library
+    # by title+author. A type with a *metadata* provider — DVD and video game,
+    # per UPC_METADATA_PROVIDERS — is asked that provider for its one best
+    # match, which is trusted only behind a strict exact-title guard. Anything
+    # else (a CD, for want of a music provider) still gets a title-only insert
+    # with no outbound call at all. `BOOK_SEARCH_MEDIA_TYPES` also aliases the
+    # cover-queue hand-off at the bottom of `confirm_books`, which stays
+    # book-only on purpose (G29) — widening this branch did not widen that.
     meta = {}
+    # Three states, distinct from `matched`: "matched" (a provider answered and
+    # we filed it), "declined" (a provider answered and the guard refused it),
+    # "not_attempted" (everything else). The template holds the copy (G58).
+    lookup = "not_attempted"
+    # Set only on an accepted UPC_METADATA_PROVIDERS hit, below. Books keep
+    # going through the cover queue (G29) — this is the disc/game path only.
+    cover_url = None
     if media_type in BOOK_SEARCH_MEDIA_TYPES:
         # Enrich via Open Library field-scoped search (same guard as
         # imports); prefer the configured search-language works so
@@ -242,6 +282,35 @@ async def _confirm_one(
                 meta = (preferred or matches)[0]
         except httpx.HTTPError:
             logger.debug("Intake metadata search failed for %r", title)
+    elif media_type in title_lookup.UPC_METADATA_PROVIDERS:
+        # One paced request per row; no credentials means no call at all. The
+        # helper never raises and never hands back a list (G45, G66), so there
+        # is nothing to catch here and no 500 to make.
+        result = await title_lookup.lookup_by_title(
+            title, media_type, client, creds=creds)
+        if result.outcome == "rejected":
+            # Named provider and row title only — never a URL. TMDb's v3 key
+            # rides in `?api_key=`, and this logger carries no redaction
+            # filter (G76).
+            logger.warning(
+                "Intake: %s rejected the configured credentials for %r — filing title only",
+                result.provider, title)
+        if result.found:
+            candidate = result.payload
+            # The helper asked with `limit=1`, so this is the provider's first
+            # guess, not a record it vouches for — this guard is the only thing
+            # between it and the database (G74). Strict on purpose: the book
+            # guard `titles_agree` accepts 'Dune' for *Dune: Part Two*.
+            if titles_match_exactly(title, candidate.get("title")):
+                meta = candidate
+                # The catalogue's title is the record; the row's was the query.
+                title = candidate.get("title") or title
+                cover_url = candidate.get("cover_url")
+            else:
+                lookup = "declined"
+                logger.info(
+                    "Intake: %s answered %r for row %r — title does not match, filing title only",
+                    result.provider, candidate.get("title"), title)
 
     # Edition language: preferred-language match wins, else map the
     # chosen result's first language code, else unknown.
@@ -254,17 +323,61 @@ async def _confirm_one(
             language = national.to_iso639_1(meta_langs[0])
 
     # A surviving printed ISBN names the physical copy; Open Library's names
-    # its best-known edition. The printed one wins.
+    # its best-known edition. The printed one wins. `isbn10` is no longer
+    # tracked here — the funnel derives it from `isbn` on insert.
     isbn13 = None
-    isbn10 = None
     if printed_isbn13:
         isbn13 = printed_isbn13
-        isbn10 = isbn_svc.isbn13_to_isbn10(isbn13)
     elif meta.get("isbn"):
-        isbn13 = isbn_svc.to_isbn13(meta["isbn"]) or meta["isbn"]
-        isbn10 = isbn_svc.isbn13_to_isbn10(isbn13) if len(isbn13) == 13 else None
+        # A provider's (Open Library's) ISBN: pre-cleaned, dropped on a bad
+        # check digit rather than refused (#54) — this is a weak-path hint,
+        # not a value the user typed.
+        pair = isbn_svc.canonical_isbn_pair(meta["isbn"])
+        if pair is None:
+            logger.info(
+                "Intake: Open Library ISBN %r for %r is not a valid ISBN — not stored",
+                meta["isbn"], title,
+            )
+        else:
+            isbn13 = pair[0]
 
     with get_db() as db:
+        # G18. The write lock is taken here, as the block's *first* statement,
+        # above every guard query below. get_db() hands back sqlite3's deferred
+        # isolation, which opens no transaction for a bare SELECT — without
+        # this line the lock would be taken at the INSERT and a rival writer
+        # could commit the same row in between, which is exactly what the three
+        # guards below exist to prevent. Nothing that opens a second connection
+        # or writes a log record may run inside this block: it would wait out
+        # SQLite's 5s busy timeout against the lock this block holds and fail
+        # (G3). That is why step 1 stays above the lookups and why the cover
+        # download at 5b stays below the block.
+        db.execute("BEGIN IMMEDIATE")
+
+        # 4-pre. Step 1's pre-check decided nothing, and it read before the
+        # lock existed. Re-run it here, unconditionally, on the row's own
+        # *read* title — a rival that committed during the lookup window is
+        # visible to this query and was not visible to that one. This is the
+        # guard that decides.
+        if _title_taken(db, book.title.strip(), book.authors or "", media_type):
+            return "skipped", {
+                "title": book.title.strip(), "reason": "already in library"}, None
+
+        # 4a. The dupe check at step 1 ran on the row's *read* title. A lookup
+        # that resolved 'SPIDER-MAN 2' to *Marvel's Spider-Man 2* has moved the
+        # target, so re-run it on the resolved title before inserting. Scoped
+        # to title + media_type, not authors: the provider does not supply the
+        # row's authors. Mirrors `_isbn_taken`, which the printed-ISBN path
+        # already calls twice for this reason. Skipped when nothing moved,
+        # where it would repeat step 1 verbatim.
+        if title != book.title.strip():
+            resolved_dupe = db.execute(
+                "SELECT id FROM items WHERE title = ? COLLATE NOCASE AND media_type = ?",
+                (title, media_type),
+            ).fetchone()
+            if resolved_dupe:
+                return "skipped", {"title": title, "reason": "already in library"}, None
+
         # 4. ISBN dupe check, scoped to media type.
         if isbn13:
             taken = db.execute(
@@ -274,20 +387,27 @@ async def _confirm_one(
             if taken:
                 return "skipped", {"title": title, "reason": "ISBN already in library"}, None
 
-        # 5. Insert. A bad location_id also raises IntegrityError (FK,
-        # PRAGMA foreign_keys=ON) — classify before labelling it an ISBN
-        # duplicate.
+        # 5. Insert. A location deleted after the boundary check can still
+        # fail the FK invariant here; an ISBN race is classified separately.
         try:
             item_id = insert_item(
                 db,
                 title=title,
                 authors=book.authors or meta.get("authors"),
                 isbn=isbn13,
-                isbn10=isbn10,
                 media_type=media_type,
                 publisher=meta.get("publisher"),
                 publish_year=meta.get("publish_year"),
                 page_count=meta.get("page_count"),
+                # Absent from Open Library's weak-path result, so the book path
+                # is unchanged; a TMDb or IGDB hit carries both. `authors` keeps
+                # the row's own value above — IGDB's `developer` is not an
+                # author — and `platform` is not written at all: `_parse_game`
+                # answers `platform_names`, IGDB's own names, which is not the
+                # `game_platforms` slug vocabulary the item edit page validates
+                # against (G57).
+                description=meta.get("description"),
+                series_name=meta.get("series_name"),
                 location_id=location_id,
                 owned=int(owned),
                 source="photo_intake",
@@ -304,12 +424,34 @@ async def _confirm_one(
             raise
         # insert_item() reads lastrowid inside the connection's scope (G16).
 
-    return "added", {"title": title, "id": item_id, "matched": bool(meta)}, item_id
+    # 5b. A disc/game hit's cover downloads directly, on the batch's own
+    # client (G29 — this stays off the book cover-queue hand-off; a book's
+    # `meta` may also carry a cover_url, but `cover_url` above is only ever
+    # set on the UPC_METADATA_PROVIDERS branch). None is a normal outcome —
+    # allowlist reject or failed fetch — and changes nothing else about the
+    # row (G11: covers._download_to_item re-validates the post-redirect URL).
+    if cover_url:
+        cover_path = await covers._download_to_item(item_id, cover_url, client)
+        if cover_path:
+            with get_db() as db:
+                db.execute(
+                    "UPDATE items SET cover_path = ? WHERE id = ?", (cover_path, item_id))
+
+    if meta:
+        lookup = "matched"
+    return "added", {
+        "title": title, "id": item_id, "matched": bool(meta), "lookup": lookup}, item_id
 
 
 @router.post("/confirm")
 async def confirm_books(payload: IntakeConfirm):
     """Insert confirmed candidates as items via the normal metadata pipeline."""
+    try:
+        with get_db() as db:
+            location_id = validated_location_id(db, payload.location_id)
+    except UnknownLocationError:
+        return {"ok": False, "message": _LOCATION_ERROR}
+
     added, skipped = [], []
     new_item_ids: list[int] = []
 
@@ -318,6 +460,14 @@ async def confirm_books(payload: IntakeConfirm):
         # get_setting, never get_all_settings — the latter drops env-only keys (G15).
         hc_token = get_setting(db, "hardcover_token") or None
         google_api_key = get_setting(db, "google_books_api_key") or None
+        # The metadata providers a typed disc or game row is looked up
+        # against. Read here, once per confirm, never inside the row loop —
+        # and `get_setting` per key, because all three can be env-only.
+        creds = {
+            "tmdb_api_key": get_setting(db, "tmdb_api_key") or None,
+            "igdb_client_id": get_setting(db, "igdb_client_id") or None,
+            "igdb_client_secret": get_setting(db, "igdb_client_secret") or None,
+        }
     preferred_marc = national.iso_to_marc(search_lang)
 
     async with httpx.AsyncClient(timeout=HTTP_TIMEOUT) as client:
@@ -326,9 +476,16 @@ async def confirm_books(payload: IntakeConfirm):
             if not title:
                 continue
 
-            status, entry, item_id = await _confirm_one(
-                book, client, search_lang, preferred_marc, payload.location_id,
-                payload.owned, hc_token, google_api_key)
+            try:
+                status, entry, item_id = await _confirm_one(
+                    book, client, search_lang, preferred_marc, location_id,
+                    payload.owned, hc_token, google_api_key, creds)
+            except ItemValueError as e:
+                # A stale location is caught by the boundary check above and
+                # never reaches here; this guards a field _confirm_one has
+                # not yet boundary-checked (G47 — see the forced-raise pin).
+                skipped.append({"title": title, "reason": str(e)})
+                continue
             if status == "added":
                 added.append(entry)
                 new_item_ids.append(item_id)

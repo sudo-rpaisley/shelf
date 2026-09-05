@@ -6,9 +6,11 @@ catalog itself, Browse, Stats, lending and Store Mode's scan verdicts all work
 offline. Nothing phones home.
 
 **Is my data sent anywhere?**
-Only the ISBN/UPC being looked up goes to metadata providers. Photo Intake
-sends the photo to whichever vision provider you configured — choose Ollama
-for fully local. Share links are served by *your* server.
+Only the ISBN/UPC being looked up goes to metadata providers — plus the title,
+where that is all Shelf has: a title search, or a Photo Intake row typed DVD or
+Video Game, whose title goes to TMDb or IGDB when you confirm it. Photo Intake
+also sends the photo to whichever vision provider you configured — choose
+Ollama for fully local. Share links are served by *your* server.
 
 **Do I need any API keys?**
 No. Books, covers, DVD titles (via UPC Item DB) and everything else core work
@@ -56,7 +58,8 @@ tracking and per-household libraries are planned.
 
 **Can I import from Goodreads / StoryGraph / LibraryThing / Libib?**
 Goodreads and StoryGraph today (upload the export as-is). LibraryThing and
-Libib are planned. Anything else: CSV with at least a `title` column.
+Libib are on the [roadmap](roadmap.md). Anything else: CSV with at least a
+`title` column.
 
 **How do I move Shelf to another machine?**
 Copy the `data/` directory — or export a portable archive and import it on

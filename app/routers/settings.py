@@ -11,12 +11,14 @@ from app.crypto import SENSITIVE_KEYS, encrypt_value, get_encryption_key
 from app.currency import CURRENCIES, invalidate_cache as invalidate_currency_cache
 from app.database import get_db, get_setting
 from app.nav import HIDEABLE_KEYS, invalidate_cache as invalidate_nav_cache
+from app.services import audiobookshelf
 from app.services.national import SEARCH_LANGS
 
 router = APIRouter(prefix="/api/settings", dependencies=[Depends(require_role("admin"))])
 
 _INTEGRATION_KEYS = (
     "abs_url",
+    "abs_public_url",
     "abs_token",
     "isbndb_api_key",
     "tmdb_api_key",
@@ -53,12 +55,20 @@ async def update_settings(request: Request):
     (previously handled by echoing every credential as a hidden input).
     """
     form = await request.form()
+    # Validated before the transaction opens: a bad browser URL must leave the
+    # whole submission untouched, not write the other fields and reject one.
+    if "abs_public_url" in form:
+        public_url = (form.get("abs_public_url") or "").strip().rstrip("/")
+        if public_url and audiobookshelf.validate_url(public_url):
+            return RedirectResponse(
+                url="/settings?abs_public_url_error=invalid", status_code=303
+            )
     with get_db() as db:
         for key in _INTEGRATION_KEYS:
             if key not in form:
                 continue
             value = (form.get(key) or "").strip()
-            if key == "abs_url":
+            if key in ("abs_url", "abs_public_url"):
                 value = value.rstrip("/")
             _upsert_setting(db, key, value, cleared=form.get(f"clear_{key}") == "on")
     invalidate_nav_cache()  # hardcover_token gates the Discover tab
@@ -77,7 +87,10 @@ async def test_google_books(request: Request):
     if not isinstance(body, dict):
         return {"ok": False, "message": "Invalid request"}
 
-    api_key = (body.get("api_key") or "").strip()
+    raw_api_key = body.get("api_key")
+    if raw_api_key is not None and not isinstance(raw_api_key, str):
+        return {"ok": False, "message": "Invalid request"}
+    api_key = (raw_api_key or "").strip()
     if not api_key:
         with get_db() as db:
             api_key = get_setting(db, "google_books_api_key")
@@ -153,7 +166,9 @@ async def update_lending_settings(
     days = lending_overdue_days.strip() or "28"
     if not days.isdigit():
         return {"ok": False, "message": "Overdue days must be a whole number"}
-    fmt = notify_format if notify_format in FORMATS else "ntfy"
+    fmt = (notify_format or "").strip()
+    if fmt not in FORMATS:
+        return {"ok": False, "message": "Unknown notification format"}
 
     with get_db() as db:
         for key, value in [
@@ -216,8 +231,18 @@ async def notify_test(request: Request):
         body = await request.json()
     except Exception:
         return {"ok": False, "message": "Invalid request"}
-    url = (body.get("url") or "").strip()
-    fmt = body.get("format") or "ntfy"
+    if not isinstance(body, dict):
+        return {"ok": False, "message": "Invalid request"}
+
+    raw_url = body.get("url")
+    raw_fmt = body.get("format")
+    if (
+        (raw_url is not None and not isinstance(raw_url, str))
+        or (raw_fmt is not None and not isinstance(raw_fmt, str))
+    ):
+        return {"ok": False, "message": "Invalid request"}
+    url = (raw_url or "").strip()
+    fmt = raw_fmt or "ntfy"
     if not url:
         # Masked field posts empty — test the stored URL instead
         from app.database import get_setting

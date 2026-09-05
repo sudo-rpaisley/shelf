@@ -2,7 +2,6 @@
 import functools
 import json
 import logging
-import sqlite3
 
 import anthropic
 import httpx
@@ -630,11 +629,11 @@ class TestAnalyzeEndpoint:
         respx.get(OL_SEARCH_URL).mock(return_value=httpx.Response(200, json={"docs": [
             {
                 "title": "Die Verwandlung", "author_name": ["Franz Kafka"],
-                "isbn": ["9780000000016"], "language": ["eng"],
+                "isbn": ["9780000000163"], "language": ["eng"],
             },
             {
                 "title": "Die Verwandlung", "author_name": ["Franz Kafka"],
-                "isbn": ["9783150000010"], "language": ["ger"],
+                "isbn": ["9781500000103"], "language": ["ger"],
             },
         ]}))
         resp = admin_client.post("/api/intake/confirm", json={
@@ -642,7 +641,7 @@ class TestAnalyzeEndpoint:
         })
         assert resp.json()["ok"] is True
         row = db.execute("SELECT isbn, language FROM items WHERE title = 'Die Verwandlung'").fetchone()
-        assert row["isbn"] == "9783150000010"
+        assert row["isbn"] == "9781500000103"
         assert row["language"] == "de"
 
     def test_viewer_forbidden(self, viewer_client):
@@ -904,13 +903,17 @@ class TestConfirmEndpoint:
         assert data["added"][1]["matched"] is False
 
     @respx.mock
-    def test_bad_location_is_not_reported_as_isbn_duplicate(self, admin_client, db):
-        respx.get(OL_SEARCH_URL).mock(return_value=httpx.Response(200, json={"docs": []}))
-        with pytest.raises(sqlite3.IntegrityError):
-            admin_client.post("/api/intake/confirm", json={
-                "books": [{"title": "Bad Location Book", "authors": None}],
-                "location_id": 999999,
-            })
+    def test_bad_location_is_rejected_before_metadata_or_insert(self, admin_client, db):
+        route = respx.get(OL_SEARCH_URL).mock(return_value=httpx.Response(200, json={"docs": []}))
+        resp = admin_client.post("/api/intake/confirm", json={
+            "books": [{"title": "Bad Location Book", "authors": None}],
+            "location_id": 999999,
+        })
+        assert resp.json() == {
+            "ok": False,
+            "message": "Selected location no longer exists — choose another location",
+        }
+        assert route.called is False
         row = db.execute("SELECT id FROM items WHERE title = 'Bad Location Book'").fetchone()
         assert row is None
 
@@ -958,7 +961,9 @@ class TestConfirmWithIsbn:
             "owned": False,
         })
         data = resp.json()
-        assert data["added"] == [{"title": "Dune", "id": data["added"][0]["id"], "matched": True}]
+        assert data["added"] == [{
+            "title": "Dune", "id": data["added"][0]["id"],
+            "matched": True, "lookup": "matched"}]
         row = db.execute("SELECT * FROM items WHERE isbn = ?", (ISBN13,)).fetchone()
         assert row["title"] == "Dune"                 # catalogue's, not the row's
         assert row["subtitle"] == "A Novel"
@@ -1144,17 +1149,22 @@ class TestConfirmWithIsbn:
         enrich.assert_called_once_with([strong, weak])
 
     @respx.mock
-    def test_bad_location_on_strong_path_is_not_reported_as_isbn_duplicate(
-            self, admin_client, monkeypatch):
-        # The strong path has its own IntegrityError handler; a FK failure
-        # there must re-raise, not be labelled an ISBN duplicate either.
-        _patch_lookup(monkeypatch, result=(FULL_META, "openlibrary", {}, False))
-        respx.get(OL_SEARCH_URL).mock(return_value=httpx.Response(200, json={"docs": []}))
-        with pytest.raises(sqlite3.IntegrityError):
-            admin_client.post("/api/intake/confirm", json={
-                "books": [{"title": "Dune", "isbn": ISBN13}],
-                "location_id": 999999,
-            })
+    def test_bad_location_on_strong_path_is_rejected_before_cascade(
+            self, admin_client, db, monkeypatch):
+        calls = []
+        _patch_lookup(monkeypatch, result=(FULL_META, "openlibrary", {}, False), record=calls)
+        route = respx.get(OL_SEARCH_URL).mock(return_value=httpx.Response(200, json={"docs": []}))
+        resp = admin_client.post("/api/intake/confirm", json={
+            "books": [{"title": "Dune", "isbn": ISBN13}],
+            "location_id": 999999,
+        })
+        assert resp.json() == {
+            "ok": False,
+            "message": "Selected location no longer exists — choose another location",
+        }
+        assert calls == []
+        assert route.called is False
+        assert db.execute("SELECT id FROM items WHERE title = 'Dune'").fetchone() is None
 
     @respx.mock
     def test_integrity_error_is_classified_on_strong_path(self, admin_client, db, monkeypatch):
@@ -1178,6 +1188,60 @@ class TestConfirmWithIsbn:
         assert data["skipped"][0]["reason"] == "ISBN already in library"
         assert db.execute(
             "SELECT COUNT(*) c FROM items WHERE isbn = ?", (ISBN13,)).fetchone()["c"] == 1
+
+    @respx.mock
+    def test_weak_path_bad_check_digit_isbn_is_dropped_and_batch_continues(
+            self, admin_client, db, monkeypatch, caplog):
+        """A weak-path (Open Library search) ISBN is a provider value —
+        pre-cleaned, dropped on a bad check digit, never refused (#54). The
+        second book (its own strong-path printed ISBN) still lands."""
+        _patch_lookup(monkeypatch, result=(None, "manual", {}, False))
+        respx.get(OL_SEARCH_URL).mock(return_value=httpx.Response(200, json={"docs": [{
+            "title": "Dune", "author_name": ["Frank Herbert"],
+            "isbn": ["9780441172710"],
+        }]}))
+        with caplog.at_level("INFO"):
+            resp = admin_client.post("/api/intake/confirm", json={
+                "books": [
+                    {"title": "Dune", "authors": "Frank Herbert"},
+                    {"title": "Solaris", "isbn": "9780156027601"},
+                ],
+            })
+        data = resp.json()
+        assert [a["title"] for a in data["added"]] == ["Dune", "Solaris"]
+
+        row = db.execute(
+            "SELECT isbn, isbn10 FROM items WHERE title = 'Dune'").fetchone()
+        assert row["isbn"] is None and row["isbn10"] is None
+        assert "9780441172710" in caplog.text
+
+    @respx.mock
+    def test_save_item_value_error_is_skipped_and_batch_continues(
+            self, admin_client, db, monkeypatch):
+        """No real path reaches `except ItemValueError` in `confirm_books`
+        today (G47) — `_confirm_one` boundary-checks location before any
+        outbound call, and everything else it passes to `_save_item` /
+        `insert_item` is already known-good by the time it gets there. Force
+        the arm by making `_save_item` raise, and confirm the batch survives
+        it rather than 500ing."""
+        from app.routers import items_common
+        from app.services.item_write import InvalidIsbn
+
+        _patch_lookup(monkeypatch, result=(FULL_META, "openlibrary", HC_IDS, False))
+        respx.get(OL_SEARCH_URL).mock(return_value=httpx.Response(200, json={"docs": []}))
+
+        def boom(*args, **kwargs):
+            raise InvalidIsbn("Invalid ISBN: x")
+        monkeypatch.setattr(items_common, "_save_item", boom)
+
+        resp = admin_client.post("/api/intake/confirm", json={
+            "books": [{"title": "Dune", "isbn": ISBN13}, {"title": "Solaris"}],
+        })
+        data = resp.json()
+        assert data["skipped"] == [{"title": "Dune", "reason": "Invalid ISBN: x"}]
+        assert [a["title"] for a in data["added"]] == ["Solaris"]
+        assert db.execute(
+            "SELECT COUNT(*) c FROM items WHERE title = 'Dune'").fetchone()["c"] == 0
 
 
 class TestIntakePage:
@@ -1418,3 +1482,776 @@ class TestIntakePage:
         payload = block.group(0)
         assert "media_type" in payload and "isbn" in payload
         assert "source" not in payload
+
+
+# --- Photo intake looks up disc and game rows (issue #51) -------------------
+
+FILM_META = {
+    "title": "Mad Max: Fury Road",
+    "description": "A war rig runs for the green place.",
+    "publish_year": 2015,
+    "cover_url": "https://image.tmdb.org/t/p/w500/poster.jpg",
+}
+GAME_META = {
+    "igdb_id": 1029,
+    "title": "Super Mario Odyssey",
+    "description": "Mario travels the globe.",
+    "publisher": "Nintendo",
+    "developer": "Nintendo EPD",
+    "publish_year": 2017,
+    "cover_url": "https://images.igdb.com/igdb/image/upload/t_cover_big/x.jpg",
+    "platform_names": ["Nintendo Switch"],
+    "series_name": "Super Mario",
+}
+
+
+def _set_provider_creds(monkeypatch):
+    """Both providers configured, by env var — `get_setting` reads
+    SECRET_ENV_VARS, so this needs no settings row and no encryption
+    round-trip. It is also the shape G15 is about: `get_all_settings` would
+    not see any of these three."""
+    monkeypatch.setenv("TMDB_API_KEY", "0123456789abcdef0123456789abcdef")
+    monkeypatch.setenv("IGDB_CLIENT_ID", "cid")
+    monkeypatch.setenv("IGDB_CLIENT_SECRET", "secret")
+
+
+def _stub_tmdb(monkeypatch, result):
+    """Hand-written async stub on the module that *defines* it (G37); never a
+    bare AsyncMock, which would make `tmdb`'s sync helpers return coroutines
+    (G56). Patching here exercises `title_lookup` for real rather than
+    stubbing the helper the router is being tested against."""
+    from app.services import tmdb
+
+    calls = []
+
+    async def _lookup_by_title(title, api_key, client):
+        calls.append(title)
+        return result
+
+    monkeypatch.setattr(tmdb, "lookup_by_title", _lookup_by_title)
+    return calls
+
+
+def _stub_igdb(monkeypatch, result):
+    from app.services import igdb
+
+    calls = []
+
+    async def _search_games(title, client_id, client_secret, client,
+                            platform=None, limit=10):
+        calls.append({"title": title, "limit": limit})
+        return result
+
+    monkeypatch.setattr(igdb, "search_games", _search_games)
+    return calls
+
+
+def _forbid_provider_calls(monkeypatch):
+    """Both clients wired to fail loudly, so "no outbound call" is a real
+    assertion rather than the absence of one."""
+    from app.services import igdb, tmdb
+
+    async def _boom_tmdb(*args, **kwargs):
+        raise AssertionError("tmdb.lookup_by_title was called")
+
+    async def _boom_igdb(*args, **kwargs):
+        raise AssertionError("igdb.search_games was called")
+
+    monkeypatch.setattr(tmdb, "lookup_by_title", _boom_tmdb)
+    monkeypatch.setattr(igdb, "search_games", _boom_igdb)
+
+
+class TestTypedRowsAreLookedUp:
+    """A row the user typed DVD or Video Game is looked up at confirm.
+
+    Before this, `BOOK_SEARCH_MEDIA_TYPES` was the only branch and a disc row
+    got a bare title + authors + location insert.
+    """
+
+    @respx.mock
+    def test_a_dvd_row_is_enriched_and_reports_matched(
+        self, admin_client, db, monkeypatch,
+    ):
+        from app.services import provider_result
+
+        ol = respx.get(OL_SEARCH_URL).mock(
+            return_value=httpx.Response(200, json={"docs": []}))
+        calls = _stub_tmdb(monkeypatch, provider_result.found("tmdb", FILM_META))
+        _set_provider_creds(monkeypatch)
+
+        resp = admin_client.post("/api/intake/confirm", json={
+            "books": [{"title": "MAD MAX FURY ROAD", "media_type": "dvd"}],
+        })
+
+        assert ol.called is False           # still never Open Library (:874)
+        assert calls == ["MAD MAX FURY ROAD"]
+        entry = resp.json()["added"][0]
+        assert entry["lookup"] == "matched"
+        assert entry["matched"] is True
+        row = db.execute("SELECT * FROM items WHERE media_type = 'dvd'").fetchone()
+        assert row["title"] == "Mad Max: Fury Road"   # catalogue's, not the row's
+        assert row["publish_year"] == 2015
+        assert row["description"] == "A war rig runs for the green place."
+
+    @respx.mock
+    def test_a_game_row_is_enriched_with_series_and_publisher(
+        self, admin_client, db, monkeypatch,
+    ):
+        from app.services import provider_result
+
+        respx.get(OL_SEARCH_URL).mock(return_value=httpx.Response(200, json={"docs": []}))
+        calls = _stub_igdb(monkeypatch, provider_result.found("igdb", [GAME_META]))
+        _set_provider_creds(monkeypatch)
+
+        resp = admin_client.post("/api/intake/confirm", json={
+            "books": [{"title": "Super Mario Odyssey", "authors": "Shelf Owner",
+                       "media_type": "video_game"}],
+        })
+
+        assert calls[0]["limit"] == 1
+        assert resp.json()["added"][0]["lookup"] == "matched"
+        row = db.execute(
+            "SELECT * FROM items WHERE media_type = 'video_game'").fetchone()
+        assert row["publisher"] == "Nintendo"
+        assert row["publish_year"] == 2017
+        assert row["series_name"] == "Super Mario"
+        assert row["description"] == "Mario travels the globe."
+        # G57: the row's own authors survive — IGDB's `developer` is not an
+        # author — and `platform_names` is not the slug vocabulary the item
+        # edit page validates against, so `platform` stays NULL.
+        assert row["authors"] == "Shelf Owner"
+        assert row["platform"] is None
+
+
+class TestTheStrictGuardRefusesANearMiss:
+    """G31: the pin below must go red when the `titles_match_exactly` call is
+    removed from `intake._confirm_one`. Verified by hand — with the guard
+    deleted the row is filed as *Dune: Part Two* with the film's description
+    and reports `matched`, which is the whole failure this plan prevents.
+    """
+
+    @respx.mock
+    def test_a_near_miss_files_title_only_and_reports_declined(
+        self, admin_client, db, monkeypatch,
+    ):
+        from app.services import provider_result
+
+        respx.get(OL_SEARCH_URL).mock(return_value=httpx.Response(200, json={"docs": []}))
+        _stub_tmdb(monkeypatch, provider_result.found("tmdb", {
+            "title": "Dune: Part Two",
+            "description": "Paul joins the Fremen.",
+            "publish_year": 2024,
+            "cover_url": None,
+        }))
+        _set_provider_creds(monkeypatch)
+
+        resp = admin_client.post("/api/intake/confirm", json={
+            "books": [{"title": "Dune", "media_type": "dvd"}],
+        })
+
+        entry = resp.json()["added"][0]
+        assert entry["lookup"] == "declined"
+        assert entry["matched"] is False
+        row = db.execute("SELECT * FROM items WHERE media_type = 'dvd'").fetchone()
+        assert row["title"] == "Dune"          # the row's, not the catalogue's
+        assert row["description"] is None
+        assert row["publish_year"] is None
+
+
+class TestEveryNonHitFilesTheRowTitleOnly:
+    """No provider outcome may 500 a bulk confirm, and none of them is a
+    `declined` — that word means "we had an answer and refused it"."""
+
+    @respx.mock
+    @pytest.mark.parametrize("outcome", [
+        "rejected", "rate_limited", "transport_failed", "no_match",
+    ])
+    def test_it_files_the_row_and_reports_not_attempted(
+        self, admin_client, db, monkeypatch, outcome,
+    ):
+        from app.services import provider_result
+
+        respx.get(OL_SEARCH_URL).mock(return_value=httpx.Response(200, json={"docs": []}))
+        _stub_tmdb(monkeypatch, {
+            "rejected": provider_result.rejected("tmdb", status=401),
+            "rate_limited": provider_result.rate_limited("tmdb"),
+            "transport_failed": provider_result.transport_failed("tmdb"),
+            "no_match": provider_result.no_match("tmdb", status=200),
+        }[outcome])
+        _set_provider_creds(monkeypatch)
+
+        resp = admin_client.post("/api/intake/confirm", json={
+            "books": [{"title": "The Matrix", "media_type": "dvd"}],
+        })
+
+        assert resp.status_code == 200
+        assert resp.json()["added"][0]["lookup"] == "not_attempted"
+        row = db.execute("SELECT * FROM items WHERE media_type = 'dvd'").fetchone()
+        assert row["title"] == "The Matrix"
+        assert row["description"] is None
+
+    @respx.mock
+    def test_a_rejected_credential_warns_without_leaking_a_url(
+        self, admin_client, db, monkeypatch, caplog,
+    ):
+        """G76: TMDb's v3 key rides in `?api_key=` and this logger carries no
+        redaction filter, so the line may name the provider and the row and
+        nothing else."""
+        from app.services import provider_result
+
+        respx.get(OL_SEARCH_URL).mock(return_value=httpx.Response(200, json={"docs": []}))
+        _stub_tmdb(monkeypatch, provider_result.rejected("tmdb", status=401))
+        _set_provider_creds(monkeypatch)
+
+        with caplog.at_level(logging.WARNING):
+            admin_client.post("/api/intake/confirm", json={
+                "books": [{"title": "The Matrix", "media_type": "dvd"}],
+            })
+
+        warnings = [r for r in caplog.records if r.levelno == logging.WARNING]
+        assert any("rejected the configured credentials" in r.getMessage()
+                   for r in warnings)
+        for record in warnings:
+            assert "http" not in record.getMessage()
+            assert "api_key" not in record.getMessage()
+
+
+class TestNoProviderMeansNoCall:
+    @respx.mock
+    def test_unconfigured_credentials_make_no_outbound_call(
+        self, admin_client, db, monkeypatch,
+    ):
+        respx.get(OL_SEARCH_URL).mock(return_value=httpx.Response(200, json={"docs": []}))
+        _forbid_provider_calls(monkeypatch)
+        # deliberately no _set_provider_creds
+
+        resp = admin_client.post("/api/intake/confirm", json={
+            "books": [{"title": "The Matrix", "media_type": "dvd"}],
+        })
+
+        assert resp.status_code == 200
+        assert resp.json()["added"][0]["lookup"] == "not_attempted"
+
+    @respx.mock
+    def test_a_cd_row_asks_nobody(self, admin_client, db, monkeypatch):
+        """No music provider exists (roadmap 6b), so a CD keeps today's copy."""
+        respx.get(OL_SEARCH_URL).mock(return_value=httpx.Response(200, json={"docs": []}))
+        _forbid_provider_calls(monkeypatch)
+        _set_provider_creds(monkeypatch)
+
+        resp = admin_client.post("/api/intake/confirm", json={
+            "books": [{"title": "Kind of Blue", "media_type": "cd"}],
+        })
+
+        assert resp.status_code == 200
+        assert resp.json()["added"][0]["lookup"] == "not_attempted"
+
+
+class TestAllThreeLookupStatesAreDistinguishable:
+    """T6: `added[]` carries `lookup` distinct from `matched`, so the template
+    can tell a refused near-miss ("declined") from a row nothing was ever
+    attempted for ("not_attempted") — both file title-only and both read
+    `matched: false`. One confirm exercising all three states at once."""
+
+    @respx.mock
+    def test_matched_declined_and_not_attempted_come_back_in_order(
+        self, admin_client, db, monkeypatch,
+    ):
+        from app.services import provider_result
+
+        respx.get(OL_SEARCH_URL).mock(return_value=httpx.Response(200, json={"docs": []}))
+        _stub_tmdb(monkeypatch, provider_result.found("tmdb", FILM_META))
+        _set_provider_creds(monkeypatch)
+
+        resp = admin_client.post("/api/intake/confirm", json={
+            "books": [
+                {"title": "MAD MAX FURY ROAD", "media_type": "dvd"},  # exact match
+                {"title": "Dune", "media_type": "dvd"},               # near miss, refused
+                {"title": "Kind of Blue", "media_type": "cd"},        # no provider at all
+            ],
+        })
+
+        assert resp.status_code == 200
+        added = resp.json()["added"]
+        assert [a["lookup"] for a in added] == ["matched", "declined", "not_attempted"]
+        assert [a["matched"] for a in added] == [True, False, False]
+
+
+class TestTheResolvedTitleIsReChecked:
+    """1h: the step-1 dupe check ran on the *read* title, so a lookup that
+    rewrites it has moved the target. Mirrors `_isbn_taken`, which the
+    printed-ISBN path already calls twice for the same reason."""
+
+    @respx.mock
+    def test_a_row_whose_resolved_title_is_owned_is_skipped(
+        self, admin_client, db, monkeypatch,
+    ):
+        from app.services import provider_result
+
+        _insert_item(db, title="Mad Max: Fury Road", isbn=None, media_type="dvd")
+        db.commit()
+        respx.get(OL_SEARCH_URL).mock(return_value=httpx.Response(200, json={"docs": []}))
+        _stub_tmdb(monkeypatch, provider_result.found("tmdb", FILM_META))
+        _set_provider_creds(monkeypatch)
+
+        resp = admin_client.post("/api/intake/confirm", json={
+            "books": [{"title": "MAD MAX FURY ROAD", "media_type": "dvd"}],
+        })
+
+        data = resp.json()
+        assert data["added"] == []
+        assert data["skipped"][0]["reason"] == "already in library"
+        assert db.execute(
+            "SELECT COUNT(*) c FROM items WHERE media_type = 'dvd'").fetchone()["c"] == 1
+
+
+def _install_lock_probe(monkeypatch, module, predicate, probe_results):
+    """Wrap `module.get_db` so a rival writer probes the lock at guard time.
+
+    The shape of `tests/test_checkouts.py::
+    test_delete_borrower_guard_reads_under_write_lock`. Every statement passes
+    through to the real connection; when one matches `predicate`, a second
+    connection opened with `timeout=0` tries `BEGIN IMMEDIATE` and records
+    whether it got the write lock. "acquired" means the guard was reading
+    outside the lock. `module` is the module that *imports* `get_db` by name —
+    all three routers do, so patching the using module reaches every call site
+    in it (G37).
+    """
+    import sqlite3
+    from contextlib import contextmanager
+
+    import app.config
+
+    real_get_db = module.get_db
+
+    class LockProbingConnection:
+        def __init__(self, conn):
+            self._conn = conn
+
+        def __getattr__(self, name):
+            return getattr(self._conn, name)
+
+        def execute(self, sql, *args, **kwargs):
+            result = self._conn.execute(sql, *args, **kwargs)
+            if predicate(sql):
+                rival = sqlite3.connect(str(app.config.DATABASE_PATH), timeout=0)
+                try:
+                    rival.execute("BEGIN IMMEDIATE")
+                    probe_results.append("acquired")
+                    rival.rollback()
+                except sqlite3.OperationalError as exc:
+                    probe_results.append(f"locked: {exc}")
+                finally:
+                    rival.close()
+            return result
+
+    @contextmanager
+    def probing_get_db():
+        with real_get_db() as conn:
+            yield LockProbingConnection(conn)
+
+    monkeypatch.setattr(module, "get_db", probing_get_db)
+
+
+class TestConfirmGuardsReadUnderTheWriteLock:
+    """G18: each of confirm's three deciding guards reads under the lock.
+
+    `get_db()` hands back sqlite3's deferred isolation, which opens no
+    transaction for a bare SELECT, so without `BEGIN IMMEDIATE` as the insert
+    block's first statement the lock is taken at the INSERT and a rival can
+    commit the same row in the window. One case per guard query, because the
+    three run under different conditions and a single probe would only ever
+    exercise whichever fires first.
+
+    Two of these cases replace *interleaving* pins the design asked for. A
+    rival-committed-during-the-lookup pin for the resolved-title and
+    weak-path-ISBN guards would pass with `BEGIN IMMEDIATE` removed — both
+    already read inside the insert block, so a rival that committed before the
+    block opened is visible to a bare SELECT just as it is to a locked one.
+    That is the G31 failure ("a pin that passes both ways is worse than no
+    pin"); the probe is what actually goes red. The unchanged-title race *is*
+    pinned, in `TestConfirmRaces`.
+    """
+
+    @pytest.mark.parametrize("case", ["unchanged_title", "resolved_title", "weak_path_isbn"])
+    @respx.mock
+    def test_each_deciding_guard_reads_under_the_write_lock(
+        self, case, admin_client, db, monkeypatch,
+    ):
+        import app.routers.intake as intake_mod
+
+        probe_results = []
+
+        if case == "unchanged_title":
+            # The step-1 query, which runs twice: once as the unlocked
+            # pre-check and once as the locked re-check.
+            def predicate(sql):
+                return "IFNULL(authors" in sql
+
+            respx.get(OL_SEARCH_URL).mock(
+                return_value=httpx.Response(200, json={"docs": []}))
+            payload = {"title": "Lockable Zine", "authors": "A Person"}
+        elif case == "resolved_title":
+            # The 4a query: title + media_type, no authors scope.
+            def predicate(sql):
+                return "title = ?" in sql and "IFNULL" not in sql
+
+            from app.services import provider_result
+
+            respx.get(OL_SEARCH_URL).mock(
+                return_value=httpx.Response(200, json={"docs": []}))
+            _stub_tmdb(monkeypatch, provider_result.found("tmdb", FILM_META))
+            _set_provider_creds(monkeypatch)
+            payload = {"title": "MAD MAX FURY ROAD", "media_type": "dvd"}
+        else:
+            # The step-4 query, on an ISBN that came from the weak-path lookup.
+            def predicate(sql):
+                return "isbn = ?" in sql
+
+            respx.get(OL_SEARCH_URL).mock(return_value=httpx.Response(200, json={"docs": [{
+                "title": "Dune", "author_name": ["Frank Herbert"], "isbn": [ISBN13],
+            }]}))
+            payload = {"title": "Dune", "authors": "Frank Herbert"}
+
+        _install_lock_probe(monkeypatch, intake_mod, predicate, probe_results)
+
+        resp = admin_client.post("/api/intake/confirm", json={"books": [payload]})
+        assert resp.status_code == 200
+
+        assert probe_results, f"[{case}] the guard query never ran — the probe did not fire"
+        if case == "unchanged_title":
+            # Step 1 is *deliberately* outside the lock: it is a pre-check that
+            # saves two paced outbound calls and decides nothing. Pin that too,
+            # or a probe that only ever fired on the locked connection could be
+            # "fixed" by making it pass on the pre-check instead (G31).
+            assert probe_results[0] == "acquired", (
+                "step 1's pre-check took the write lock — it must not; holding "
+                "it across the outbound lookups stalls every other writer "
+                f"(got {probe_results[0]!r})"
+            )
+            assert len(probe_results) == 2, (
+                "the step-1 query must run exactly twice — once unlocked as the "
+                f"pre-check, once under the lock as the re-check (got {probe_results!r})"
+            )
+        assert probe_results[-1].startswith("locked"), (
+            f"[{case}] a rival writer could take the write lock while a deciding "
+            f"guard was being read (got {probe_results[-1]!r}) — the route is "
+            "missing its BEGIN IMMEDIATE, or takes it after the guard SELECT (G18)"
+        )
+
+
+def _install_blind_once(monkeypatch, module, predicate):
+    """Wrap `module.get_db` so the *first* statement matching `predicate`,
+    across any connection the module opens, comes back with an empty
+    result — once. Every later statement, including one that matches the
+    same predicate, passes straight through to the real connection.
+
+    Blinds the query, not the route: `module` is the module that imports
+    `get_db` by name (G37), so patching it here reaches every `get_db()`
+    call site inside it — the same shape as `_install_lock_probe` above.
+    Models a race tighter than the write lock: the guard reads empty even
+    though a rival row already sits there, so the second defensive layer
+    (the `except sqlite3.IntegrityError:` handler) is what has to catch it.
+    """
+    from contextlib import contextmanager
+
+    real_get_db = module.get_db
+    state = {"blinded": False}
+
+    class _EmptyCursor:
+        def fetchone(self):
+            return None
+
+        def fetchall(self):
+            return []
+
+    class BlindingConnection:
+        def __init__(self, conn):
+            self._conn = conn
+
+        def __getattr__(self, name):
+            return getattr(self._conn, name)
+
+        def execute(self, sql, *args, **kwargs):
+            if not state["blinded"] and predicate(sql):
+                state["blinded"] = True
+                return _EmptyCursor()
+            return self._conn.execute(sql, *args, **kwargs)
+
+    @contextmanager
+    def blinding_get_db():
+        with real_get_db() as conn:
+            yield BlindingConnection(conn)
+
+    monkeypatch.setattr(module, "get_db", blinding_get_db)
+
+
+class TestConfirmRaces:
+    """Two of intake's defenses against a rival writer need their own pin
+    (G31 — "a duplicated handler needs one pin each"): the unconditional
+    title re-check T1 added inside the locked block (4-pre), and the weak
+    insert path's own copy of the `IntegrityError` classification. Both
+    would pass against the pre-T1 shape if written as plain interleaving
+    pins on the *other* two guards (resolved-title, weak-path ISBN) — those
+    already read inside the insert block, so a rival that committed before
+    the block opened is visible to a bare SELECT just as to a locked one.
+    That case is covered by `TestConfirmGuardsReadUnderTheWriteLock`'s probe
+    instead.
+    """
+
+    @respx.mock
+    def test_rival_title_committed_during_the_lookup_is_still_caught(
+        self, admin_client, db, monkeypatch,
+    ):
+        """Step 1's pre-check passes before the rival commits — T1's
+        unconditional re-check inside the locked block is what catches it.
+        Without that re-check this goes red with two rows (mutation check)."""
+        from app.services import openlibrary
+        from tests.conftest import _insert_item as insert
+
+        async def fake_search(title, author, client, *, lang="en"):
+            from app.database import get_db
+            with get_db() as rival:
+                insert(rival, title="Dune", authors="Frank Herbert",
+                       isbn=None, media_type="book")
+            return []
+
+        monkeypatch.setattr(openlibrary, "search_by_title_author", fake_search)
+
+        resp = admin_client.post("/api/intake/confirm", json={
+            "books": [{"title": "Dune", "authors": "Frank Herbert", "media_type": "book"}],
+        })
+
+        data = resp.json()
+        assert data["added"] == []
+        assert data["skipped"][0]["reason"] == "already in library"
+        assert db.execute(
+            "SELECT COUNT(*) c FROM items WHERE title = 'Dune'").fetchone()["c"] == 1
+
+    @respx.mock
+    def test_weak_path_isbn_guard_blinded_once_still_classifies_the_integrity_error(
+        self, admin_client, db, monkeypatch,
+    ):
+        """Layer 2: the strong path's `IntegrityError` classification
+        (`_save_item`) is pinned at :1170; this pins the weak insert path's
+        own copy, in this block's `except sqlite3.IntegrityError:` handler.
+        Blind the query, not the route — `_confirm_one` and the router run
+        for real throughout."""
+        import app.routers.intake as intake_mod
+        from app.services import openlibrary
+        from tests.conftest import _insert_item as insert
+
+        insert(db, title="Dune (rival)", isbn=ISBN13, media_type="book")
+        db.execute("COMMIT")  # G48 — committed before the request
+
+        async def fake_search(title, author, client, *, lang="en"):
+            return [{"title": "Dune", "authors": "Frank Herbert", "isbn": ISBN13,
+                      "languages": []}]
+
+        monkeypatch.setattr(openlibrary, "search_by_title_author", fake_search)
+        _install_blind_once(monkeypatch, intake_mod, lambda sql: "isbn = ?" in sql)
+
+        resp = admin_client.post("/api/intake/confirm", json={
+            "books": [{"title": "Dune", "authors": "Frank Herbert", "media_type": "book"}],
+        })
+
+        data = resp.json()
+        assert data["added"] == []
+        assert data["skipped"][0]["reason"] == "ISBN already in library"
+        assert db.execute(
+            "SELECT COUNT(*) c FROM items WHERE isbn = ?", (ISBN13,)).fetchone()["c"] == 1
+
+
+class TestBooksAreUnchanged:
+    @respx.mock
+    def test_an_enriched_book_reports_matched(self, admin_client, db, monkeypatch):
+        respx.get(OL_SEARCH_URL).mock(return_value=httpx.Response(200, json={"docs": [{
+            "title": "Dune", "author_name": ["Frank Herbert"],
+        }]}))
+        _forbid_provider_calls(monkeypatch)
+        _set_provider_creds(monkeypatch)
+
+        resp = admin_client.post("/api/intake/confirm", json={
+            "books": [{"title": "Dune", "authors": "Frank Herbert"}],
+        })
+
+        assert resp.json()["added"][0]["lookup"] == "matched"
+
+    @respx.mock
+    def test_a_book_with_no_metadata_reports_not_attempted(
+        self, admin_client, db, monkeypatch,
+    ):
+        respx.get(OL_SEARCH_URL).mock(return_value=httpx.Response(200, json={"docs": []}))
+        _forbid_provider_calls(monkeypatch)
+        _set_provider_creds(monkeypatch)
+
+        resp = admin_client.post("/api/intake/confirm", json={
+            "books": [{"title": "Obscure Zine 3"}],
+        })
+
+        assert resp.json()["added"][0]["lookup"] == "not_attempted"
+
+
+def _stub_download_to_item(monkeypatch, result):
+    """Hand-written async stub on the module that *defines* it (G37) — never
+    a bare AsyncMock (G56)."""
+    from app.services import covers
+
+    calls = []
+
+    async def _download(item_id, url, client):
+        calls.append({"item_id": item_id, "url": url, "client": client})
+        return result
+
+    monkeypatch.setattr(covers, "_download_to_item", _download)
+    return calls
+
+
+def _run_background_tasks_inline(monkeypatch):
+    """Make `intake`'s `asyncio.create_task` run its coroutine to completion
+    immediately instead of merely scheduling it on the TestClient portal's
+    loop. `_enrich_import_covers` has no internal `await` -- `filter_cover_
+    eligible` and `enqueue_many` are both sync -- so one `send(None)` runs it
+    to `StopIteration`: deterministic, where relying on the portal's own next
+    tick would only be probabilistic (see :1148's "Called, not awaited"
+    comment, which sidesteps this by mocking the hand-off itself instead)."""
+    from app.routers import intake
+
+    def _immediate(coro):
+        try:
+            coro.send(None)
+        except StopIteration:
+            pass
+        return None
+
+    monkeypatch.setattr(intake.asyncio, "create_task", _immediate)
+
+
+class TestCoverDownloadOnAcceptedHit:
+    """T5: an accepted disc/game hit's cover downloads directly, on the
+    batch's own client -- books keep going through the cover queue (G29)."""
+
+    @respx.mock
+    def test_accepted_dvd_hit_with_cover_url_downloads_and_sets_cover_path(
+        self, admin_client, db, monkeypatch,
+    ):
+        from app.services import provider_result
+
+        respx.get(OL_SEARCH_URL).mock(return_value=httpx.Response(200, json={"docs": []}))
+        _stub_tmdb(monkeypatch, provider_result.found("tmdb", FILM_META))
+        _set_provider_creds(monkeypatch)
+        calls = _stub_download_to_item(monkeypatch, "covers/42.jpg")
+
+        resp = admin_client.post("/api/intake/confirm", json={
+            "books": [{"title": "MAD MAX FURY ROAD", "media_type": "dvd"}],
+        })
+
+        assert resp.status_code == 200
+        assert len(calls) == 1
+        assert calls[0]["url"] == FILM_META["cover_url"]
+        row = db.execute("SELECT * FROM items WHERE media_type = 'dvd'").fetchone()
+        assert calls[0]["item_id"] == row["id"]
+        assert row["cover_path"] == "covers/42.jpg"
+
+    @respx.mock
+    def test_accepted_hit_without_cover_url_makes_no_download_call(
+        self, admin_client, db, monkeypatch,
+    ):
+        from app.services import provider_result
+
+        respx.get(OL_SEARCH_URL).mock(return_value=httpx.Response(200, json={"docs": []}))
+        no_cover = dict(FILM_META, cover_url=None)
+        _stub_tmdb(monkeypatch, provider_result.found("tmdb", no_cover))
+        _set_provider_creds(monkeypatch)
+        calls = _stub_download_to_item(monkeypatch, "covers/should-not-happen.jpg")
+
+        resp = admin_client.post("/api/intake/confirm", json={
+            "books": [{"title": "MAD MAX FURY ROAD", "media_type": "dvd"}],
+        })
+
+        assert resp.status_code == 200
+        assert calls == []
+        row = db.execute("SELECT * FROM items WHERE media_type = 'dvd'").fetchone()
+        assert row["cover_path"] is None
+
+    @respx.mock
+    def test_a_failed_download_leaves_cover_path_null_and_still_reports_matched(
+        self, admin_client, db, monkeypatch,
+    ):
+        from app.services import provider_result
+
+        respx.get(OL_SEARCH_URL).mock(return_value=httpx.Response(200, json={"docs": []}))
+        _stub_tmdb(monkeypatch, provider_result.found("tmdb", FILM_META))
+        _set_provider_creds(monkeypatch)
+        _stub_download_to_item(monkeypatch, None)  # allowlist reject or failed fetch
+
+        resp = admin_client.post("/api/intake/confirm", json={
+            "books": [{"title": "MAD MAX FURY ROAD", "media_type": "dvd"}],
+        })
+
+        assert resp.status_code == 200
+        entry = resp.json()["added"][0]
+        assert entry["lookup"] == "matched"
+        assert entry["matched"] is True
+        row = db.execute("SELECT * FROM items WHERE media_type = 'dvd'").fetchone()
+        assert row["cover_path"] is None
+
+    @respx.mock
+    def test_a_declined_row_makes_no_download_call(
+        self, admin_client, db, monkeypatch,
+    ):
+        from app.services import provider_result
+
+        respx.get(OL_SEARCH_URL).mock(return_value=httpx.Response(200, json={"docs": []}))
+        _stub_tmdb(monkeypatch, provider_result.found("tmdb", {
+            "title": "Dune: Part Two",
+            "description": "Paul joins the Fremen.",
+            "publish_year": 2024,
+            "cover_url": "https://image.tmdb.org/t/p/w500/near-miss.jpg",
+        }))
+        _set_provider_creds(monkeypatch)
+        calls = _stub_download_to_item(monkeypatch, "covers/should-not-happen.jpg")
+
+        resp = admin_client.post("/api/intake/confirm", json={
+            "books": [{"title": "Dune", "media_type": "dvd"}],
+        })
+
+        assert resp.json()["added"][0]["lookup"] == "declined"
+        assert calls == []
+
+
+class TestNonBookRowStaysOffTheCoverQueueHandOff:
+    """G31 pin: this must go red when `_enrich_import_covers` bypasses
+    `filter_cover_eligible` -- verified by hand, see the task report."""
+
+    @respx.mock
+    def test_a_dvd_row_never_reaches_enqueue_many(
+        self, admin_client, db, monkeypatch,
+    ):
+        from app.services import cover_queue, provider_result
+
+        respx.get(OL_SEARCH_URL).mock(return_value=httpx.Response(200, json={"docs": []}))
+        _stub_tmdb(monkeypatch, provider_result.found("tmdb", FILM_META))
+        _set_provider_creds(monkeypatch)
+        _stub_download_to_item(monkeypatch, "covers/42.jpg")
+        # confirm_books skips the hand-off entirely under this env var, which
+        # the `client` fixture sets for every test -- unset it here or the
+        # pin asserts nothing.
+        monkeypatch.delenv("SHELF_DISABLE_COVER_ENRICH", raising=False)
+        _run_background_tasks_inline(monkeypatch)
+
+        queued_ids = []
+        real_enqueue_many = cover_queue.enqueue_many
+
+        def _capture(item_ids):
+            queued_ids.extend(item_ids)
+            return real_enqueue_many(item_ids)
+
+        monkeypatch.setattr(cover_queue, "enqueue_many", _capture)
+
+        resp = admin_client.post("/api/intake/confirm", json={
+            "books": [{"title": "MAD MAX FURY ROAD", "media_type": "dvd"}],
+        })
+
+        assert resp.status_code == 200
+        assert queued_ids == []

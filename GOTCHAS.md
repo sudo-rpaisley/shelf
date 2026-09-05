@@ -67,7 +67,24 @@ into subagent prompts).
   tracebacks, and dropped log records on a real pre-0.5.0 DB upgrade.
   Surfaced only in the manual pass on a real database — unit fixtures build
   fresh DBs and never exercised the path.
+- **And a G3 violation made through `logger.*` reddens nothing.**
+  `SQLiteHandler.emit` wraps its own write in `except Exception:
+  self.handleError(record)` (`app/log_handler.py:22-33`), so the busy timeout is
+  caught inside the handler and the request completes normally. The cost is five
+  seconds and a dropped log record, not a failing test — which is why the trap
+  survived in four routes until someone went looking. Measured on
+  `feat/issue-83-dupe-guards-under-lock` (2026-09-05): moving
+  `hardcover.py`'s `logger.warning` inside the locked block took two tests from
+  ~0.5s to **11.21s** and both still passed. **A `_log_scan` inside the block
+  behaves differently** — `items_common._log_scan` writes `scan_log` on its own
+  connection with no `try`, so it raises `sqlite3.OperationalError: database is
+  locked` after ~6.3s and the test does go red (measured the same day, T3's
+  mutation on the game and DVD adds). So when you mutation-check a G3 claim:
+  expect red from a bare second connection, and expect a **stopwatch** from
+  anything routed through `logging`. If your only pin is "the test still
+  passes", you have not checked G3 at all.
 - **Evidence:** `7f4c645` (2026-08-18, found in the 0.5.0 manual pass).
+  The logging-is-silent half: `af6b7a7` and `6def115` (2026-09-05, issue #83).
 - **Verify:** on a scratch DB, a `log_entries` insert on a second connection
   while a write transaction is open must still wait out the busy timeout
   (~5s) and fail — "no lock" means the contention behavior changed and this
@@ -442,14 +459,50 @@ PY
   a plan review caught it, the impl plan had filed G18 as "not triggered, no
   migration". **Whenever a fix removes a constraint that was implicitly
   serializing something, re-ask what was holding the invariant.**
-- **Verify:** both regression tests must still pass — the migration one drives
-  a second runner to completion inside the first runner's snapshot read, and
-  the route one probes from inside the guard that a rival writer is already
+  Third instance, found but **not fixed**: the Antigravity diff review of
+  `feat/intake-media-lookup` (2026-09-03) read the shape correctly in
+  `_confirm_one` (`app/routers/intake.py`) — step 1's title guard runs in its
+  own `with get_db()` block that closes before the insert, and steps 4a/4 share
+  the insert's block but never issue `BEGIN IMMEDIATE`, so all three guards
+  read outside the write lock. It is **pre-existing**, not introduced by that
+  branch: the reviewer attributed the race to the new step 4a and closed
+  `REJECT` on that basis, and triage reversed the attribution — 4a *narrows*
+  the window, because before it a lookup-resolved title got no dupe check at
+  all and a duplicate landed unconditionally rather than only under a race.
+  Deferred to [#83](https://github.com/dgahagan/shelf/issues/83) as a change to
+  the route's transaction discipline. **A guard that is new is not thereby the
+  guard that created the hazard** — check whether the shape predates it before
+  rating the finding, and check whether the new code made the window wider or
+  narrower.
+  **Fourth instance, and the one that says how far the shape spreads:** issue
+  #83, fixed 2026-09-05 across `feat/issue-83-dupe-guards-under-lock`. The
+  survey that plan ran found the same guard-in-one-block, insert-in-another
+  shape in **four** routes, not the one the issue named — photo intake's
+  confirm (`intake.py`), the game and DVD adds (`items_catalog.py`) and the
+  Hardcover add-to-shelf (`hardcover.py`). Three of them had no constraint
+  behind the key at all, so the transaction was the whole of the defence.
+  **When one instance of this shape turns up, grep for the rest before
+  scoping the fix** — `git grep -n "with get_db"` per router and look for two
+  blocks with a decision between them; the cost of the fourth site was the same
+  idiom a fourth time, and the cost of finding it late would have been a second
+  plan.
+  **The second thing that instance taught: no test had to fail.** None of the
+  three sibling routes had *any* duplicate-outcome test — only rejection-case
+  boundary tests — so the guards could have been moved anywhere, or broken
+  outright, with a green suite. A lock probe pins *where* the guard reads; it
+  says nothing about what the route answers. Add the outcome test too, or the
+  probe is the only thing standing between the route and a silent regression.
+- **Verify:** all four regression tests must still pass — the migration one
+  drives a second runner to completion inside the first runner's snapshot read,
+  and the route ones probe from inside the guard that a rival writer is already
   locked out:
 
 ```bash
 python -m pytest tests/test_items.py -k overlapping_runners -q
 python -m pytest tests/test_checkouts.py -k guard_reads_under_write_lock -q
+python -m pytest tests/test_intake.py -k under_the_write_lock -q
+python -m pytest tests/test_catalogue_add_boundaries.py tests/test_hardcover_isbn_funnel.py \
+  -k write_lock -q
 ```
 
 - **Status:** documented.
@@ -544,17 +597,25 @@ grep -n "create_task(items_common._enrich_import_covers" app/routers/intake.py
   `app.services.item_write.insert_item`. See the Graveyard. The id is kept
   because existing plan and review documents cite it.
 
-## G26 — When parsing MARC21 records from a national-bibliography source
+## G26 — When parsing records from a national-bibliography source (MARC21 or flat JSON)
 
 - **Rule:** Two normalizations are mandatory, or the data is subtly wrong:
   (1) MARC21-xml text arrives as **decomposed (NFD) Unicode** — "Köhlmeier"
   is `o` + combining diaeresis — so normalize every extracted subfield to
-  NFC before storing (`dnb._text` is the worked example), or search/display
+  NFC before storing (`bib_normalize.nfc` is the shared helper; `dnb._text`
+  routes every subfield through it), or search/display
   diverges from NFC text from other sources; (2) **700 added entries are
   not authors** by default — translators/editors carry `$4 trl` / `$e
   Übersetzer` relators, so filter 700 to author relators (`$4 aut`, `$e
   Verfasser*`, or no relator at all) before joining into `authors`
-  (`dnb._is_author_relator`). The registry in `app/services/national.py`
+  (`dnb._is_author_relator`) — and a 700 carrying `$t` is a name/title
+  entry for a *related work*, not a second author, so skip it and
+  de-duplicate the rest through `authors.matches()` (G22); (3) DNB wraps a
+  title's article and a name's particle in **C1 non-sorting markers**
+  U+0098/U+009C (`&#152;Der&#156; Kontrabaß`) — they survive NFC, render as
+  boxes and break LIKE search, so `bib_normalize.nfc` drops the C1 block
+  before normalising (found live by the bib-normalize test drive; none of
+  the original fixtures carried one). The registry in `app/services/national.py`
   makes new providers one file + one line — a copy that skips either step
   looks correct in every quick test.
 - **Why:** Both defects are invisible in ASCII-only fixtures and
@@ -567,9 +628,42 @@ grep -n "create_task(items_common._enrich_import_covers" app/routers/intake.py
 - **Verify:** the shared client still normalizes and filters:
 
 ```bash
-grep -n 'normalize("NFC"' app/services/dnb.py       # expect >= 1
+grep -n 'bib_normalize.nfc' app/services/dnb.py      # expect >= 1 (via _text)
+grep -n 'normalize("NFC"' app/services/bib_normalize.py   # expect >= 1
 python -m pytest tests/test_dnb.py -q                # translator-exclusion asserted
 ```
+
+  (The NFC call moved from `dnb._text` into `bib_normalize.nfc` on
+  2026-09-01, plan `bib-normalize`; the old single-file grep now returns 0
+  on a correct tree. A new provider that builds its strings through
+  `bib_normalize` gets NFC for free — the trap left is a provider that reads
+  a payload field *without* going through it.)
+
+- **Updated 2026-09-02** (`bfce266`, plan `issue-55-sbn-provider`): the first
+  **flat-JSON** provider, SBN, met all three clauses in its own dialect, which
+  is why the heading no longer says MARC21. What the format changes and what
+  it does not:
+  - **The relator trap survives the format change.** SBN has no `$4`/`$e`
+    relators, but its `nomef` facet reads exactly like a richer author list
+    and is not one — for ISBN 9791221200454 it holds `turconi, stefano`, the
+    *illustrator*, beside the author. Authors come from `autorePrincipale`
+    alone. Whatever the format, ask of any name-bearing field whether the
+    source promised you **authors** or merely **names**.
+  - **A facet is an aggregate, not a per-record field.** SBN's `lingua` facet
+    is computed over every record the query matched, not over the record you
+    selected, so reading it for a multi-record response attributes one book's
+    language to another. Read an aggregate only when it is unambiguous (here:
+    exactly one value) and leave the field unset otherwise.
+  - **NFC is free only if you route through `bib_normalize`** — unchanged, and
+    the reason `sbn.py` builds every stored string with `split_title` /
+    `invert_name` / `split_publication` / `to_iso639_1` and reads nothing off
+    the payload directly.
+  - **An identifier's formatting is not consistent within one response.** For
+    that same ISBN, the two records carrying the queried ISBN spell it
+    unhyphenated while the two carrying a different one spell it hyphenated.
+    Normalize before comparing; a `==` against the raw field is right for half
+    a payload and wrong for the other half. See **G74**, which is where the
+    comparison itself belongs.
 
 - **Status:** documented.
 
@@ -967,9 +1061,69 @@ python -c "from app.services.openlibrary import USER_AGENT as U; assert 'http' i
     **degradation** rather than absence, an emptiness/count/truthiness check is
     the wrong shape of assertion, because the degraded output is still present.
 
+  Three more, all found on `feat/scan-hardware-residual` (2026-09-01), and all
+  about a pin whose *expectation* is the problem rather than its subject:
+  - **A pin that computes its expectation from the implementation asserts
+    nothing.** A stored-title pin was written
+    `assert row["title"] == upcitemdb.search_queries(title)[0]` because the
+    plan's literal turned out to be wrong (`clean_title` strips the bare word
+    `DVD` as retail noise from *anywhere* in a title, so
+    `PlayStation 5 Wireless Headset DVD` files without its tag, while `CD` and
+    `CD-ROM` keep theirs). It passes, and it would keep passing if the ladder
+    changed underneath it — it says "the row holds whatever `search_queries`
+    returns", which is the code restated. Write the literal, and if you do not
+    know the literal, go and measure it. This is the entry's "whose markup am
+    I asserting on?" one layer out: **whose value is the expectation?**
+  - **A parametrise list built by introspection can silently match nothing.**
+    A structural pin enumerated every module-level `*_MARKERS` table in
+    `detect` by `vars()` so a future table is covered without editing the
+    test. A rename — or a typo in the suffix — makes the list empty, and an
+    empty parametrise list is a green test that ran zero cases. Pair every
+    discovery-driven list with a companion assertion that it is non-empty and
+    contains the names you expect to be there.
+  - **A multi-signal mutation claim needs a probe, because `assert` aborts.**
+    The plan required a row to go red "on `igdb_calls`, the spy, **and** the
+    stored `media_type` — not only on one assertion". A class run cannot show
+    that: the first failing `assert` ends the function and the rest never
+    execute. Confirm it with a throwaway test that *prints* every signal under
+    the mutation instead of asserting, then delete it. Otherwise "red on N
+    assertions" is a claim nobody checked.
+
+  Two more, both found on `feat/signing-key-keyfile` (2026-09-03), and both
+  about the *pin* rather than the code under it:
+  - **`assert` aborts, so the order of assertions inside one pin decides what
+    the mutation teaches you.** The webhook-redaction pin asserted
+    `"ConnectError" in message` before the three secret-absence assertions.
+    Reverting `type(e).__name__` back to `e` leaks the whole URL *and* drops
+    the class name, so the test does go red — on the missing class name, three
+    lines above the leak. The failure output then reads like a cosmetic
+    problem, and the obvious "fix" is to log the class name beside `e`, which
+    keeps the leak and turns the suite green. **Put the assertion that carries
+    the consequence first.** In a redaction pin that means the negative
+    assertions — what must *not* be in the output — before the positive ones
+    that say it is still useful. Reordered, the same mutation fails on
+    `PATHSECRETabc not in message`, which nobody can misread. The
+    corollary sits beside the multi-signal item above: that one is about
+    assertions the abort never reaches, this one is about which one it reaches
+    *first*.
+  - **A stateless patch cannot stand in for a function called twice in one
+    flow for two different jobs.** `get_secret_key` calls `_read_keyfile` once
+    to ask "is there a usable key file?" and again to verify what it just
+    wrote. A pin for the verify-mismatch branch patched it with
+    `lambda name: KEY + "x"` — which also answers the *first* call, so the
+    accessor took the key-file path, the relocation never ran, and the test
+    asserted against a state the code had not entered. The patch has to be
+    stateful (count the calls, answer `None` then the corrupted value). Before
+    patching a helper for one branch, grep how many times the flow calls it:
+    this is the entry's "which branch does your pin land in" moved one call
+    earlier, into the stub itself.
+
 - **Evidence:** `ce1003c`, `8ba5853`, `10caf32` (2026-08-21, issue #27). The
   queue's requeue-filter and head-of-line pins were mutation-checked the same
   way and did fail correctly (`[1,2,3,4] == [1]`, `[20.0] == [5.0]`).
+  `dedaa87` and `51745df` (2026-09-03, plan `signing-key-keyfile`) are the two
+  additions above — the first caught in orchestrator review of a subagent's
+  diff, the second while writing the pin.
 - **Verify:** judgement, not a grep — this one cannot be linted. When
   reviewing such a test, ask what implementation change would make it fail.
 - **Status:** documented. Not a lint candidate.
@@ -1536,6 +1690,26 @@ python -c "from app.services.upcitemdb import search_queries as q; \
   *correctly filed* row and stayed silent about the bug. Pick a stub value with
   **zero substring overlap** against every real title in the parametrise list,
   and say in the test that you checked.
+- **Fourth instance — and the deferral that hid it was an unmeasured
+  number** — `75c5b06` (2026-09-01, plan `scan-hardware-no-platform`). The
+  prior plan deferred brand-named hardware (`Sony PULSE 3D Wireless Headset`)
+  on the argument that "the shortened title stops at three words". True for
+  `Sony` — four characters, under `MIN_SOLO_WORD` — and false for every
+  brand of seven or more: `Logitech G Pro X Gaming Headset` descends to bare
+  `Logitech`, legally. Nobody had run `search_queries` over more than the one
+  example. The remedy was again the caller recognising the input (a
+  `_HARDWARE_BRANDS` table as the second half of the hardware conjunction),
+  not the floor. When a deferral rests on a claim about the ladder, run the
+  ladder over a dozen inputs before writing it down.
+- **A stub keyed on the rung you expect misses the rung you get.** The
+  sibling hardware classes key `_WRONG_FILM` on the one-word rungs
+  (`PlayStation`, `Nintendo`, `Xbox`). Two brand shapes bottom out at
+  different rungs — `Logitech` and `Sony PULSE 3D` — so a dict keyed the same
+  way answers `no_match` for every rung the second shape sends, and the miss
+  path files `queries[0]`, the value the fix files. The per-rung dict only
+  ever worked because those titles all shared a rung. Where a class scans
+  titles whose ladders differ, answer **every** query with the wrong hit and
+  say why in the fixture.
 - **Status:** documented. Not a lint candidate — how short is too short is a
   judgement about the provider, not a grep.
 
@@ -2470,16 +2644,36 @@ grep -n "^{% if status\|^{% elif status\|enrich_status == '" \
     `covers._tmdb_candidates`, reached after `search_movies` already answered
     `found` with the same key, so a credential it could report as rejected was
     reported one call earlier.
+  - **The contract that named the wrong field.** `notify._target`'s docstring
+    promised `scheme://netloc` "safe to log", and the design plan above it
+    said "scheme and host". Those are not the same string: `netloc` carries
+    `user:pass@`, and ntfy documents `https://user:pass@host/topic` for
+    authenticated topics, so an operator using one had the credential written
+    to `log_entries` — inside `shelf.db` and every backup — on both warning
+    paths. The two redaction pins were green throughout: they used a URL with
+    no userinfo, so the gate agreed with the docstring rather than with the
+    design. **Never recompose a loggable URL from `netloc`; use `hostname`,
+    plus `port` when you need it.** The port read is its own trap — `.port`
+    raises `ValueError` on a non-numeric or out-of-range port, and `_target`
+    is called from inside an `except httpx.HTTPError` arm, so a read outside
+    the existing `try` turns a redaction fix into a broken "returns False"
+    contract.
 - **Evidence:** 2026-08-29, plan `issue-49-search-outcomes` — `ad12f51` (the
   parse handler and its two pins, one per contract) and `169fb3d` (the
   `search_posters` sentence). Both were caught in orchestrator review of the
   task diff, not by the suite: the gate was green with the false docstrings in
   place, because no test asked for a malformed body and no test reads prose.
+  2026-09-03, plan `signing-key-keyfile` — the `netloc` half was caught by the
+  `--diff` review leg (copilot F1/F2) *after* the branch was complete, and the
+  slip originated in the impl plan's own "Decisions" section, which wrote
+  `netloc` where the design said "host". A contract stated twice in two
+  vocabularies is a contract with a seam in it.
 - **Verify:** the claim and the code still agree — every client that says
   "never raises" wraps its parse, not just its request:
 
 ```bash
 grep -rn "[Nn]ever raises" app/services/*.py
+grep -rn "netloc" app/services/*.py app/routers/*.py
 ```
 
   For each hit, read the function's body to the end: a `resp.json()` or a
@@ -2494,9 +2688,15 @@ grep -rn "[Nn]ever raises" app/services/*.py
 ## G67 — When your change adds lines to a module at its size cap
 
 - **Rule:** `tests/test_module_sizes.py` caps ten files, and
-  `app/routers/items_common.py` is sitting at exactly its cap of 900. The
-  **next** line added to it fails the gate. Before scoping work that touches
-  it, read `LIMITS` in that test and check the headroom you actually have —
+  `app/routers/items_common.py` sits nine lines under its cap of 900 (**891 as
+  of `7a1b5ec`, 2026-09-03**, when plan `intake-media-lookup`'s T2 moved
+  `UPC_METADATA_PROVIDERS` and `search_one_game` out to
+  `app/services/title_lookup.py` under a hard net-negative budget; it was 899
+  as of `a8e97a5`, 2026-09-02, and 900 before that). **Do not read that
+  headroom as comfort** — it was bought once, by a task scoped to buy it, and
+  the file has been at or within one line of the cap twice. Before scoping work
+  that touches it, read `LIMITS` in that test and check the headroom you
+  actually have —
   and when there is none, plan the extraction as part of the task rather than
   discovering it when the suite goes red. The cap's own instruction says where
   the lines should go: *"move domain logic to `app/services/`"*.
@@ -2531,6 +2731,686 @@ for path, cap in re.findall(r'\"([^\"]+\.(?:py|html))\": \((\d+),', src):
   A lint that fails at 95% of a cap would move the signal to the change that
   actually fills it; not built, because a soft cap nobody can silence is its
   own problem.
+
+## G68 — When a guard skips one check, ask which checks it exists to skip
+
+- **Rule:** a predicate that suppresses a lookup because the input is *not the
+  kind of thing the lookup is for* has to suppress **every** branch that would
+  answer the same question — not just the branch it was written beside. When
+  you add a new branch below such a guard, re-read the guard: if its reason
+  applies to your branch too, it now has a hole it did not have yet.
+- **Why:** the guard reads as correct at the line it sits on, and each new
+  branch below it is individually correct as well. Nothing goes red. The hole
+  only shows up on an input that reaches the *new* branch — which by
+  construction is the input nobody wrote a case for, because the guard was
+  supposed to have caught it.
+- **Evidence:** 2026-08-30, plan `scan-audio-signal`, diff review
+  `gemini-B2`. `_match_title_markers` (`app/services/detect.py:218`) guarded
+  only the platform loop with `_is_hardware_title`, so a hardware title fell
+  through to the format loop and — as of that plan — the audio loop:
+  `PlayStation 5 Wireless Headset CD` filed `cd`/`detected` instead of
+  reaching the tier-4 hardware arm. The guard's own comment called the
+  platform-only scope "behaviour-preserving", and it was, at the time it was
+  written: `PlayStation 5 Wireless Headset DVD` already filed `dvd`/`detected`
+  at `9a4bef5`. The audio arm widened the hole by one token without anyone
+  looking at the guard. Triaged **defer**, not because it is wrong but because
+  the one-line fix (`return None` when hardware) changes issue #43's contract
+  for format-tagged hardware titles — that belonged with the roadmap's residual
+  hardware shape (ii), not silently inside a release.
+- **What the deferral got wrong, and it is the more useful half of this
+  entry.** The Status line below used to argue the hole was harmless, because
+  "a `cd` verdict declines every provider exactly as `hardware` does" — so it
+  would only become a defect once `cd` gained a provider. That reasoning was
+  checked against the wrong arm. The **medium** arm decides `video_game`, not
+  `cd`, and `video_game` already had a provider: `UPC_METADATA_PROVIDERS` maps
+  it to `igdb` (`app/routers/items_common.py:422`), and `_scan_upc` forks on
+  `media_type == "video_game"` *before* it ever reads `detection.signal`, so
+  the hardware suppression was unreachable on that branch by construction. A
+  scanned `PlayStation 5 Wireless Headset CD-ROM` sent a real IGDB request and
+  could store another game's title, year and cover. **When you defer a
+  guard-scope hole on the grounds that its outcome is harmless, enumerate
+  every branch the guard now fails to cover and check the consequence of each
+  — not the one that prompted the finding.**
+- **Verify:** for each branch under a suppressing guard, feed it an input the
+  guard is meant to reject and assert the guard's outcome, not the branch's:
+
+```bash
+python3 -c "
+from app.services.detect import detect_media_type
+for tag in ('', ' DVD', ' Blu-ray', ' CD', ' Audio CD', ' CD-ROM'):
+    d = detect_media_type('upc', None, 'PlayStation 5 Wireless Headset' + tag, None)
+    print(repr(tag), d.media_type, d.signal)
+"
+```
+
+- **Status:** **fixed `1193fc3`** (2026-09-01, plan `scan-hardware-residual`).
+  `_is_hardware_title` is now the **first statement** of
+  `_match_title_markers` and returns `None`, so all four arms are gated and an
+  arm added below inherits the guard rather than the hole — nothing can be
+  added above it. The Verify script above is the acceptance test and now
+  prints `dvd hardware` on every row. Widened once since, through the same
+  seam: `75c5b06` (2026-09-01) added `_HARDWARE_BRANDS` as the second half of
+  `_is_hardware_title`'s conjunction, and because the predicate is the first
+  statement, all four arms and the tier-4 arm moved together — the script
+  prints the same for `Sony PULSE 3D Wireless Headset` + tag. The rule
+  stays: this entry is kept for the guard-scope question and for the
+  deferral error above, not because the instance is live. Not a lint candidate — "which branches does this guard
+  exist to skip" is a judgement about intent, and the structural remedy here
+  is a test that enumerates the marker tables by introspection
+  (`test_no_marker_in_any_table_decides_a_hardware_title`), which grows with
+  the module instead of a `make check-*`.
+
+## G69 — When a pin asserts a section's label is *absent* with a bare substring
+
+- **Rule:** Assert on the element, not the words — `>Reading Status</p>`, or a
+  `data-testid` — and keep every `<!-- Section -->` HTML marker **inside** the
+  `{% if %}` that gates the section. Explanatory notes beside a gate go in Jinja
+  `{# … #}`, which is stripped at render, never in `<!-- … -->`, which ships.
+- **Why:** the templates mark every block with an HTML comment carrying the
+  block's own name (`<!-- Reading Status -->`, `<!-- Hardcover Sync -->`), and
+  those comments are part of the response body. A gate wrapped *below* the
+  marker removes the heading and leaves the comment, so `"Reading Status" not in
+  html` stays red on every page the gate is supposed to clear — and the
+  matching positive pin (`"Reading Status" in html`) would have been green
+  **with the heading deleted**, because the comment satisfies it. The trap has
+  two faces: a negative that cannot pass, which you notice, and a positive that
+  cannot fail, which you do not. The existing `"Retry ISBN" in html` pins in
+  `tests/test_covers.py` are safe only because no comment carries that string.
+- **Evidence:** `0a34c8f` (2026-09-01, plan `item-detail-book-controls`). The
+  first draft put the reading-status gate under the marker and wrote the note
+  as an HTML comment; three of eight pins failed on the comment text, and the
+  fix was moving both markers inside their gates and asserting on the `<p>`.
+- **Verify:** an HTML comment whose text is also a rendered label, or an
+  absence pin on a bare label, is greppable:
+
+```bash
+grep -rn '<!-- Reading Status -->\|<!-- Hardcover Sync -->' app/templates/item_detail.html
+grep -n 'HEADING = ' tests/test_item_detail.py    # must read ">Reading Status</p>"
+```
+
+  Both markers must sit on the line *after* their `{% if` and the constant must
+  name the element.
+- **Status:** documented. Lint candidate — "a `not in html` pin whose needle also
+  appears verbatim inside a `<!-- -->` in the rendered template" is checkable in
+  `scripts/check_test_conventions.py`, but needs a template→test mapping the
+  script does not have; noisy until it does.
+
+## G70 — When an E2E locator can match more than one element and one of them is `x-show`-toggled
+
+- **Rule:** Never disambiguate with `.first` / `.nth()` on a role or text
+  locator when a sibling copy of the same label is toggled by `x-show` (or
+  `:disabled`). Name the element by its own guard — `button[x-show="bulkLocationVal"]`
+  — or by a `data-testid`. The rule holds even when the *visible* copy is the
+  one you want: a role locator excludes hidden elements, so which copy is
+  "first" depends on whether Alpine has run yet.
+- **Why:** Playwright resolves a locator once at the start of an action and
+  keeps that element for every retry unless it detaches. Right after
+  `select_option`, the location Apply still reads as hidden for one tick, so
+  `.first` lands on the always-rendered series Apply (`:disabled="!bulkSeriesVal"`),
+  `to_be_visible()` passes on it, and the click retries "element is not
+  enabled" for 30 s against the wrong button while the right one is visible
+  and enabled beside it. The call log names the resolved element — read it;
+  "not enabled" on a button you never disabled is this trap.
+- **Evidence:** `a5bae17` (2026-09-01). `test_bulk_move_apply_moves_selected_list_item`
+  arrived in `f3a5d05` (PR #75) with `get_by_role("button", name="Apply").first`
+  and was red on `main` from the day it landed; the item-detail-book-controls
+  run found it as the one E2E failure and it failed 3/3 on `main` too. Probe:
+  at T0 after the select the role locator's first was the series button, at
+  T+500 ms the location button.
+- **Verify:** every `.first` on a role/text locator in the E2E suite is a
+  candidate — eyeball each against the template for a duplicate label under
+  `x-show`:
+
+```bash
+grep -n 'get_by_role(.*)\.first\|get_by_text(.*)\.first' tests/e2e/*.py
+```
+
+- **Status:** documented. Lint candidate: `scripts/check_test_conventions.py`
+  could flag `.first` on `get_by_role`/`get_by_text` outright, but the suite
+  has legitimate uses on unique-per-page labels; noisy until each is named.
+
+## G71 — When a write path starts enforcing an invariant the fixtures already violate
+
+- **Rule:** Scrub the fixtures **first, in their own commit, with no app
+  change** — then land the enforcement. And scrub for what the fixture
+  *means* as well as for what the rule checks: replace a literal with one
+  that keeps every property a test reads from it, and seed the *derived*
+  columns the rule will now compute, not only the column it validates.
+- **Why:** the suite is built on raw-SQL seeds that bypass every check, so
+  it can carry an invariant violation for years and go red the moment the
+  app enforces it — and then every failure in the enforcement commit reads
+  as "the funnel broke something" rather than "this fixture was never
+  valid". Issue #54's value stage found **346 distinct checksum-invalid
+  ISBN-13 literals across 49 test files** (`tests/conftest.py`'s
+  `_insert_item` default among them), about sixty of which reached a write
+  path. Three things the mechanical scrub got wrong, each a shape worth
+  knowing:
+  - **The replacement changed a property the test read.** "Drop the digit
+    after `978`, recompute the check" is lossy for the *registration group*:
+    `9783400000000` → `9784000000000` turned a German ISBN Japanese, and
+    `national.PREFIX_PROVIDERS` stopped routing it to DNB; two language-
+    backfill pins flipped the same way. A fixture literal can be read for
+    more than its validity — choose the replacement per test, not per
+    formula, wherever a prefix or a substring is load-bearing.
+  - **The predicted default already existed.** The plan wrote "replace the
+    default with `9780000000002`"; that value was already a distinct, valid
+    literal elsewhere in the tree, and the E2E server is session-scoped
+    (G34) with `UNIQUE(isbn, media_type)` spanning every file's seeds, so
+    the mapping had to be proven injective over the **whole** tree.
+  - **Valid is not consistent.** Two archive round-trip seeds carried a
+    valid `isbn` and no `isbn10`; the funnel derives `isbn10` on import, so
+    the byte-for-byte round-trip broke on a row the validity scan had
+    passed. When the new rule *computes* a column, seed it.
+- **Evidence:** `ffd3329` (2026-09-02, plan `issue-54-item-value-funnel` T1 —
+  the scrub, with the full old→new table in the commit body), `0c103f9` (T3 —
+  the enforcement, and the two archive seeds). The Gemini plan review named
+  the shape before the run (`gemini-GC1`).
+- **Verify:** the scrub's own acceptance line still holds — no
+  checksum-invalid ISBN-13 literal outside the deliberate negative pins:
+
+```bash
+python3 - <<'EOF'
+import re, pathlib, sys
+sys.path.insert(0, ".")
+from app.services.isbn import validate_isbn13
+skip = {"tests/test_isbn.py"}
+bad = []
+for p in pathlib.Path("tests").rglob("*.py"):
+    if str(p) in skip: continue
+    for i, line in enumerate(p.read_text().splitlines(), 1):
+        for lit in re.findall(r"(?<!\d)97[89]\d{10}(?!\d)", line):
+            if not validate_isbn13(lit) and lit != "9780441172710":
+                bad.append(f"{p}:{i} {lit}")
+print("\n".join(bad) or "clean")
+EOF
+```
+
+  `9780441172710` is the one literal that is *supposed* to be invalid (the
+  probe every refusal pin uses). A hit here is a fixture that will go red
+  under the next invariant, or a new negative pin that needs adding to the
+  exclusion.
+
+  **Three standing hits are deliberate and are not failures** (re-checked
+  2026-09-04): `9788400000000`, `9788500000000` and `9788000000000` in
+  `tests/test_national.py:31,35,39`. They exist to pin that the Spanish,
+  Brazilian and Czech/Slovak registration groups are *not* routed to SBN —
+  the literal is read for its 978-84 / 978-85 / 978-80 prefix and nothing
+  else, and `provider_for` never validates a check digit. This is the entry's
+  own "a prefix is load-bearing, choose the replacement per test" case, and
+  none of the three reaches a write path. Leave them.
+
+- **A checksum-bearing literal in a *plan* is not a checked value either.**
+  The `csv-import-boundaries` impl plan (2026-09-04) told its builder to
+  "use checksum-valid pairs (e.g. `0441172717` / `9780441172710`)" — and
+  that second literal is this file's canonical *invalid* probe, quoted two
+  paragraphs up. `0441172717` canonicalises to `9780441172719`;
+  `canonical_isbn_pair("9780441172710")` returns `None`, so every dedup
+  assertion built on it would have exercised the invalid-ISBN branch while
+  reading as a match test. The builder caught it only because the task text
+  also said to verify any pair before relying on it. Plans are prose, and no
+  gate reads them: run `canonical_isbn_pair` over an ISBN a plan hands you
+  before you type it into a test.
+
+- **Status:** documented. Lint candidate — the Verify block above is the
+  lint; it needs only an opt-out marker for negative pins to become a
+  `make check-*` target. Revisit trigger: an invalid literal reaching a
+  write path again, or `upc` validation landing (deferred from #54).
+
+## G72 — When a sync writes a provider's identifier into a user-editable column
+
+- **Rule:** Decide, at the call site, whether the value is the **user's**
+  (refuse it with a message) or the **provider's** (pre-clean it, store
+  `NULL` on failure, log a warning naming the source) — and never let a
+  provider's *different* identifier stand in for the column's own. The
+  funnel below is strict either way; dropping versus refusing is the
+  caller's decision, stated in a comment beside the call.
+- **Why:** `audiobookshelf.py` wrote `metadata.get("isbn") or
+  metadata.get("asin")` into `items.isbn` for years. An ASIN is not an
+  ISBN, so every audiobook without one carried junk in a column the edit
+  form posts back on every save, the duplicate check keys on, and the
+  archive exports — and once the write layer validated ISBNs (#54), those
+  rows could not be saved from Edit until the field was cleared, and a
+  naive sync would have refused every such item instead of syncing it. The
+  general shape: a fallback that reaches for the *next best* identifier
+  looks like resilience at the sync and reads as corruption everywhere
+  else. The two kinds of caller need opposite handling, and the difference
+  is not visible from inside the write layer — only the caller knows whose
+  value it holds.
+- **The consequence to say out loud:** a pre-clean *rewrites history* on
+  the next run. Rows whose `isbn` held an ASIN from an earlier sync are
+  scrubbed to `NULL` on the next sync (`desired["isbn"]` becomes `None`,
+  `changed` is true) and counted `updated`. That is the right outcome and
+  it belongs in the changelog and the integrations page, because a user
+  who exported an archive before it and restores it after will see the
+  ASIN rows reported as "imported without its ISBN".
+- **Two-stage flows must pre-clean in both stages.** Archive import plans a
+  verdict per row and applies it later; pre-cleaning only `apply_plan` made
+  the plan dedupe on the raw ISBN (no match → `create`) and the apply on the
+  cleaned one (title match → `update`), so the row landed in `drifted`
+  instead of being applied. A dedupe rule two stages share must dedupe on
+  the same value.
+- **Evidence:** `b40c372` (2026-09-02, plan `issue-54-item-value-funnel` T6
+  — ABS, Hardcover, archive; the plan/apply agreement pin
+  `tests/test_archive.py::TestPlanAndApplyAgreeOnABadIsbn`), `184bb86` (T5 —
+  photo intake's Open Library ISBN), `a8e97a5` (T4 — the title-search ISBN
+  in `resolve_missing_cover`). Mechanism in `app/services/item_write.py`'s
+  module docstring ("a user's value is refused; a provider's is dropped").
+- **Verify:** every provider ISBN site still pre-cleans, and no site reads
+  an ASIN into `isbn`:
+
+```bash
+grep -rn 'get("asin")' app/ --include=*.py          # must only feed the warning, never isbn=
+grep -rn "canonical_isbn_pair" app/services/audiobookshelf.py app/routers/hardcover.py \
+    app/services/archive.py app/routers/intake.py app/routers/items_common.py | wc -l   # >= 6
+```
+
+- **Status:** documented. Not a lint candidate as stated — which caller is
+  a provider is judgement — though "a new `insert_item`/`update_item_fields`
+  call site in `app/services/` that passes `isbn=` without a
+  `canonical_isbn_pair` in the same function" is greppable and would catch
+  the next sync adapter.
+
+## G73 — When a new refusal meets a client that has already discarded its copy
+
+- **Rule:** Before adding a validation refusal to a route, ask **who still
+  holds the input if you say no**. If the caller drops its local copy on
+  your response — an offline queue, an optimistic UI, a form that clears —
+  a bare refusal is not a refusal, it is data loss. Either keep the input
+  server-side in a recoverable shape, or return something the client is
+  required to render before it discards.
+- **Why:** `#54`'s funnel made `/api/store/queue` reject a barcode whose
+  check digit fails. `static/js/store.js` marks **every** returned result as
+  handled and filters the `localStorage` queue by that map, and there was no
+  rendering for the `invalid` status at all — so a misread scan left no item,
+  no `scan_log` row, no message, and no queue entry. Store Mode is used
+  standing in a shop with no signal; the queue *was* the only record. The
+  route's own docstring promised "a queued scan is never lost", and the
+  change quietly broke that promise while every test stayed green: the unit
+  suite asserted the route's response, not what the client did with it.
+- **What makes it invisible:** the refusal is correct in isolation. The bug
+  lives in the seam between a server that now says no and a client written
+  when the answer was always yes. Nothing in the diff of either file looks
+  wrong; you have to read them together. A checksum refusal is also exactly
+  the case a *misread* produces, so the new failure mode is common, not rare
+  — five rows in a real 1057-item collection carry ISBNs this rule rejects.
+- **The general test:** grep the client for the statuses the route can now
+  return. A status the server emits and the client has no branch for is the
+  whole bug.
+- **Found by:** the live pass, not the gate. `make test` and `make test-e2e`
+  both passed on the broken commit; `/test-drive` flushed a real two-code
+  queue and read `localStorage` afterwards (`qa-issue-54-item-value-funnel.md`,
+  Observation 1). This is the argument for driving an offline/optimistic
+  surface by hand whenever its server contract changes.
+- **Evidence:** `887169e` (2026-09-02) — the route now saves the code as
+  `Unreadable barcode — <code>` with `isbn` NULL, returns `unreadable`, logs
+  the scan, and `store.js` renders a `#sync-result` count **outside**
+  `#queue-section`, which hides itself the moment the flush drains the queue.
+  Pinned by `tests/test_store.py`. Same shape, opposite call: the *provider*
+  paths in `G72` drop rather than refuse, for this reason.
+- **Status:** documented. Partially greppable — a route returning a status
+  string with no matching branch in the JS that calls it — but the general
+  rule needs judgement about who holds the input.
+
+## G74 — When a lookup endpoint answers with a *list* of records
+
+- **Rule:** A search endpoint returns what it considers **related** to your
+  query, not the answer to it. Before mapping fields, decide — and write down
+  — which record you are entitled to, and answer "no match" when none
+  qualifies. `results[0]` is a guess that looks correct in every
+  single-record fixture.
+- **Why:** the defect is invisible at exactly the sample size a fixture has.
+  Of ten real Italian ISBNs swept against SBN, eight returned one record and
+  would have passed a naive `briefRecords[0]` implementation. The other two
+  are the whole entry: for ISBN 9791221200454 the first record carries **no
+  author** and the year 2025, the exact-ISBN record one along carries
+  "Stevenson, Steve" and 2022, and two further records answer a **different
+  ISBN entirely** (978-88-418-6255-1, years 2010 and 2015). Taking `[0]` files
+  an Italian book with no author and a year three out — silently, with a green
+  suite.
+- **The escalation that makes it worse:** a national provider answers *first*
+  in the cascade and short-circuits it, so it is claiming authority. A
+  confidently wrong publisher and year is worse for the user than the thinner
+  record they would have got from Open Library, because nothing tells them to
+  look. Prefer `no_match` and let the cascade run.
+- **Two ways the pin fails to catch it**, both worth writing into the test:
+  - **Asserting the request instead of the stored fields.** A test that checks
+    the query URL passes against every candidate record, including the wrong
+    one. Assert `authors` and `publish_year`, not the params (this is **G45**'s
+    "assert the stored fields" one layer out, and **G31**'s "which branch does
+    your pin land in").
+  - **A single-record fixture.** Commit a real multi-record payload, and one
+    whose records *all* carry a different identifier than the one queried —
+    that second fixture is what proves the filter answers `no_match` rather
+    than storing a related edition.
+- **Compare identifiers normalized**, not raw: SBN spells the identifier both
+  hyphenated and unhyphenated **within one response** (G26).
+- **Evidence:** `bfce266` (2026-09-02, plan `issue-55-sbn-provider`).
+  `sbn._select_record` keeps only exact-ISBN records, takes the first with a
+  non-empty author, else the first, else `None`. Pinned by
+  `tests/test_sbn.py::TestSbnLookup::test_multi_record_picks_the_exact_isbn_author_bearing_record`
+  and `...::test_records_all_carrying_another_isbn_are_no_match`; mutating the
+  selector to `records[0]` reddens both. The issue's own proposal and the reply
+  posted on it both specified `briefRecords[0]`, so this was the *default*
+  reading of the payload, not an unlikely slip. `dnb.lookup` solves the same
+  problem differently — it loops until a record has a usable title — because
+  MARC records for one ISBN are editions of one book; choose per source rather
+  than copying either.
+- **Verify:** every client that picks one record out of a provider's result
+  list has decided which one it is entitled to. Read each hit and check for a
+  filter or a loop condition above it, not a bare index:
+
+```bash
+grep -rnE '= (results|items|records|briefRecords|docs|hits)\[0\]' app/services/*.py
+```
+
+  Four hits are expected as of 2026-09-02 and are **not** this entry firing:
+  `tmdb.py:85` (`movie = results[0]`), `covers.py:300` (`hit = results[0]`),
+  `upcitemdb.py:170` (`item = items[0]`) and `googlebooks.py:65`
+  (`info = items[0]...`). Each indexes a **relevance-ranked search** or an
+  **exact-identifier query**, where the first element is what the provider
+  means by "the answer". SBN's `briefRecords` is neither — it is "records we
+  consider related to your query" — and that is the distinction to establish
+  for any new source before writing the mapping. A fifth hit means a client
+  made the choice without stating it.
+
+- **Status:** documented. Not a lint candidate — whether a list is "candidates"
+  or "the answer" is a property of the upstream API, not of this repo's source.
+
+
+## G75 — A provider's own cover URL can carry someone else's credential
+
+A metadata record often ships an image URL alongside the bibliographic
+fields, and the obvious move is to feed it straight into the cover pipeline.
+Check what is *in* the URL first.
+
+SBN's `briefRecords[].copertina` looks like a plain cover link:
+
+```
+http://covers.librarything.com/devkey/fd11eebee79ccfcfe2f17d34a92e1011/small/isbn/9788842092995
+```
+
+That path segment is a **LibraryThing developer key issued to ICCU**, exposed
+because the endpoint was reverse-engineered from their mobile app. Using it
+would mean Shelf issuing requests against a third party's credential — billed
+to them, revocable without notice, and not ours to spend. The design dropped
+the rung: **SBN contributes no cover source**, and Italian books are covered
+by the existing Open Library and Amazon rungs like everything else.
+
+- **The trap is that it works.** Nothing fails, no test goes red, and covers
+  arrive — until the key is rotated, or its owner notices the traffic. This
+  reached an issue comment as a shipped promise before the design caught it
+  (#55, corrected on close).
+- **What to check on any new provider's image URL:** an opaque path segment
+  that is not an identifier you sent, a `key=`/`devkey`/`apikey` parameter, or
+  a host belonging to neither the provider nor the work. Any of the three
+  means the URL is not yours to call.
+- **Where this bites next:** the other national library catalogues (BnF, BNE,
+  KB, Libris, Finna, NB, BN, NDL, NLI). Several front the same commercial cover
+  services. Ask the question once per provider rather than assuming SBN was
+  special.
+- **Evidence:** `bfce266` / plan `issue-55-sbn-provider` (2026-09-02).
+  `app/services/sbn.py` parses `copertina` nowhere; `docs/architecture.md`
+  states the covers cascade is unchanged so a reader does not go looking.
+- **Status:** documented. Not a lint candidate — no grep can tell an
+  identifier from a credential in a URL path.
+
+## G76 — Redacting your own log line does not close the leak if a library logs the same URL
+
+`notify._target` was written with care: it strips the path, the query and the
+userinfo, and logs the exception's *type* rather than its string. One line
+below it in the same container log, `httpx` logged the whole URL of the same
+request — username, password and topic path — because `httpx` logs every
+request that receives a response at INFO. The careful line and the leaking
+line sat adjacent.
+
+- **The redaction control was working, and covered the wrong half.**
+  `RedactQueryFilter` was installed on the `httpx` logger and had run: it
+  blanked `token=` to `***` in the very line that carried the credential in
+  its path. A filter over a URL can only reach the part it can name, and ntfy
+  and Discord both carry their secret in the **path**, where no filter can
+  know which segment is the secret. `https://ntfy.sh/secret-topic` has no
+  userinfo at all and the topic *is* the password.
+- **The success path leaked more than the failure path.** `httpx` logs on
+  every request that gets a response, so a *working* authenticated topic wrote
+  its credential on every send, while a notification that failed to connect
+  logged nothing from `httpx`. Testing the error path — the intuitive thing to
+  test for a redaction fix — sees the safe case.
+- **What to check whenever you redact a log line:** who else logs this same
+  request. Enumerate the loggers, not the call sites. Shelf's own handler is
+  attached to the `app` logger and not to the root, which is why the leaking
+  record never reached `log_entries` and the database — a containment that was
+  luck rather than design, and is the only reason this was a stdout problem
+  rather than a backup problem.
+- **The fix is the logger's level, not another filter.** `httpx` has exactly
+  two log call sites, both `logger.info`, and emits nothing at warning or
+  error, so raising that logger to WARNING drops the leaking line and nothing
+  else. The filter stays installed as defence in depth. Accepted cost: `docker
+  logs` no longer carries a line per outbound request. If that trace is wanted
+  back, re-add it in `outbound.py`, which already knows the host.
+- **Evidence:** `0b1d1c0` / plan `signing-key-keyfile` (2026-09-03). Found by
+  `/test-drive` on the live instance, **after** a cross-vendor `--diff` review
+  had already read the same code and passed it: the review saw `notify.py` and
+  judged the redaction correct, which it was. Only a running container shows
+  what a *second* logger writes beside it. `SECURITY.md` and
+  `docs/architecture.md` had already been edited by this same plan to claim
+  the leak was closed, so the docs were false for four commits.
+- **Verify:** no logger below the app's own emits a URL.
+
+```bash
+grep -rn "getLogger" app/main.py app/log_handler.py
+docker logs shelf-dev 2>&1 | grep -iE "https?://[^ ]*@|HTTP Request:"
+```
+
+  The second command must return nothing after a scan and a **Send test** on
+  the Lending card.
+- **Status:** documented. Not a lint candidate — a third-party logger's level
+  is not something a grep over `app/` can see.
+
+## G77 — When a refactor routes an existing call through a new helper
+
+- **Rule:** Diff the **call**, not the shape around it. "Behaviour-preserving
+  refactor" and the code sample a plan hands you are two separate claims, and
+  the sample is the one that can be wrong. Before replacing a call site, read
+  the original's argument list and confirm the replacement passes the same set.
+  **An argument being in scope is not evidence it was being passed.**
+- **Why:** the change is invisible to a green gate. Plan `intake-media-lookup`'s
+  T2 was to route both UPC metadata ladders through a new
+  `title_lookup.lookup_by_title`, and its work text wrote
+  `platform=platform` into the game ladder's lambda. `platform` *is* a
+  parameter of `_scan_upc_game` and reads as obviously correct — but the
+  `search_one_game` being replaced called
+  `igdb.search_games(query, igdb_id, igdb_secret, client, limit=1)` and never
+  forwarded it; `platform` was read only by the insert further down.
+  `igdb.search_games` appends `where platforms = (…)` whenever the slug is in
+  `PLATFORM_IDS`, so the sample would have added a platform filter to a search
+  that has never had one, turning hits into misses on the UPC scan path. **No
+  test covers that filter**, and the task's own acceptance — *"the `rejected`
+  and `.found` arms stay byte-identical"* — would have been satisfied while
+  behaviour moved underneath it.
+- **The tell:** a task that calls itself behaviour-preserving *and* hands you
+  new keyword arguments is contradicting itself. Believe the adjective, check
+  the sample.
+- **Evidence:** `7a1b5ec` (2026-09-03, plan `intake-media-lookup` T2).
+  Resolved by not forwarding it, with the reason in a two-line comment at the
+  call site so the next reader does not "fix" the omission.
+- **Verify:** judgement. When a task says behaviour-preserving, read the
+  original call and compare argument lists — not the surrounding structure:
+
+```bash
+git show main:app/routers/<file>.py | grep -n -A 6 "<the call being replaced>"
+```
+
+- **Status:** documented. Not a lint candidate — only the plan knows which
+  calls it meant to preserve.
+
+## G78 — When you add a field to a response that a hand-written test fixture also models
+
+- **Rule:** Grep the E2E fixtures for hand-written copies of that response
+  shape and decide, per copy, whether it carries the new field. A fixture
+  written before the field existed keeps passing, and any template arm keyed on
+  that field renders **nothing** — `x-show="a.lookup === 'declined'"` against an
+  `undefined` is `false`, not an error.
+- **Why:** the loss is coverage, not a failure, so nothing reports it. Plan
+  `intake-media-lookup`'s T6 added two `x-show` arms keyed on a new `lookup`
+  field in `/api/intake/confirm`'s `added[]` entries. Two of the three E2E
+  confirm round-trips fulfil `CONFIRM_OK` (`tests/e2e/test_intake.py:898`), a
+  hand-written dict that predates the field, and neither asserts a marker — so
+  both stayed green and **no E2E test renders either new arm**. The suite
+  reported 210 passed while the new UI state had never been drawn once.
+- **The distinction from G65**, which is the adjacent trap: G65 asks whether
+  the arm sits in a **branch** the render can reach. This asks whether anything
+  in the suite ever supplies the **data** that switches it on. An arm can be in
+  exactly the right branch and still never render, and the two failures look
+  identical from the outside — a green suite and a blank space.
+- **Evidence:** `1c417b3` (2026-09-03, plan `intake-media-lookup` T6). Left as
+  it stands **deliberately** — that design routes render confirmation to the
+  test drive and forbids editing the E2E suite — but recorded so the next
+  reader does not mistake a green E2E run for evidence about the new arm.
+- **Verify:** after adding a response field the UI keys on, read every
+  hand-written response literal in the E2E suite:
+
+```bash
+grep -rn '"added":\|"ok": True' tests/e2e/ | head
+```
+
+  Each one either carries the new field or is a deliberate omission; there is
+  no third answer.
+- **Status:** documented. Not a lint candidate — whether a given fixture
+  *should* carry a new field depends on what that test is for.
+
+## G79 — A docs task edits the section the change is "about" and leaves the rest of the page contradicting it
+
+- **Rule:** After changing behaviour a page documents, re-read that page **end
+  to end** — its opening paragraph and its step-by-step walkthrough, not only
+  the section whose heading matches the change. Then grep the whole docs set
+  for the *other* copies of the same claim.
+- **Why:** a docs task is written against the feature, so it finds the section
+  named after the feature. The intro and the walkthrough describe the same
+  behaviour in passing, under headings that name something else, and they are
+  the two parts a user actually reads. Plan `intake-media-lookup`'s docs task
+  (`2d61c33`) correctly rewrote `docs/user-guide/photo-intake.md`'s
+  **Limitations** section to describe the new TMDb/IGDB lookup and the
+  `declined` state — and left the page's own intro (`:6-8`) and its step-4
+  **Confirm** walkthrough (`:58-66`) still saying the Done panel's only failure
+  state is "found no metadata at all". The page shipped **contradicting
+  itself**, through the design's `## Docs impact`, the impl plan's docs task,
+  the plan review, the diff review and the full gate — none of which read a
+  Markdown page for internal consistency.
+- **The duplicate-copy half:** the same release left `DOCKERHUB_README.md`
+  untouched, whose Features bullet and provider table are hand-maintained
+  copies of `README.md`'s. `README.md` itself carries the Photo Intake bullet
+  **twice** (Why Shelf? and Scanning and Metadata); only the first was updated.
+  Grepping for the *claim* rather than editing the page you thought of is what
+  catches these.
+- **Evidence:** caught at `/release` step 4b for 0.31.0 (2026-09-03) by the
+  delegated docs survey, which was asked to report what every page in the map
+  currently says rather than to check the pages the changelog named. Seven
+  pages needed edits; two of them (`photo-intake.md`, `DOCKERHUB_README.md`)
+  were pages the branch had already been asked to handle. Fixed in `76c7c31`.
+- **Verify:** for the page the change is about, read it whole. For the claim,
+  sweep the set — a distinctive phrase from the old behaviour, not the feature
+  name:
+
+```bash
+grep -rniE 'no metadata|title-only|books-only' README.md DOCKERHUB_README.md docs/
+```
+
+- **Status:** documented. Not a lint candidate — no checker can tell a stale
+  claim from a correctly scoped one. The countermeasure is the survey-then-
+  decide split in `/release` step 4b: one pass reports what every page says,
+  a second decides what each should say.
+
+## G80 — The README test-count badge is part of *every* task's gate, not the docs task's
+
+- **Rule:** Any task that adds or deletes tests runs `make badges` and commits
+  the restamped `README.md` **in its own commit**. A plan may not park the
+  restamp in a later docs task.
+- **Why:** `make badges` looks like a release-time cosmetic, so plans schedule
+  it with the other generated-file chores. But the check has a *test*
+  (`test_readme_badges_are_current`) and that test runs inside `make test`,
+  which is the first line of the verification gate after every task. So the
+  moment a task adds a test, that task's own gate goes red on a file the task
+  was never scoped to touch, and the builder either edits out of scope or
+  reports a red gate. Neither is the plan's intent.
+- **Evidence:** plan `csv-import-boundaries` (2026-09-04) assigned `make
+  badges` to its docs task T3 and named only `app/routers/items_csv.py` and
+  `tests/test_csv_roundtrip.py` in T1 and T2. Both builders hit the badge
+  failure and both restamped `README.md` anyway (`a97b4a4` 2587→2590,
+  `aea6d92` 2590→2596); by the time T3 ran, `make badges` reported "already
+  current" and the docs task's own acceptance line was dead. The plan's
+  reasoning was explicit and explicitly wrong — "T1/T2 added tests;
+  `make check-badges` is in `checks-fast`" — true, and irrelevant, because
+  `make test` gets there first.
+- **The planning fix:** a task that adds tests lists `README.md` in its files
+  and `make badges` in its work. The docs task restamps only if it is the
+  first task to change the count.
+- **Verify:** the badge check is inside the unit suite, not only the lint —
+
+```bash
+grep -rn "badges_are_current" tests/
+grep -n "check-badges\|stamp_test_badges" Makefile
+```
+
+- **Status:** documented. Not a lint candidate — `make check-badges` already
+  catches the drift; what no checker can see is a *plan* assigning the
+  restamp to the wrong task.
+
+## G81 — When early-returning guards become arms that set a shared variable
+
+- **Rule:** Converting `if A: … return X` / `if B: … return X` into one block
+  that sets a carried-out `existing` changes the control flow **twice**, and
+  the two changes pull in opposite directions. The second arm must not
+  overwrite the first arm's hit (`if not existing and B:`), and it must still
+  *run* when the first arm missed (`if`, **never** `elif`). Write the guard
+  as `if not existing and B:` and pin **both** halves — one test per wrong
+  spelling, because neither wrong spelling fails the other's test.
+- **Why:** early `return`s hide two behaviours inside one shape. A `return`
+  ends the request, so the second `if` reads as "only reached when the first
+  found nothing" — it is simultaneously an exclusion *and* a fall-through, and
+  a refactor to a shared variable has to reproduce both on purpose. Fix one and
+  you break the other:
+  - **A bare second `if`** loses the exclusion: arm B's `None` overwrites arm
+    A's hit, and the route inserts the duplicate it was guarding against.
+  - **`elif`** loses the fall-through: arm B never runs when arm A was tried
+    and missed, so a request carrying a *missing* A-key and a *matching*
+    B-key sails past the guard.
+- **This is the trap that ate a review and its own fix.** On issue #83's plan,
+  a cross-vendor plan review (Antigravity/gemini, filed blocker `gemini-R1`)
+  correctly caught the overwrite in the plan's task text before any code
+  existed, and proposed `elif not existing and isbn:`. Triage confirmed it, the
+  plan was amended, and the amendment introduced the mirror defect: on
+  `main`, `add_hardcover_to_shelf` checked `hardcover_book_id` and then **fell
+  through** to `isbn`, which is how a barcode-scanned row (an ISBN, no
+  `hardcover_book_id`) is recognised when the same book is added again from
+  Hardcover search — both fields sent, the id missing. Under `elif` that
+  request reached the insert and raised an uncaught
+  `UNIQUE(isbn, media_type)` IntegrityError: a **500** where the duplicate
+  body belongs. Caught at `/run-plan` only because the reviewer's rationale
+  ("a hit from the first arm survives a miss from the second") was checked
+  against the original control flow rather than transcribed.
+- **The tell:** a proposed one-word fix to a control-flow keyword. `elif`,
+  `and`, `or` and an early `return` all encode a *pair* of decisions; a review
+  finding that names one of them has, by construction, said nothing about the
+  other. Read the original for both.
+- **Evidence:** `af6b7a7` (2026-09-05, issue #83 T4). Five tests on the route,
+  two of which exist only for this: the two-arm overwrite case (seed an
+  A-match, send A **and** a non-matching B) and the fall-through case (seed a
+  B-match with no A, send a *missing* A **and** the matching B). Mutation-
+  checked both ways — a bare `if` reddens only the first, `elif` reddens only
+  the second, and the single-arm tests stay green under both.
+- **Verify:** judgement, but the shape is greppable — a guard block whose arms
+  assign a shared name rather than returning:
+
+```bash
+git grep -n "elif not existing\|elif existing" -- app/routers/
+git grep -n -B 2 "if existing is None:" -- app/routers/
+```
+
+  Every hit: check what the pre-refactor code did when the first arm *missed*.
+
+- **Status:** documented. Not a lint candidate — only the original code knows
+  which arms were meant to fall through, and after the refactor that
+  information exists nowhere but its own tests.
 
 ## Graveyard
 

@@ -84,7 +84,11 @@ suite carries. Both are **generated, not written**: `scripts/stamp_test_badges.p
 takes the numbers from `pytest --co` — collection only, so it is offline and
 runs in under two seconds — and rewrites the shields.io URLs in place.
 `make badges` stamps them, `make check-badges` (inside `make checks-fast`, so
-CI runs it) fails if the committed numbers no longer match what collects.
+CI runs it) fails if the committed numbers no longer match what collects —
+except on a **pull-request build**, where it reports the drift and passes.
+Every PR that adds a test would otherwise go red on the badge alone, and a PR
+that restamps it collides with every other restamping PR on one README line.
+The badge is restamped on `main` after the merge instead.
 
 The counts come from collection rather than from a run on purpose. Collection
 cannot pass or fail, so the badge asserts only *"this suite contains N tests"*,
@@ -141,6 +145,16 @@ provoke an error needs an explicit suppression contract designed first.
   `app/services/item_write.py`. Call it inside an existing `with get_db()`
   block. Adding a column to `items` no longer means auditing a dozen insert
   sites.
+- **A route that decides on a `SELECT` guards and writes in one
+  transaction.** `db.execute("BEGIN IMMEDIATE")` goes first in the block,
+  above the guard query — a bare `SELECT` opens no transaction, so guarding in
+  one block and inserting in another takes the write lock only at the INSERT
+  and a rival can commit in the window (`GOTCHAS.md` G18). Nothing that opens
+  a second connection or writes a log record may run inside that block; carry
+  the outcome out (`existing`, `item_id`, `value_error`) and act on it after
+  the block closes (G3). A pre-check placed *before* an outbound lookup is
+  allowed to read unlocked, because it only saves a paced request — it must
+  decide nothing.
 - **Item routes live in four modules** — `items.py` (scan, CRUD, search,
   bulk ops), `items_covers.py`, `items_csv.py` and `items_catalog.py` —
   sharing helpers from `items_common.py`. Import that as a *module* and call
@@ -167,8 +181,9 @@ app/
                    share, tags, valuation, sync (ABS), hardcover, checkouts, locations,
                    platforms, archive, settings, auth_routes, pages
   services/        external clients + domain logic: openlibrary, hardcover, googlebooks,
-                   dnb/national, igdb, tmdb, isbndb, upc, covers + cover_queue, vision +
-                   tiling, audiobookshelf, archive, reading_imports, notify, outbound
+                   dnb/sbn/national + bib_normalize, igdb, tmdb, isbndb, upc, covers +
+                   cover_queue, vision + tiling, audiobookshelf, archive,
+                   reading_imports, notify, outbound
   templates/       Jinja2 pages + fragments/ for HTMX swaps
 static/            vendored JS/CSS, Alpine components, service worker, Tailwind output
 tests/             unit/integration; tests/e2e/ Playwright

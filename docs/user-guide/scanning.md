@@ -57,6 +57,17 @@ says — the provider answered and genuinely had nothing.
 self-published book, a burned CD, a box set. Fill what you know; you can
 attach a cover by upload or cover search afterwards from the item page.
 
+What you type is checked before it's stored: an ISBN whose check digit
+doesn't add up, a location that no longer exists, or a game platform that
+isn't in your list each answer with an error card and nothing is added. An
+ISBN-10 is fine — Shelf stores it alongside the ISBN-13 it implies.
+
+A typed or scanned ISBN in **Add** mode is check-digit validated *before*
+any lookup, so a mistyped digit costs nothing and says "Invalid ISBN"
+straight away. The lookup modes (lend, return, move, inventory, lookup,
+quick-rate) are not that strict on purpose: an old record whose stored ISBN
+isn't valid is still found when you scan it.
+
 From an existing item's page, **Add a copy** pre-fills a new form from it —
 handy for a second edition or a duplicate copy you want as its own record.
 
@@ -78,8 +89,31 @@ doesn't get you throttled.
 
 A 978/979 prefix is an ISBN, and that is certain — so a book scanned while the
 dropdown still says "DVD" is filed as a book anyway, and the card tells you it
-overrode you. The reverse holds too: a non-ISBN barcode is certainly not a
-book, so a disc scanned under "Book" is not filed as one.
+overrode you. The reverse mostly holds too: a non-ISBN barcode is almost
+certainly not a book, so a disc scanned under "Book" is not filed as one. The
+one documented exception is the legacy price-point barcode below.
+
+### Legacy price-point book barcodes
+
+Before Bookland EAN, some books — Scholastic paperbacks in particular — carried
+an ordinary UPC-A plus a five-digit supplement. The UPC identifies a publisher
+and a price band shared by many titles; only the supplement says *which* book.
+Treating that UPC as a normal product barcode would file the wrong book.
+
+When Shelf recognizes one of these, it works out the small set of ISBNs the
+supplement could mean and looks each one up:
+
+- **One match** — the book is filed, exactly as an ISBN scan would.
+- **Two matches** — Shelf stops and shows both so you can pick the book in your
+  hand. It will not guess. Your choice is remembered, so the next copy of that
+  barcode files itself.
+- **A provider was unreachable** — Shelf says it could not verify the scan
+  rather than reporting "not found", because an unanswered lookup is not the
+  same as a book that does not exist.
+
+Only barcodes whose publisher prefix has been confirmed are treated this way;
+anything else falls through to the ordinary UPC path. If a scan will not
+resolve, scanning the printed ISBN on the copyright page always works.
 
 For a UPC there is no certain prefix, so Shelf reads the product record it
 already fetched — the platform, format, medium or audio wording in the retail
@@ -127,13 +161,33 @@ search comes back with a *different* film rather than nothing.
 
 For one class of scan it does not search at all. When the retail title names
 console hardware — a console, controller or headset **together with** a
-platform name, as in `PlayStation 5 Console` or `Nintendo Switch Pro
-Controller` — Shelf files the item under that title and asks no provider
-anything. The shortened title would be `PlayStation`, and a film database
+platform name *or* a known peripheral brand (Logitech, SteelSeries, Corsair,
+Sony, …), as in `PlayStation 5 Console`, `Nintendo Switch Pro Controller` or
+`Logitech G Pro X Gaming Headset` — Shelf files the item under that title and
+asks no provider anything. The shortened title would be `PlayStation`, and a film database
 answers that with a confident match for an unrelated film, so the choice is
 between a thin record and a wrong one. Shelf declines the search rather than
 the honesty. Both halves have to match: `Console Wars` and `Air Traffic
 Controller` are films, and they still get the full ladder.
+
+A format or disc word on the same listing does not change the answer.
+`PlayStation 5 Wireless Headset DVD`, `… CD` and `… CD-ROM` are all still the
+headset — filed under its own title, with nobody asked. Retail listings
+carry that wording for reasons of their own, and it says nothing about what the
+object is, so the hardware reading comes **before** the format, medium and
+audio wording is read rather than after it.
+
+The recognition needs both halves: a hardware word, and either a platform
+name or a brand from a short list of peripheral makers. A brand on its own is
+not enough — `Astro Boy` and `Turtle Beach` are films — and neither is a
+hardware word on its own. The brand half is there because a peripheral usually
+names its maker rather than its platform, and a long brand name on its own can
+be a search that matches someone else's film, so the brand is read instead.
+
+The remaining gap is a hardware listing whose brand is **not** on that list. It
+is filed as a disc under its own title, with the notice that nothing in the
+barcode said what it was, and it is still searched — no worse than before.
+Correct the type on the item page if that is wrong.
 
 When no provider matches, the item is still added under its own title — use
 **Retry cover** or **Find cover** on the item page, or edit the title and type
