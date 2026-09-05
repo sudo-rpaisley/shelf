@@ -184,10 +184,10 @@ def test_stats_recent_and_personal_counts_ignore_inaccessible_library(
     user_state.save_state(db, viewer_user["id"], visible, wishlist=1)
     user_state.save_state(db, viewer_user["id"], hidden, wishlist=1)
     db.execute(
-        "INSERT INTO valuation_history (total_value) VALUES (12345.0)"
+        "INSERT INTO valuation_history (total_value, priced_count) VALUES (12345.0, 1)"
     )
     db.execute(
-        "INSERT INTO valuation_history (total_value) VALUES (23456.0)"
+        "INSERT INTO valuation_history (total_value, priced_count) VALUES (23456.0, 1)"
     )
     db.commit()
 
