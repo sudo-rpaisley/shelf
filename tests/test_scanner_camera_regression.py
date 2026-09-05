@@ -10,6 +10,7 @@ def test_camera_scanner_requires_a_confirmed_read_and_keeps_html5_qrcode_off_ios
     assert "var CONFIRM_WINDOW_MS = 1800;" in source
     assert "decodedText === candidate" in source
     assert "createDecodeGuard(opts.onDecode)" in source
+    assert "(opts.forceZxing || isIosDevice())" in source
     assert "? createZxingEngine(guardedOpts)" in source
     assert ": createHtml5Engine(guardedOpts);" in source
 
@@ -24,6 +25,7 @@ def test_scan_page_and_edit_fields_share_compact_barcode_camera_behavior():
     assert "qrbox: { width: 280, height: 100 }" in edit_source
     assert "window.createBarcodeScanner" in edit_source
     assert "applyScannedBarcode(target, decodedText, scanMode, supplementTargetId)" in edit_source
+    assert "forceZxing: scanMode === 'periodical-supplement'" in edit_source
     assert "digits.length === 15 || digits.length === 18" in edit_source
     assert "digits.length === 14 || digits.length === 17" in edit_source
     assert "digits.length === 2 || digits.length === 5" in edit_source
