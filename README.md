@@ -3,7 +3,7 @@
 [![Release](https://img.shields.io/github/v/release/dgahagan/shelf)](https://github.com/dgahagan/shelf/releases)
 [![Docker Pulls](https://img.shields.io/docker/pulls/dangahagan/shelf)](https://hub.docker.com/r/dangahagan/shelf)
 [![CI](https://github.com/sudo-rpaisley/shelf/actions/workflows/test.yml/badge.svg)](https://github.com/sudo-rpaisley/shelf/actions/workflows/test.yml)
-[![Unit tests](https://img.shields.io/badge/unit%20tests-2580%20passing-brightgreen)](https://github.com/sudo-rpaisley/shelf/actions/workflows/test.yml)
+[![Unit tests](https://img.shields.io/badge/unit%20tests-2584%20passing-brightgreen)](https://github.com/sudo-rpaisley/shelf/actions/workflows/test.yml)
 [![E2E tests](https://img.shields.io/badge/e2e%20tests-215%20passing-brightgreen)](https://github.com/sudo-rpaisley/shelf/actions/workflows/test.yml)
 [![License: AGPL-3.0](https://img.shields.io/github/license/sudo-rpaisley/shelf)](LICENSE)
 
@@ -36,14 +36,17 @@ responsive web interface.
   cassettes, CDs, digital music, comics, Manga, children's books and video games
   alongside physical books.
 - **Collection management** — locations, tags, bulk editing, series tracking,
-  bulk issue ranges for physical comics and magazines, reading status, lending,
-  wishlist management and collection statistics.
+  bulk issue ranges for physical comics and magazines, lending and collection
+  statistics.
+- **Personal media state** — each user has their own reading/watching/listening/
+  playing status, progress, history, rating, favourites, wishlist and private
+  notes without changing the shared catalogue.
 - **Import, export and backup** — CSV migration, Goodreads/StoryGraph import,
   portable collection archives and database backup/restore.
 - **Offline Store Mode** — a PWA workflow for checking your collection while
   shopping without a network connection.
 - **Multi-user** — admin, editor and viewer roles for a shared household
-  catalogue.
+  catalogue, with account-specific personal media state.
 
 Shelf itself runs on your network in a single Docker container with SQLite and
 does not require a Shelf-hosted account or service. Optional metadata, cover,

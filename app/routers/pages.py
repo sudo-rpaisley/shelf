@@ -12,7 +12,7 @@ from app.database import get_db, get_setting, get_game_platforms, get_reading_hi
 from app.routers import items_common
 from app.routers.items_common import SORT_OPTIONS
 from app.routers.series import find_gaps
-from app.services import browse_grouping
+from app.services import browse_grouping, user_state, user_state_browse
 
 router = APIRouter()
 
@@ -31,10 +31,6 @@ async def index(request: Request, _=Depends(require_role("viewer"))):
         recent_items = db.execute(
             "SELECT id, title, authors, media_type, cover_path, created_at "
             "FROM items ORDER BY created_at DESC, id DESC LIMIT 8"
-        ).fetchall()
-        in_progress = db.execute(
-            "SELECT id, title, authors, media_type, cover_path FROM items "
-            "WHERE reading_status = 'reading' ORDER BY id DESC LIMIT 6"
         ).fetchall()
 
     families = []
@@ -56,7 +52,6 @@ async def index(request: Request, _=Depends(require_role("viewer"))):
             "families": families,
             "total_items": total_items,
             "recent_items": recent_items,
-            "in_progress": in_progress,
             "media_types": MEDIA_TYPES,
             "music_media_types": MUSIC_MEDIA_TYPES,
             "intake_available": any(tab["key"] == "intake" for tab in visible_nav),
@@ -87,15 +82,16 @@ async def browse(
     Filter values are read from the query string via the registry rather than
     declared as parameters here, exactly as `/api/search` does: a filter added
     to `app/browse_filters.py` needs no change in this signature. The dropdown
-    counts come from the same `items_common.filter_counts` helper `/api/search`
-    uses, so the first paint and the first OOB swap cannot disagree.
+    counts come from the same personal-state count helper `/api/search` uses,
+    so the first paint and the first OOB swap cannot disagree.
     """
     values = browse_filters.values_from(request.query_params)
-    # Truncate search query to prevent slow LIKE scans (parity with /api/search)
     values["q"] = values["q"][:200]
-    where, params = browse_filters.build_where(values)
+    user_id = int(request.state.user["id"])
+    where, params = browse_filters.build_where(values, user_id=user_id)
 
     with get_db() as db:
+        user_state.ensure_schema(db)
         _, order_clause = SORT_OPTIONS.get(values["sort"], SORT_OPTIONS["newest"])
 
         items, total_filtered, display_total = browse_grouping.fetch_page(
@@ -107,6 +103,7 @@ async def browse(
             offset=0,
             values=values,
         )
+        user_state_browse.overlay_items(db, user_id, items)
 
         series_names = [
             row["series_name"]
@@ -117,13 +114,11 @@ async def browse(
             ).fetchall()
         ]
 
-        # Cross-filter dropdown counts — `locations`, `type_counts`,
-        # `location_counts`, `reading_status_counts`, `owned_count`,
-        # `wishlist_count` and `filtered_total` all come from here.
-        counts = items_common.filter_counts(db, values, total_filtered)
+        counts = user_state_browse.filter_counts(
+            db, values, total_filtered, user_id
+        )
 
-        # Deliberately still global (design §5): none of these appears in
-        # `fragments/filter_counts_oob.html`, so none can diverge.
+        # Deliberately still global: lending is a shared physical-catalogue fact.
         lent_out_count = db.execute(
             "SELECT COUNT(DISTINCT item_id) as c FROM checkouts WHERE checked_in IS NULL"
         ).fetchone()["c"]
@@ -131,8 +126,6 @@ async def browse(
         from app.routers.tags import get_all_tags
         all_tags = get_all_tags(db)
 
-        # Languages present in the library — the filter only renders/offers
-        # what actually exists.
         item_languages = [
             row["language"]
             for row in db.execute(
@@ -162,9 +155,6 @@ async def browse(
         "initial_query": values["q"],
         "initial_filters": {name: values[name] for name in browse_filters.FILTER_NAMES},
     }
-    # `render_oob_counts` is deliberately NOT set: `browse.html` includes
-    # `fragments/filter_counts_oob.html` via the item grid, and setting it
-    # would emit a second copy of every filter `<select>` into this page.
     ctx.update(counts)
 
     return request.app.state.templates.TemplateResponse(
@@ -478,7 +468,9 @@ async def item_edit(
 
 @router.get("/stats")
 async def stats(request: Request, _=Depends(require_role("viewer"))):
+    user_id = int(request.state.user["id"])
     with get_db() as db:
+        user_state.ensure_schema(db)
         by_type = db.execute(
             "SELECT media_type, COUNT(*) as c FROM items GROUP BY media_type ORDER BY c DESC"
         ).fetchall()
@@ -488,8 +480,14 @@ async def stats(request: Request, _=Depends(require_role("viewer"))):
             "GROUP BY l.name ORDER BY c DESC"
         ).fetchall()
         total = db.execute("SELECT COUNT(*) as c FROM items").fetchone()["c"]
-        stats_wishlist = db.execute("SELECT COUNT(*) as c FROM items WHERE owned = 0").fetchone()["c"]
-        stats_owned = total - stats_wishlist
+        stats_owned = db.execute(
+            "SELECT COUNT(*) as c FROM items WHERE owned = 1"
+        ).fetchone()["c"]
+        wishlist_expr, wishlist_params = browse_filters.personal_wishlist_sql(user_id)
+        stats_wishlist = db.execute(
+            f"SELECT COUNT(*) as c FROM items i WHERE {wishlist_expr} = 1",
+            wishlist_params,
+        ).fetchone()["c"]
         with_covers = db.execute(
             "SELECT COUNT(*) as c FROM items WHERE cover_path IS NOT NULL"
         ).fetchone()["c"]
@@ -503,11 +501,25 @@ async def stats(request: Request, _=Depends(require_role("viewer"))):
             "ORDER BY i.created_at DESC LIMIT 20"
         ).fetchall()
 
-        # --- Dashboard chart data (see .devdocs/archive/completed/STATS_DASHBOARD.md) ---
+        # Personal completion status with legacy fallback. A persisted NULL is
+        # authoritative, so CASE checks whether the user's row exists rather
+        # than COALESCEing back to the household value.
         read_by_year = db.execute(
-            "SELECT substr(date_finished, 1, 4) as y, COUNT(*) as c FROM items "
-            "WHERE reading_status = 'read' AND date_finished IS NOT NULL "
-            "GROUP BY y ORDER BY y"
+            """SELECT substr(
+                         CASE WHEN uis.user_id IS NOT NULL
+                              THEN uis.date_finished ELSE i.date_finished END,
+                         1, 4
+                     ) AS y,
+                     COUNT(*) AS c
+                FROM items i
+                LEFT JOIN user_item_state uis
+                  ON uis.item_id = i.id AND uis.user_id = ?
+               WHERE CASE WHEN uis.user_id IS NOT NULL
+                          THEN uis.reading_status ELSE i.reading_status END = 'read'
+                 AND CASE WHEN uis.user_id IS NOT NULL
+                          THEN uis.date_finished ELSE i.date_finished END IS NOT NULL
+               GROUP BY y ORDER BY y""",
+            (user_id,),
         ).fetchall()
         growth_rows = db.execute(
             "SELECT substr(created_at, 1, 7) as m, COUNT(*) as c FROM items "
@@ -549,7 +561,7 @@ async def stats(request: Request, _=Depends(require_role("viewer"))):
 
     from app.services import charts
     chart_read = charts.column_chart(
-        read_pairs, empty_message="Mark books as read (with a finish date) to build this chart")
+        read_pairs, empty_message="Mark media as completed to build this chart")
     chart_growth = charts.area_chart(growth_pairs, empty_message="No items yet")
     chart_authors = charts.hbar_chart(top_authors, empty_message="No authors yet")
     currency = get_currency()

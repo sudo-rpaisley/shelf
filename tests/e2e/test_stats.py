@@ -47,7 +47,7 @@ def test_stats_dashboard_reflects_real_collection_and_links_back_to_item(
         date_finished=f"{current_year}-03-15",
         manual_value=40.0,
     )
-    insert_item(
+    wishlist_item_id = insert_item(
         server["data_dir"],
         title="Smoke Wishlist Disc",
         media_type="dvd",
@@ -66,6 +66,20 @@ def test_stats_dashboard_reflects_real_collection_and_links_back_to_item(
 
     conn = sqlite3.connect(str(db_path))
     try:
+        user_id = conn.execute(
+            "SELECT id FROM users WHERE username = ?",
+            (credentials["username"],),
+        ).fetchone()[0]
+        conn.execute(
+            "INSERT INTO user_item_state "
+            "(user_id, item_id, reading_status, date_finished, wishlist) "
+            "VALUES (?, ?, 'read', ?, 0)",
+            (user_id, read_item_id, f"{current_year}-03-15"),
+        )
+        conn.execute(
+            "INSERT INTO user_item_state (user_id, item_id, wishlist) VALUES (?, ?, 1)",
+            (user_id, wishlist_item_id),
+        )
         conn.execute(
             "INSERT INTO valuation_history (total_value, priced_count, created_at) "
             "VALUES (50, 2, '2026-01-01 12:00:00')"
@@ -91,20 +105,18 @@ def test_stats_dashboard_reflects_real_collection_and_links_back_to_item(
         page.wait_for_load_state("networkidle")
         expect(page.get_by_role("heading", name="Collection Statistics")).to_be_visible()
 
-        # The headline numbers must describe the seeded collection, not merely render.
+        # Shared catalogue KPIs and personal activity KPIs deliberately coexist.
         expect(page.get_by_text("Owned", exact=True).locator("..")).to_contain_text("2")
         expect(page.get_by_text("Wishlist", exact=True).locator("..")).to_contain_text("1")
         expect(page.get_by_text(f"Read in {current_year}", exact=True).locator("..")).to_contain_text("1")
         expect(page.get_by_text("Without ISBN", exact=True).locator("..")).to_contain_text("2")
         expect(page.get_by_text("Est. Value", exact=True).locator("..")).to_contain_text("55")
 
-        # All four promised dashboard charts are rendered server-side as SVG.
         for test_id in ("chart-read", "chart-growth", "chart-authors", "chart-valuation"):
             chart = page.locator(f'[data-testid="{test_id}"]')
             expect(chart.locator("svg")).to_have_count(1)
         expect(page.locator('[data-testid="chart-authors"]')).to_contain_text("Smoke Test Author")
 
-        # Breakdown and recent-addition surfaces contain the seeded real-world labels.
         expect(page.get_by_role("heading", name="By Media Type")).to_be_visible()
         expect(page.get_by_role("heading", name="By Location")).to_be_visible()
         expect(page.locator("body")).to_contain_text("Smoke Test Shelf")
