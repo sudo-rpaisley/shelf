@@ -186,6 +186,7 @@ def visible_tabs(user: dict | None) -> list[dict]:
 # here — including anything crafted to look like a URL or path — silently
 # degrades to the default with no `from=` param emitted at all.
 BACK_TARGETS = {
+    "home": ("/", "Back to Home"),
     "music": ("/music", "Back to music"),
     "series": ("/series", "Back to series"),
     "stats": ("/stats", "Back to stats"),
