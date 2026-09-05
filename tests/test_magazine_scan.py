@@ -4,6 +4,7 @@ from app.services import (
     crossref_journals,
     googlebooks,
     issn_portal,
+    periodical_catalogue,
     provider_result,
     upcitemdb,
 )
@@ -76,6 +77,34 @@ def test_977_overrides_wrong_media_hint_without_creating_wrong_item(
     assert db.execute("SELECT COUNT(*) AS c FROM items").fetchone()["c"] == 0
 
 
+def test_bundled_catalogue_identifies_vw_motoring_without_network(
+    editor_client, db, monkeypatch
+):
+    async def _google_must_not_run(issn, client, *, api_key=None):
+        raise AssertionError("Bundled periodical match must run before Google Books")
+
+    async def _issn_must_not_run(issn, client):
+        raise AssertionError("Bundled periodical match must run before ISSN/Crossref")
+
+    async def _upc_must_not_run(upc, client):
+        raise AssertionError("Bundled periodical match must run before retail lookup")
+
+    monkeypatch.setattr(googlebooks, "lookup_magazine_by_issn", _google_must_not_run)
+    monkeypatch.setattr(issn_portal, "lookup", _issn_must_not_run)
+    monkeypatch.setattr(crossref_journals, "lookup", _issn_must_not_run)
+    monkeypatch.setattr(upcitemdb, "lookup", _upc_must_not_run)
+
+    resp = editor_client.post(
+        "/api/scan", data={"isbn": VW_MOTORING_EAN, "media_type": "auto"}
+    )
+
+    assert resp.status_code == 200
+    assert 'name="title" value="VW motoring"' in resp.text
+    assert "ISSN 0953-6167" in resp.text
+    assert f'name="carrier_ean" value="{VW_MOTORING_EAN}"' in resp.text
+    assert db.execute("SELECT COUNT(*) AS c FROM items").fetchone()["c"] == 0
+
+
 def test_issn_portal_identifies_vw_motoring_when_google_misses(
     editor_client, db, monkeypatch
 ):
@@ -97,6 +126,7 @@ def test_issn_portal_identifies_vw_motoring_when_google_misses(
     async def _upc_must_not_run(upc, client):
         raise AssertionError("Retail lookup must not run after an authoritative ISSN hit")
 
+    monkeypatch.setattr(periodical_catalogue, "lookup", lambda issn: None)
     monkeypatch.setattr(googlebooks, "lookup_magazine_by_issn", _google_miss)
     monkeypatch.setattr(issn_portal, "lookup", _issn_hit)
     monkeypatch.setattr(upcitemdb, "lookup", _upc_must_not_run)
