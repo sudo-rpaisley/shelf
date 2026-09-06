@@ -1,20 +1,27 @@
 """Product coverage for the catalogue needs-attention workflow."""
 
 from app.services import holdings
+from tests.conftest import _insert_item
 
 
 def test_attention_page_groups_common_catalogue_problems(viewer_client, db):
-    db.execute(
-        "INSERT INTO items (title, media_type, source, owned) "
-        "VALUES ('Incomplete Book', 'book', 'test', 1)"
+    _insert_item(db, title="Incomplete Book", isbn=None, media_type="book", owned=1)
+    _insert_item(
+        db,
+        title="Digital Book",
+        isbn=None,
+        media_type="ebook",
+        owned=1,
+        cover_path="covers/digital.jpg",
     )
-    db.execute(
-        "INSERT INTO items (title, media_type, source, owned, cover_path) "
-        "VALUES ('Digital Book', 'ebook', 'test', 1, 'covers/digital.jpg')"
-    )
-    db.execute(
-        "INSERT INTO items (title, media_type, source, owned, cover_path, authors) "
-        "VALUES ('Unknown Magazine Issue', 'magazine', 'test', 1, 'covers/mag.jpg', 'Editorial')"
+    _insert_item(
+        db,
+        title="Unknown Magazine Issue",
+        isbn=None,
+        media_type="magazine",
+        owned=1,
+        cover_path="covers/mag.jpg",
+        authors="Editorial",
     )
     db.commit()
 
@@ -31,13 +38,21 @@ def test_attention_page_groups_common_catalogue_problems(viewer_client, db):
 
 
 def test_location_attention_excludes_digital_media_and_uses_copy_location(viewer_client, db):
-    physical_id = db.execute(
-        "INSERT INTO items (title, media_type, source, owned, cover_path) "
-        "VALUES ('Physical Book', 'book', 'test', 1, 'covers/book.jpg')"
-    ).lastrowid
-    db.execute(
-        "INSERT INTO items (title, media_type, source, owned, cover_path) "
-        "VALUES ('Digital Book', 'ebook', 'test', 1, 'covers/digital.jpg')"
+    physical_id = _insert_item(
+        db,
+        title="Physical Book",
+        isbn=None,
+        media_type="book",
+        owned=1,
+        cover_path="covers/book.jpg",
+    )
+    _insert_item(
+        db,
+        title="Digital Book",
+        isbn=None,
+        media_type="ebook",
+        owned=1,
+        cover_path="covers/digital.jpg",
     )
     db.commit()
 
@@ -65,10 +80,16 @@ def test_location_attention_excludes_digital_media_and_uses_copy_location(viewer
 
 
 def test_magazine_attention_uses_issue_model_not_generic_publish_year(viewer_client, db):
-    magazine_id = db.execute(
-        "INSERT INTO items (title, media_type, source, owned, cover_path, authors, publish_year) "
-        "VALUES ('Issue With Year Only', 'magazine', 'test', 1, 'covers/mag.jpg', 'Editorial', 2026)"
-    ).lastrowid
+    magazine_id = _insert_item(
+        db,
+        title="Issue With Year Only",
+        isbn=None,
+        media_type="magazine",
+        owned=1,
+        cover_path="covers/mag.jpg",
+        authors="Editorial",
+        publish_year=2026,
+    )
     db.commit()
 
     html = viewer_client.get("/attention?category=magazine_issue").text
@@ -92,10 +113,7 @@ def test_attention_fix_action_is_role_aware(viewer_client, editor_user, db):
     """Exercise both roles without sharing two cookie-mutating client fixtures."""
     from app.auth import create_token
 
-    item_id = db.execute(
-        "INSERT INTO items (title, media_type, source, owned) "
-        "VALUES ('Fix Me', 'book', 'test', 1)"
-    ).lastrowid
+    item_id = _insert_item(db, title="Fix Me", isbn=None, media_type="book", owned=1)
     db.commit()
 
     viewer_html = viewer_client.get("/attention").text
