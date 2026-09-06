@@ -1,0 +1,58 @@
+<section id="continue-section" data-testid="continue-section">
+    {% if continue_items %}
+    <div class="flex items-center justify-between mb-4">
+        <div>
+            <h2 class="text-xl font-bold">Continue</h2>
+            <p class="text-sm text-shelf-muted mt-1">Pick up where you left off, or move automatically to the next item in a series.</p>
+        </div>
+        <a href="/my-list" class="text-sm text-shelf-accent2 hover:text-white transition-colors">My List</a>
+    </div>
+
+    <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+        {% for item in continue_items %}
+        <article class="flex gap-4 bg-shelf-card border border-shelf-border rounded-xl p-3 min-w-0">
+            <a href="/item/{{ item.id }}?from=home" class="w-12 h-16 shrink-0 bg-shelf-hover rounded overflow-hidden flex items-center justify-center">
+                {% if item.cover_path %}
+                <img src="/{{ item.cover_path }}" alt="" class="w-full h-full" style="object-fit:contain">
+                {% else %}
+                <span class="text-xs text-shelf-muted">{{ item.title[0] }}</span>
+                {% endif %}
+            </a>
+
+            <div class="min-w-0 flex-1 flex flex-col">
+                <div class="flex items-center gap-2 text-xs text-shelf-muted">
+                    <span class="{% if item.mode == 'up_next' %}text-shelf-warning{% else %}text-shelf-accent2{% endif %}">{{ item.headline }}</span>
+                    <span>·</span>
+                    <span>{{ item.media_type_label }}</span>
+                </div>
+                <a href="/item/{{ item.id }}?from=home" class="font-medium truncate mt-1 hover:text-shelf-accent2 transition-colors">{{ item.title }}</a>
+                {% if item.series_name %}
+                <p class="text-xs text-shelf-muted truncate mt-1">{{ item.series_name }}{% if item.position is defined and item.position is not none %} · #{{ item.position|int if item.position == item.position|int else item.position }}{% endif %}</p>
+                {% elif item.authors %}
+                <p class="text-xs text-shelf-muted truncate mt-1">{{ item.authors }}</p>
+                {% endif %}
+
+                {% if item.mode == 'continue' and item.progress_value is not none %}
+                <p class="text-xs text-shelf-accent2 mt-1">
+                    {{ item.progress_value|int if item.progress_value == item.progress_value|int else item.progress_value }}{% if item.progress_total is not none %} / {{ item.progress_total|int if item.progress_total == item.progress_total|int else item.progress_total }}{% endif %}{% if item.progress_unit %} {{ item.progress_unit }}{% endif %}
+                </p>
+                {% endif %}
+
+                <div class="mt-auto pt-2 flex items-center gap-2">
+                    {% if item.mode == 'up_next' %}
+                    <button hx-post="/api/items/{{ item.id }}/continue/start"
+                            hx-target="#continue-section" hx-swap="outerHTML"
+                            class="px-3 py-1.5 rounded-lg text-xs bg-shelf-accent text-white hover:bg-shelf-accent2 transition-colors">
+                        {{ item.start_label }}
+                    </button>
+                    {% else %}
+                    <a href="/item/{{ item.id }}?from=home" class="text-xs text-shelf-accent2 hover:text-white transition-colors">Open</a>
+                    {% endif %}
+                    {% if not item.owned %}<span class="text-xs text-shelf-muted">Not owned</span>{% endif %}
+                </div>
+            </div>
+        </article>
+        {% endfor %}
+    </div>
+    {% endif %}
+</section>

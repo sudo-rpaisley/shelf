@@ -77,9 +77,9 @@
     </section>
     {% endif %}
 
-    <div hx-get="/api/home/personal-in-progress"
+    <div hx-get="/api/home/continue"
          hx-trigger="load" hx-swap="outerHTML"
-         data-testid="personal-in-progress-loading"></div>
+         data-testid="continue-loading"></div>
 
     {% if user and user.role in ('editor', 'admin') %}
     <section class="border-t border-shelf-border pt-6">

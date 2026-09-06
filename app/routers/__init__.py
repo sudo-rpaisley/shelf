@@ -65,3 +65,4 @@ from app.routers import library_item_guard as library_item_guard  # noqa: F401,E
 
 # Personal destinations build on the final ACL-aware route stack.
 from app.routers import my_list as my_list  # noqa: F401,E402
+from app.routers import continue_home as continue_home  # noqa: F401,E402
