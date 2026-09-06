@@ -94,7 +94,7 @@
                 <div class="flex items-center justify-between gap-4">
                     <div class="min-w-0">
                         <p class="font-medium">{{ item.title }}</p>
-                        <p class="text-xs text-shelf-muted mt-1">{% if item.authors %}{{ item.authors }} · {% endif %}{{ media_types.get(item.media_type, item.media_type) }}{% if item.release_date %} · {{ item.release_date }}{% elif item.publish_year %} · {{ item.publish_year }}{% endif %}{% if item.catalog_number %} · {{ item.catalog_number }}{% endif %}</p>
+                        <p class="text-xs text-shelf-muted mt-1">{% if item.authors %}{{ item.authors }} · {% endif %}{{ music_media_types.get(item.media_type, item.media_type) }}{% if item.release_date %} · {{ item.release_date }}{% elif item.publish_year %} · {{ item.publish_year }}{% endif %}{% if item.catalog_number %} · {{ item.catalog_number }}{% endif %}</p>
                     </div>
                     <span class="text-sm text-shelf-muted">View</span>
                 </div>
