@@ -296,6 +296,36 @@ def item_access_condition(
     )
 
 
+def accessible_item_ids(
+    db,
+    user: dict,
+    item_ids,
+    *,
+    minimum_role: str = "viewer",
+) -> list[int]:
+    """Filter an arbitrary set of item IDs through the library boundary.
+
+    This is used for secondary projections such as related media: checking the
+    anchor item is not enough if the page then renders titles/covers from other
+    libraries. The returned order follows the caller's input order.
+    """
+    ordered = list(dict.fromkeys(int(item_id) for item_id in item_ids))
+    if not ordered:
+        return []
+    condition, access_params = item_access_condition(
+        user,
+        item_alias="i",
+        minimum_role=minimum_role,
+    )
+    placeholders = ",".join("?" for _ in ordered)
+    rows = db.execute(
+        f"SELECT i.id FROM items i WHERE i.id IN ({placeholders}) AND ({condition})",
+        ordered + access_params,
+    ).fetchall()
+    allowed = {int(row["id"]) for row in rows}
+    return [item_id for item_id in ordered if item_id in allowed]
+
+
 def scope_where(
     where: str,
     params: list,
