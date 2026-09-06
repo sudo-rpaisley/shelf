@@ -39,9 +39,11 @@ Audiobookshelf ASIN, a Hardcover edition ISBN) pre-clean it with
 `isbn.canonical_isbn_pair()` and pass `None` on failure — the funnel is strict
 in both cases; dropping versus refusing is the caller's decision.
 
-Provider-specific metadata can also pass ``series_memberships`` as a pseudo-field.
-It is consumed after insertion rather than written to ``items``. The insert funnel
-is also the central hook for Shelf's additive related-media and holding projections.
+Provider-specific metadata can pass ``series_memberships`` and callers that
+already know the security target can pass ``library_id`` as pseudo-fields.
+They are consumed after insertion rather than written to ``items``. The insert
+funnel is also the central hook for Shelf's additive related-media and holding
+projections.
 
 **Call these inside an existing `with get_db() as db:` block**, never around
 one. The caller owns the transaction: several sites need the insert and their
@@ -96,8 +98,8 @@ _MANAGED = frozenset({"id"})
 #: On update, `created_at` joins the list: it is set once, by SQLite.
 _MANAGED_ON_UPDATE = frozenset({"id", "created_at"})
 
-# Rich provider series metadata is an input to the insert funnel, not an items column.
-_PSEUDO_FIELDS = frozenset({"series_memberships"})
+# Richer inputs consumed by shared services rather than written to ``items``.
+_PSEUDO_FIELDS = frozenset({"series_memberships", "library_id"})
 
 # Cached column set for the `items` table. Read from the live schema rather
 # than hardcoded, so this cannot drift from SCHEMA/MIGRATIONS the way a
@@ -129,6 +131,43 @@ def reset_column_cache() -> None:
     """Drop the cached column set. For tests that build a schema by hand."""
     global _columns
     _columns = None
+
+
+def _assign_library_if_available(db, item_id: int, requested_library_id) -> None:
+    """Attach a new item to its one Shelf security library.
+
+    Existing call sites do not know about first-class libraries yet. During the
+    staged rollout they therefore fall into ``Main Library`` automatically,
+    preserving pre-feature behaviour and, critically, avoiding unmapped rows
+    that non-admins cannot see. Callers that already know a target may pass the
+    pseudo-field ``library_id``.
+
+    Historical migration tests deliberately construct schemas from before the
+    library tables/default row existed. An omitted target remains neutral in
+    that environment; an *explicit* target is still validated loudly.
+    """
+    from app.services import libraries
+
+    explicit = requested_library_id not in (None, "")
+    target = int(requested_library_id) if explicit else libraries.DEFAULT_LIBRARY_ID
+
+    try:
+        exists = db.execute(
+            "SELECT 1 FROM libraries WHERE id = ?",
+            (target,),
+        ).fetchone()
+    except Exception as exc:
+        # Only tolerate an absent pre-library schema when the caller did not
+        # explicitly request a target. Any other database error is real.
+        if explicit or "no such table" not in str(exc).casefold():
+            raise
+        return
+
+    if not exists:
+        if explicit:
+            raise LookupError("Library not found")
+        return
+    libraries.assign_item(db, item_id, target)
 
 
 def _validated_names(db, values: Mapping[str, Any], managed: frozenset[str],
@@ -249,6 +288,11 @@ def insert_item(db, fields: Mapping[str, Any] | None = None, **kwargs) -> int:
     `media_type` becomes 'book', and `created_at`/`updated_at` are stamped by
     SQLite. That means the defaults live in exactly one place too.
 
+    ``series_memberships`` and ``library_id`` are deliberate non-column inputs.
+    The former stores richer provider series metadata; the latter selects the
+    item's Shelf security library. Until every add/import UI exposes a target,
+    an omitted ``library_id`` means the upgrade-compatible ``Main Library``.
+
     Raises `ValueError` on an unknown or database-managed field rather than
     dropping it. A typo in a column name is the failure this module exists to
     make impossible, so it must be loud.
@@ -263,6 +307,7 @@ def insert_item(db, fields: Mapping[str, Any] | None = None, **kwargs) -> int:
     values: dict[str, Any] = dict(fields or {})
     values.update(kwargs)
     series_values = values.pop("series_memberships", None)
+    library_id = values.pop("library_id", None)
 
     if not values.get("title"):
         raise ValueError(
@@ -280,6 +325,11 @@ def insert_item(db, fields: Mapping[str, Any] | None = None, **kwargs) -> int:
         [values[n] for n in names],
     )
     item_id = cursor.lastrowid
+
+    # Every normal item belongs to exactly one security library. Do this before
+    # any follow-up projection so the transaction can never commit a half-added
+    # mapped item when an explicit library target is invalid.
+    _assign_library_if_available(db, item_id, library_id)
 
     if values.get("series_name") or series_values:
         from app.services import series_memberships as series_svc
