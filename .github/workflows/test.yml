@@ -22,7 +22,17 @@ jobs:
         run: pip install -r requirements-dev.txt
 
       - name: Run unit and integration tests
-        run: make test
+        run: |
+          set -o pipefail
+          make test 2>&1 | tee test-output.log
+
+      - name: Upload unit test output
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: unit-test-output
+          path: test-output.log
+          if-no-files-found: ignore
 
       # check-secrets uses `git grep` over tracked files, so it needs the
       # checkout above and nothing else. check-csrf and check-alpine are the two
