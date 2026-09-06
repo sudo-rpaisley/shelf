@@ -34,6 +34,7 @@ async def library_barcode_item_edit(
     request: Request,
     item_id: int,
     from_: str = Query("", alias="from"),
+    error: str | None = Query(None),
     _=Depends(require_role("viewer")),
 ):
     """Render the barcode-aware edit form only for an item-library Editor."""
@@ -46,5 +47,6 @@ async def library_barcode_item_edit(
         request,
         item_id,
         from_=from_,
+        error=error,
         _=request.state.user,
     )
