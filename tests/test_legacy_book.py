@@ -15,6 +15,17 @@ KRISTY_UPC5 = "07807300350143506"
 KRISTY_ISBN13 = "9780590435062"
 KRISTY_OTHER_ISBN13 = "9780439435062"
 KRISTY_EAN13_PLUS5 = "007807300350143506"
+LEGACY_MAPPING_DESCRIPTION = "Add confirmed legacy book barcode mappings"
+
+
+def _legacy_mapping_version() -> int:
+    matches = [
+        version
+        for version, description, _sql in MIGRATIONS
+        if description == LEGACY_MAPPING_DESCRIPTION
+    ]
+    assert len(matches) == 1
+    return matches[0]
 
 
 def _metadata(title: str) -> dict:
@@ -137,9 +148,12 @@ def test_resolver_does_not_swallow_cancellation():
         asyncio.run(legacy_book.resolve(KRISTY_UPC5, lookup))
 
 
-def test_mapping_table_exists_in_a_fresh_database_and_migration_24_is_append_only(db):
-    latest = max(version for version, _, _ in MIGRATIONS)
-    assert latest == 24
+def test_mapping_table_exists_in_a_fresh_database_and_migration_is_unique(db):
+    # Fork migrations occupy the numbers after upstream's original slot, so
+    # the integration moved this migration to 46. Later fork features may add
+    # newer migrations; the invariant is identity/uniqueness, not "latest".
+    assert _legacy_mapping_version() == 46
+    assert len({version for version, _, _ in MIGRATIONS}) == len(MIGRATIONS)
 
     columns = {
         row[1] for row in db.execute("PRAGMA table_info(legacy_book_mappings)")
@@ -147,17 +161,18 @@ def test_mapping_table_exists_in_a_fresh_database_and_migration_24_is_append_onl
     assert columns == {"barcode", "isbn13", "confirmed_at"}
 
 
-def test_mapping_migration_upgrades_a_database_that_has_only_previous_versions(db):
+def test_mapping_migration_upgrades_a_database_missing_only_that_migration(db):
+    version = _legacy_mapping_version()
     db.execute("DROP TABLE legacy_book_mappings")
-    db.execute("DELETE FROM schema_version WHERE version = 24")
+    db.execute("DELETE FROM schema_version WHERE version = ?", (version,))
     db.commit()
 
     _run_migrations(db)
     db.commit()
 
     assert db.execute(
-        "SELECT description FROM schema_version WHERE version = 24"
-    ).fetchone()["description"] == "Add confirmed legacy book barcode mappings"
+        "SELECT description FROM schema_version WHERE version = ?", (version,)
+    ).fetchone()["description"] == LEGACY_MAPPING_DESCRIPTION
     assert {
         row[1] for row in db.execute("PRAGMA table_info(legacy_book_mappings)")
     } == {"barcode", "isbn13", "confirmed_at"}
