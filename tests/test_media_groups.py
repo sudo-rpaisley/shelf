@@ -123,7 +123,7 @@ def test_normal_insert_joins_existing_same_work_group_immediately(db):
         title="Dune",
         authors="Frank Herbert",
         media_type="audiobook",
-        isbn="9781427201432",
+        isbn="9781427201430",
         source="manual",
     )
 
@@ -144,7 +144,7 @@ def test_provider_batch_insert_defers_grouping_until_batch_end(db):
         title="Dune",
         authors="Frank Herbert",
         media_type="audiobook",
-        isbn="9781427201432",
+        isbn="9781427201430",
         source="audiobookshelf",
     )
 
