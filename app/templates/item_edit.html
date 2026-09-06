@@ -172,7 +172,7 @@
                                 <div class="flex-1 min-w-0 space-y-3">
                                     {% if not is_music %}
                                     <button type="button"
-                                            hx-get="/api/items/{{ item.id }}/cover-search"
+                                            hx-get="/api/items/{{ item.id }}/cover-search?editor=1"
                                             hx-target="#cover-candidates" hx-swap="innerHTML"
                                             class="px-4 py-2 bg-shelf-hover border border-shelf-border text-shelf-text rounded-lg text-sm hover:border-shelf-accent/50 transition-colors">
                                         Find artwork
@@ -363,4 +363,5 @@
 
 <script src="/static/js/scanner-engine.js"></script>
 <script src="/static/js/item_edit.js"></script>
+<script src="/static/js/item_edit_artwork.js"></script>
 {% endblock %}
