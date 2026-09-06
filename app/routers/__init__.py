@@ -12,6 +12,8 @@ the shared routers.
 
 # Register focused schema extensions before application startup calls init_db.
 from app.services import libraries as libraries_service  # noqa: F401,E402
+# Adapt the existing Users API before app.main mounts auth_routes.router.
+from app.routers import library_user_defaults as library_user_defaults  # noqa: F401,E402
 
 # Import the base routers first, then extensions which decorate them.
 from app.routers import series as series  # noqa: F401,E402
@@ -36,19 +38,24 @@ from app.routers import item_barcode_edit as item_barcode_edit  # noqa: F401,E40
 items_magazines.install_scan_dispatch()
 
 # Load the large items router once its lower-level scan dispatchers are ready,
-# then apply focused route replacements in increasing specificity: personal
-# state first, library visibility last so the final Browse/search endpoints
-# enforce both concerns together.
+# then apply the broad personal/library projections. Final item-specific guards
+# are deliberately registered after the upstream compatibility adapters below.
 from app.routers import items as items  # noqa: F401,E402
 from app.routers import user_state_items as user_state_items  # noqa: F401,E402
 from app.routers import library_access as library_access  # noqa: F401,E402
+from app.routers import library_item_access as library_item_access  # noqa: F401,E402
 
-# Finally bridge fork request-boundary guarantees that were displaced where
-# the upstream 0.34 handlers won merge conflicts. This module deliberately
-# layers on top of the personal-state and library-access adaptations above.
+# Bridge fork request-boundary guarantees displaced where upstream 0.34 handlers
+# won merge conflicts. These must run before the final library guards so the ACL
+# wraps the authoritative compatibility routes rather than an earlier version.
 from app.routers import upstream_034_compat as upstream_034_compat  # noqa: F401,E402
 from app.routers import upstream_034_route_order as upstream_034_route_order  # noqa: F401,E402
 from app.routers import upstream_034_store_compat as upstream_034_store_compat  # noqa: F401,E402
 from app.routers import upstream_034_catalog_compat as upstream_034_catalog_compat  # noqa: F401,E402
 from app.routers import upstream_034_csv_compat as upstream_034_csv_compat  # noqa: F401,E402
 from app.routers import upstream_034_personal_status_compat as upstream_034_personal_status_compat  # noqa: F401,E402
+
+# Final authoritative item guards: preserve barcode-aware edit context and make
+# every personal-state route library-aware after all compatibility replacements.
+from app.routers import library_item_edit_guard as library_item_edit_guard  # noqa: F401,E402
+from app.routers import library_item_guard as library_item_guard  # noqa: F401,E402
