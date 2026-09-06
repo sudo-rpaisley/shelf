@@ -38,12 +38,15 @@ from app.routers import item_barcode_edit as item_barcode_edit  # noqa: F401,E40
 items_magazines.install_scan_dispatch()
 
 # Load the large items router once its lower-level scan dispatchers are ready,
-# then apply the broad personal/library projections. Final item-specific guards
-# are deliberately registered after the upstream compatibility adapters below.
+# then apply the broad personal/library projections and secondary catalogue
+# reads. Final item-specific guards are deliberately registered after the
+# upstream compatibility adapters below.
 from app.routers import items as items  # noqa: F401,E402
 from app.routers import user_state_items as user_state_items  # noqa: F401,E402
 from app.routers import library_access as library_access  # noqa: F401,E402
 from app.routers import library_item_access as library_item_access  # noqa: F401,E402
+from app.routers import library_secondary_reads as library_secondary_reads  # noqa: F401,E402
+from app.routers import library_series_check as library_series_check  # noqa: F401,E402
 
 # Bridge fork request-boundary guarantees displaced where upstream 0.34 handlers
 # won merge conflicts. These must run before the final library guards so the ACL
