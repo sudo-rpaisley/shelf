@@ -65,8 +65,9 @@ def validated_location_id(db, location_id: int | None) -> int | None:
         (location_id,),
     ).fetchone()
     if row is None:
-        # Keep the user-facing sentence stable across scan, edit, bulk and
-        # catalogue surfaces; the rejected identifier remains available to
-        # logs/callers as ``exc.value`` without leaking into UI contracts.
-        raise UnknownLocationError("Location not found", value=location_id)
+        # The id is useful user feedback on stale/deleted selections and is
+        # also retained separately as ``exc.value`` for structured callers.
+        raise UnknownLocationError(
+            f"Location {location_id} not found", value=location_id
+        )
     return location_id
