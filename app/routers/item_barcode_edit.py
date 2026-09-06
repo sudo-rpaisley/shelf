@@ -33,9 +33,6 @@ def _canonical_upc(value: str | None) -> tuple[bool, str | None]:
     if not raw:
         return True, None
     code = upc_svc.normalize_barcode(raw)
-    # Generic item UPC storage is the carrier itself. Periodical 2/5-digit
-    # extensions belong to periodical_issues and must not be folded into this
-    # field.
     if len(code) not in (12, 13) or upc_svc.detect_barcode_type(code) != "upc":
         return False, None
     return True, upc_svc.normalize_upc(code)
@@ -55,12 +52,7 @@ def _canonical_periodical_barcode(
     carrier_value: str | None,
     supplement_value: str | None,
 ) -> tuple[bool, str | None, str | None, str | None]:
-    """Validate and split an editable magazine carrier/add-on pair.
-
-    The carrier field may contain just UPC-A/EAN-13 or the full scanned value
-    including a 2/5-digit add-on. UPC-A is canonicalised to EAN-13 for storage.
-    The add-on remains verbatim digits; Shelf does not infer issue semantics.
-    """
+    """Validate and split an editable magazine carrier/add-on pair."""
     carrier = upc_svc.normalize_barcode(str(carrier_value or ""))
     supplement = upc_svc.normalize_barcode(str(supplement_value or ""))
 
@@ -103,8 +95,6 @@ def _canonical_periodical_barcode(
     return True, carrier, supplement or None, None
 
 
-# Replace the original GET route with the same edit page plus periodical issue
-# identity. This module is imported after pages.py has registered its routes.
 pages.router.routes[:] = [
     route
     for route in pages.router.routes
@@ -120,9 +110,10 @@ async def item_edit_with_barcode_context(
     request: Request,
     item_id: int,
     from_: str = Query("", alias="from"),
+    error: str | None = Query(None),
     _=Depends(require_role("editor")),
 ):
-    """Render item editing with magazine issue barcode identity when present."""
+    """Render item editing with barcode identity and upstream error context."""
     back = nav.back_target(from_)
     periodical_issue = None
     with get_db() as db:
@@ -151,6 +142,7 @@ async def item_edit_with_barcode_context(
             "game_platforms": game_platforms,
             "locations": locations,
             "periodical_issue": periodical_issue,
+            "error": error,
         },
     )
 
@@ -222,8 +214,6 @@ async def update_item_with_barcode(
             if not valid:
                 return HTMLResponse(message or "Invalid magazine barcode", status_code=400)
 
-    # Request.form() is cached by Starlette, so the original handler can read
-    # the same multipart submission (including cover uploads) normally.
     response = await items.update_item(request, item_id, _)
     if response.status_code not in (302, 303, 307, 308):
         return response
@@ -231,8 +221,6 @@ async def update_item_with_barcode(
     try:
         with get_db() as db:
             if has_upc:
-                # The barcode-specific preflight above owns UPC/EAN semantics;
-                # persistence still goes through Shelf's one item update path.
                 update_item_fields(db, item_id, {"upc": canonical_upc})
             if has_periodical:
                 db.execute(
@@ -242,8 +230,6 @@ async def update_item_with_barcode(
                     (periodical_ean, periodical_supplement, item_id),
                 )
     except sqlite3.IntegrityError:
-        # The preflight above catches normal conflicts. Keep database
-        # constraints as the final guard against concurrent edits racing us.
         return HTMLResponse(
             "Update conflicts with existing catalogue data", status_code=409
         )
