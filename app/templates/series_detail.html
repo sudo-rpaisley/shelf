@@ -48,8 +48,45 @@
     {% if series.description %}
     <p class="text-sm text-shelf-muted leading-relaxed whitespace-pre-line mt-3"
        data-testid="series-detail-description">{{ series.description }}</p>
+    {% elif series.provider_description %}
+    <p class="text-sm text-shelf-muted leading-relaxed whitespace-pre-line mt-3"
+       data-testid="series-detail-description">{{ series.provider_description }}</p>
+    <p class="text-xs text-shelf-muted mt-1" data-testid="series-description-source">
+        Series synopsis from {% if series.provider_description_source == 'komga' %}Komga{% elif series.provider_description_source == 'audiobookshelf' %}Audiobookshelf{% elif series.provider_description_source == 'romm' %}RomM{% else %}connected service{% endif %}. A Shelf synopsis will take priority.
+    </p>
     {% endif %}
 </div>
+
+{% if series.provider_metadata %}
+<div class="bg-shelf-card rounded-xl border border-shelf-border p-5 mb-6" data-testid="provider-series-metadata">
+    <h2 class="text-sm font-medium">Connected series details</h2>
+    <div class="mt-3 space-y-3">
+        {% for meta in series.provider_metadata %}
+        <div class="border-t border-shelf-border pt-3" data-provider-series="{{ meta.provider }}">
+            <div class="flex items-center gap-2 flex-wrap text-xs">
+                <span class="font-medium text-shelf-text">
+                    {% if meta.provider == 'komga' %}Komga{% elif meta.provider == 'audiobookshelf' %}Audiobookshelf{% elif meta.provider == 'romm' %}RomM{% else %}{{ meta.provider }}{% endif %}
+                </span>
+                {% if meta.kind == 'franchise' %}
+                <span class="px-2 py-0.5 rounded-full bg-shelf-hover text-shelf-muted border border-shelf-border">Franchise</span>
+                {% endif %}
+                {% if meta.status %}<span class="text-shelf-muted">{{ meta.status }}</span>{% endif %}
+            </div>
+            {% if meta.publisher or meta.age_rating or meta.total_items is not none or meta.total_duration_mins is not none %}
+            <div class="flex flex-wrap gap-x-4 gap-y-1 mt-2 text-xs text-shelf-muted">
+                {% if meta.publisher %}<span><span class="text-shelf-text">Publisher:</span> {{ meta.publisher }}</span>{% endif %}
+                {% if meta.age_rating %}<span><span class="text-shelf-text">Age rating:</span> {{ meta.age_rating }}</span>{% endif %}
+                {% if meta.total_items is not none %}<span><span class="text-shelf-text">Provider total:</span> {{ meta.total_items }}</span>{% endif %}
+                {% if meta.total_duration_mins is not none %}
+                <span><span class="text-shelf-text">Total duration:</span> {{ meta.total_duration_mins // 60 }}h {{ meta.total_duration_mins % 60 }}m</span>
+                {% endif %}
+            </div>
+            {% endif %}
+        </div>
+        {% endfor %}
+    </div>
+</div>
+{% endif %}
 
 {% if bulk_error %}
 <div class="bg-shelf-card rounded-xl border border-shelf-border p-5 mb-6" data-testid="bulk-issue-error">
