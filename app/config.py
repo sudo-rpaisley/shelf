@@ -75,8 +75,8 @@ MEDIA_FAMILIES = {
     },
 }
 
-# The book-shaped family: media types that are read, can carry ISBN identity,
-# and participate in series/reading workflows. Digital comics belong here for
+# The book-shaped family: media types that are read, carry ISBN identity and
+# participate in series/reading workflows. Digital comics belong here for
 # validation and controls even though they live in the Comics browse family.
 BOOK_MEDIA_TYPES = frozenset({
     "book", "kids_book", "audiobook", "ebook", "comic", "digital_comic"
@@ -180,41 +180,113 @@ EXPECTED_BOOKS_MAX = 200
 # `from app.config import HOST_RATE_LIMITS` freezes the reference at import
 # and breaks test overrides (the "Config import trap" in CLAUDE.md); tests
 # override single hosts with monkeypatch.setitem.
-HOST_RATE_LIMITS = {
-    "openlibrary.org": 0.25,
-    "covers.openlibrary.org": 0.25,
-    "www.googleapis.com": 0.1,
-    "api.hardcover.app": 0.2,
-    "api.igdb.com": 0.25,
-    "id.twitch.tv": 0.25,
-    "api.themoviedb.org": 0.2,
-    "musicbrainz.org": 1.0,
+HOST_RATE_LIMITS: dict[str, float] = {
+    # Open Library grants 1 req/s by default and 3 req/s to requests that
+    # identify themselves with an app name AND contact information
+    # (https://openlibrary.org/developers/api). openlibrary.py sends a
+    # contact URL in its User-Agent, so 3/s applies. If that header ever
+    # loses its contact info, this must drop to 1.0.
+    "openlibrary.org": 0.34,
+    # Two services behind one host: CoverID/OLID-keyed URLs are unlimited,
+    # every other key (ISBN, LCCN, OCLC) is capped at 100 requests per IP
+    # per 5 minutes and returns 403 past it
+    # (https://openlibrary.org/dev/docs/api/covers). 403 is not transient,
+    # so exceeding this reads as "no cover found" and fails silently — a
+    # per-host interval cannot tell the two key types apart, so pace for the
+    # limited one. Do not lower below 3.0.
+    "covers.openlibrary.org": 3.0,
+    "services.dnb.de": 1.0,  # DNB SRU catalog — good citizenship
+    "portal.dnb.de": 1.0,  # DNB cover host, same citizenship
+    "opac.sbn.it": 1.0,  # SBN publishes no rate limit; matches DNB, a comparable national library
+    "api.hardcover.app": 1.0,  # 60/min API limit
+    "api2.isbndb.com": 3.0,  # was isbndb's own 3s post-request sleep
+    "www.googleapis.com": 0.25,  # Google Books quota is per-day; light pacing only
+    "images-na.ssl-images-amazon.com": 0.5,  # image CDN; politeness only
+    "api.igdb.com": 0.25,  # IGDB publishes 4 req/s
+    "api.themoviedb.org": 0.1,  # no hard per-second cap
+    # MusicBrainz requires ordinary clients to stay at or below one request
+    # per second. Give the limiter a little margin rather than sitting exactly
+    # on the boundary; musicbrainz.py also sends the required identifying UA.
+    "musicbrainz.org": 1.05,
+    # Cover Art Archive is a separate host. It does not publish the same hard
+    # one-request rule, but album-art fetches are never latency critical, so
+    # pace them conservatively and serially alongside other metadata sources.
+    "coverartarchive.org": 1.0,
+    # Discogs publishes request ceilings through response headers. Shelf
+    # does not need bursty collector lookups, so one request/second is a
+    # deliberately conservative client-side pace.
     "api.discogs.com": 1.0,
+    # EXPLORER (the keyless trial tier this client uses) allows 6 lookups per
+    # minute and 100 per day; faster than the burst rate is declined with 429
+    # (https://www.upcitemdb.com/wp/docs/main/development/api-rate-limits/).
+    # 1.0 permitted 60/min — ten times the ceiling — so a run of scans bought
+    # 429s that read to the user as "not found". Do not lower below 10.0
+    # without moving off the trial tier.
+    "api.upcitemdb.com": 10.0,
 }
 
-# Common outbound timeout used by provider clients.
-HTTP_TIMEOUT = 20.0
+# HTTP client defaults
+HTTP_TIMEOUT = 15  # seconds for external API calls
+DEFAULT_PAGE_SIZE = 60
 
-# Environment variables that can override stored sensitive settings.
+# Auth
+SECRET_KEY = os.environ.get("SECRET_KEY", "")  # auto-generated into DATA_DIR/signing.key if empty
+JWT_ALGORITHM = "HS256"
+JWT_EXPIRY_SECONDS = 7 * 24 * 3600  # 7 days
+
+# API secret env var overrides (take priority over DB settings when set)
+# Map: settings key -> env var name
 SECRET_ENV_VARS = {
+    "abs_url": "ABS_URL",
+    "abs_public_url": "ABS_PUBLIC_URL",
+    "abs_token": "ABS_TOKEN",
+    "komga_url": "KOMGA_URL",
+    "komga_api_key": "KOMGA_API_KEY",
+    "romm_url": "ROMM_URL",
+    "romm_api_token": "ROMM_API_TOKEN",
     "hardcover_token": "HARDCOVER_TOKEN",
     "google_books_api_key": "GOOGLE_BOOKS_API_KEY",
+    "isbndb_api_key": "ISBNDB_API_KEY",
     "tmdb_api_key": "TMDB_API_KEY",
     "igdb_client_id": "IGDB_CLIENT_ID",
     "igdb_client_secret": "IGDB_CLIENT_SECRET",
-    "audiobookshelf_api_key": "AUDIOBOOKSHELF_API_KEY",
-    "komga_api_key": "KOMGA_API_KEY",
-    "romm_token": "ROMM_TOKEN",
-    "musicbrainz_contact": "MUSICBRAINZ_CONTACT",
     "discogs_token": "DISCOGS_TOKEN",
 }
 
 
-def get_setting_value(key: str, stored_value: str | None = None) -> str:
-    """Return env override for a setting, or its stored value/default."""
+def get_client_ip(request) -> str:
+    """Extract the real client IP for rate limiting and auth logs.
+
+    Proxy headers (CF-Connecting-IP, X-Forwarded-For) are client-controlled and
+    trivially spoofable, so they are only honored when SHELF_TRUST_PROXY is set —
+    i.e. the operator has a reverse proxy in front that overwrites them. In the
+    default direct-connection deployment we use the socket peer address.
+    """
+    if os.environ.get("SHELF_TRUST_PROXY"):
+        # Cloudflare sets this to the actual visitor IP
+        cf_ip = request.headers.get("cf-connecting-ip")
+        if cf_ip:
+            return cf_ip.strip()
+
+        # Standard proxy header — first entry is the original client
+        xff = request.headers.get("x-forwarded-for")
+        if xff:
+            return xff.split(",")[0].strip()
+
+    return request.client.host if request.client else "unknown"
+
+
+def get_setting_value(key: str, db_value: str | None = None) -> str:
+    """Get a setting value with env var override. Env var takes priority."""
     env_name = SECRET_ENV_VARS.get(key)
     if env_name:
-        env_value = os.environ.get(env_name)
-        if env_value is not None:
-            return env_value
-    return stored_value or ""
+        env_val = os.environ.get(env_name, "")
+        if env_val:
+            return env_val
+    return db_value or ""
+
+
+def is_env_override(key: str) -> bool:
+    """Check if a setting is being overridden by an env var."""
+    env_name = SECRET_ENV_VARS.get(key)
+    return bool(env_name and os.environ.get(env_name))
