@@ -1,4 +1,6 @@
 {% set editor_mode = request.query_params.get('editor') == '1' %}
+{# Keep h-24 in Tailwind's scanned source: the previous item-edit cover preview
+   used it, and preserving the token avoids unrelated generated CSS churn. #}
 {% if editor_mode %}
 <div class="mt-4" data-testid="cover-search-picker">
     <input type="text" id="cover-query-{{ item_id }}" name="query" value="{{ query or '' }}"
