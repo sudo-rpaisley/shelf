@@ -20,6 +20,7 @@ from app.auth import require_role
 from app.config import MEDIA_FAMILIES
 from app.database import get_db
 from app.routers.series import MAX_SERIES_NAME, router
+from app.services.item_write import update_item_fields
 
 
 _ITEM_SERIES_SCHEMA = """
@@ -205,18 +206,14 @@ async def upsert_item_series_membership(
         legacy_name = (item["series_name"] or "").strip()
         if not legacy_name:
             is_primary = 1
-            db.execute(
-                "UPDATE items SET series_name = ?, series_position = ?, "
-                "updated_at = datetime('now') WHERE id = ?",
-                (name, parsed_position, item_id),
+            update_item_fields(
+                db,
+                item_id,
+                {"series_name": name, "series_position": parsed_position},
             )
         elif legacy_name.casefold() == name.casefold():
             is_primary = 1
-            db.execute(
-                "UPDATE items SET series_position = ?, updated_at = datetime('now') "
-                "WHERE id = ?",
-                (parsed_position, item_id),
-            )
+            update_item_fields(db, item_id, {"series_position": parsed_position})
 
         db.execute(
             "INSERT INTO item_series (item_id, series_name, position, is_primary) "
@@ -269,16 +266,17 @@ async def remove_item_series_membership(
                     "WHERE item_id = ?",
                     (replacement["series_name"], item_id),
                 )
-                db.execute(
-                    "UPDATE items SET series_name = ?, series_position = ?, "
-                    "updated_at = datetime('now') WHERE id = ?",
-                    (replacement["series_name"], replacement["position"], item_id),
+                update_item_fields(
+                    db,
+                    item_id,
+                    {
+                        "series_name": replacement["series_name"],
+                        "series_position": replacement["position"],
+                    },
                 )
             else:
-                db.execute(
-                    "UPDATE items SET series_name = NULL, series_position = NULL, "
-                    "updated_at = datetime('now') WHERE id = ?",
-                    (item_id,),
+                update_item_fields(
+                    db, item_id, {"series_name": None, "series_position": None}
                 )
 
     return _render_panel(request, item_id)
