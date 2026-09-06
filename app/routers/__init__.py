@@ -12,8 +12,12 @@ the shared routers.
 
 # Register focused schema extensions before application startup calls init_db.
 from app.services import libraries as libraries_service  # noqa: F401,E402
+from app.services import provider_series as provider_series_service  # noqa: F401,E402
+from app.services import provider_series_sync as provider_series_sync_service  # noqa: F401,E402
 # Adapt the existing Users API before app.main mounts auth_routes.router.
 from app.routers import library_user_defaults as library_user_defaults  # noqa: F401,E402
+
+provider_series_sync_service.install()
 
 # Import the base routers first, then extensions which decorate them.
 from app.routers import series as series  # noqa: F401,E402
@@ -39,8 +43,8 @@ items_magazines.install_scan_dispatch()
 
 # Load the large items router once its lower-level scan dispatchers are ready,
 # then apply the broad personal/library projections and secondary catalogue
-# reads. Final item-specific guards are deliberately registered after the
-# upstream compatibility adapters below.
+# reads. Provider series detail decorates the ACL-scoped Series route after the
+# upstream compatibility adapters have settled route precedence.
 from app.routers import items as items  # noqa: F401,E402
 from app.routers import user_state_items as user_state_items  # noqa: F401,E402
 from app.routers import library_access as library_access  # noqa: F401,E402
@@ -62,6 +66,10 @@ from app.routers import upstream_034_personal_status_compat as upstream_034_pers
 # every personal-state route library-aware after all compatibility replacements.
 from app.routers import library_item_edit_guard as library_item_edit_guard  # noqa: F401,E402
 from app.routers import library_item_guard as library_item_guard  # noqa: F401,E402
+
+# Provider series detail builds on the ACL-scoped series read surface and does
+# not make provider metadata itself a visibility source.
+from app.routers import provider_series_detail as provider_series_detail  # noqa: F401,E402
 
 # Personal destinations build on the final ACL-aware route stack.
 from app.routers import my_list as my_list  # noqa: F401,E402
