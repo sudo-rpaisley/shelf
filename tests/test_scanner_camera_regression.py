@@ -18,7 +18,9 @@ def test_camera_scanner_requires_a_confirmed_read_and_keeps_html5_qrcode_off_ios
 def test_scan_page_and_edit_fields_share_compact_barcode_camera_behavior():
     scan_source = (ROOT / "static/js/scan.js").read_text(encoding="utf-8")
     edit_source = (ROOT / "static/js/item_edit.js").read_text(encoding="utf-8")
+    artwork_source = (ROOT / "static/js/item_edit_artwork.js").read_text(encoding="utf-8")
     edit_template = (ROOT / "app/templates/item_edit.html").read_text(encoding="utf-8")
+    picker = (ROOT / "app/templates/fragments/cover_search.html").read_text(encoding="utf-8")
 
     assert "qrbox: { width: 280, height: 100 }" in scan_source
     assert "aspectRatio: 1.5" in scan_source
@@ -40,3 +42,19 @@ def test_scan_page_and_edit_fields_share_compact_barcode_camera_behavior():
     assert 'scan_mode="periodical-supplement"' in edit_template
     assert 'action="/api/items/{{ item.id }}/edit"' in edit_template
     assert 'src="/static/js/scanner-engine.js"' in edit_template
+
+    # The item editor is sectioned like a familiar media-server metadata
+    # editor while preserving the scanner's isolated, no-fetch module.
+    assert 'x-data="editSections"' in edit_template
+    assert 'data-testid="edit-section-nav"' in edit_template
+    assert 'data-testid="edit-section-general"' in edit_template
+    assert 'data-testid="edit-section-artwork"' in edit_template
+    assert 'data-testid="edit-section-identifiers"' in edit_template
+    assert 'data-testid="edit-section-copies"' in edit_template
+    assert 'hx-get="/api/items/{{ item.id }}/cover-search?editor=1"' in edit_template
+    assert 'id="cover_url"' in edit_template
+    assert 'data-edit-cover-url' in edit_template
+    assert 'data-edit-cover-remove' in edit_template
+    assert 'src="/static/js/item_edit_artwork.js"' in edit_template
+    assert 'data-edit-cover-select-url="{{ c.url }}"' in picker
+    assert "'X-CSRF-Token'" in artwork_source
