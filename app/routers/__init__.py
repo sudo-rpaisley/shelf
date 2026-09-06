@@ -42,3 +42,8 @@ items_magazines.install_scan_dispatch()
 from app.routers import items as items  # noqa: F401,E402
 from app.routers import user_state_items as user_state_items  # noqa: F401,E402
 from app.routers import library_access as library_access  # noqa: F401,E402
+
+# Finally bridge fork request-boundary guarantees that were displaced where
+# the upstream 0.34 handlers won merge conflicts. This module deliberately
+# layers on top of the personal-state and library-access adaptations above.
+from app.routers import upstream_034_compat as upstream_034_compat  # noqa: F401,E402
