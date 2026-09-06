@@ -85,15 +85,9 @@ class TestBadIsbnRefusedAtEveryBoundary:
         ).fetchone()["c"] == 1
 
     def test_store_queue(self, editor_client, db):
-        """The boundary this class asserts is `items.isbn`, not the response
-        label: Store Mode keeps the scan as an ISBN-less row so the client
-        does not drop it off the queue (test-drive Observation 1), but the bad
-        value still never reaches the column."""
         resp = editor_client.post("/api/store/queue", json={"isbns": [BAD_ISBN]})
-        assert resp.json()["results"][0]["status"] == "unreadable"
-        assert db.execute(
-            "SELECT COUNT(*) c FROM items WHERE isbn = ?", (BAD_ISBN,)
-        ).fetchone()["c"] == 0
+        assert resp.json()["results"][0] == {"isbn": BAD_ISBN, "status": "invalid"}
+        assert db.execute("SELECT COUNT(*) c FROM items").fetchone()["c"] == 0
 
     def test_item_edit_form(self, editor_client, db):
         item_id = _insert_item(db, title="Edit Boundary", isbn="9780000000026")
