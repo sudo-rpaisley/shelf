@@ -12,7 +12,7 @@ from tests.conftest import _insert_item
 
 KOMGA = "http://komga.example:25600"
 KEY = "test-api-key"
-ISBN = "9780000000998"
+ISBN = "9780000000996"
 
 
 def _set_setting(db, key, value):
