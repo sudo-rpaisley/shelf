@@ -1,6 +1,7 @@
 """E2E tests: item detail, edit, and delete."""
 import sqlite3
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 from playwright.sync_api import expect
@@ -70,6 +71,7 @@ def _cover_search_fragment(item_id: int, *, with_current: bool = True) -> str:
         cover_path=f"covers/{item_id}.jpg" if with_current else None,
         query="stub query",
         failed_url=None,
+        request=SimpleNamespace(query_params={}),
     )
 
 
@@ -174,6 +176,7 @@ def test_manual_value_overrides_estimate_then_falls_back(live_server, authed_pag
     # Set a manual value via the edit form.
     authed_page.goto(f"{live_server['url']}/item/{item_id}/edit")
     authed_page.wait_for_load_state("networkidle")
+    authed_page.get_by_role("button", name="Copies & Location", exact=True).click()
     authed_page.locator("input[name=manual_value]").fill("500")
     authed_page.locator("button[type=submit]:has-text('Save')").click()
     authed_page.wait_for_url(f"{live_server['url']}/item/{item_id}", timeout=10_000)
@@ -194,6 +197,7 @@ def test_manual_value_overrides_estimate_then_falls_back(live_server, authed_pag
     # Clear the manual value — falls back to the ISBNdb estimate everywhere.
     authed_page.goto(f"{live_server['url']}/item/{item_id}/edit")
     authed_page.wait_for_load_state("networkidle")
+    authed_page.get_by_role("button", name="Copies & Location", exact=True).click()
     authed_page.locator("input[name=manual_value]").fill("")
     authed_page.locator("button[type=submit]:has-text('Save')").click()
     authed_page.wait_for_url(f"{live_server['url']}/item/{item_id}", timeout=10_000)
@@ -297,6 +301,7 @@ def test_fractional_series_position_round_trips_in_browser(live_server, authed_p
 
     authed_page.goto(f"{live_server['url']}/item/{item_id}/edit")
     authed_page.wait_for_load_state("networkidle")
+    authed_page.get_by_role("button", name="Series", exact=True).click()
 
     position = authed_page.locator("#series_position")
     expect(position).to_have_value("2.25")
