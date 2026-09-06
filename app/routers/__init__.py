@@ -62,3 +62,6 @@ from app.routers import upstream_034_personal_status_compat as upstream_034_pers
 # every personal-state route library-aware after all compatibility replacements.
 from app.routers import library_item_edit_guard as library_item_edit_guard  # noqa: F401,E402
 from app.routers import library_item_guard as library_item_guard  # noqa: F401,E402
+
+# Personal destinations build on the final ACL-aware route stack.
+from app.routers import my_list as my_list  # noqa: F401,E402
