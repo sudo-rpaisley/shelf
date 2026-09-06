@@ -1,3 +1,43 @@
+{% set editor_mode = request.query_params.get('editor') == '1' %}
+{# Keep h-24 in Tailwind's scanned source: the previous item-edit cover preview
+   used it, and preserving the token avoids unrelated generated CSS churn. #}
+{% if editor_mode %}
+<div class="mt-4" data-testid="cover-search-picker">
+    <input type="text" id="cover-query-{{ item_id }}" name="query" value="{{ query or '' }}"
+           placeholder="Search artwork…"
+           class="w-full bg-shelf-bg border border-shelf-border rounded-lg px-2 py-1.5 text-sm text-shelf-text focus:ring-2 focus:ring-shelf-accent focus:border-transparent outline-none placeholder-shelf-muted/50 mb-2"
+           hx-get="/api/items/{{ item_id }}/cover-search?editor=1"
+           hx-target="#cover-candidates" hx-swap="innerHTML"
+           hx-trigger="keyup changed delay:400ms"
+           hx-include="#cover-query-{{ item_id }}">
+
+    {% if candidates %}
+    <p class="text-sm text-shelf-muted mb-2">Suggested artwork</p>
+    <div class="grid grid-cols-2 gap-3">
+        {% for c in candidates %}
+        <button type="button" data-edit-cover-select-url="{{ c.url }}"
+                class="group relative rounded-lg overflow-hidden border {% if failed_url and failed_url == c.url %}border-shelf-error{% else %}border-shelf-border hover:border-shelf-accent/50{% endif %} transition-colors cursor-pointer bg-shelf-card">
+            <img src="{{ c.thumbnail }}" alt="Artwork candidate" class="w-full aspect-[2/3] object-cover" loading="lazy">
+            {% if failed_url and failed_url == c.url %}
+            <div class="absolute top-0 inset-x-0 bg-shelf-error/90 text-[10px] text-white px-1 py-0.5 text-center">Failed</div>
+            {% endif %}
+            <div class="absolute bottom-0 inset-x-0 bg-black/70 text-[10px] text-gray-300 px-1 py-0.5 text-center leading-tight break-words">{{ c.source }}</div>
+        </button>
+        {% endfor %}
+    </div>
+    {% endif %}
+
+    {% if not candidates %}
+        {% if search_note %}
+        <p class="text-sm text-shelf-muted">{{ search_note }}</p>
+        {% elif search_status %}
+        {% include "fragments/search_status_notice.html" %}
+        {% else %}
+        <p class="text-sm text-shelf-muted">No covers found for this title.</p>
+        {% endif %}
+    {% endif %}
+</div>
+{% else %}
 <div class="mt-3">
     <input type="text" id="cover-query-{{ item_id }}" name="query" value="{{ query or '' }}"
            placeholder="Search covers…"
@@ -98,3 +138,4 @@
         {% endif %}
     </div>
 </div>
+{% endif %}

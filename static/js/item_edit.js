@@ -1,3 +1,20 @@
+function editSections() {
+    var requested = window.location.hash ? window.location.hash.slice(1) : '';
+    var allowed = ['general', 'artwork', 'series', 'identifiers', 'copies', 'media'];
+    return {
+        section: allowed.indexOf(requested) !== -1 ? requested : 'general',
+        show(name) {
+            this.section = name;
+            if (window.history && window.history.replaceState) {
+                window.history.replaceState(null, '', '#' + name);
+            }
+        },
+        is(name) {
+            return this.section === name;
+        }
+    };
+}
+
 function coverDrop() {
     return {
         dragging: false,
@@ -16,7 +33,7 @@ function coverDrop() {
             var file = e.target.files[0];
             if (file) this.preview = URL.createObjectURL(file);
         }
-    }
+    };
 }
 
 function writeBarcodeField(input, value) {
@@ -208,7 +225,8 @@ document.addEventListener('DOMContentLoaded', function () {
     });
 });
 
-// CSP build has no global fallback — register so x-data="coverDrop" resolves.
+// CSP build has no global fallback — register component names explicitly.
 document.addEventListener('alpine:init', function () {
+    Alpine.data('editSections', editSections);
     Alpine.data('coverDrop', coverDrop);
 });

@@ -1,6 +1,7 @@
 """E2E tests: item detail, edit, and delete."""
 import sqlite3
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 from playwright.sync_api import expect
@@ -70,6 +71,7 @@ def _cover_search_fragment(item_id: int, *, with_current: bool = True) -> str:
         cover_path=f"covers/{item_id}.jpg" if with_current else None,
         query="stub query",
         failed_url=None,
+        request=SimpleNamespace(query_params={}),
     )
 
 
@@ -146,7 +148,7 @@ def test_item_edit_save(live_server, authed_page):
         live_server["data_dir"],
         title="Old Title",
         media_type="book",
-        isbn="9780000012340",
+        isbn="9780000001234",
     )
     authed_page.goto(f"{live_server['url']}/item/{item_id}/edit")
     authed_page.wait_for_load_state("networkidle")
@@ -167,13 +169,14 @@ def test_manual_value_overrides_estimate_then_falls_back(live_server, authed_pag
         live_server["data_dir"],
         title="Priced Book",
         media_type="book",
-        isbn="9780000056788",
+        isbn="9780000005678",
         estimated_value=20.00,
     )
 
     # Set a manual value via the edit form.
     authed_page.goto(f"{live_server['url']}/item/{item_id}/edit")
     authed_page.wait_for_load_state("networkidle")
+    authed_page.get_by_role("button", name="Copies & Location", exact=True).click()
     authed_page.locator("input[name=manual_value]").fill("500")
     authed_page.locator("button[type=submit]:has-text('Save')").click()
     authed_page.wait_for_url(f"{live_server['url']}/item/{item_id}", timeout=10_000)
@@ -194,6 +197,7 @@ def test_manual_value_overrides_estimate_then_falls_back(live_server, authed_pag
     # Clear the manual value — falls back to the ISBNdb estimate everywhere.
     authed_page.goto(f"{live_server['url']}/item/{item_id}/edit")
     authed_page.wait_for_load_state("networkidle")
+    authed_page.get_by_role("button", name="Copies & Location", exact=True).click()
     authed_page.locator("input[name=manual_value]").fill("")
     authed_page.locator("button[type=submit]:has-text('Save')").click()
     authed_page.wait_for_url(f"{live_server['url']}/item/{item_id}", timeout=10_000)
@@ -254,7 +258,7 @@ def test_reading_history_survives_status_toggle(live_server, authed_page):
         live_server["data_dir"],
         title="Reread Across A Toggle",
         media_type="book",
-        isbn="9780000091239",
+        isbn="9780000009123",
     )
     insert_reading_log(live_server["data_dir"], item_id, count=2)
 
@@ -290,13 +294,14 @@ def test_fractional_series_position_round_trips_in_browser(live_server, authed_p
         live_server["data_dir"],
         title="Novella At Two And A Quarter",
         media_type="book",
-        isbn="9780000091246",
+        isbn="9780000009124",
         series_name="Quarter Saga",
         series_position=2.25,
     )
 
     authed_page.goto(f"{live_server['url']}/item/{item_id}/edit")
     authed_page.wait_for_load_state("networkidle")
+    authed_page.get_by_role("button", name="Series", exact=True).click()
 
     position = authed_page.locator("#series_position")
     expect(position).to_have_value("2.25")
@@ -322,7 +327,7 @@ def test_cover_picker_opens_on_item_that_already_has_a_cover(live_server, authed
         live_server,
         title="Already Has A Cover",
         media_type="book",
-        isbn="9780000092007",
+        isbn="9780000009200",
     )
     handled, offenders = _stub_cover_search(authed_page, item_id, with_current=True)
 
@@ -367,7 +372,7 @@ def test_cover_picker_remove_cover(live_server, authed_page):
         live_server,
         title="Cover To Remove",
         media_type="book",
-        isbn="9780000092014",
+        isbn="9780000009201",
     )
     _stub_cover_search(authed_page, item_id, with_current=True)
 
