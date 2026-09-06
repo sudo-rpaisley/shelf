@@ -284,25 +284,30 @@ class TestSeriesProgress:
 
 
 class TestBookShapedControls:
-    """The item page shows only the controls its item can use.
+    """Static item actions stay media-shaped; activity is loaded per account.
 
-    Retry ISBN keys on the ISBN (the route's own precondition), Push to Hardcover
-    on the book family plus an ISBN or an existing Hardcover id, and Reading
-    Status on the book family — or on anything else while a status is still set,
-    so a stale one can be cleared. Every negative here has row 5 as its positive
-    control, and every row seeds and commits before it requests.
+    The item page keeps provider/cover actions on the shared catalogue record,
+    while personal reading/listening/watching/playing controls are supplied by
+    the HTMX personal-state fragment. This pins both surfaces without leaking
+    another user's activity into the initial shared page render.
     """
 
     RETRY = "retry-cover"
     PUSH = "Push to Hardcover"
     SYNCED = "Synced to Hardcover"
-    HEADING = ">Reading Status</p>"
     SECTION = 'id="reading-status-section"'
     CLEAR = 'title="Clear status"'
 
-    @pytest.mark.parametrize("media_type", ["cd", "video_game"])
-    def test_a_disc_or_cartridge_loses_all_three_and_keeps_the_page(
-        self, editor_client, db, monkeypatch, media_type,
+    @staticmethod
+    def _personal(client, item_id):
+        return client.get(f"/api/items/{item_id}/personal-state").text
+
+    @pytest.mark.parametrize(
+        "media_type,activity_heading",
+        [("cd", "Listening Status"), ("video_game", "Playing Status")],
+    )
+    def test_a_disc_or_cartridge_keeps_media_specific_activity_and_page_actions(
+        self, editor_client, db, monkeypatch, media_type, activity_heading,
     ):
         monkeypatch.setenv("HARDCOVER_TOKEN", "hc-token")
         item_id = _insert_item(db, title="Not A Book", isbn=None, media_type=media_type)
@@ -314,14 +319,19 @@ class TestBookShapedControls:
         assert resp.status_code == 200
         assert self.RETRY not in html
         assert self.PUSH not in html
-        assert self.HEADING not in html
-        assert self.SECTION not in html
-        # The page lost three controls, not the page.
-        assert 'data-testid="cover-controls"' in html
+        assert 'hx-get="/api/items/' in html and "/personal-state" in html
+        personal = self._personal(editor_client, item_id)
+        assert activity_heading in personal
+        assert self.SECTION in personal
+        # Music owns its artwork UI; non-music media retain the generic cover controls.
+        if media_type == "cd":
+            assert 'data-testid="cover-controls"' not in html
+        else:
+            assert 'data-testid="cover-controls"' in html
         assert f'href="/item/{item_id}/edit' in html
         assert "hx-delete=" in html
 
-    def test_a_book_without_an_isbn_keeps_reading_status_only(
+    def test_a_book_without_an_isbn_keeps_personal_reading_status_only(
         self, editor_client, db, monkeypatch,
     ):
         monkeypatch.setenv("HARDCOVER_TOKEN", "hc-token")
@@ -329,9 +339,10 @@ class TestBookShapedControls:
         db.commit()
 
         html = editor_client.get(f"/item/{item_id}").text
+        personal = self._personal(editor_client, item_id)
 
-        assert self.HEADING in html
-        assert self.SECTION in html
+        assert "Reading Status" in personal
+        assert self.SECTION in personal
         assert self.RETRY not in html
         assert self.PUSH not in html
 
@@ -352,7 +363,7 @@ class TestBookShapedControls:
         assert self.SYNCED in editor_client.get(f"/item/{synced_id}").text
         assert self.PUSH in editor_client.get(f"/item/{linked_id}").text
 
-    def test_a_book_with_an_isbn_carries_all_three_the_positive_control(
+    def test_a_book_with_an_isbn_carries_catalogue_and_personal_controls(
         self, editor_client, db, monkeypatch,
     ):
         monkeypatch.setenv("HARDCOVER_TOKEN", "hc-token")
@@ -360,28 +371,30 @@ class TestBookShapedControls:
         db.commit()
 
         html = editor_client.get(f"/item/{item_id}").text
+        personal = self._personal(editor_client, item_id)
 
         assert self.RETRY in html
         assert self.PUSH in html
-        assert self.HEADING in html
+        assert "Reading Status" in personal
+        assert self.SECTION in personal
 
-    def test_a_disc_with_a_stale_status_can_still_clear_it(self, viewer_client, db):
-        """The undo path — and the G65 pin: the toggle route renders the
-        fragment without book_media_types in context and must not care."""
+    def test_a_disc_with_a_stale_personal_status_can_still_clear_it(self, viewer_client, db):
         item_id = _insert_item(
             db, title="Read DVD", isbn=None, media_type="dvd", reading_status="read",
         )
         db.commit()
 
-        html = viewer_client.get(f"/item/{item_id}").text
-        assert self.HEADING in html
-        assert self.CLEAR in html
+        personal = self._personal(viewer_client, item_id)
+        assert "Watching Status" in personal
+        assert self.CLEAR in personal
 
         resp = viewer_client.post(f"/api/items/{item_id}/reading-status", data={"status": ""})
         assert resp.status_code == 200
         assert self.SECTION in resp.text
 
-        assert self.HEADING not in viewer_client.get(f"/item/{item_id}").text
+        after = self._personal(viewer_client, item_id)
+        assert "Watching Status" in after
+        assert self.CLEAR not in after
 
     def test_a_dvd_with_an_isbn_gets_retry_but_not_hardcover(
         self, editor_client, db, monkeypatch,
@@ -396,8 +409,12 @@ class TestBookShapedControls:
         assert self.RETRY in html
         assert self.PUSH not in html
 
-    def test_a_viewer_sees_no_reading_status_on_a_disc(self, viewer_client, db):
+    def test_a_viewer_gets_listening_status_for_a_cd_from_personal_state(self, viewer_client, db):
         item_id = _insert_item(db, title="Viewer CD", isbn=None, media_type="cd")
         db.commit()
 
-        assert self.HEADING not in viewer_client.get(f"/item/{item_id}").text
+        static_html = viewer_client.get(f"/item/{item_id}").text
+        assert "Listening Status" not in static_html
+        personal = self._personal(viewer_client, item_id)
+        assert "Listening Status" in personal
+        assert self.SECTION in personal
