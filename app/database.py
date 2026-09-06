@@ -187,6 +187,16 @@ MIGRATIONS: Sequence[tuple[int, str, str]] = (
     )"""),
     (45, "Index collection item memberships",
      "CREATE INDEX IF NOT EXISTS idx_collection_items_item ON collection_items(item_id)"),
+    (46, "Add confirmed legacy book barcode mappings",
+     """CREATE TABLE IF NOT EXISTS legacy_book_mappings (
+            barcode      TEXT PRIMARY KEY,
+            isbn13       TEXT NOT NULL,
+            confirmed_at TEXT NOT NULL DEFAULT (datetime('now')),
+            CHECK(length(barcode) = 17 AND barcode NOT GLOB '*[^0-9]*'),
+            CHECK(length(isbn13) = 13
+                  AND isbn13 NOT GLOB '*[^0-9]*'
+                  AND substr(isbn13, 1, 3) IN ('978', '979'))
+        )"""),
 )
 
 MIGRATION_TABLES = """
@@ -419,6 +429,18 @@ CREATE TABLE IF NOT EXISTS music_identifiers (
 );
 CREATE INDEX IF NOT EXISTS idx_music_identifiers_item ON music_identifiers(item_id);
 CREATE INDEX IF NOT EXISTS idx_music_identifiers_value ON music_identifiers(value COLLATE NOCASE);
+
+-- The table is also created by migration 46 for upgrades. Keeping its
+-- complete definition here makes the fresh-database path explicit too.
+CREATE TABLE IF NOT EXISTS legacy_book_mappings (
+    barcode      TEXT PRIMARY KEY,
+    isbn13       TEXT NOT NULL,
+    confirmed_at TEXT NOT NULL DEFAULT (datetime('now')),
+    CHECK(length(barcode) = 17 AND barcode NOT GLOB '*[^0-9]*'),
+    CHECK(length(isbn13) = 13
+          AND isbn13 NOT GLOB '*[^0-9]*'
+          AND substr(isbn13, 1, 3) IN ('978', '979'))
+);
 """
 
 

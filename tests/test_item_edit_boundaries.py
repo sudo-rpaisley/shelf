@@ -241,7 +241,7 @@ def test_quick_status_rejects_unknown_value_without_clearing(editor_client, db):
     )
 
     assert response.status_code == 400
-    assert response.text == "Invalid reading status"
+    assert response.text == "Invalid reading status: 'abandoned'"
     row = _row(db, item_id)
     assert row["reading_status"] == "read"
     assert row["date_started"] == "2026-01-01"

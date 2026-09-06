@@ -1,14 +1,35 @@
 import json
 import logging
+from urllib.parse import urlparse
 
 import httpx
 
-from app.database import get_db, get_setting
+from app.database import get_db
 from app.services import covers
 from app.services import series_memberships as series_memberships_svc
 from app.services.item_write import insert_item
+from app.services.item_write import ItemValueError, update_item_fields
+from app.services import isbn as isbn_svc
 
 logger = logging.getLogger(__name__)
+
+
+def validate_url(url: str) -> str | None:
+    """Validate an Audiobookshelf URL's scheme and hostname.
+
+    Returns an error message, or None when the URL is usable. Lives here rather
+    than in a router because both the sync router (the API endpoint) and the
+    settings router (the browser-facing endpoint) validate the same shape.
+    """
+    try:
+        parsed = urlparse(url)
+        if parsed.scheme not in ("http", "https"):
+            return "URL must use http:// or https://"
+        if not parsed.hostname:
+            return "Invalid URL"
+    except Exception:
+        return "Invalid URL"
+    return None
 
 
 def get_excluded_libraries() -> set[str]:
@@ -147,7 +168,18 @@ async def sync(abs_url: str, abs_token: str, on_progress=None) -> dict:
 
                 authors = metadata.get("authorName") or metadata.get("author")
                 narrator = metadata.get("narratorName")
-                isbn = metadata.get("isbn") or metadata.get("asin")
+                # A provider value, and ABS audiobooks frequently carry an
+                # ASIN in this same metadata field rather than an ISBN.
+                # Pre-cleaned per #54: never written into items.isbn — the
+                # raw value survives only in the warning below.
+                raw_isbn = metadata.get("isbn") or metadata.get("asin")
+                isbn_pair = isbn_svc.canonical_isbn_pair(raw_isbn) if raw_isbn else None
+                if raw_isbn and isbn_pair is None:
+                    logger.warning(
+                        "%s: %r is not a valid ISBN — stored without one",
+                        f"Audiobookshelf item {abs_id} ({title})", raw_isbn,
+                    )
+                isbn = isbn_pair[0] if isbn_pair else None
                 series_memberships = _series_memberships(metadata)
                 series_name = series_memberships[0]["name"] if series_memberships else None
                 series_position = series_memberships[0]["position"] if series_memberships else None
@@ -216,6 +248,10 @@ async def sync(abs_url: str, abs_token: str, on_progress=None) -> dict:
                             (isbn_match["id"],),
                         ).fetchone()
 
+                    # A bad value here is one ABS record, not the whole sync
+                    # (#54) — insert_item()/update_item_fields() raise
+                    # ItemValueError before touching SQLite, so nothing is
+                    # written for this item and the loop moves on.
                     if existing:
                         desired = {
                             "title": title,
@@ -234,23 +270,19 @@ async def sync(abs_url: str, abs_token: str, on_progress=None) -> dict:
                         }
                         changed = any(existing[key] != value for key, value in desired.items())
 
-                        if changed:
-                            db.execute(
-                                """UPDATE items SET title=?, authors=?, narrator=?,
-                                   isbn=?, series_name=?, series_position=?, publisher=?, publish_year=?,
-                                   description=?, duration_mins=?, media_type=?,
-                                   abs_id=?, abs_library_id=?,
-                                   updated_at=datetime('now')
-                                   WHERE id=?""",
-                                (title, authors, narrator, isbn, series_name, series_position,
-                                 publisher, pub_year, description, duration_mins,
-                                 media_type, abs_id, lib_id, existing["id"]),
-                            )
-                            stats["updated"] += 1
-                            status = "updated"
-                        else:
-                            stats["unchanged"] += 1
-                            status = "unchanged"
+                        try:
+                            if changed:
+                                update_item_fields(db, existing["id"], desired)
+                                stats["updated"] += 1
+                                status = "updated"
+                            else:
+                                stats["unchanged"] += 1
+                                status = "unchanged"
+                        except ItemValueError as e:
+                            stats["errors"] += 1
+                            if on_progress:
+                                await on_progress(current, total, f"{title}: {e}", "error")
+                            continue
 
                         item_id = existing["id"]
                         series_memberships_svc.add_metadata_memberships(
@@ -260,24 +292,30 @@ async def sync(abs_url: str, abs_token: str, on_progress=None) -> dict:
                         if on_progress:
                             await on_progress(current, total, title, status)
                     else:
-                        item_id = insert_item(
-                            db,
-                            title=title,
-                            authors=authors,
-                            isbn=isbn,
-                            media_type=media_type,
-                            publisher=publisher,
-                            publish_year=pub_year,
-                            description=description,
-                            series_name=series_name,
-                            series_position=series_position,
-                            series_memberships=series_memberships,
-                            narrator=narrator,
-                            duration_mins=duration_mins,
-                            abs_id=abs_id,
-                            abs_library_id=lib_id,
-                            source="audiobookshelf",
-                        )
+                        try:
+                            item_id = insert_item(
+                                db,
+                                title=title,
+                                authors=authors,
+                                isbn=isbn,
+                                media_type=media_type,
+                                publisher=publisher,
+                                publish_year=pub_year,
+                                description=description,
+                                series_name=series_name,
+                                series_position=series_position,
+                                series_memberships=series_memberships,
+                                narrator=narrator,
+                                duration_mins=duration_mins,
+                                abs_id=abs_id,
+                                abs_library_id=lib_id,
+                                source="audiobookshelf",
+                            )
+                        except ItemValueError as e:
+                            stats["errors"] += 1
+                            if on_progress:
+                                await on_progress(current, total, f"{title}: {e}", "error")
+                            continue
                         stats["added"] += 1
                         fetch_cover = True
                         if on_progress:
@@ -312,15 +350,16 @@ async def sync(abs_url: str, abs_token: str, on_progress=None) -> dict:
     return stats
 
 
-def get_playback_url(abs_url: str, abs_id: str) -> str:
+def get_playback_url(abs_url: str, abs_id: str, public_url: str | None = None) -> str:
     """Construct the browser-facing Audiobookshelf item URL.
 
-    ``abs_url`` remains the API/sync endpoint. When an ``abs_public_url``
-    setting is present, links opened by the user's browser use that root
-    instead; otherwise the API URL is the backwards-compatible fallback.
+    ``abs_url`` stays the API/sync endpoint. ``public_url`` is the optional
+    ``abs_public_url`` setting, for deployments where Shelf reaches
+    Audiobookshelf over an internal Docker/LAN address while the user's browser
+    reaches it through a reverse proxy. Blank falls back to ``abs_url``, which
+    is the pre-existing behaviour. Both are read by the caller — this stays a
+    pure string builder because one caller maps it over every linked item.
     """
-    with get_db() as db:
-        public_url = get_setting(db, "abs_public_url")
     base_url = (public_url or abs_url).rstrip("/")
     return f"{base_url}/item/{abs_id}"
 
@@ -347,7 +386,8 @@ def _authors_compatible(a: str | None, b: str | None) -> bool:
 
 
 def _auto_link_items():
-    """Group book, ebook and audiobook representations of the same work."""
+    """Group ABS items with matching book-family editions after the batch."""
     from app.services import media_groups
+
     with get_db() as db:
         media_groups.auto_link_family(db, "book")

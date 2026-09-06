@@ -22,6 +22,7 @@ from app.database import get_db, get_game_platforms
 from app.routers import items, pages
 from app.services import periodical_records
 from app.services import upc as upc_svc
+from app.services.item_write import update_item_fields
 
 
 def _canonical_upc(value: str | None) -> tuple[bool, str | None]:
@@ -230,10 +231,9 @@ async def update_item_with_barcode(
     try:
         with get_db() as db:
             if has_upc:
-                db.execute(
-                    "UPDATE items SET upc = ?, updated_at = datetime('now') WHERE id = ?",
-                    (canonical_upc, item_id),
-                )
+                # The barcode-specific preflight above owns UPC/EAN semantics;
+                # persistence still goes through Shelf's one item update path.
+                update_item_fields(db, item_id, {"upc": canonical_upc})
             if has_periodical:
                 db.execute(
                     "UPDATE periodical_issues SET barcode_ean = ?, "

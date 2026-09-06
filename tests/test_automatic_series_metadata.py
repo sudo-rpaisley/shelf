@@ -8,7 +8,7 @@ def test_insert_item_persists_scalar_series_immediately(db):
     item_id = insert_item(
         db,
         title="Series Book",
-        isbn="9780000011001",
+        isbn="9780000011008",
         media_type="book",
         series_name="Example Saga",
         series_position=2,
@@ -26,7 +26,7 @@ def test_insert_item_persists_multiple_explicit_series(db):
     item_id = insert_item(
         db,
         title="Crossover",
-        isbn="9780000011002",
+        isbn="9780000011015",
         media_type="book",
         series_name="Main Saga",
         series_position=3,
@@ -127,7 +127,7 @@ def test_reconciliation_removes_stale_old_primary_but_keeps_secondary(db):
     item_id = insert_item(
         db,
         title="Changing Series",
-        isbn="9780000011004",
+        isbn="9780000011022",
         media_type="book",
         series_name="Old Primary",
         series_position=1,

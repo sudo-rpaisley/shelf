@@ -1,3 +1,4 @@
+import sqlite3
 from datetime import date, timedelta
 
 from fastapi import APIRouter, Depends, Form, Request
@@ -47,10 +48,6 @@ def get_overdue_loans(db) -> list[dict]:
     return [dict(row) for row in rows]
 
 
-def _borrower_settings_error(code: str) -> RedirectResponse:
-    return RedirectResponse(url=f"/settings?borrower_error={code}", status_code=303)
-
-
 # --- Borrowers ---
 
 @router.post("/borrowers")
@@ -60,13 +57,14 @@ async def create_borrower(name: str = Form(...), _=Depends(require_role("admin")
         return JSONResponse(
             {"ok": False, "message": "Borrower name is required"}, status_code=400
         )
-    with get_db() as db:
-        existing = db.execute(
-            "SELECT id FROM borrowers WHERE name = ?", (clean_name,)
-        ).fetchone()
-        if existing:
-            return _borrower_settings_error("duplicate")
-        db.execute("INSERT INTO borrowers (name) VALUES (?)", (clean_name,))
+
+    try:
+        with get_db() as db:
+            db.execute("INSERT INTO borrowers (name) VALUES (?)", (clean_name,))
+    except sqlite3.IntegrityError:
+        return RedirectResponse(
+            url="/settings?borrower_error=duplicate", status_code=303
+        )
     return RedirectResponse(url="/settings", status_code=303)
 
 
@@ -80,14 +78,18 @@ async def delete_borrower(borrower_id: int, _=Depends(require_role("admin"))):
     matching what deleting a location or a platform already does.
     """
     with get_db() as db:
-        # Take the write lock *before* reading either existence or the active-
-        # loan guard. This serializes the decision with checkout creation.
+        # Take the write lock before the existence/active-loan guards. A rival
+        # checkout writer must not be able to commit between either read and
+        # the delete below.
         db.execute("BEGIN IMMEDIATE")
         borrower = db.execute(
             "SELECT id FROM borrowers WHERE id = ?", (borrower_id,)
         ).fetchone()
         if not borrower:
-            return _borrower_settings_error("missing")
+            return RedirectResponse(
+                url="/settings?borrower_error=missing", status_code=303
+            )
+
         active = db.execute(
             "SELECT COUNT(*) as c FROM checkouts WHERE borrower_id = ? AND checked_in IS NULL",
             (borrower_id,),
@@ -122,20 +124,18 @@ async def checkout_item(
         due = None
 
     with get_db() as db:
-        # Guard and insert must be one serialized write decision. Without a
-        # write lock, two requests can both observe no active checkout before
-        # either INSERT commits and create contradictory simultaneous loans.
+        # Serialize the existence checks, active-loan guard and insert. A bare
+        # SELECT does not start a SQLite write transaction, so BEGIN IMMEDIATE
+        # is required before the guard to prevent two concurrent checkouts.
         db.execute("BEGIN IMMEDIATE")
-        item = db.execute("SELECT id FROM items WHERE id = ?", (item_id,)).fetchone()
-        if not item:
+
+        if not db.execute("SELECT 1 FROM items WHERE id = ?", (item_id,)).fetchone():
             return JSONResponse(
                 {"ok": False, "message": "Item not found"}, status_code=404
             )
-
-        borrower = db.execute(
-            "SELECT id FROM borrowers WHERE id = ?", (borrower_id,)
-        ).fetchone()
-        if not borrower:
+        if not db.execute(
+            "SELECT 1 FROM borrowers WHERE id = ?", (borrower_id,)
+        ).fetchone():
             return JSONResponse(
                 {"ok": False, "message": "Borrower not found"}, status_code=404
             )
@@ -144,7 +144,9 @@ async def checkout_item(
             "SELECT id FROM checkouts WHERE item_id = ? AND checked_in IS NULL", (item_id,)
         ).fetchone()
         if active:
-            return {"ok": False, "message": "Already checked out"}
+            return JSONResponse(
+                {"ok": False, "message": "Already checked out"}, status_code=409
+            )
 
         db.execute(
             "INSERT INTO checkouts (item_id, borrower_id, due_date, notes) VALUES (?, ?, ?, ?)",

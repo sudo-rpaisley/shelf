@@ -3,6 +3,12 @@
 First stop for anything odd: **Logs** in the nav (admin) or
 `docker compose logs -f shelf`.
 
+Since 0.30.0 the container log no longer carries a line per outbound request.
+That line held the whole request URL, and an authenticated ntfy topic keeps its
+password in that URL, so the trace and the secret were the same line and both
+had to go. Shelf's own log lines are unaffected; a failed lookup or
+notification still names what it was talking to, by scheme and host.
+
 ## Browser says the connection isn't private
 
 Expected on first run — Shelf's certificate is self-signed. Click through,
@@ -57,7 +63,14 @@ has a barcode for this).
   connectivity"**, a UPC **"Metadata lookup failed — check connectivity"**.
   Every book source reaches that card: Hardcover, Google Books and the DNB
   catalog used to turn an unreachable network into a plain "not found", so a
-  Shelf that was simply offline reported the books as unknown.
+  Shelf that was simply offline reported the books as unknown. The SBN
+  catalog, which answers Italian ISBNs, reaches it too.
+- **Italian books quietly stop enriching** — titles still file, but with no
+  author, publisher or year, and the lookup falls back to Open Library. The
+  SBN endpoint is undocumented and reverse-engineered, so ICCU can move or
+  retire it without notice. Nothing is broken and nothing is lost: an
+  unreachable or unreadable SBN answers "not found" and the ordinary cascade
+  takes over. The fix is a Shelf update, not anything you can configure.
 - If several barcodes in a row come back empty, the provider's daily quota
   may be spent rather than the records missing — see [A scan comes back empty
   and the log says a provider asked for a long
@@ -65,12 +78,46 @@ has a barcode for this).
 - A "Not found" card naming a rejected Hardcover or Google Books key means
   the credential, not the barcode, needs fixing — see [A scan added only a
   title](#a-scan-added-only-a-title).
+- If *every* provider went quiet at once and the cards say no key is
+  configured, the keys are probably intact and unreadable — see [Every stored
+  API key stopped working at
+  once](#every-stored-api-key-stopped-working-at-once).
 
 ## Metadata came back wrong or sparse
 
 Sources disagree. **Edit** the record; **Find cover** for another image;
 **Fetch synopsis** if the description is missing. For German books, make
 sure you're on 0.11+ (DNB source).
+
+**A German title or author shows small boxes, and a search for the full
+title finds nothing.** DNB marks a title's leading article and a name's
+particle with invisible non-sorting characters, and before 0.27.2 they were
+stored as part of the text. New lookups on 0.27.2+ store clean text. Rows
+stored earlier are not rewritten: open **Edit** and retype the title or
+author to clear them. The same release stops a translation listing its
+author twice.
+
+**An Italian title begins `L' ` and a search for it finds nothing.** SBN
+catalogues an elided Italian article with a space after the apostrophe, so
+*L'enigma del faraone* is stored as `L' enigma del faraone` and a Browse
+search for `L'enigma` misses it. Search on any later word — `enigma del
+faraone` — or retype the title in **Edit**. Shelf files what the catalogue
+holds rather than second-guessing it; normalising this is a change to the
+shared bibliographic normaliser and will come in its own release.
+
+**An Italian classic lists its author in Latin.** SBN's authority headings use
+the Latin form, so *Omero* files as `Homerus` and *Tucidide* as `Thucydides`.
+This is deliberate, and DNB makes the same trade: the authority heading is the
+only field that reliably holds the author rather than the translator or the
+illustrator. Retype it in **Edit** if you prefer the vernacular name.
+
+**An Italian book filed with no language at all.** Where SBN records two
+languages for one edition — a Greek text with an Italian translation, say —
+Shelf files neither rather than choosing one. Set it in **Edit**.
+
+**A 979-12 book has no cover.** The Amazon cover fallback takes only ISBNs
+beginning 978, so a 979-12 book can be covered only by Open Library. **Find
+cover** searches by title and often turns one up.
 
 **DVDs and games that filed a bare title — no synopsis, no year, no cover —
 were a bug, not a missing key.** TMDb rejected the credential type the setup
@@ -107,11 +154,13 @@ time:
   lookup consults up to four and any subset can be starved at once.
 - **"the title names console hardware, so no film or game lookup was
   attempted."** — nothing to fix. The shortened title Shelf would have
-  searched on is just `PlayStation` or `Nintendo`, and a film database answers
-  that with a confident match for an unrelated film, so Shelf files the title
-  it read and asks nobody. Correct the type or the title on the item page if
-  it read the title wrong. This one is decided by the *title*; the next is
-  decided by the *format*.
+  searched on is just `PlayStation` or `Nintendo`, or a brand name such as
+  `Logitech`, and a film database answers that with a confident match for an
+  unrelated film, so Shelf files the title it read and asks nobody. Correct the type or the title on the item page if
+  it read the title wrong. This also covers a hardware title that carries
+  `DVD`, `CD` or `CD-ROM` — the tag is read as a shelf-listing artifact, not as
+  the item's type. This one is decided by the *title*; the next is decided by
+  the *format*.
 - **"Shelf has no metadata source for this format yet."** — nothing to fix,
   and nothing to configure. The format has no provider wired up, so no lookup
   was attempted. CDs are the case today; the disc is filed under its barcode
@@ -222,6 +271,31 @@ Passwords are bcrypt hashes. Generate one —
 — and `UPDATE` your user's hash column with it. Restart. (Take a copy of
 `shelf.db` first.)
 
+## Every stored API key stopped working at once
+
+Since 0.30.0 this is a diagnosable failure rather than a silent one. Stored
+credentials are encrypted with `data/encryption.key`; if that file is replaced,
+lost, or restored from a different instance, the ciphertext no longer opens.
+Shelf now logs one warning per setting naming the setting —
+
+```
+settings[tmdb_api_key]: stored ciphertext does not open under the current
+encryption key — re-enter the credential in Settings
+```
+
+— and the credential reads as **unset**, so the scan card says no key is
+configured rather than that the provider rejected one. Re-enter each affected
+key in Settings → Integrations; nothing else is lost, and no other data is
+affected.
+
+Before 0.30.0 the raw ciphertext was sent to the provider as though it were
+your key, so this looked exactly like a revoked credential with nothing in the
+log to search for. If several providers failed on the same day and none of the
+keys had actually been revoked, that was this.
+
+Keep `encryption.key` with any copy of `data/` you intend to restore from — see
+[Upgrading & backups](upgrading-and-backups.md).
+
 ## Overdue reminders never arrive
 
 - **Send test** on the Lending card — if that fails, the URL or format is
@@ -234,8 +308,29 @@ Passwords are bcrypt hashes. Generate one —
 - **Test** the connection on its card.
 - ABS: make sure at least one library is selected.
 - Both run on an interval read every 5 minutes; "Sync now" is immediate.
+- ABS: a summary of *0 added, 0 updated, N unchanged* means the sync ran and
+  found nothing new — that is success, not a stall.
 - Env-var overrides (`HARDCOVER_TOKEN`, `ABS_TOKEN`) beat what's stored —
   if you changed the key in Settings and nothing changed, check your `.env`.
+
+## The Listen / Read on Audiobookshelf link goes nowhere
+
+The item page shows the button, but clicking it lands on a page that will not
+load — a timeout, or a name your browser cannot resolve.
+
+Shelf is reaching Audiobookshelf at an address your browser cannot. That is
+normal when Shelf runs in Docker and talks to ABS over the container network
+(`http://audiobookshelf:80`) or a LAN hostname, while you open Audiobookshelf
+through a reverse proxy on a public name.
+
+Fill in **Browser URL** under Settings → Integrations → Audiobookshelf Sync with
+the address *you* type into your browser. It is used for these links and nothing
+else — sync, library discovery and cleanup keep using the Audiobookshelf URL
+above it. `ABS_PUBLIC_URL` does the same from the environment.
+
+If the field looks empty but the links already work, an `ABS_PUBLIC_URL` in your
+environment is driving them: an env-only value renders the field blank while
+staying in force.
 
 ## A scan comes back empty and the log says a provider asked for a long wait
 

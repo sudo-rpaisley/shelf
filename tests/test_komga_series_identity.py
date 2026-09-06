@@ -52,8 +52,8 @@ def _mock_sync(books: list[dict]) -> None:
 @respx.mock
 def test_sync_preserves_komga_series_titles_instead_of_canonicalising(db, admin_client):
     books = [
-        _book("op_3", "series_3", "One Piece (3)", 1, "9780000000301"),
-        _book("op_21", "series_21", "One Piece (21)", 1, "9780000000325"),
+        _book("op_3", "series_3", "One Piece (3)", 1, "9780000000309"),
+        _book("op_21", "series_21", "One Piece (21)", 1, "9780000000323"),
     ]
     _mock_sync(books)
 
@@ -79,9 +79,9 @@ def test_sync_preserves_komga_series_titles_instead_of_canonicalising(db, admin_
 @respx.mock
 def test_same_title_different_komga_series_ids_stay_separate(db, admin_client):
     books = [
-        _book("a1", "series_a", "Shared Name", 1, "9780000000400"),
-        _book("a2", "series_a", "Shared Name", 2, "9780000000401"),
-        _book("b1", "series_b", "Shared Name", 1, "9780000000402"),
+        _book("a1", "series_a", "Shared Name", 1, "9780000000408"),
+        _book("a2", "series_a", "Shared Name", 2, "9780000000415"),
+        _book("b1", "series_b", "Shared Name", 1, "9780000000422"),
     ]
     _mock_sync(books)
     asyncio.run(sync(KOMGA, KEY))

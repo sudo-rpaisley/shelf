@@ -7,6 +7,21 @@
 <div class="max-w-7xl mx-auto" x-data="settingsTabs">
     {% include "fragments/settings/page_header.html" %}
 
+    {# Known codes only: never reflect arbitrary query-string text. #}
+    {% set location_error = request.query_params.get('location_error') %}
+    {% if location_error in ('blank', 'duplicate', 'missing') %}
+    <div data-testid="location-error-banner"
+         class="bg-shelf-bg text-shelf-error border border-shelf-border rounded-lg px-4 py-2 text-sm mb-6">
+        {% if location_error == 'blank' %}
+        Location name is required.
+        {% elif location_error == 'duplicate' %}
+        A location with that name already exists.
+        {% else %}
+        That location no longer exists.
+        {% endif %}
+    </div>
+    {% endif %}
+
     <div class="flex flex-col lg:flex-row gap-6">
         {% include "fragments/settings/sidebar.html" %}
 

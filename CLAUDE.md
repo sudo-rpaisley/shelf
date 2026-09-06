@@ -52,6 +52,11 @@ far more often than by a human. Keep it that way:
   so a source edit landing mid-run makes the result unattributable — you can no longer tell a
   pre-existing failure from one you just caused, which is exactly what a baseline run exists to
   establish. Stash or wait; docs and other files nothing under test imports are fair game.
+  **Not under a headless run.** A pipeline stage (`plan-pipeline.sh`, `post-run-pipeline.sh`
+  — anything driven by `claude -p`) gets no completion notification: ending the turn ends the
+  process. There, run probes and test commands in the **foreground** and wait for the output.
+  Measured 2026-09-01: `/impl-plan` backgrounded a pytest probe, ended its turn "until the
+  notice arrives", exited 0 after 11 min with no plan written.
 - **`make checks-fast` in the loop, `make checks` before a release.** The full target runs
   `pip-audit` over the network and writes dated reports into `reports/`.
 - **Prefer the `gh` CLI over the `github` MCP tools here.** The release procedure in
@@ -127,8 +132,9 @@ the human promotes it to `.devdocs/` (SETTLED) →
 across vendors → `/plan-triage`) → `/run-plan` (interactive, in a session; it
 needs the Agent tool) → `.claude/scripts/post-run-pipeline.sh` (unattended
 diff reviews + diff triage) → `/test-drive` → `/release`. Beside the chain:
-`/quick-fix` for a change whose *risk* is trivial, and `/quota-route` for
-deciding where a piece of work should run and whether it should run now.
+`/quick-fix` for a change whose *risk* is trivial, `/quota-route` for
+deciding where a piece of work should run and whether it should run now, and
+occasionally `/converge` to find the item that makes the others cheap.
 
 **Before launching any script** (`plan-pipeline.sh`, `plan-review-multi.sh`,
 `post-run-pipeline.sh`):
@@ -146,8 +152,9 @@ deciding where a piece of work should run and whether it should run now.
   or pass the plan path and flags explicitly. Exit code **3** means the chain
   suspended itself on quota; its closing block carries the exact `--resume`
   command and the time to run it.
-- **Launch it with `run_in_background`, then wait once.** Launch the script
-  with `run_in_background`. Then run `.claude/scripts/plan-status.sh --wait` in
+- **A session launching one of the pipeline scripts launches it with
+  `run_in_background`, then waits once.** Launch the script with
+  `run_in_background`. Then run `.claude/scripts/plan-status.sh --wait` in
   the background and do nothing else for this run until it returns. Check on
   progress only with `.claude/scripts/plan-status.sh` — never `ps`, `pgrep`, a
   hand-written Monitor, or an `until` loop; the same script path runs for every

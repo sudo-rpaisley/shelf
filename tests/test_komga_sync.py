@@ -11,7 +11,7 @@ from tests.conftest import _insert_item
 
 KOMGA = "http://komga.example:25600"
 KEY = "test-api-key"
-ISBN = "9780000000998"
+ISBN = "9780000000996"
 
 
 def _set_setting(db, key, value):
@@ -171,8 +171,8 @@ class TestKomgaSync:
     @respx.mock
     def test_cover_timeout_does_not_abort_remaining_books(self, db):
         _mock_single_library(
-            _book("book_1", "One", "9780000000103"),
-            _book("book_2", "Two", "9780000000110"),
+            _book("book_1", "One", "9780000000101"),
+            _book("book_2", "Two", "9780000000118"),
         )
         respx.get(f"{KOMGA}/api/v1/books/book_1/thumbnail").mock(
             side_effect=httpx.ReadTimeout("slow cover")
@@ -192,8 +192,8 @@ class TestKomgaSync:
     @respx.mock
     def test_progress_advances_before_cover_batch_is_drained(self, db, monkeypatch):
         _mock_single_library(
-            _book("book_1", "One", "9780000000103"),
-            _book("book_2", "Two", "9780000000110"),
+            _book("book_1", "One", "9780000000101"),
+            _book("book_2", "Two", "9780000000118"),
         )
         events = []
 

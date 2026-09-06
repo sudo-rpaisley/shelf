@@ -44,7 +44,9 @@ its home.
   a description from Open Library, Google Books or Hardcover if one wasn't
   captured on add.
 - **Reading status** — Want to read / Reading / Read, with start and finish
-  dates. Viewers can set this too; it's the one thing they can change.
+  dates. Viewers can set this too; it's the one thing they can change. It
+  appears on books, kids' books, audiobooks, ebooks and comics — discs and
+  games don't carry one.
 - **Location** and **owned / wishlist** flag.
 - **Tags** — add or remove chips inline.
 - **Loan state** — who has it and since when, with check-in right there.
@@ -58,6 +60,26 @@ its home.
 and the cover upload. Changing the ISBN does *not* re-fetch metadata
 automatically — use **Retry cover** / **Fetch synopsis** afterwards, or
 delete and rescan if the record was wrong from the start.
+
+The ISBN is checked when you save. An ISBN whose check digit doesn't add up
+is refused with a banner at the top of the form, and **nothing else on the
+form is saved** — correct the ISBN or clear the field and save again.
+Entering an ISBN-10 stores both forms (the ISBN-13 and the ISBN-10 it
+implies); a 979 ISBN has no ISBN-10 and stores none. The same banner
+appears for a media type, location, game platform or reading status Shelf
+doesn't recognise, and for a non-number in a number field.
+
+An item whose stored ISBN isn't a real ISBN — older Audiobookshelf syncs
+stored an ASIN there when a title had no ISBN — has to have it corrected or
+cleared before the form will save, since the form submits every field. Clear
+it and the item keeps everything else. For the Audiobookshelf case you
+usually don't have to: from 0.28.0 the next sync clears an ASIN out of the
+ISBN field for you (see [Integrations](integrations.md)).
+
+**Retry cover** appears once the item has an ISBN. **Push to Hardcover**
+appears only for book-family items, and only when the item has an ISBN or
+an existing Hardcover link, so adding an ISBN in Edit helps only for
+book-family rows.
 
 ## Covers
 
@@ -86,6 +108,11 @@ book, or a manual add before a scan), keep the better record and delete the
 other; tags and loan history live on the record, so move anything you need
 first.
 
+Bulk **Merge** copies the fields the kept record lacks from the others
+before removing them. A merge that would copy an invalid ISBN is refused and
+both records are left in place. The message names the record it stopped on,
+by title and id, so a merge of several records tells you which one to fix.
+
 ## Deleting
 
 **Delete** on the item page (editor or admin). Loan history referencing the
@@ -98,7 +125,16 @@ Games carry a **platform** (from your list under Settings → Library → Game
 Platforms), publisher, series and IGDB cover. The same title on two
 platforms is two items.
 
+A game reaches IGDB two ways: a UPC scan, or a [Photo Intake](photo-intake.md)
+row you typed Video Game, looked up by title when you confirm. The intake path
+matches on title alone, so it takes an exact match only and marks the row
+**declined** rather than guess — platform is not part of that match, so a
+multi-platform title may need the platform set by hand afterwards.
+
 ## DVDs / Blu-rays
 
-Looked up by UPC through TMDb: title, year, poster. Shelf doesn't distinguish
-DVD from Blu-ray — it's one type; use a tag if you care.
+Looked up through TMDb — title, year, poster — either by UPC scan or from a
+[Photo Intake](photo-intake.md) row you typed DVD, matched by title when you
+confirm. The intake path takes an exact title match only and marks the row
+**declined** rather than file a confidently wrong film. Shelf doesn't
+distinguish DVD from Blu-ray — it's one type; use a tag if you care.

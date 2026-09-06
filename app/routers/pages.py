@@ -6,7 +6,7 @@ from fastapi.responses import RedirectResponse
 
 from app import browse_filters, nav
 from app.auth import require_role
-from app.config import DEFAULT_PAGE_SIZE, MEDIA_FAMILIES, MEDIA_TYPES, MUSIC_MEDIA_TYPES
+from app.config import DEFAULT_PAGE_SIZE, MEDIA_FAMILIES, MEDIA_TYPES, MUSIC_MEDIA_TYPES, BOOK_MEDIA_TYPES
 from app.currency import get_currency
 from app.database import get_db, get_setting, get_game_platforms, get_reading_history
 from app.routers import items_common
@@ -252,13 +252,17 @@ async def item_detail(
         abs_url = None
         linked_abs_items = []
         abs_url_val = get_setting(db, "abs_url")
+        # The browser-facing root, read once here rather than inside
+        # get_playback_url: the comprehension below calls it per linked item,
+        # and a lookup there would open a nested connection each time.
+        abs_public_url_val = get_setting(db, "abs_public_url")
         if abs_url_val:
             from app.services.audiobookshelf import get_playback_url
             if item["abs_id"]:
-                abs_url = get_playback_url(abs_url_val, item["abs_id"])
+                abs_url = get_playback_url(abs_url_val, item["abs_id"], abs_public_url_val)
             linked_abs_items = [
                 {"id": li["id"], "media_type": li["media_type"],
-                 "abs_url": get_playback_url(abs_url_val, li["abs_id"])}
+                 "abs_url": get_playback_url(abs_url_val, li["abs_id"], abs_public_url_val)}
                 for li in linked_items if li["abs_id"]
             ]
 
@@ -421,6 +425,7 @@ async def item_detail(
             "item_collections": collection_context["item_collections"],
             "available_collections": collection_context["available_collections"],
             "media_types": MEDIA_TYPES,
+            "book_media_types": BOOK_MEDIA_TYPES,
             "game_platforms": game_platforms,
             "has_hardcover": has_hardcover,
             "current_checkout": current_checkout,
@@ -448,6 +453,7 @@ async def item_edit(
     request: Request,
     item_id: int,
     from_: str = Query("", alias="from"),
+    error: str | None = Query(None),
     _=Depends(require_role("editor")),
 ):
     back = nav.back_target(from_)
@@ -462,7 +468,8 @@ async def item_edit(
     return request.app.state.templates.TemplateResponse(
         request,
         "item_edit.html",
-        {"item": item, "back": back, "media_types": MEDIA_TYPES, "game_platforms": game_platforms, "locations": locations},
+        {"item": item, "back": back, "media_types": MEDIA_TYPES, "game_platforms": game_platforms,
+         "locations": locations, "error": error},
     )
 
 

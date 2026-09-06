@@ -39,7 +39,9 @@ Main tables: `items` (everything — books, discs, games; ~36 columns incl.
 `borrowers` + `checkouts`, `tags` + `item_tags`, `series_meta` (Hardcover
 completeness), `reading_log`, `users`, `settings` (k/v, secrets encrypted),
 `share_links`, `scan_log`, `game_platforms`, `valuation_history`,
-`cover_queue`.
+`cover_queue`, `legacy_book_mappings` (a confirmed legacy price-point
+barcode -> ISBN-13 choice, constrained in the schema to a 17-digit barcode
+and a 978/979 ISBN).
 
 Secrets in `settings` are encrypted with a key kept *outside* the database
 (`data/encryption.key` or `SHELF_ENCRYPTION_KEY`), so a DB backup contains
@@ -51,10 +53,25 @@ A scan or title-search add runs `_lookup_metadata` → `_save_item`
 (`app/routers/items.py`), also reused by Store Mode's queue flush and
 Photo Intake's confirm step.
 
-Books by ISBN, in order until one answers: national bibliography (DNB for
-978-3) → Open Library (3-call chain: ISBN → work → author) → Hardcover →
-Google Books. Hardcover additionally enriches series and description when a
-token is present.
+Books by ISBN, in order until one answers: national bibliography → Open
+Library (3-call chain: ISBN → work → author) → Hardcover → Google Books.
+Hardcover additionally enriches series and description when a token is
+present.
+
+The national leg is a registry, `services/national.py`: unhyphenated ISBN-13
+registration-group prefixes mapped to provider modules, resolved by
+**longest** prefix match, so a narrow key can coexist with a broader one. It
+currently serves two groups — **DNB** (`services/dnb.py`, MARC21 over SRU) for
+978-3, and **SBN** (`services/sbn.py`, flat JSON over ICCU's OPAC endpoint) for
+the Italian 978-88 and 979-12. Keys are as wide as the group: `97888` and
+`97912` at five digits, because a 4-digit `9788` would also capture Spain,
+Brazil and the Czech/Slovak group. Both providers build every stored string
+through `services/bib_normalize.py`, so text from either is NFC and comparable.
+An ISBN in no registered group skips the leg entirely and costs no request.
+Adding a provider is a module plus a registry entry — no call-site change.
+**The covers cascade below is unchanged by this**: SBN contributes no cover
+source, and the DNB cover rung is a separate hand-written prefix test in
+`services/covers.py`, not a read of this registry.
 
 UPCs go to **UPC Item DB** (`services/upcitemdb.py`) for a retail product,
 then TMDb (film) or IGDB (game). **Which of the two is decided by
@@ -75,8 +92,9 @@ claim for metadata. A new `MEDIA_TYPES` member therefore gets the honest
 The second is decided by the **title**, not the type: a scan whose retail
 title names console hardware. `detect._is_hardware_title` requires a member of
 `_HARDWARE_TERMS` (console, controller, headset) *conjoined with* a
-`_PLATFORM_MARKERS` name, and the conjunction is what keeps `Console Wars` and
-`Air Traffic Controller` out — a hardware word alone is a film title. Such a
+`_PLATFORM_MARKERS` name or a `_HARDWARE_BRANDS` member, and the conjunction is
+what keeps `Console Wars` and `Air Traffic Controller` out — a hardware word
+alone is a film title. Such a
 scan resolves to `dvd` like any other unrecognised disc, so the provider map
 above would happily send it to TMDb; `_scan_upc` declines instead, because the
 `search_queries` ladder's shortest rung for `PlayStation 5 Console` is
@@ -90,8 +108,9 @@ provider answer to project, because no provider was asked.
 and runs four tiers in confidence order: an ISBN prefix decides the
 book family outright (the dropdown only picks *among* book / kids book /
 audiobook / eBook / comic, which no barcode can distinguish); then platform,
-format and audio markers in the **raw** retail title; then a category; then a
-fallback whose first arm is the hardware case above.
+format, medium and audio markers in the **raw** retail title, unless the title
+is hardware, in which case none of them run; then a category; then a fallback
+whose first arm is the hardware case above.
 
 Tier 2's four arms run in the order **platform → format → medium → audio**,
 and every seam is measured rather than chosen. Platform beats format so
@@ -121,6 +140,22 @@ carry both (`Terminator 2 [DVD] (includes bonus CD-ROM)`), and while `CD-ROM`
 sat in `_PLATFORM_MARKERS` such a row filed as a video game ahead of its own
 `[DVD]`.
 
+The same predicate gates **all four** of tier 2's arms, not just the platform
+loop it was first written beside. `_match_title_markers` returns nothing at all
+for a hardware title — its first statement is the guard — so no format, medium
+or audio word on that title can decide, and the hardware arm above answers.
+Tier 3's two medium-naming categories still outrank it, which is deliberate: a
+genuine `Software > Video Game Software` or `Music CDs` category is a real
+detection about a mis-shelved accessory, and re-deciding tier 3 is a different
+question. `G68` is why the guard is the function's first statement rather than
+a wrapper somewhere inside it: an arm added below inherits the guard, and no
+arm can be added above it. The failure that closed was concrete — with only the
+platform loop guarded, `PlayStation 5 Wireless Headset CD-ROM` matched the
+medium arm, filed as `video_game`, and reached **IGDB**, because `_scan_upc`
+forks on the type before it ever reads the hardware signal. A guard that skips
+one branch of a decision it exists to skip entirely is a hole waiting for the
+next branch.
+
 Tier 3 admits exactly two categories, and both name the medium itself rather
 than a shelf: `Software > Video Game Software` decides `video_game`, and
 `Media > … > Music CDs` decides `cd`. Neither prohibition below is breached —
@@ -146,13 +181,15 @@ a real detection. It reads the
 raw title, never a `search_queries` rung: the ladder strips exactly the
 markers tier 2 matches on.
 
-`media_type` is validated at the route boundary rather than at the save
-layer, because `insert_item` validates field *names* and not values and the
-column carries no `CHECK`. `items_common.is_valid_media_type()` is the single
-guard, called from `/api/items/manual`, `/api/books/add` and
-`/api/title-search`; `/api/intake/confirm` validates through its Pydantic
-model. CSV and archive import do **not** validate, which is a known gap
-rather than an oversight — no `auto` value can arrive through either.
+The resolved `media_type` — like every other value an item row carries — is
+checked once, at the save layer: `item_write.validate_item_fields()` refuses
+an unknown media type on every insert and on every user-facing update, CSV
+and archive import included (see "Writing items" below). Routes keep no copy
+of that check. `items_common.is_valid_media_type()` survives only as the
+`auto` guard on the two boundaries that do provider work *before* the
+insert, `/api/title-search` and `/api/books/add`: `auto` is a scan-form
+option, never a stored type, and a lookup must not be paid for on its
+behalf.
 
 A retail title is not a search query —
 `Goodfellas [DVD]  Feature Thriller Drama …` matches nothing — so the same
@@ -364,9 +401,31 @@ preview's resample, JPEG-encoded →
 `/api/intake/analyze` sends the image(s) to the configured backend
 (Anthropic, OpenAI-compatible, Ollama — one interface, three adapters),
 logging each part's filename, MIME type and byte size → tile results are
-merged and de-duplicated → the user edits → `/confirm` runs each row
-through the metadata pipeline and enqueues covers. Photos are never
-stored.
+merged and de-duplicated → the user edits → `/confirm` validates the target
+location first (`services/write_targets.py`, shared with any writer that
+takes a location id — a stale id is refused before settings, providers or
+inserts are touched, never surfaced as a foreign-key failure), then runs each
+row through the metadata pipeline. Photos are never stored.
+
+What that pipeline is depends on the row's media type. The book family goes to
+Open Library on title and author and is handed to the cover queue. A row typed
+DVD or Video Game goes instead through `services/title_lookup.py`, the
+media-typed metadata adapter, to TMDb or IGDB — asked for a single result, and
+trusted only when `title_match.titles_match_exactly` accepts it. That guard is
+deliberately stricter than the book path's `titles_agree`, which strips a
+`": subtitle"` tail and would therefore accept *Dune* for *Dune: Part Two*.
+A row whose lookup was declined is reported as such, distinctly from one that
+was never eligible. Anything else (a CD, for want of a music provider) is
+filed title-only with no outbound request at all.
+
+**Invariant: non-book rows are enriched by a direct provider lookup and a
+direct cover download, and they bypass the cover queue by design.** The queue's
+`resolve_missing_cover` falls back to a title search, which accepts the first
+Open Library hit for an item with no authors and then stores the ISBN it found
+— that once wrote a novel's cover *and* its ISBN onto a cover-less DVD row.
+`cover_queue.COVER_REQUEUE_MEDIA_TYPES` is what keeps non-book rows out, and
+widening it is the mistake this invariant exists to prevent; the disc and game
+covers are fetched straight through `covers._download_to_item` instead.
 
 ## Background tasks
 
@@ -374,7 +433,10 @@ Started in the app lifespan, each polling every 5 minutes and reading its
 schedule from `settings`: Audiobookshelf sync, Hardcover reading-status
 sync, overdue-loan reminder digest (ntfy / webhook via `services/notify.py`),
 plus the cover queue worker. All are plain `asyncio` tasks in the one
-process.
+process. The Audiobookshelf sync is idempotent per item — an unchanged item
+is neither rewritten nor re-covered, and a same-format ISBN already present
+is adopted rather than inserted — and isolated per library, so one library's
+timeout is reported for that library and the rest still run.
 
 ## Frontend
 
@@ -458,7 +520,13 @@ inner scroll container does not affect.
 
 Store Mode is a PWA: a service worker precaches the
 store page and the library ISBN set lives in the browser; unknown scans
-queue locally and flush via `/api/store/queue`. Precaching is cache-first, so
+queue locally and flush via `/api/store/queue`. The flush route's invariant is
+that **a queued scan is never lost**: the client removes a flushed code from
+its queue on the response, so a bare refusal would destroy the scan. A code
+that fails the value stage is therefore saved the same way a failed metadata
+lookup is — a bare wishlist row with `isbn` NULL and the raw code (bounded to
+32 characters) in the title — and returned as `unreadable` for the page to
+count. Precaching is cache-first, so
 the cache name has to change whenever a precached file does — `SW_VERSION` is
 generated from a digest of the precache contents by `make css` rather than
 typed by hand (see `docs/development.md` § Service worker versioning).
@@ -487,14 +555,118 @@ instead of dropping it, and leaves unset columns to their `SCHEMA` defaults.
 Callers pass their own connection so the insert and any follow-up writes share
 one transaction.
 
+Field names were the first invariant; **values are the second.** The same
+module holds the one value stage, `validate_item_fields()`, and every write
+runs it: `insert_item()`, and the two update funnels that carry every
+user-supplied edit — `update_item_fields()` for one row (the edit form, the
+scan card's move / inventory / quick-rate modes, reading status, CSV's
+reading-tracker update, the syncs) and `update_items_fields()` for bulk edit.
+The rules, enforced once: an ISBN must pass its check digit, and setting
+either ISBN column rewrites **both** from the canonical 13/10 pair
+(`isbn.canonical_isbn_pair`, a 979 has no ISBN-10); `media_type` must be a
+`MEDIA_TYPES` key; a `location_id` must exist; a `platform` must be a
+configured game platform; `reading_status` is one of `want_to_read`,
+`reading`, `read`; `owned` is 0 or 1. A field an update does not carry is not
+validated, so touching `notes` never reads `isbn`.
+
+**When a route decides on a `SELECT`, the transaction is the third.** Every
+add path that reads a duplicate guard and then inserts on the answer runs both
+inside one `BEGIN IMMEDIATE` transaction, taken as the first statement of the
+block — photo intake's confirm, the UPC scan flow, the game, DVD and Hardcover
+adds, the borrower delete. `get_db()` hands back sqlite3's deferred isolation,
+which opens no transaction for a bare `SELECT`, so a route that guards in one
+block and inserts in another takes its write lock only at the INSERT, and
+anything a rival committed in the window is acted on blind: two overlapping
+photo confirmations, or a double-clicked *Add*, both pass the guard and both
+insert. The ISBN and UPC paths are additionally fail-safe by constraint —
+`UNIQUE(isbn, media_type)` and `UNIQUE(upc, media_type)` — and classify the
+`IntegrityError` back into the duplicate answer; the title-keyed paths have no
+constraint behind them, so the transaction is the whole of their defence
+(`GOTCHAS.md` G18).
+
+Two rules follow from it. **A pre-check that runs before an outbound lookup
+decides nothing** — photo intake and the UPC scan both query before their
+provider calls, purely to skip a paced request on a plainly-owned row, and the
+locked re-check below is what decides; holding the write lock across that
+network I/O would stall every other writer for up to `HTTP_TIMEOUT`. And
+**nothing that opens a second connection runs inside the block**: the scan-log
+write and the template render happen after it closes, because a second
+connection blocks on the lock the block still holds until SQLite's busy timeout
+(`GOTCHAS.md` G3). The block carries its outcome out — `existing`, `item_id`,
+`value_error` — and the caller acts on it afterwards.
+
+A failed rule raises a typed subclass of `ItemValueError` (a `ValueError`,
+defined in `services/write_targets.py` so the pre-existing
+`UnknownLocationError` can sit under it): `InvalidIsbn`, `UnknownMediaType`,
+`UnknownLocationError`, `UnknownPlatform`, `InvalidReadingStatus`,
+`InvalidOwned`. Each carries a stable `code` and the `field` it belongs to;
+the message is the sentence a user reads. Routes reduce to one
+`except ItemValueError` and render it on their own surface — the scan card's
+error arm, the edit form's `?error=<code>` banner (copy lives in the
+template, keyed on the code), a `{"ok": false, "message": …}` body, a
+per-row `errors` line on CSV import. Two provider-backed boundaries also
+check the ISBN digit and the location *before* their lookup (`/api/scan`'s
+add mode, `/api/books/add`), so a mistyped value never costs a network call;
+lookup modes keep the permissive `to_isbn13`, so an old row whose stored
+ISBN fails the check is still found by a scan.
+
+**A user's value is refused; a provider's is dropped.** The funnel is strict
+in both cases. A value typed into a form, a CSV row, or the store queue is
+refused with its message. An ISBN that arrives from a provider — an
+Audiobookshelf record, a Hardcover edition, an Open Library title-search hit,
+a row in a portable archive — is pre-cleaned at the call site with
+`canonical_isbn_pair()` and stored as `NULL` when it fails, with a warning in
+the log (and, for an archive, a line in the import's error report), because a
+sync or a restore that refuses a whole row over a bad ISBN loses data. The
+visible consequence: Audiobookshelf ASINs are no longer stored in `isbn`, and
+a row that carried one from an earlier sync is cleared on the next.
+
+The rule is pinned structurally. `tests/test_item_write.py` requires that
+`INSERT INTO items` exists only in `item_write.py`, and that every raw
+`UPDATE items SET` outside it matches an allowlist of system-managed writes
+(`cover_path`, `estimated_value`, the Hardcover ids, the `location_id = NULL`
+and `platform = NULL` cascades, the name-keyed series rename, three
+migrations) — a new user-value write anywhere else fails the suite, and so
+does a stale allowlist entry.
+
 ## Security posture
 
 Non-root container, HTTPS from first boot, strict CSP, CSRF everywhere,
-bcrypt, short-lived sliding JWTs, per-IP rate limiting, encrypted secrets,
+bcrypt with a constant-cost login path (an unknown username costs the same
+as a wrong password, so timing does not enumerate accounts), short-lived
+sliding JWTs, per-IP rate limiting, encrypted secrets,
 write-only credential fields, allow-listed image hosts for cover downloads,
-`noindex` + unguessable tokens on share links. Outbound request URLs are logged
-at INFO, so a filter on the `httpx` logger blanks the value of any
-credential-named query parameter first — TMDb v3 authentication requires its key
-in the query string, so the transport alone cannot keep it out of the log. Where
-a provider accepts a header instead, Shelf uses one and stays out of that blind
-spot entirely: the optional Google Books key travels only in `X-Goog-Api-Key`. See [SECURITY.md](../SECURITY.md).
+`noindex` + unguessable tokens on share links.
+
+**The database holds no key material.** The credential-encryption key
+(`data/encryption.key`, or `SHELF_ENCRYPTION_KEY`) and the session-signing key
+(`data/signing.key`, or `SECRET_KEY`) are both files in the data directory or
+environment variables, so a database backup is ciphertext plus bcrypt password
+hashes and nothing that opens either. The signing key lived in the `settings`
+table until 0.30; the accessor relocates it to the key file on the first start
+after upgrading, preserving the *value* — sessions survive, and
+`migrate_sensitive_settings`, which opens pre-July legacy ciphertext with that
+key, keeps working. A data directory that cannot be written keeps the old row
+and warns, because a security improvement must not become an availability
+outage. A stored credential that no longer opens under the current key logs one
+warning naming the setting and reads as unset, rather than reaching a provider
+as ciphertext.
+
+**Outbound request URLs are not logged.** `httpx` logs the whole URL of every
+request at INFO, and a filter over that line can blank a credential-named query
+value but cannot save a secret carried in the **path** — which is exactly where
+ntfy and Discord webhooks carry theirs. So the `httpx` logger is raised to
+WARNING in `main.py`, which drops the line entirely; `httpx` has two log call
+sites and both are `logger.info`, so nothing else is lost with it. Shelf's own
+lines are what remain, and they are written to be safe: a failed notification
+names the target's scheme and host only, and logs the exception's *type* rather
+than the exception, whose string form carries the request URL.
+
+`RedactQueryFilter` stays installed on the `httpx` logger as defence in depth
+rather than as the primary control — it strips a URL's userinfo unconditionally
+and blanks credential-named query values, so anything that logger does emit is
+already clean. Where a provider accepts a credential in a header, Shelf uses one
+and stays out of the question entirely: the optional Google Books key travels
+only in `X-Goog-Api-Key`, and TMDb v3, which requires its key in the query
+string, is the reason the query half of that filter exists at all.
+See [SECURITY.md](../SECURITY.md).
