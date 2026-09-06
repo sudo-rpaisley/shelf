@@ -1,10 +1,10 @@
 {% extends "base.html" %}
 {% block title %}Music — Shelf{% endblock %}
 {% block content %}
-<div class="max-w-4xl mx-auto">
+<div>
     <div class="flex items-center justify-between gap-4 mb-6">
         <div>
-            <p class="text-xs uppercase tracking-wider text-shelf-muted">Catalogue</p>
+            <p class="text-xs text-shelf-muted">Catalogue</p>
             <h1 class="text-2xl font-bold mt-1">Music</h1>
             <p class="text-sm text-shelf-muted mt-1">Search exact MusicBrainz releases and keep the pressing, medium and track list you actually own.</p>
         </div>
@@ -13,7 +13,7 @@
 
     <form method="get" action="/music" class="bg-shelf-card border border-shelf-border rounded-xl p-6 mb-6">
         <h2 class="text-lg font-semibold mb-4">Find a release</h2>
-        <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+        <div class="space-y-3">
             <div>
                 <label for="music-title" class="block text-sm font-medium text-shelf-muted mb-1">Release title</label>
                 <input id="music-title" name="q" value="{{ q }}" placeholder="Release title" class="w-full bg-shelf-bg border border-shelf-border rounded-lg px-3 py-2 text-shelf-text outline-none">
@@ -38,11 +38,11 @@
     </form>
 
     {% if error %}
-    <div role="alert" class="mb-6 rounded-lg border border-shelf-error/40 bg-shelf-error/10 px-4 py-3 text-sm text-shelf-error">{{ error }}</div>
+    <div role="alert" class="mb-6 rounded-lg border border-shelf-border bg-shelf-card px-4 py-3 text-sm text-shelf-error">{{ error }}</div>
     {% endif %}
 
     {% if results %}
-    <section class="mb-8">
+    <section class="mb-6">
         <h2 class="text-lg font-semibold mb-3">Matching releases</h2>
         <div class="space-y-3">
             {% for release in results %}
@@ -63,12 +63,12 @@
                     {% if user and user.role in ('admin', 'editor') %}
                     <form method="post" action="/api/music/add" class="space-y-2">
                         <input type="hidden" name="release_id" value="{{ release.musicbrainz_release_id }}">
-                        <select name="media_type" class="w-full bg-shelf-bg border border-shelf-border rounded-lg px-2 py-1 text-sm">
+                        <select name="media_type" class="w-full bg-shelf-bg border border-shelf-border rounded-lg px-3 py-2 text-sm">
                             {% for key, label in music_media_types.items() %}
                             <option value="{{ key }}" {% if key == release.shelf_media_type %}selected{% endif %}>{{ label }}</option>
                             {% endfor %}
                         </select>
-                        <select name="location_id" class="w-full bg-shelf-bg border border-shelf-border rounded-lg px-2 py-1 text-sm">
+                        <select name="location_id" class="w-full bg-shelf-bg border border-shelf-border rounded-lg px-3 py-2 text-sm">
                             <option value="">No location</option>
                             {% for loc in locations %}<option value="{{ loc.id }}">{{ loc.name }}</option>{% endfor %}
                         </select>
@@ -90,7 +90,7 @@
         {% if items %}
         <div class="space-y-2">
             {% for item in items %}
-            <a href="/music/item/{{ item.id }}" class="block bg-shelf-card border border-shelf-border rounded-lg px-4 py-3 hover:border-shelf-accent/50">
+            <a href="/music/item/{{ item.id }}" class="block bg-shelf-card border border-shelf-border rounded-lg px-4 py-3 hover:bg-shelf-hover">
                 <div class="flex items-center justify-between gap-4">
                     <div class="min-w-0">
                         <p class="font-medium">{{ item.title }}</p>
