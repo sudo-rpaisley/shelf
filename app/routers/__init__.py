@@ -3,7 +3,9 @@
 from app import nav as _nav
 from app.routers import music as _music
 from app.routers import pages as _pages
+from app.services import music_covers as _music_covers
 
+_music_covers.register_cover_art_archive()
 _pages.router.include_router(_music.router)
 
 if not any(tab.get("key") == "music" for tab in _nav.NAV_TABS):
