@@ -47,3 +47,4 @@ from app.routers import library_access as library_access  # noqa: F401,E402
 # the upstream 0.34 handlers won merge conflicts. This module deliberately
 # layers on top of the personal-state and library-access adaptations above.
 from app.routers import upstream_034_compat as upstream_034_compat  # noqa: F401,E402
+from app.routers import upstream_034_route_order as upstream_034_route_order  # noqa: F401,E402
