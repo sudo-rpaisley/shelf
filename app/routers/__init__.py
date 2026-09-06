@@ -51,3 +51,4 @@ from app.routers import upstream_034_route_order as upstream_034_route_order  # 
 from app.routers import upstream_034_store_compat as upstream_034_store_compat  # noqa: F401,E402
 from app.routers import upstream_034_catalog_compat as upstream_034_catalog_compat  # noqa: F401,E402
 from app.routers import upstream_034_csv_compat as upstream_034_csv_compat  # noqa: F401,E402
+from app.routers import upstream_034_personal_status_compat as upstream_034_personal_status_compat  # noqa: F401,E402
