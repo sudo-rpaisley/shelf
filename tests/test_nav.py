@@ -39,7 +39,7 @@ VIEWER = {"id": 3, "username": "viewer", "role": "viewer"}
 
 def test_registry_covers_all_destinations():
     assert [t["key"] for t in NAV_TABS] == [
-        "home", "browse", "collections", "series", "discover", "scan", "intake",
+        "home", "browse", "my_list", "collections", "series", "discover", "scan", "intake",
         "locations", "music", "store", "stats", "settings", "logs",
     ]
     for tab in NAV_TABS:
@@ -54,7 +54,7 @@ def test_home_browse_collections_and_settings_are_not_hideable():
 
 def test_primary_group_is_the_small_top_level_navigation():
     primary = [t["key"] for t in NAV_TABS if t["group"] == "primary"]
-    assert primary == ["home", "browse", "collections", "series", "discover"]
+    assert primary == ["home", "browse", "my_list", "collections", "series", "discover"]
 
 
 # --- Role gating ------------------------------------------------------------
@@ -80,7 +80,7 @@ def test_admin_sees_settings_and_logs(db):
 def test_anonymous_sees_only_ungated_tabs(db):
     keys = _keys(None)
     assert keys == [
-        "home", "browse", "collections", "series", "locations", "music", "store", "stats"
+        "home", "browse", "my_list", "collections", "series", "locations", "music", "store", "stats"
     ]
 
 

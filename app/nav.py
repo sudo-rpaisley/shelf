@@ -20,6 +20,7 @@ logger = logging.getLogger(__name__)
 NAV_TABS = [
     {"key": "home", "label": "Home", "path": "/", "group": "primary"},
     {"key": "browse", "label": "Browse", "path": "/browse", "group": "primary"},
+    {"key": "my_list", "label": "My List", "path": "/my-list", "group": "primary"},
     {"key": "collections", "label": "Collections", "path": "/collections", "group": "primary"},
     {"key": "series", "label": "Series", "path": "/series", "group": "primary"},
     {"key": "discover", "label": "Discover", "path": "/discover", "group": "primary",
@@ -188,6 +189,7 @@ BACK_TARGETS = {
     "music": ("/music", "Back to music"),
     "series": ("/series", "Back to series"),
     "stats": ("/stats", "Back to stats"),
+    "my_list": ("/my-list", "Back to My List"),
 }
 DEFAULT_BACK_TARGET = ("/browse", "Back to browse")
 
