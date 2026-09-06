@@ -16,7 +16,7 @@
     <a href="/item/{{ item.id }}{% if back.key %}?from={{ back.key }}{% endif %}" class="text-shelf-muted hover:text-shelf-text text-sm mb-4 inline-block">&larr; Back to item</a>
 
     <div class="flex flex-col sm:flex-row gap-6">
-        <aside class="w-full sm:w-48 shrink-0" aria-label="Edit sections" data-testid="edit-section-nav">
+        <aside class="w-full sm:w-32 shrink-0" aria-label="Edit sections" data-testid="edit-section-nav">
             <div class="bg-shelf-card rounded-xl border border-shelf-border p-2 grid grid-cols-2 sm:block gap-1">
                 <button type="button" @click="show('general')"
                         :aria-current="is('general') ? 'page' : 'false'"
@@ -163,10 +163,10 @@
                         <div x-data="coverDrop" class="space-y-5">
                             <div class="flex items-start gap-4">
                                 {% if item.cover_path %}
-                                <img :src="preview || '/{{ item.cover_path }}'" class="w-32 {% if is_music %}h-32{% else %}h-48{% endif %} object-cover rounded-lg shadow-lg" alt="Current artwork">
+                                <img :src="preview || '/{{ item.cover_path }}'" class="{% if is_music %}w-28 h-28{% else %}w-32 h-48{% endif %} object-cover rounded-lg shadow-lg" alt="Current artwork">
                                 {% else %}
-                                <img x-show="preview" :src="preview" class="w-32 {% if is_music %}h-32{% else %}h-48{% endif %} object-cover rounded-lg shadow-lg" alt="Artwork preview" style="display:none">
-                                <div x-show="!preview" class="w-32 {% if is_music %}h-32{% else %}h-48{% endif %} bg-shelf-hover rounded-lg flex items-center justify-center text-shelf-muted text-sm">No artwork</div>
+                                <img x-show="preview" :src="preview" class="{% if is_music %}w-28 h-28{% else %}w-32 h-48{% endif %} object-cover rounded-lg shadow-lg" alt="Artwork preview" style="display:none">
+                                <div x-show="!preview" class="{% if is_music %}w-28 h-28{% else %}w-32 h-48{% endif %} bg-shelf-hover rounded-lg flex items-center justify-center text-shelf-muted text-sm">No artwork</div>
                                 {% endif %}
 
                                 <div class="flex-1 min-w-0 space-y-3">
@@ -331,8 +331,8 @@
                     {% endif %}
                 </form>
 
-                <div class="p-6 border-t border-shelf-border flex items-center justify-end gap-3">
-                    <a href="/item/{{ item.id }}{% if back.key %}?from={{ back.key }}{% endif %}" class="px-6 py-2 bg-shelf-hover text-shelf-text rounded-lg text-sm hover:bg-shelf-border transition-colors">
+                <div class="p-6 border-t border-shelf-border flex items-center gap-3">
+                    <a href="/item/{{ item.id }}{% if back.key %}?from={{ back.key }}{% endif %}" class="ml-auto px-6 py-2 bg-shelf-hover text-shelf-text rounded-lg text-sm hover:bg-shelf-border transition-colors">
                         Cancel
                     </a>
                     <button type="submit" form="item-edit-form" data-testid="save-btn" class="px-6 py-2 bg-shelf-accent text-white rounded-lg text-sm hover:bg-shelf-accent2 transition-colors">
