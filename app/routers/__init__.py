@@ -44,6 +44,8 @@ from app.routers import items as items  # noqa: F401,E402
 from app.routers import user_state_items as user_state_items  # noqa: F401,E402
 from app.routers import library_access as library_access  # noqa: F401,E402
 from app.routers import library_item_access as library_item_access  # noqa: F401,E402
+from app.routers import library_secondary_reads as library_secondary_reads  # noqa: F401,E402
+from app.routers import library_series_check as library_series_check  # noqa: F401,E402
 
 # Bridge fork request-boundary guarantees displaced where upstream 0.34 handlers
 # won merge conflicts. These must run before the final library guards so the ACL
