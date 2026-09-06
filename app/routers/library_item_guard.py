@@ -16,7 +16,7 @@ from fastapi.responses import HTMLResponse
 from app.auth import require_role
 from app.config import MEDIA_TYPES
 from app.database import get_db
-from app.routers import items, pages, user_state_items
+from app.routers import items, pages, upstream_034_personal_status_compat, user_state_items
 from app.services import libraries, user_state
 
 
@@ -45,8 +45,6 @@ def _allowed(request: Request, item_id: int) -> bool:
         return libraries.has_item_role(db, _user(request), item_id, "viewer")
 
 
-# Remove both generations of personal-state routes before registering the one
-# authoritative ACL-aware copy on items.router.
 for _router in (pages.router, items.router):
     _remove_route(_router, "/api/items/{item_id}/personal-state", "GET")
     _remove_route(_router, "/api/items/{item_id}/personal-state", "POST")
@@ -93,7 +91,7 @@ async def guarded_legacy_reading_status(
 ):
     if not _allowed(request, item_id):
         return HTMLResponse("Not found", status_code=404)
-    return await user_state_items.personal_legacy_reading_status(
+    return await upstream_034_personal_status_compat.integrated_personal_reading_status(
         request,
         item_id,
         status=status,
