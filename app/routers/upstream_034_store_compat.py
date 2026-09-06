@@ -68,7 +68,7 @@ async def integrated_store_queue(
     except Exception:
         return JSONResponse({"error": "Invalid JSON body"}, status_code=400)
     if not isinstance(body, dict):
-        return JSONResponse({"error": "Invalid request body"}, status_code=400)
+        return JSONResponse({"error": "Invalid JSON body"}, status_code=400)
 
     isbns = body.get("isbns")
     if not isinstance(isbns, list) or not all(isinstance(value, str) for value in isbns):
