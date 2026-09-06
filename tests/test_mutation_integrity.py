@@ -243,7 +243,7 @@ def test_scan_move_rejects_missing_location_without_moving(admin_client, db):
         data={"isbn": "9780000000030", "mode": "move", "location_id": "999999999"},
     )
     assert resp.status_code == 200
-    assert b"Location not found" in resp.content
+    assert b"Location 999999999 not found" in resp.content
     with get_db() as check_db:
         row = check_db.execute("SELECT location_id FROM items WHERE id = ?", (item_id,)).fetchone()
     assert row["location_id"] == original_location
@@ -261,7 +261,7 @@ def test_scan_inventory_rejects_missing_location_without_moving(admin_client, db
         data={"isbn": "9780000000040", "mode": "inventory", "location_id": "999999999"},
     )
     assert resp.status_code == 200
-    assert b"Location not found" in resp.content
+    assert b"Location 999999999 not found" in resp.content
     with get_db() as check_db:
         row = check_db.execute("SELECT location_id FROM items WHERE id = ?", (item_id,)).fetchone()
     assert row["location_id"] == original_location
