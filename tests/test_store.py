@@ -210,36 +210,21 @@ class TestStoreQueue:
             resp = admin_client.post("/api/store/queue", json={"isbns": ["0441013597"]})
         assert resp.json()["results"][0]["isbn"] == "9780441013593"
 
-    def test_invalid_isbn(self, admin_client):
+    def test_invalid_isbn(self, admin_client, db):
         resp = admin_client.post("/api/store/queue", json={"isbns": ["not-an-isbn"]})
-        assert resp.json()["results"][0]["status"] == "unreadable"
+        assert resp.json()["results"][0] == {"isbn": "not-an-isbn", "status": "invalid"}
+        assert db.execute("SELECT COUNT(*) FROM items").fetchone()[0] == 0
 
-    def test_bad_check_digit_is_kept_as_an_unreadable_row(self, admin_client, db):
-        """A well-formed but checksum-invalid ISBN-13 never reaches `items.isbn`
-        (#54) — but the scan itself survives. The client drops any flushed code
-        from its queue, so refusing without writing loses the scan outright
-        (test-drive Observation 1)."""
+    def test_bad_check_digit_is_rejected_without_writing_a_row(self, admin_client, db):
         resp = admin_client.post("/api/store/queue", json={"isbns": ["9780441172710"]})
-        result = resp.json()["results"][0]
-        assert result["status"] == "unreadable"
+        assert resp.json()["results"][0] == {"isbn": "9780441172710", "status": "invalid"}
+        assert db.execute("SELECT COUNT(*) FROM items").fetchone()[0] == 0
 
-        row = db.execute(
-            "SELECT title, isbn, owned, source FROM items WHERE id = ?",
-            (result["item_id"],),
-        ).fetchone()
-        assert row["title"] == "Unreadable barcode — 9780441172710"
-        assert row["isbn"] is None
-        assert row["owned"] == 0
-        assert row["source"] == "store_queue"
-
-    def test_unreadable_code_is_bounded_before_it_becomes_a_title(self, admin_client, db):
-        resp = admin_client.post("/api/store/queue", json={"isbns": ["9" * 500]})
-        result = resp.json()["results"][0]
-        assert result["status"] == "unreadable"
-        title = db.execute(
-            "SELECT title FROM items WHERE id = ?", (result["item_id"],)
-        ).fetchone()["title"]
-        assert title == "Unreadable barcode — " + "9" * 32
+    def test_unreadable_code_is_rejected_without_becoming_a_title(self, admin_client, db):
+        raw = "9" * 500
+        resp = admin_client.post("/api/store/queue", json={"isbns": [raw]})
+        assert resp.json()["results"][0] == {"isbn": raw, "status": "invalid"}
+        assert db.execute("SELECT COUNT(*) FROM items").fetchone()[0] == 0
 
     def test_bare_add_stores_canonical_pair_for_isbn10_input(self, admin_client, db):
         """A valid but unrecognized ISBN-10 falls to the bare-add path; the
