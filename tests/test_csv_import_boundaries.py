@@ -48,7 +48,7 @@ def test_bad_checksum_isbn_is_rejected_not_dropped(admin_client, db):
     )
 
     assert result["imported"] == 0
-    assert result["errors"] == ["Row 2: invalid ISBN"]
+    assert result["errors"] == ["Row 2: Invalid ISBN: 9780441172718"]
     assert db.execute("SELECT COUNT(*) FROM items").fetchone()[0] == 0
 
 
@@ -71,5 +71,5 @@ def test_invalid_media_type_is_rejected(admin_client, db):
     )
 
     assert result["imported"] == 0
-    assert result["errors"] == ["Row 2: invalid media_type"]
+    assert result["errors"] == ["Row 2: Unknown media type: 'vhs'"]
     assert db.execute("SELECT COUNT(*) FROM items").fetchone()[0] == 0
