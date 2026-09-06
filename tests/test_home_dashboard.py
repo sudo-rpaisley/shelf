@@ -1,5 +1,7 @@
 """Product coverage for the operational Home dashboard."""
 
+from tests.conftest import _insert_item
+
 
 def test_home_loads_dashboard_after_first_paint(viewer_client, db):
     html = viewer_client.get("/").text
@@ -12,25 +14,39 @@ def test_dashboard_reports_library_health_and_locations(viewer_client, db):
     living = db.execute(
         "INSERT INTO locations (name, sort_order) VALUES ('Living Room', 0)"
     ).lastrowid
-    db.execute(
-        "INSERT INTO items (title, media_type, source, owned, location_id, cover_path) "
-        "VALUES ('Located DVD', 'dvd', 'test', 1, ?, 'covers/dvd.jpg')",
-        (living,),
+    _insert_item(
+        db,
+        title="Located DVD",
+        isbn=None,
+        media_type="dvd",
+        owned=1,
+        location_id=living,
+        cover_path="covers/dvd.jpg",
     )
     # Physical and owned: both missing a cover and a location, but should count
     # only once in the overall needs-attention total.
-    db.execute(
-        "INSERT INTO items (title, media_type, source, owned) "
-        "VALUES ('Unlocated Book', 'book', 'test', 1)"
+    _insert_item(
+        db,
+        title="Unlocated Book",
+        isbn="9780000020001",
+        media_type="book",
+        owned=1,
     )
     # Digital holdings never require a physical location.
-    db.execute(
-        "INSERT INTO items (title, media_type, source, owned, cover_path) "
-        "VALUES ('Digital Book', 'ebook', 'test', 1, 'covers/ebook.jpg')"
+    _insert_item(
+        db,
+        title="Digital Book",
+        isbn="9780000020002",
+        media_type="ebook",
+        owned=1,
+        cover_path="covers/ebook.jpg",
     )
-    db.execute(
-        "INSERT INTO items (title, media_type, source, owned) "
-        "VALUES ('Wishlist Book', 'book', 'test', 0)"
+    _insert_item(
+        db,
+        title="Wishlist Book",
+        isbn="9780000020003",
+        media_type="book",
+        owned=0,
     )
     db.commit()
 
