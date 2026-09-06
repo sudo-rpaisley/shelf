@@ -15,7 +15,7 @@ Set these in your `.env` file next to `docker-compose.yml`, or with `-e` on
 | `CERT_SAN` | `DNS:shelf,DNS:localhost` | Subject Alternative Names for the self-signed certificate. Comma-separated `DNS:<name>` and `IP:<addr>` entries. Add your server's LAN IP and any hostname you'll type in the browser. Only read when the certificate is first generated — delete `data/certs/` to regenerate |
 | `SHELF_PORT` | `18888` | Port the app listens on *inside* the container. Usually leave it and change the Compose port mapping instead |
 | `SHELF_TRUST_PROXY` | *(unset)* | Set to `1` **only** when a reverse proxy in front of Shelf overwrites `X-Forwarded-For` / `CF-Connecting-IP`. Without a proxy this lets clients spoof their IP past login rate limiting |
-| `SECRET_KEY` | *(auto)* | JWT signing key. Auto-generated and stored in the database if unset. Set it explicitly if you run several instances against one database |
+| `SECRET_KEY` | *(auto)* | JWT signing key. If unset, generated at `data/signing.key` (0600) on first start; an existing key from before 0.30 is moved there from the database on the first start after upgrading, so sessions survive. Set it explicitly to run several instances against one database |
 | `SHELF_ENCRYPTION_KEY` | *(auto)* | Key for API credentials stored in the database. If unset, generated at `data/encryption.key`. Set it (`openssl rand -hex 32`) so the data directory alone can't decrypt credentials |
 | `DATA_DIR` | `/data` | Where the database, covers and certs live. Only relevant outside Docker |
 | `SHELF_DISABLE_RATE_LIMIT` | *(unset)* | Turns off per-IP rate limiting. For tests and local development only |
@@ -31,6 +31,7 @@ priority** over anything stored:
 | `HARDCOVER_TOKEN` | Hardcover API token |
 | `GOOGLE_BOOKS_API_KEY` | Optional Google Books API key; anonymous lookups remain available when unset |
 | `ABS_URL`, `ABS_TOKEN` | Audiobookshelf server URL and API token |
+| `ABS_PUBLIC_URL` | Optional browser-facing Audiobookshelf URL, for **Listen** / **Read** links only. Set it when `ABS_URL` is an internal Docker or LAN address |
 | `ISBNDB_API_KEY` | ISBNdb key (valuation) |
 | `TMDB_API_KEY` | TMDb credential (DVD / Blu-ray metadata **and** DVD cover search) — either the 32-character v3 API Key or the v4 Read Access Token |
 | `IGDB_CLIENT_ID`, `IGDB_CLIENT_SECRET` | Twitch developer credentials (video game metadata **and** game cover search — both fields are required) |
@@ -43,9 +44,12 @@ with two differences worth knowing:
 
 - **The Settings field stays blank.** Shelf never echoes a *secret* back into the
   page, whether it came from the database or the environment. Blank does not mean
-  unset — leave it blank and the environment value keeps working. (`ABS_URL` is
-  the exception: a server URL is not a secret, so the Audiobookshelf URL field
-  shows the value in use.)
+  unset — leave it blank and the environment value keeps working. (`ABS_URL` and
+  `ABS_PUBLIC_URL` are a partial exception: a server URL is not a secret, so
+  those fields show the value in use **when one was saved through the form**. A
+  value supplied only by the environment still renders the field blank, while
+  remaining in force — so if the field is empty but Audiobookshelf links work,
+  the variable is what is driving them.)
 - **Shelf cannot remove it.** The "Remove saved key" checkbox only deletes the
   stored row, and the environment variable still takes priority afterwards. To
   change or remove an env-supplied credential, change it in your environment and
@@ -67,7 +71,7 @@ lives:
 |---|---|
 | **Collection** | Display currency (20 choices; formatting only, never conversion). Preferred language for title searches |
 | **Navigation** | Which tabs appear in the nav. Tabs for unconfigured integrations hide themselves automatically; you can also hide any tab manually |
-| **Locations** | Add, rename and delete shelves/rooms. Deleting a location unassigns its items |
+| **Locations** | Add, rename and delete shelves/rooms. Names must be unique and non-blank — a clash is refused with a message rather than saved. Deleting a location unassigns its items |
 | **Borrowers** | People you lend to. Deleting a borrower keeps their loan history |
 | **Game Platforms** | The platform list used for video games — 30 built in, add your own |
 | **Lending** | "Overdue after N days" for loans without a due date (0 disables). Notification URL (ntfy topic or JSON webhook) for the daily overdue digest, with a **Send test** button |
@@ -76,13 +80,13 @@ lives:
 
 | Card | Options |
 |---|---|
-| **Audiobookshelf Sync** | Server URL + API token, **Test**, per-library include/exclude, sync interval, manual sync |
+| **Audiobookshelf Sync** | Server URL, optional browser URL, API token, **Test**, per-library include/exclude, sync interval, manual sync |
 | **Hardcover** | API token, import your Hardcover library, reading-status sync direction and schedule, export to Hardcover |
 | **Collection Valuation** | ISBNdb API key, valuate all / test key |
 | **Google Books** | Optional API key, **Test Key**. Authenticates the Google Books requests Shelf already makes; keyless access stays enabled without it |
-| **Movie Database (TMDb)** | API key for DVD / Blu-ray lookups, and for **Find cover** on a DVD |
+| **Movie Database (TMDb)** | API key for DVD / Blu-ray lookups, for **Find cover** on a DVD, and for the lookup a Photo Intake row typed DVD runs when you confirm it |
 | **Photo Intake (Vision)** | Provider: Anthropic (API key + model), OpenAI-compatible (base URL, optional key, model, ingest long-edge), or Ollama (URL, model, ingest long-edge) |
-| **IGDB (Video Games)** | Twitch client ID + secret, for game lookups and for **Find cover** on a video game |
+| **IGDB (Video Games)** | Twitch client ID + secret, for game lookups, for **Find cover** on a video game, and for the lookup a Photo Intake row typed Video Game runs when you confirm it |
 
 Each card has a short inline setup guide for obtaining its credential. Keys
 are **write-only** — once saved you see a masked placeholder and a "clear"
@@ -109,8 +113,11 @@ the account menu — not from Settings.
 
 ## Where things are *not* configurable
 
-- Metadata source order (DNB for German ISBNs → Open Library → Hardcover →
-  Google Books) is fixed; see [Architecture](architecture.md).
+- Metadata source order (a national bibliography where one covers the ISBN —
+  DNB for German ISBNs, SBN for Italian ones → Open Library → Hardcover →
+  Google Books) is fixed; see [Architecture](architecture.md). National
+  routing follows the ISBN's registration group and has no on/off switch, for
+  SBN or for DNB.
 - Outbound API pacing per host is fixed to each provider's published limit.
 - Media types are a fixed list: book, kids book, audiobook, eBook, DVD /
   Blu-ray, CD, comic / graphic novel, video game. The scan tab's **Auto** is a

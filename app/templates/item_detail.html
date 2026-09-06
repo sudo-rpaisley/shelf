@@ -16,7 +16,7 @@
                     {% else %}
                     <div class="{% if is_music %}h-48{% else %}h-72{% endif %} bg-shelf-hover rounded-lg flex flex-col items-center justify-center text-shelf-muted gap-2">
                         <span>No Cover</span>
-                        {% if can_edit and not is_music %}
+                        {% if can_edit and not is_music and item.isbn %}
                         <button hx-post="/api/items/{{ item.id }}/retry-cover" hx-swap="none" data-after-request="reload"
                                 class="text-xs px-3 py-1 bg-shelf-accent/20 text-shelf-accent2 rounded hover:bg-shelf-accent/30 transition-colors">
                             Retry ISBN
@@ -87,7 +87,7 @@
                             </button>
                             <div x-show="actionsOpen" x-cloak data-testid="item-actions-menu"
                                  class="absolute left-0 top-full mt-2 w-48 bg-shelf-card border border-shelf-border rounded-xl shadow-xl py-1 z-50 overflow-hidden">
-                                {% if not item.cover_path and not is_music %}
+                                {% if not item.cover_path and not is_music and item.isbn %}
                                 <button hx-post="/api/items/{{ item.id }}/retry-cover" hx-swap="none" data-after-request="reload"
                                         class="w-full text-left px-4 py-2.5 text-sm text-shelf-muted hover:text-white hover:bg-shelf-hover transition-colors">
                                     Retry cover lookup
@@ -116,7 +116,7 @@
                         <a href="{{ romm_url }}" target="_blank" rel="noopener"
                            class="inline-flex items-center gap-1 px-4 py-2 bg-shelf-accent/20 text-shelf-accent2 rounded-lg text-sm hover:bg-shelf-accent/30 transition-colors">Open in RomM</a>
                         {% endif %}
-                        {% if has_hardcover and item.media_type in ('book', 'ebook', 'audiobook', 'kids_book', 'comic', 'digital_comic') and can_edit %}
+                        {% if has_hardcover and item.media_type in ('book', 'ebook', 'audiobook', 'kids_book', 'comic', 'digital_comic') and (item.isbn or item.hardcover_book_id or item.hardcover_user_book_id) and can_edit %}
                         <div x-data="hardcoverPush" data-item-id="{{ item.id }}">
                             <button @click="push" :disabled="hcPushing"
                                     class="inline-flex items-center gap-1.5 px-4 py-2 rounded-lg text-sm transition-colors {% if item.hardcover_user_book_id %}bg-shelf-success/20 text-shelf-success hover:bg-shelf-success/30{% else %}bg-shelf-accent/20 text-shelf-accent2 hover:bg-shelf-accent/30{% endif %}">

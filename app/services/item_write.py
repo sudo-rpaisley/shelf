@@ -1,4 +1,5 @@
-"""The one place that inserts a row into `items`.
+"""The one place that inserts a row into `items`, and the one place that
+updates user-supplied fields on one.
 
 `INSERT INTO items` used to exist at 13 sites — `_save_item`, manual add, the
 scan path, CSV import, photo-intake confirm, Hardcover sync and discover, ABS
@@ -13,29 +14,89 @@ to `SCHEMA` and `MIGRATIONS` (still both — see G1) and passing it wherever it
 is actually known; no site can silently drop it, because an unknown field name
 raises instead of being ignored.
 
-It is also the common hook for related-media discovery, automatic series
-membership persistence and the compatibility holding projection. Provider
-batch syncs (Audiobookshelf, Komga and RomM) defer related-media grouping until
-the end of their batch for efficiency; manual/scanned/catalogue additions can
-join an existing safe same-work group immediately. Explicit provider series
-are stored in ``item_series`` at insert time so Series rows do not depend on
-first opening the item-detail page. Physical/digital holding rows are kept in
-the additive holding schema without SQLite triggers.
+**The value stage** (issue #54). Field *names* were the first invariant;
+values are the second. `validate_item_fields()` enforces, once, every value
+rule an item row carries — the ISBN check digit and the canonical 13/10 pair,
+`media_type` membership, location existence, game-platform membership, the
+reading-status domain, the `owned` flag — and raises a typed `ItemValueError`
+subclass when one fails. `insert_item()` runs it before building the
+statement, and so do the two update funnels:
 
-**Call it inside an existing `with get_db() as db:` block**, never around one.
-The caller owns the transaction: several sites need the insert and their
+- `update_item_fields(db, item_id, fields)` — one row, always stamps
+  `updated_at`; with empty `fields` it is a bare touch.
+- `update_items_fields(db, item_ids, fields)` — the bulk form, one statement.
+
+Every route that writes a user-supplied value goes through one of the three
+and reduces to `except ItemValueError as e`, rendering the message on its own
+surface. Only system-managed columns (`cover_path`, `estimated_value`,
+Hardcover ids, the `location_id = NULL` cascades, name-keyed series writes)
+still use a raw `UPDATE items SET`; `tests/test_item_write.py` allowlists
+those and fails on any other.
+
+A field that is not present is not validated: an update that touches only
+`notes` never reads `isbn`. Callers that hold a *provider's* value (an
+Audiobookshelf ASIN, a Hardcover edition ISBN) pre-clean it with
+`isbn.canonical_isbn_pair()` and pass `None` on failure — the funnel is strict
+in both cases; dropping versus refusing is the caller's decision.
+
+Provider-specific metadata can also pass ``series_memberships`` as a pseudo-field.
+It is consumed after insertion rather than written to ``items``. The insert funnel
+is also the central hook for Shelf's additive related-media and holding projections.
+
+**Call these inside an existing `with get_db() as db:` block**, never around
+one. The caller owns the transaction: several sites need the insert and their
 follow-up writes (tags, scan log, cover path) to commit together, and
 `cursor.lastrowid` is only meaningful on the connection that did the insert
 (G16, G18).
 """
 
-from typing import Any, Mapping
+from typing import Any, Iterable, Mapping
 
-#: Columns a caller may never set — the database owns them.
+from app.config import MEDIA_TYPES
+from app.database import get_game_platforms
+from app.services import isbn as isbn_svc
+from app.services.write_targets import (  # noqa: F401 — re-exported
+    ItemValueError,
+    UnknownLocationError,
+    validated_location_id,
+)
+
+#: The reading-status domain. `items.py` and `reading_imports.py` used to each
+#: spell this out; it is declared once here and read from both.
+READING_STATUSES = ("want_to_read", "reading", "read")
+
+
+class InvalidIsbn(ItemValueError):
+    code = "invalid_isbn"
+    field = "isbn"
+
+
+class UnknownMediaType(ItemValueError):
+    code = "unknown_media_type"
+    field = "media_type"
+
+
+class UnknownPlatform(ItemValueError):
+    code = "unknown_platform"
+    field = "platform"
+
+
+class InvalidReadingStatus(ItemValueError):
+    code = "invalid_reading_status"
+    field = "reading_status"
+
+
+class InvalidOwned(ItemValueError):
+    code = "invalid_owned"
+    field = "owned"
+
+
+#: Columns a caller may never set on insert — the database owns them.
 _MANAGED = frozenset({"id"})
+#: On update, `created_at` joins the list: it is set once, by SQLite.
+_MANAGED_ON_UPDATE = frozenset({"id", "created_at"})
 
-# ``series_memberships`` is a richer metadata input rather than an items-table
-# column. It is consumed after the item insert by the shared membership helper.
+# Rich provider series metadata is an input to the insert funnel, not an items column.
 _PSEUDO_FIELDS = frozenset({"series_memberships"})
 
 # Cached column set for the `items` table. Read from the live schema rather
@@ -70,33 +131,9 @@ def reset_column_cache() -> None:
     _columns = None
 
 
-def insert_item(db, fields: Mapping[str, Any] | None = None, **kwargs) -> int:
-    """Insert one row into `items` and return its id.
-
-    Accepts a dict, keyword arguments, or both. Fields whose value is not
-    supplied are simply left out of the statement, so the column defaults in
-    `SCHEMA` apply — `source` becomes 'manual', `owned` becomes 1,
-    `media_type` becomes 'book', and `created_at`/`updated_at` are stamped by
-    SQLite. That means the defaults live in exactly one place too.
-
-    ``series_memberships`` is the one deliberate non-column input: providers
-    that know more than one explicit series can pass a list of name/position
-    records and Shelf will persist them after the item row exists.
-
-    Raises `ValueError` on any other unknown or database-managed field rather
-    than dropping it. A typo in a column name is the failure this module exists
-    to make impossible, so it must be loud.
-    """
-    values: dict[str, Any] = dict(fields or {})
-    values.update(kwargs)
-    series_values = values.pop("series_memberships", None)
-
-    if not values.get("title"):
-        raise ValueError(
-            "insert_item() requires a non-empty 'title' — items.title is NOT "
-            "NULL, and a blank title is unrecoverable in the UI."
-        )
-
+def _validated_names(db, values: Mapping[str, Any], managed: frozenset[str],
+                     who: str) -> None:
+    """Refuse an unknown or database-managed field name, loudly."""
     columns = item_columns(db)
     unknown = set(values) - columns
     if unknown:
@@ -108,17 +145,133 @@ def insert_item(db, fields: Mapping[str, Any] | None = None, **kwargs) -> int:
         unknown = set(values) - columns
     if unknown:
         raise ValueError(
-            f"insert_item() got field(s) not on the items table: "
+            f"{who}() got field(s) not on the items table: "
             f"{sorted(unknown)}. Add the column to both SCHEMA and MIGRATIONS "
             "in app/database.py (G1), or fix the spelling."
         )
 
-    managed = set(values) & _MANAGED
-    if managed:
+    hit = set(values) & managed
+    if hit:
         raise ValueError(
-            f"insert_item() cannot set {sorted(managed)} — the database "
-            "assigns it."
+            f"{who}() cannot set {sorted(hit)} — the database assigns it."
         )
+
+
+def validate_item_fields(db, fields: Mapping[str, Any]) -> dict[str, Any]:
+    """Apply every value invariant to the fields present; return a new dict.
+
+    Pure with respect to the connection except for the two existence lookups
+    (locations, game_platforms). Never mutates its argument. Fields that are
+    not present are not validated — an update touching only `notes` never
+    reads `isbn`.
+
+    Raises the matching `ItemValueError` subclass: `InvalidIsbn`,
+    `UnknownMediaType`, `UnknownLocationError`, `UnknownPlatform`,
+    `InvalidReadingStatus`, `InvalidOwned`.
+    """
+    out: dict[str, Any] = dict(fields)
+
+    # ISBN — the canonical pair rewrites BOTH columns whenever either is
+    # supplied, so an inconsistent isbn10 a caller passed is overwritten and
+    # a 979 gives isbn10 = None. `""` clears; explicit None clears both.
+    if "isbn" in out or "isbn10" in out:
+        raw = out.get("isbn")
+        if raw is None or (isinstance(raw, str) and not raw.strip()):
+            raw = None if "isbn" in out else out.get("isbn10")
+        if raw is None or (isinstance(raw, str) and not raw.strip()):
+            out["isbn"] = None
+            out["isbn10"] = None
+        else:
+            pair = isbn_svc.canonical_isbn_pair(str(raw))
+            if pair is None:
+                raise InvalidIsbn(f"Invalid ISBN: {raw}", value=raw)
+            out["isbn"], out["isbn10"] = pair
+
+    if "media_type" in out:
+        mt = out["media_type"]
+        if mt not in MEDIA_TYPES:
+            raise UnknownMediaType(f"Unknown media type: {mt!r}", value=mt)
+
+    if "location_id" in out:
+        loc = out["location_id"]
+        if isinstance(loc, str):
+            loc = loc.strip()
+            if not loc:
+                loc = None
+            else:
+                try:
+                    loc = int(loc)
+                except ValueError:
+                    raise UnknownLocationError(
+                        f"Location {loc!r} not found", value=loc
+                    ) from None
+        out["location_id"] = validated_location_id(db, loc)
+
+    if "platform" in out:
+        plat = out["platform"]
+        if isinstance(plat, str):
+            plat = plat.strip() or None
+        if plat is not None and plat not in get_game_platforms(db):
+            raise UnknownPlatform(f"Unknown game platform: {plat!r}", value=plat)
+        out["platform"] = plat
+
+    if "reading_status" in out:
+        status = out["reading_status"]
+        if isinstance(status, str):
+            status = status.strip() or None
+        if status is not None and status not in READING_STATUSES:
+            raise InvalidReadingStatus(
+                f"Invalid reading status: {status!r}", value=status
+            )
+        out["reading_status"] = status
+
+    if "owned" in out:
+        owned = out["owned"]
+        if isinstance(owned, bool):
+            owned = int(owned)
+        elif isinstance(owned, str) and owned.strip() in ("0", "1"):
+            owned = int(owned.strip())
+        elif isinstance(owned, int) and owned in (0, 1):
+            pass
+        else:
+            raise InvalidOwned("Owned must be 0 or 1", value=owned)
+        out["owned"] = owned
+
+    return out
+
+
+def insert_item(db, fields: Mapping[str, Any] | None = None, **kwargs) -> int:
+    """Insert one row into `items` and return its id.
+
+    Accepts a dict, keyword arguments, or both. Fields whose value is not
+    supplied are simply left out of the statement, so the column defaults in
+    `SCHEMA` apply — `source` becomes 'manual', `owned` becomes 1,
+    `media_type` becomes 'book', and `created_at`/`updated_at` are stamped by
+    SQLite. That means the defaults live in exactly one place too.
+
+    Raises `ValueError` on an unknown or database-managed field rather than
+    dropping it. A typo in a column name is the failure this module exists to
+    make impossible, so it must be loud.
+
+    Raises `ItemValueError` (a `ValueError`) — `InvalidIsbn`,
+    `UnknownMediaType`, `UnknownLocationError`, `UnknownPlatform`,
+    `InvalidReadingStatus`, `InvalidOwned` — when a value fails its
+    invariant; see `validate_item_fields`. `sqlite3.IntegrityError` still
+    reaches the caller (a `UNIQUE(isbn, media_type)` collision is the
+    duplicate card, not a value error).
+    """
+    values: dict[str, Any] = dict(fields or {})
+    values.update(kwargs)
+    series_values = values.pop("series_memberships", None)
+
+    if not values.get("title"):
+        raise ValueError(
+            "insert_item() requires a non-empty 'title' — items.title is NOT "
+            "NULL, and a blank title is unrecoverable in the UI."
+        )
+
+    _validated_names(db, values, _MANAGED, "insert_item")
+    values = validate_item_fields(db, values)
 
     names = list(values)
     placeholders = ", ".join("?" for _ in names)
@@ -128,27 +281,53 @@ def insert_item(db, fields: Mapping[str, Any] | None = None, **kwargs) -> int:
     )
     item_id = cursor.lastrowid
 
-    # Persist the primary legacy series immediately and add any additional
-    # explicit memberships supplied by a richer metadata provider. This makes
-    # new books/comics/games appear in Series without waiting for a later page
-    # load to reconcile the compatibility fields.
     if values.get("series_name") or series_values:
         from app.services import series_memberships as series_svc
-
         series_svc.add_metadata_memberships(db, item_id, series_values)
 
-    # A normal add should become part of an existing same-work group right
-    # away. Integration syncs insert many rows at once and group once at the
-    # end of the batch instead, avoiding repeated collection-wide scans.
     from app.services import media_groups
     if media_groups.should_autolink_on_insert(values.get("source")):
         media_groups.auto_link_item(db, item_id)
 
-    # Every item creation now has one central hook, so compatibility holdings
-    # can be created immediately without database triggers. Physical media gets
-    # its primary copy; provider-backed digital media gets the common holding
-    # projection when those identifiers were supplied on the insert.
     from app.services import holdings
     holdings.sync_item_holding(db, item_id)
 
     return item_id
+
+
+def _execute_update(db, fields: Mapping[str, Any], where: str,
+                    where_params: list[Any], who: str) -> None:
+    """Validate names and values, then run the one UPDATE this module holds.
+
+    `updated_at` is always stamped, so an empty `fields` is a bare touch.
+    """
+    values = dict(fields)
+    values.pop("updated_at", None)
+    _validated_names(db, values, _MANAGED_ON_UPDATE, who)
+    values = validate_item_fields(db, values)
+    assignments = [f"{n} = ?" for n in values]
+    assignments.append("updated_at = datetime('now')")
+    db.execute(
+        f"UPDATE items SET {', '.join(assignments)} WHERE {where}",
+        [*(values[n] for n in values), *where_params],
+    )
+
+
+def update_item_fields(db, item_id: int, fields: Mapping[str, Any]) -> None:
+    """Update user-supplied fields on one item through the value stage.
+
+    Same name and value contract as `insert_item` (managed on update: `id`,
+    `created_at`); always stamps `updated_at`. Raises `ItemValueError` on a
+    bad value, `ValueError` on a bad name.
+    """
+    _execute_update(db, fields, "id = ?", [item_id], "update_item_fields")
+
+
+def update_items_fields(db, item_ids: Iterable[int],
+                        fields: Mapping[str, Any]) -> None:
+    """Bulk form of `update_item_fields`: one statement, validated once."""
+    ids = list(item_ids)
+    if not ids:
+        return
+    marks = ", ".join("?" for _ in ids)
+    _execute_update(db, fields, f"id IN ({marks})", ids, "update_items_fields")

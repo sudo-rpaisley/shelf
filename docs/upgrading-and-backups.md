@@ -26,6 +26,33 @@ Release notes for every version are in the
 [changelog](../CHANGELOG.md) and on the
 [releases page](https://github.com/dgahagan/shelf/releases).
 
+### After upgrading to 0.31.0
+
+Photo Intake now looks up rows you type DVD or Video Game, on TMDb and IGDB.
+The lookup runs **at the moment you confirm**, so rows you confirmed before
+this release are not revisited — they keep the bare title they were filed with,
+for the same reason the 0.17.1 note below gives. Delete and re-import the ones
+you want filled in.
+
+Nothing to set: it uses the TMDb and IGDB credentials you may already have for
+barcode scanning. Without them those rows are filed under their title exactly
+as before.
+
+### After upgrading to 0.30.0
+
+The JWT signing key moves out of the database. On the first start it is written
+to `data/signing.key` (0600) and the `settings` row is deleted — the *value* is
+preserved, so nobody is signed out and stored credentials stay readable. There
+is nothing to do and nothing to set.
+
+If the data directory is not writable, Shelf keeps using the key exactly as
+before and logs a warning naming the reason. Nothing breaks; the move simply
+has not happened yet, and it will on the first start after the directory
+becomes writable.
+
+Restoring a backup taken before 0.30 brings the old row back. The next start
+removes it again, which is why restore already asks you to restart.
+
 ### After upgrading to 0.18.0
 
 Browse's list view no longer hides columns on its own at narrow widths. Author
@@ -70,6 +97,7 @@ Everything is in the `data/` directory:
 | `covers/` | Cover images | Optional — covers re-fetch, but "Retry missing covers" on a big library takes a while |
 | `certs/` | Self-signed TLS cert | Optional — regenerated if missing (re-trust on devices) |
 | `encryption.key` | Decrypts stored API credentials | Only if you want to keep them; otherwise re-enter keys in Settings |
+| `signing.key` | Signs login sessions | Optional — without it every user signs in again; nothing else is lost |
 
 ## Three kinds of backup
 
@@ -78,6 +106,11 @@ Everything is in the `data/` directory:
 Stop the container (or at least make sure no import is running), then copy
 `data/`. SQLite in WAL mode is safe to copy hot for *most* purposes, but
 stopping first guarantees a consistent snapshot.
+
+Note what this method captures: copying `data/` takes both key files along with
+the ciphertext they protect, so the copy is a full-trust artifact — treat it the
+way you would treat the running instance. The Settings backup below is the one
+to hand to anyone else, because the database holds no key material.
 
 ### 2. Database backup from Settings
 

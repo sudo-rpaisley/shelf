@@ -225,7 +225,30 @@ function scanPage() {
                 if (xhr && xhr.responseText) self.placeDeferredResult(xhr.responseText);
             });
 
+            document.body.addEventListener('htmx:afterSwap', function(e) {
+                var target = e.detail && e.detail.target;
+                var card = target && target.matches &&
+                    target.matches('.scan-result[data-scan-inventory-confirmed]')
+                    ? target
+                    : document.querySelector('.scan-result[data-scan-inventory-confirmed]');
+                if (!card) return;
+                self.recordInventoryItem(card);
+                card.removeAttribute('data-scan-inventory-confirmed');
+            });
+
             this.updateShelfFillVisibility();
+        },
+
+        recordInventoryItem(root) {
+            if (this.mode !== 'inventory' || !root) return;
+            var linkEl = root.querySelector('a[href^="/item/"]');
+            if (!linkEl) return;
+            var match = linkEl.getAttribute('href').match(/\/item\/(\d+)/);
+            if (!match) return;
+            var itemId = parseInt(match[1]);
+            if (this.inventoryScannedIds.indexOf(itemId) === -1) {
+                this.inventoryScannedIds.push(itemId);
+            }
         },
 
         async showMissing() {
@@ -375,6 +398,19 @@ function scanPage() {
                 tmp.innerHTML = html;
                 var outcome = scanCardOutcome(tmp.querySelector('.scan-result'));
 
+                if (outcome && outcome.status === 'legacy_ambiguous') {
+                    if (this.scanner) {
+                        try { await this.scanner.stop(); } catch (e) {}
+                        this.scanner = false;
+                    }
+                    this.cameraActive = false;
+                    this.scanPaused = false;
+                    this.scanLoading = false;
+                    this.scanResult = false;
+                    showToast('Choose the matching book below', 'warning');
+                    return;
+                }
+
                 this.scanResult = {
                     ok: outcome.ok,
                     warn: outcome.warn,
@@ -385,14 +421,8 @@ function scanPage() {
                     isbn: code
                 };
 
-                // Track item IDs for inventory mode
-                if (this.mode === 'inventory') {
-                    var linkEl = tmp.querySelector('a[href^="/item/"]');
-                    if (linkEl) {
-                        var match = linkEl.getAttribute('href').match(/\/item\/(\d+)/);
-                        if (match) this.inventoryScannedIds.push(parseInt(match[1]));
-                    }
-                }
+                // Track item IDs for inventory mode.
+                this.recordInventoryItem(tmp);
             } catch (err) {
                 this.scanResult = { ok: false, warn: false, label: 'error', title: 'Scan failed', isbn: code };
             }

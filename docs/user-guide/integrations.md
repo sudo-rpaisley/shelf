@@ -33,6 +33,12 @@ URL and token, **Test**, then choose which libraries to include. Set an
 interval for automatic sync or run it by hand. Items removed from ABS can be
 cleaned up from the same card.
 
+If Shelf reaches Audiobookshelf over a Docker/LAN address while your browser
+uses a reverse-proxy hostname, set the optional **Browser URL** as well. It is
+used only for **Listen on Audiobookshelf** / **Read on Audiobookshelf** links;
+sync and library discovery continue to use the server URL. Leave it blank to
+keep the existing behaviour. The environment equivalent is `ABS_PUBLIC_URL`.
+
 ## Komga
 
 [komga.org](https://komga.org) — self-hosted comics and Manga server.
@@ -154,7 +160,7 @@ same idea: an ntfy topic or JSON webhook URL for the overdue-loan digest. See
 ## Always-on sources (no key)
 
 Open Library, Google Books (anonymous by default), Amazon cover images, UPC Item DB, and
-the Deutsche Nationalbibliothek for German ISBNs. Apart from credentials you
+the Deutsche Nationalbibliothek for German ISBNs, and SBN for Italian ISBNs. Apart from credentials you
 explicitly configure, lookups send only the ISBN or UPC — never your account,
 collection or personal data. Requests to every provider are paced to its
 published rate limit. UPC Item DB's free tier is

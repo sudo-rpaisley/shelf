@@ -57,6 +57,9 @@ def _isolated_db(tmp_path, monkeypatch):
 
     import app.crypto as crypto_mod
     monkeypatch.setattr(crypto_mod, "_cached_encryption_key", None)
+    # decrypt_value warns once per setting key per process; without this reset
+    # the first test to see an undecryptable value silences every later one.
+    monkeypatch.setattr(crypto_mod, "_warned_undecryptable", set())
 
     import app.nav as nav_mod
     monkeypatch.setattr(nav_mod, "_cached_settings", None)
@@ -186,7 +189,7 @@ def viewer_client(client, viewer_user):
 def _insert_item(
     db,
     title="Test Book",
-    isbn="9780000000001",
+    isbn="9780000000026",
     media_type="book",
     _library_id=1,
     **kwargs,

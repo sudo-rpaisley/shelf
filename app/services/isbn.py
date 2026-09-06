@@ -14,6 +14,25 @@ def isbn10_to_isbn13(isbn10: str) -> str | None:
     return digits + str(check)
 
 
+def to_isbn13(raw: str) -> str | None:
+    """Return Shelf's historical 13-digit barcode/ISBN representation.
+
+    This helper is intentionally permissive. It is used by legacy lookup and
+    compatibility paths as well as by ISBN code, so checksum enforcement does
+    not belong here. User-facing ISBN write boundaries must use
+    ``canonical_isbn_pair`` instead.
+    """
+    isbn = normalize_isbn(raw)
+    # UPC-A (12 digits) -> EAN-13 by prepending 0
+    if len(isbn) == 12 and isbn.isdigit():
+        isbn = "0" + isbn
+    if len(isbn) == 13 and isbn.isdigit():
+        return isbn
+    if len(isbn) == 10:
+        return isbn10_to_isbn13(isbn)
+    return None
+
+
 def validate_isbn10(s: str) -> bool:
     if not isinstance(s, str) or not s:
         return False
@@ -39,25 +58,6 @@ def validate_isbn13(s: str) -> bool:
         return False
     total = sum(int(d) * (1 if i % 2 == 0 else 3) for i, d in enumerate(isbn))
     return total % 10 == 0
-
-
-def to_isbn13(raw: str) -> str | None:
-    """Return Shelf's historical 13-digit barcode/ISBN representation.
-
-    This helper is intentionally permissive. It is used by legacy lookup and
-    compatibility paths as well as by ISBN code, so checksum enforcement does
-    not belong here. User-facing ISBN write boundaries must use
-    ``canonical_isbn_pair`` instead.
-    """
-    isbn = normalize_isbn(raw)
-    # UPC-A (12 digits) -> EAN-13 by prepending 0
-    if len(isbn) == 12 and isbn.isdigit():
-        isbn = "0" + isbn
-    if len(isbn) == 13 and isbn.isdigit():
-        return isbn
-    if len(isbn) == 10:
-        return isbn10_to_isbn13(isbn)
-    return None
 
 
 def isbn13_to_isbn10(isbn13: str) -> str | None:

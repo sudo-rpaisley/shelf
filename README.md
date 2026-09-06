@@ -169,7 +169,7 @@ richer metadata or additional workflows.
 | MusicBrainz | Exact music release/pressing metadata, track listings and release-group identity |
 | Cover Art Archive | Release-specific music cover artwork |
 | ISBNdb | Collection valuation |
-| Audiobookshelf | Link and sync selected audiobook libraries |
+| Audiobookshelf | Link and sync selected audiobook libraries; optional browser URL for reverse-proxied links |
 | Komga | Link and sync selected Comic and Manga libraries |
 | Anthropic / OpenAI-compatible / Ollama | Photo Intake vision backends |
 
