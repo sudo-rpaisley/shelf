@@ -1,0 +1,29 @@
+name: Patch 164 v2
+
+on:
+  pull_request:
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: tmp/fix-upc-164
+          fetch-depth: 0
+
+      - name: Build clean #164 tree
+        run: |
+          set -euo pipefail
+          python scripts/tmp_patch_164.py
+          git fetch origin upstream/edit-retail-barcodes-036
+          git show origin/upstream/edit-retail-barcodes-036:.github/workflows/test.yml > .github/workflows/test.yml
+          rm .github/workflows/patch164.yml scripts/tmp_patch_164.py
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git commit -m "TEMP: build clean #164 fix tree"
+          git push origin HEAD:tmp/fix-upc-164
