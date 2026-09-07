@@ -1,0 +1,510 @@
+from pathlib import Path
+
+
+# Keep the barcode helper as an ordinary explicitly-mounted router. It no longer
+# mutates the shared items router during import.
+Path("app/routers/item_barcode_edit.py").write_text('''"""Read-only helper route for editable retail barcodes."""
+
+from fastapi import APIRouter, Depends
+from fastapi.responses import HTMLResponse
+
+from app.auth import require_role
+from app.database import get_db
+from app.services import upc as upc_svc
+
+router = APIRouter(prefix="/api")
+
+
+def _canonical_upc(value: str | None) -> tuple[bool, str | None]:
+    """Compatibility wrapper used by focused barcode-edit tests."""
+    return upc_svc.canonical_retail_barcode(value)
+
+
+@router.get("/items/{item_id}/barcode-context")
+async def item_barcode_context(item_id: int, _=Depends(require_role("editor"))):
+    with get_db() as db:
+        row = db.execute(
+            "SELECT id, media_type, upc FROM items WHERE id = ?", (item_id,)
+        ).fetchone()
+    if not row:
+        return HTMLResponse("Not found", status_code=404)
+    return {
+        "item_id": row["id"],
+        "media_type": row["media_type"],
+        "upc": row["upc"],
+    }
+''')
+Path("app/routers/__init__.py").write_text("")
+
+
+# Put retail-barcode validation beside Shelf's existing UPC normalisation.
+upc_path = Path("app/services/upc.py")
+upc_text = upc_path.read_text()
+if "def canonical_retail_barcode(" not in upc_text:
+    upc_text += '''
+
+
+def validate_ean13(code: str) -> bool:
+    """Validate a 13-digit EAN check digit."""
+    code = normalize_barcode(code)
+    if len(code) != 13 or not code.isdigit():
+        return False
+    total = sum(
+        int(digit) * (3 if index % 2 else 1)
+        for index, digit in enumerate(code[:12])
+    )
+    return (10 - (total % 10)) % 10 == int(code[-1])
+
+
+def canonical_retail_barcode(value: str | None) -> tuple[bool, str | None]:
+    """Validate an editable UPC-A/EAN-13 and return EAN-13 storage form.
+
+    Empty input clears the field. Bookland 978/979 carriers belong to the
+    ISBN field and are deliberately refused here.
+    """
+    raw = str(value or "").strip()
+    if not raw:
+        return True, None
+    code = normalize_barcode(raw)
+    if len(code) == 12:
+        if not validate_upc(code):
+            return False, None
+        return True, normalize_upc(code)
+    if len(code) == 13:
+        if code.startswith(("978", "979")) or not validate_ean13(code):
+            return False, None
+        return True, code
+    return False, None
+'''
+upc_path.write_text(upc_text)
+
+
+# Make UPC a normal item-edit field. Canonicalisation happens before the
+# existing write funnel; duplicate identity remains (upc, media_type).
+items_path = Path("app/routers/items.py")
+items_text = items_path.read_text()
+marker = '@router.post("/items/{item_id}")\nasync def update_item'
+start = items_text.index(marker)
+end = items_text.index('@router.post("/items/{item_id}/reading-status")', start)
+block = items_text[start:end]
+old = '("title", "subtitle", "authors", "isbn", "media_type", "publisher",'
+new = '("title", "subtitle", "authors", "isbn", "upc", "media_type", "publisher",'
+if old not in block:
+    raise SystemExit("update_item field list marker not found")
+block = block.replace(old, new, 1)
+
+numeric_end = '''    except (TypeError, ValueError):
+        # A non-numeric year/count/value used to be a 500.
+        return _refused("invalid_number")
+
+'''
+canonical = '''    except (TypeError, ValueError):
+        # A non-numeric year/count/value used to be a 500.
+        return _refused("invalid_number")
+
+    # Retail barcodes are normal edit fields, but their storage identity is
+    # canonical EAN-13. Bookland 978/979 carriers remain ISBN-only.
+    if "upc" in fields:
+        valid_upc, canonical_upc = upc_svc.canonical_retail_barcode(fields["upc"])
+        if not valid_upc:
+            return HTMLResponse("Invalid UPC / EAN barcode", status_code=400)
+        fields["upc"] = canonical_upc
+
+'''
+if numeric_end not in block:
+    raise SystemExit("numeric validation marker not found")
+block = block.replace(numeric_end, canonical, 1)
+
+write_marker = '''        # The form posts `isbn` every time, so an edit that changes it now
+        # rewrites isbn10 too — #54's second half.
+        try:
+            update_item_fields(db, item_id, fields)
+        except ItemValueError as e:
+            return _refused(e.code)
+'''
+write_replacement = '''        # Keep the same duplicate identity rule used by normal scan/add:
+        # a retail barcode may repeat across media types, never within one.
+        if fields.get("upc"):
+            effective_media_type = fields.get("media_type")
+            if effective_media_type is None:
+                current = db.execute(
+                    "SELECT media_type FROM items WHERE id = ?", (item_id,)
+                ).fetchone()
+                if not current:
+                    return HTMLResponse("Not found", status_code=404)
+                effective_media_type = current["media_type"]
+            conflict = db.execute(
+                "SELECT id FROM items WHERE upc = ? AND media_type = ? AND id != ? LIMIT 1",
+                (fields["upc"], effective_media_type, item_id),
+            ).fetchone()
+            if conflict:
+                return HTMLResponse(
+                    "Update conflicts with existing catalogue data", status_code=409
+                )
+
+        # The form posts `isbn` every time, so an edit that changes it now
+        # rewrites isbn10 too — #54's second half.
+        try:
+            update_item_fields(db, item_id, fields)
+        except ItemValueError as e:
+            return _refused(e.code)
+        except sqlite3.IntegrityError:
+            # Close the race between the explicit duplicate lookup and write.
+            if "upc" in fields:
+                return HTMLResponse(
+                    "Update conflicts with existing catalogue data", status_code=409
+                )
+            raise
+'''
+if write_marker not in block:
+    raise SystemExit("update write marker not found")
+block = block.replace(write_marker, write_replacement, 1)
+items_path.write_text(items_text[:start] + block + items_text[end:])
+
+
+# Mount the helper router through normal application composition.
+main_path = Path("app/main.py")
+main_text = main_path.read_text()
+old = "from app.routers import pages, items, items_covers, items_csv, items_catalog, locations, platforms, settings, sync, checkouts, valuation, hardcover, store, series, share, tags, intake, archive"
+new = "from app.routers import pages, items, item_barcode_edit, items_covers, items_csv, items_catalog, locations, platforms, settings, sync, checkouts, valuation, hardcover, store, series, share, tags, intake, archive"
+if old not in main_text:
+    raise SystemExit("main router import marker not found")
+main_text = main_text.replace(old, new, 1)
+old = "app.include_router(items.router)\n# items.py was split by feature area (Lever 5); all four share the /api prefix."
+new = "app.include_router(items.router)\napp.include_router(item_barcode_edit.router)\n# items.py was split by feature area (Lever 5); all four share the /api prefix."
+if old not in main_text:
+    raise SystemExit("main router include marker not found")
+main_path.write_text(main_text.replace(old, new, 1))
+
+
+# Render both scanner UIs in the normal Identifiers section. JS now only binds
+# behaviour to these already-rendered controls, preserving the ISBN invariant.
+template_path = Path("app/templates/item_edit.html")
+template = template_path.read_text()
+old = '''<a href="#edit-identifiers" data-section-nav="identifiers" data-media-types="book kids_book audiobook ebook comic" data-always-visible="{{ 'true' if item.isbn else 'false' }}"'''
+new = '''<a href="#edit-identifiers" data-section-nav="identifiers" data-media-types="book kids_book audiobook ebook comic dvd cd video_game" data-always-visible="{{ 'true' if item.isbn or item.upc else 'false' }}"'''
+if old not in template:
+    raise SystemExit("identifier nav marker not found")
+template = template.replace(old, new, 1)
+old = '''<section id="edit-identifiers" data-testid="edit-section-identifiers" data-media-types="book kids_book audiobook ebook comic" data-always-visible="{{ 'true' if item.isbn else 'false' }}" class="bg-shelf-card rounded-xl border border-shelf-border p-6 space-y-4" x-data="isbnCamera">'''
+new = '''<section id="edit-identifiers" data-testid="edit-section-identifiers" data-media-types="book kids_book audiobook ebook comic dvd cd video_game" data-always-visible="{{ 'true' if item.isbn or item.upc else 'false' }}" class="bg-shelf-card rounded-xl border border-shelf-border p-6 space-y-4">'''
+if old not in template:
+    raise SystemExit("identifier section marker not found")
+template = template.replace(old, new, 1)
+field_start = template.index('            {{ field("isbn", "ISBN", item.isbn, placeholder="ISBN-13") }}')
+section_end = template.index('        </section>', field_start)
+controls = '''            <div data-media-types="book kids_book audiobook ebook comic" data-always-visible="{{ 'true' if item.isbn else 'false' }}" x-data="isbnCamera" class="space-y-4">
+                {{ field("isbn", "ISBN", item.isbn, placeholder="ISBN-13") }}
+                <button type="button" @click="startCamera()"
+                        class="px-4 py-2 bg-shelf-hover text-shelf-text border border-shelf-border rounded-lg text-sm hover:border-shelf-accent/50 transition-colors">
+                    Scan ISBN
+                </button>
+
+                <div x-show="cameraActive" style="display:none"
+                     class="fixed inset-0 z-50 bg-black/80 p-4 flex items-center justify-center">
+                    <div class="w-full max-w-md bg-shelf-card rounded-xl border border-shelf-border p-4">
+                        <div class="flex items-center justify-between gap-3 mb-3">
+                            <h3 class="text-lg font-semibold">Scan ISBN</h3>
+                            <button type="button" @click="stopCamera()" aria-label="Close scanner"
+                                    class="text-shelf-muted hover:text-shelf-text text-2xl leading-none">&times;</button>
+                        </div>
+                        <div id="edit-isbn-camera-reader"
+                             class="rounded-xl overflow-hidden border border-shelf-border bg-black"
+                             x-show="!isZxingFallback"></div>
+                        <div class="rounded-xl overflow-hidden border border-shelf-border bg-black"
+                             x-show="isZxingFallback" style="display:none">
+                            <video id="edit-isbn-zxing-video" class="w-full" autoplay muted playsinline></video>
+                        </div>
+                        <p class="text-xs text-shelf-muted text-center mt-2" x-text="status"></p>
+                    </div>
+                </div>
+            </div>
+
+            <div data-upc-editor data-media-types="dvd cd comic video_game" data-always-visible="{{ 'true' if item.upc else 'false' }}" x-data="upcCamera" class="space-y-4">
+                {{ field("upc", "UPC / EAN", item.upc, placeholder="UPC-A or EAN-13") }}
+                <button type="button" @click="startCamera()"
+                        class="px-4 py-2 bg-shelf-hover text-shelf-text border border-shelf-border rounded-lg text-sm hover:border-shelf-accent/50 transition-colors">
+                    Scan UPC / EAN
+                </button>
+
+                <div x-show="cameraActive" style="display:none"
+                     class="fixed inset-0 z-50 bg-black/80 p-4 flex items-center justify-center">
+                    <div class="w-full max-w-md bg-shelf-card rounded-xl border border-shelf-border p-4">
+                        <div class="flex items-center justify-between gap-3 mb-3">
+                            <h3 class="text-lg font-semibold">Scan UPC / EAN</h3>
+                            <button type="button" @click="stopCamera()" aria-label="Close scanner"
+                                    class="text-shelf-muted hover:text-shelf-text text-2xl leading-none">&times;</button>
+                        </div>
+                        <div id="edit-upc-camera-reader"
+                             class="rounded-xl overflow-hidden border border-shelf-border bg-black"
+                             x-show="!isZxingFallback"></div>
+                        <div class="rounded-xl overflow-hidden border border-shelf-border bg-black"
+                             x-show="isZxingFallback" style="display:none">
+                            <video id="edit-upc-zxing-video" class="w-full" autoplay muted playsinline></video>
+                        </div>
+                        <p class="text-xs text-shelf-muted text-center mt-2" x-text="status"></p>
+                    </div>
+                </div>
+            </div>
+'''
+template_path.write_text(template[:field_start] + controls + template[section_end:])
+
+
+Path("static/js/item_edit.js").write_text(r'''function coverDrop() {
+    return {
+        dragging: false,
+        preview: false,
+        handleDrop(e) {
+            this.dragging = false;
+            var file = e.dataTransfer.files[0];
+            if (file && file.type.startsWith('image/')) {
+                var dt = new DataTransfer();
+                dt.items.add(file);
+                this.$refs.coverInput.files = dt.files;
+                this.preview = URL.createObjectURL(file);
+            }
+        },
+        handleFile(e) {
+            var file = e.target.files[0];
+            if (file) this.preview = URL.createObjectURL(file);
+        }
+    };
+}
+
+function isbnCamera() {
+    return {
+        cameraActive: false,
+        scanner: false,
+        isZxingFallback: false,
+        accepted: false,
+        status: 'Point the camera at a 978 or 979 ISBN barcode.',
+
+        async startCamera() {
+            if (this.cameraActive) return;
+            this.cameraActive = true;
+            this.accepted = false;
+            this.status = 'Starting camera…';
+            try {
+                await this.$nextTick();
+                this.scanner = window.createBarcodeScanner({
+                    html5ElId: 'edit-isbn-camera-reader',
+                    videoEl: 'edit-isbn-zxing-video',
+                    html5Config: { fps: 10, qrbox: { width: 280, height: 100 }, aspectRatio: 1.5 },
+                    onDecode: (decodedText) => this.acceptDecoded(decodedText)
+                });
+                this.isZxingFallback = this.scanner.engine === 'zxing';
+                await this.$nextTick();
+                await this.scanner.start();
+                this.status = 'Point the camera at a 978 or 979 ISBN barcode.';
+            } catch (err) {
+                if (this.scanner) await this.scanner.stop();
+                this.scanner = false;
+                this.cameraActive = false;
+                this.isZxingFallback = false;
+                if (location.protocol !== 'https:' && location.hostname !== 'localhost') {
+                    showToast('Camera requires HTTPS. Access Shelf via https:// and accept the certificate.', 'error');
+                } else {
+                    showToast('Camera access denied. Check browser permissions for this site.', 'error');
+                }
+            }
+        },
+
+        async stopCamera() {
+            if (this.scanner) await this.scanner.stop();
+            this.scanner = false;
+            this.cameraActive = false;
+            this.isZxingFallback = false;
+        },
+
+        acceptDecoded(decodedText) {
+            if (this.accepted) return;
+            var digits = String(decodedText || '').replace(/\D/g, '');
+            if (digits.length !== 13 || (digits.slice(0, 3) !== '978' && digits.slice(0, 3) !== '979')) {
+                this.status = 'That barcode is not a 978/979 ISBN. Try again.';
+                return;
+            }
+            var input = document.getElementById('isbn');
+            if (!input) return;
+            this.accepted = true;
+            input.value = digits;
+            input.dispatchEvent(new Event('input', { bubbles: true }));
+            input.dispatchEvent(new Event('change', { bubbles: true }));
+            this.stopCamera().then(function () {
+                input.focus();
+                input.select();
+            });
+        }
+    };
+}
+
+function validEan13(code) {
+    if (!/^\d{13}$/.test(code)) return false;
+    var total = 0;
+    for (var i = 0; i < 12; i += 1) total += parseInt(code[i], 10) * (i % 2 ? 3 : 1);
+    return ((10 - (total % 10)) % 10) === parseInt(code[12], 10);
+}
+
+function validUpcA(code) {
+    if (!/^\d{12}$/.test(code)) return false;
+    var total = 0;
+    for (var i = 0; i < 11; i += 1) total += parseInt(code[i], 10) * (i % 2 ? 1 : 3);
+    return ((10 - (total % 10)) % 10) === parseInt(code[11], 10);
+}
+
+function canonicalEditUpc(raw) {
+    var digits = String(raw || '').replace(/\D/g, '');
+    if (digits.length === 12 && validUpcA(digits)) return '0' + digits;
+    if (digits.length === 13 && digits.slice(0, 3) !== '978' && digits.slice(0, 3) !== '979' && validEan13(digits)) return digits;
+    return '';
+}
+
+function upcCamera() {
+    return {
+        cameraActive: false,
+        scanner: false,
+        isZxingFallback: false,
+        accepted: false,
+        status: 'Point the camera at a UPC-A or EAN-13 retail barcode.',
+
+        async startCamera() {
+            if (this.cameraActive) return;
+            this.cameraActive = true;
+            this.accepted = false;
+            this.status = 'Starting camera…';
+            try {
+                await this.$nextTick();
+                this.scanner = window.createBarcodeScanner({
+                    html5ElId: 'edit-upc-camera-reader',
+                    videoEl: 'edit-upc-zxing-video',
+                    html5Config: { fps: 10, qrbox: { width: 280, height: 100 }, aspectRatio: 1.5 },
+                    onDecode: (decodedText) => this.acceptDecoded(decodedText)
+                });
+                this.isZxingFallback = this.scanner.engine === 'zxing';
+                await this.$nextTick();
+                await this.scanner.start();
+                this.status = 'Point the camera at a UPC-A or EAN-13 retail barcode.';
+            } catch (err) {
+                if (this.scanner) await this.scanner.stop();
+                this.scanner = false;
+                this.cameraActive = false;
+                this.isZxingFallback = false;
+                if (location.protocol !== 'https:' && location.hostname !== 'localhost') {
+                    showToast('Camera requires HTTPS. Access Shelf via https:// and accept the certificate.', 'error');
+                } else {
+                    showToast('Camera access denied. Check browser permissions for this site.', 'error');
+                }
+            }
+        },
+
+        async stopCamera() {
+            if (this.scanner) await this.scanner.stop();
+            this.scanner = false;
+            this.cameraActive = false;
+            this.isZxingFallback = false;
+        },
+
+        acceptDecoded(decodedText) {
+            if (this.accepted) return;
+            var canonical = canonicalEditUpc(decodedText);
+            if (!canonical) {
+                this.status = 'That is not a valid UPC-A / EAN-13 retail barcode. Try again.';
+                return;
+            }
+            var input = document.getElementById('upc');
+            if (!input) return;
+            this.accepted = true;
+            input.value = canonical;
+            input.dispatchEvent(new Event('input', { bubbles: true }));
+            input.dispatchEvent(new Event('change', { bubbles: true }));
+            this.stopCamera().then(function () {
+                input.focus();
+                input.select();
+            });
+        }
+    };
+}
+
+function updateEditSectionVisibility(root) {
+    var mediaSelect = root.querySelector('#media_type');
+    if (!mediaSelect) return;
+    var mediaType = mediaSelect.value;
+    root.querySelectorAll('[data-media-types]').forEach(function (element) {
+        var supported = (element.dataset.mediaTypes || '').split(/\s+/).filter(Boolean);
+        var alwaysVisible = element.dataset.alwaysVisible === 'true';
+        element.hidden = !alwaysVisible && supported.indexOf(mediaType) === -1;
+    });
+}
+
+document.addEventListener('DOMContentLoaded', function () {
+    var root = document.querySelector('[data-item-edit-sections]');
+    if (!root) return;
+    var mediaSelect = root.querySelector('#media_type');
+    updateEditSectionVisibility(root);
+    if (mediaSelect) {
+        mediaSelect.addEventListener('change', function () {
+            updateEditSectionVisibility(root);
+        });
+    }
+});
+
+// CSP build has no global fallback — register so x-data components resolve.
+document.addEventListener('alpine:init', function () {
+    Alpine.data('coverDrop', coverDrop);
+    Alpine.data('isbnCamera', isbnCamera);
+    Alpine.data('upcCamera', upcCamera);
+});
+''')
+
+
+# Focused route tests use a different TestClient connection; commit setup rows
+# before making the request. Strengthen the camera test around server rendering.
+test_path = Path("tests/test_item_barcode_edit_036.py")
+test = test_path.read_text()
+test = test.replace(
+    '    item_id = _item(db, upc=EAN_13)\n    response = editor_client.get',
+    '    item_id = _item(db, upc=EAN_13)\n    db.commit()\n    response = editor_client.get',
+    1,
+)
+test = test.replace(
+    '    item_id = _item(db)\n    response = editor_client.post',
+    '    item_id = _item(db)\n    db.commit()\n    response = editor_client.post',
+    1,
+)
+test = test.replace(
+    '    _item(db, title="Existing", upc=EAN_13)\n    item_id = _item(db, title="Other")\n    response = editor_client.post',
+    '    _item(db, title="Existing", upc=EAN_13)\n    item_id = _item(db, title="Other")\n    db.commit()\n    response = editor_client.post',
+    1,
+)
+old = '''def test_upc_camera_is_scan_only_and_reuses_shared_engine():
+    source = Path("static/js/item_edit.js").read_text()
+    assert "window.createBarcodeScanner" in source
+    assert "edit-upc-camera-reader" in source
+    assert "input.value = canonical" in source
+    # The camera handler must not submit or call a metadata route. Saving stays
+    # the user's explicit action on the existing item-edit form.
+    camera_tail = source.split("function installUpcEditor", 1)[1]
+    assert ".submit()" not in camera_tail
+    assert "/api/scan" not in camera_tail
+'''
+new = '''def test_upc_camera_is_scan_only_and_reuses_shared_engine():
+    template = Path("app/templates/item_edit.html").read_text()
+    source = Path("static/js/item_edit.js").read_text()
+    assert "data-upc-editor" in template
+    assert 'x-data="upcCamera"' in template
+    assert 'field("upc", "UPC / EAN", item.upc' in template
+    assert 'id="edit-upc-camera-reader"' in template
+    assert 'id="edit-upc-zxing-video"' in template
+    assert "window.createBarcodeScanner" in source
+    assert "edit-upc-camera-reader" in source
+    assert "input.value = canonical" in source
+    assert "document.createElement" not in source
+    assert "fetch(" not in source
+    # The camera handler must not submit or call a metadata route. Saving stays
+    # the user's explicit action on the existing item-edit form.
+    camera_tail = source.split("function upcCamera", 1)[1]
+    assert ".submit()" not in camera_tail
+    assert "/api/scan" not in camera_tail
+'''
+if old not in test:
+    raise SystemExit("focused UPC camera test marker not found")
+test_path.write_text(test.replace(old, new, 1))
