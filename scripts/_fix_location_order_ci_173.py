@@ -6,11 +6,10 @@ from pathlib import Path
 # the later migration must still have a real ALTER to apply.
 db_path = Path("app/database.py")
 db = db_path.read_text()
-old_db = """            is_primary         INTEGER NOT NULL DEFAULT 0 CHECK(is_primary IN (0, 1)),\n    position_order     INTEGER DEFAULT NULL,\n    created_at         TEXT NOT NULL DEFAULT (datetime('now')),\n"""
-new_db = """            is_primary         INTEGER NOT NULL DEFAULT 0 CHECK(is_primary IN (0, 1)),\n    created_at         TEXT NOT NULL DEFAULT (datetime('now')),\n"""
+old_db = "    position_order     INTEGER DEFAULT NULL,\n"
 if db.count(old_db) != 1:
-    raise SystemExit(f"expected one MIGRATION_TABLES position_order block, found {db.count(old_db)}")
-db_path.write_text(db.replace(old_db, new_db, 1))
+    raise SystemExit(f"expected one MIGRATION_TABLES position_order line, found {db.count(old_db)}")
+db_path.write_text(db.replace(old_db, "", 1))
 
 # Wait on the actual auto-order POST instead of networkidle after a click.
 e2e_path = Path("tests/e2e/test_location_order.py")
