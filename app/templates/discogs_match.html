@@ -1,0 +1,66 @@
+{% extends "base.html" %}
+{% block title %}Match Discogs pressing — {{ item.title }} — Shelf{% endblock %}
+{% block content %}
+<div class="max-w-4xl mx-auto">
+    <a href="/music/item/{{ item.id }}" class="text-sm text-shelf-muted hover:text-shelf-text">&larr; Back to music release</a>
+    <div class="bg-shelf-card border border-shelf-border rounded-xl p-6 mt-4">
+        <div class="mb-5">
+            <p class="text-xs uppercase tracking-wider text-shelf-muted">Discogs pressing</p>
+            <h1 class="text-2xl font-bold mt-1">{{ item.title }}</h1>
+            {% if item.authors %}<p class="text-shelf-accent2 mt-1">{{ item.authors }}</p>{% endif %}
+            <p class="text-sm text-shelf-muted mt-2">Choose the exact physical release. MusicBrainz remains Shelf's canonical music identity.</p>
+        </div>
+
+        <form method="get" action="/music/item/{{ item.id }}/discogs" class="grid grid-cols-1 sm:grid-cols-2 gap-3 mb-6">
+            <div>
+                <label for="discogs-q" class="block text-xs text-shelf-muted mb-1">Release title</label>
+                <input id="discogs-q" name="q" value="{{ q }}" class="w-full bg-shelf-bg border border-shelf-border rounded-lg px-3 py-2 text-shelf-text">
+            </div>
+            <div>
+                <label for="discogs-artist" class="block text-xs text-shelf-muted mb-1">Artist</label>
+                <input id="discogs-artist" name="artist" value="{{ artist }}" class="w-full bg-shelf-bg border border-shelf-border rounded-lg px-3 py-2 text-shelf-text">
+            </div>
+            <div>
+                <label for="discogs-barcode" class="block text-xs text-shelf-muted mb-1">Barcode</label>
+                <input id="discogs-barcode" name="barcode" value="{{ barcode }}" class="w-full bg-shelf-bg border border-shelf-border rounded-lg px-3 py-2 font-mono text-shelf-text">
+            </div>
+            <div>
+                <label for="discogs-catno" class="block text-xs text-shelf-muted mb-1">Catalogue number</label>
+                <input id="discogs-catno" name="catalog_number" value="{{ catalog_number }}" class="w-full bg-shelf-bg border border-shelf-border rounded-lg px-3 py-2 text-shelf-text">
+            </div>
+            <div class="sm:col-span-2">
+                <button type="submit" class="px-4 py-2 bg-shelf-accent text-white rounded-lg text-sm">Search Discogs</button>
+            </div>
+        </form>
+
+        {% if error %}<div class="mb-4 rounded-lg border border-shelf-border bg-shelf-bg p-3 text-sm text-shelf-warning">{{ error }}</div>{% endif %}
+
+        {% if results %}
+        <div class="space-y-3">
+            {% for candidate in results %}
+            <div class="border border-shelf-border bg-shelf-bg rounded-lg p-4 flex flex-col sm:flex-row sm:items-center gap-3">
+                <div class="flex-1 min-w-0">
+                    <h2 class="font-medium">{{ candidate.title }}</h2>
+                    <p class="text-xs text-shelf-muted mt-1">
+                        {% if candidate.release_date %}{{ candidate.release_date }}{% endif %}
+                        {% if candidate.country %} · {{ candidate.country }}{% endif %}
+                        {% if candidate.label %} · {{ candidate.label }}{% endif %}
+                        {% if candidate.catalog_number %} · {{ candidate.catalog_number }}{% endif %}
+                    </p>
+                    {% if candidate.format_summary %}<p class="text-xs text-shelf-muted mt-1">{{ candidate.format_summary }}</p>{% endif %}
+                    {% if candidate.barcodes %}<p class="text-xs font-mono text-shelf-muted mt-1">{{ candidate.barcodes|join(', ') }}</p>{% endif %}
+                </div>
+                <form method="post" action="/api/discogs/items/{{ item.id }}/select" class="shrink-0">
+                    <input type="hidden" name="_csrf" value="{{ csrf_token }}">
+                    <input type="hidden" name="release_id" value="{{ candidate.discogs_release_id }}">
+                    <button type="submit" class="px-4 py-2 bg-shelf-accent text-white rounded-lg text-sm">Use this pressing</button>
+                </form>
+            </div>
+            {% endfor %}
+        </div>
+        {% elif searched and not error %}
+        <p class="text-sm text-shelf-muted">No matching exact releases were returned.</p>
+        {% endif %}
+    </div>
+</div>
+{% endblock %}

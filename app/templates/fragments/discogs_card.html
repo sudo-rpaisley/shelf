@@ -1,0 +1,49 @@
+<section class="mt-4 pt-4 border-t border-shelf-border" data-discogs-card>
+    <div class="flex items-start justify-between gap-3">
+        <div>
+            <h2 class="font-semibold">Discogs pressing</h2>
+            <p class="text-xs text-shelf-muted mt-1">Optional collector metadata for this exact physical release.</p>
+        </div>
+        {% if user and user.role in ('admin', 'editor') %}
+            {% if configured %}
+            <a href="/music/item/{{ item.id }}/discogs" class="px-3 py-1.5 bg-shelf-hover border border-shelf-border rounded-lg text-xs">{% if discogs %}Change match{% else %}Match pressing{% endif %}</a>
+            {% elif user.role == 'admin' %}
+            <a href="/settings/discogs" class="px-3 py-1.5 bg-shelf-hover border border-shelf-border rounded-lg text-xs">Configure Discogs</a>
+            {% endif %}
+        {% endif %}
+    </div>
+
+    {% if discogs %}
+    <div class="mt-3 space-y-2 text-sm">
+        <div><span class="text-shelf-muted">Release:</span> #{{ discogs.discogs_release_id }}</div>
+        {% if discogs.label %}<div><span class="text-shelf-muted">Label:</span> {{ discogs.label }}</div>{% endif %}
+        {% if discogs.catalog_number %}<div><span class="text-shelf-muted">Catalogue #:</span> {{ discogs.catalog_number }}</div>{% endif %}
+        {% if discogs.format_summary %}<div><span class="text-shelf-muted">Pressing:</span> {{ discogs.format_summary }}</div>{% endif %}
+        {% if discogs.genres %}<div><span class="text-shelf-muted">Genres:</span> {{ discogs.genres|join(', ') }}</div>{% endif %}
+        {% if discogs.styles %}<div><span class="text-shelf-muted">Styles:</span> {{ discogs.styles|join(', ') }}</div>{% endif %}
+        {% if discogs.identifiers %}
+        <div>
+            <span class="text-shelf-muted">Collector identifiers:</span>
+            <div class="mt-1 space-y-1">
+                {% for identifier in discogs.identifiers %}
+                <div class="text-xs font-mono">{{ identifier.identifier_type|replace('_', ' ') }}: {{ identifier.value }}{% if identifier.description %} · {{ identifier.description }}{% endif %}</div>
+                {% endfor %}
+            </div>
+        </div>
+        {% endif %}
+        {% if discogs.notes %}<details><summary class="cursor-pointer text-shelf-accent2">Discogs notes</summary><p class="text-xs text-shelf-muted mt-2 whitespace-pre-line">{{ discogs.notes }}</p></details>{% endif %}
+        <div class="flex flex-wrap gap-2 pt-2">
+            {% if discogs.discogs_url %}<a href="{{ discogs.discogs_url }}" target="_blank" rel="noopener" class="text-xs text-shelf-accent2">Open exact release on Discogs ↗</a>{% endif %}
+            {% if user and user.role in ('admin', 'editor') and configured %}
+            <form method="post" action="/api/discogs/items/{{ item.id }}/refresh"><input type="hidden" name="_csrf" value="{{ csrf_token }}"><button class="text-xs text-shelf-accent2" type="submit">Refresh</button></form>
+            <form method="post" action="/api/discogs/items/{{ item.id }}/remove"><input type="hidden" name="_csrf" value="{{ csrf_token }}"><button class="text-xs text-shelf-error" type="submit">Remove match</button></form>
+            {% endif %}
+        </div>
+        <p class="text-[11px] text-shelf-muted">Discogs data refreshed {{ discogs.updated_at }}. MusicBrainz remains the canonical release identity.</p>
+    </div>
+    {% elif configured %}
+    <p class="text-sm text-shelf-muted mt-3">No Discogs pressing has been selected for this release.</p>
+    {% else %}
+    <p class="text-sm text-shelf-muted mt-3">Discogs is not configured.</p>
+    {% endif %}
+</section>

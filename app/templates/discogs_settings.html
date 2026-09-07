@@ -1,0 +1,45 @@
+{% extends "base.html" %}
+{% block title %}Discogs settings — Shelf{% endblock %}
+{% block content %}
+<div class="max-w-2xl mx-auto">
+    <a href="/settings" class="text-sm text-shelf-muted hover:text-shelf-text">&larr; Back to settings</a>
+    <div class="bg-shelf-card border border-shelf-border rounded-xl p-6 mt-4 space-y-5">
+        <div>
+            <h1 class="text-2xl font-bold">Discogs</h1>
+            <p class="text-sm text-shelf-muted mt-1">Optional exact-pressing enrichment for music already identified through MusicBrainz.</p>
+        </div>
+
+        {% if source == 'environment' %}
+        <div class="rounded-lg border border-shelf-border bg-shelf-bg p-3 text-sm">
+            Discogs is configured through <code>DISCOGS_TOKEN</code>. The environment value takes precedence and is never shown here.
+        </div>
+        {% else %}
+        <form method="post" action="/settings/discogs" class="space-y-3">
+            <input type="hidden" name="_csrf" value="{{ csrf_token }}">
+            <label for="discogs-token" class="block text-sm font-medium text-shelf-muted">Personal access token</label>
+            <input id="discogs-token" name="token" type="password" autocomplete="new-password" placeholder="{% if configured %}Token saved — enter a new one to replace it{% else %}Discogs token{% endif %}"
+                   class="w-full bg-shelf-bg border border-shelf-border rounded-lg px-3 py-2 text-shelf-text outline-none">
+            <div class="flex flex-wrap gap-2">
+                <button type="submit" class="px-4 py-2 bg-shelf-accent text-white rounded-lg text-sm">Save token</button>
+                {% if configured %}
+                <button type="submit" name="clear_token" value="1" class="px-4 py-2 bg-shelf-hover border border-shelf-border rounded-lg text-sm">Clear saved token</button>
+                {% endif %}
+            </div>
+        </form>
+        {% endif %}
+
+        <form hx-post="/api/discogs/test" hx-target="#discogs-test-result" hx-swap="innerHTML" class="space-y-2">
+            <input type="hidden" name="_csrf" value="{{ csrf_token }}">
+            <label for="discogs-test-token" class="block text-sm font-medium text-shelf-muted">Test connection</label>
+            <div class="flex gap-2">
+                <input id="discogs-test-token" name="token" type="password" autocomplete="off" placeholder="Optional unsaved token"
+                       class="min-w-0 flex-1 bg-shelf-bg border border-shelf-border rounded-lg px-3 py-2 text-shelf-text outline-none">
+                <button type="submit" class="px-4 py-2 bg-shelf-hover border border-shelf-border rounded-lg text-sm">Test</button>
+            </div>
+            <div id="discogs-test-result" class="text-sm text-shelf-muted"></div>
+        </form>
+
+        <p class="text-xs text-shelf-muted">Shelf stores a saved token encrypted at rest. Discogs artwork is not imported; music covers remain sourced through Cover Art Archive.</p>
+    </div>
+</div>
+{% endblock %}
