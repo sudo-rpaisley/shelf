@@ -24,16 +24,16 @@
     <form method="get" action="/romm/library" class="flex flex-wrap gap-2 mb-6">
         {% if selected_platform %}<input type="hidden" name="platform" value="{{ selected_platform }}">{% endif %}
         <input type="search" name="q" value="{{ q }}" placeholder="Search synced games or publisher…"
-               class="flex-1 min-w-64 bg-shelf-bg border border-shelf-border rounded-lg px-3 py-2 text-shelf-text focus:ring-2 focus:ring-shelf-accent outline-none">
+               class="flex-1 min-w-[200px] bg-shelf-bg border border-shelf-border rounded-lg px-3 py-2 text-shelf-text focus:ring-2 focus:ring-shelf-accent outline-none">
         <button type="submit" class="px-4 py-2 bg-shelf-accent text-white rounded-lg hover:bg-shelf-accent2">Search</button>
         {% if q %}<a href="/romm/library{% if selected_platform %}?platform={{ selected_platform|urlencode }}{% endif %}" class="px-4 py-2 bg-shelf-card border border-shelf-border rounded-lg">Clear</a>{% endif %}
     </form>
 
     {% if games %}
-    <div class="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-4">
+    <div class="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-3 lg:grid-cols-6 gap-4">
         {% for game in games %}
         <div class="bg-shelf-card rounded-xl border border-shelf-border overflow-hidden min-w-0">
-            <a href="/item/{{ game.item_id }}" class="block aspect-[3/4] bg-shelf-bg">
+            <a href="/item/{{ game.item_id }}" class="block aspect-[2/3] bg-shelf-bg">
                 {% if game.cover_path %}
                 <img src="/{{ game.cover_path }}" alt="{{ game.title }}" class="w-full h-full object-cover" loading="lazy">
                 {% else %}
@@ -57,7 +57,7 @@
     </div>
     {% endif %}
     {% else %}
-    <div class="bg-shelf-card rounded-xl border border-shelf-border p-10 text-center text-shelf-muted">
+    <div class="bg-shelf-card rounded-xl border border-shelf-border p-8 text-center text-shelf-muted">
         {% if q or selected_platform %}No synced RomM games match these filters.{% else %}No RomM games have been synchronised yet.{% endif %}
     </div>
     {% endif %}
