@@ -35,11 +35,11 @@
         <div class="flex flex-wrap gap-2 pt-2">
             {% if discogs.discogs_url %}<a href="{{ discogs.discogs_url }}" target="_blank" rel="noopener" class="text-xs text-shelf-accent2">Open exact release on Discogs ↗</a>{% endif %}
             {% if user and user.role in ('admin', 'editor') and configured %}
-            <form method="post" action="/api/discogs/items/{{ item.id }}/refresh"><input type="hidden" name="_csrf" value="{{ csrf_token }}"><button class="text-xs text-shelf-accent2" type="submit">Refresh</button></form>
-            <form method="post" action="/api/discogs/items/{{ item.id }}/remove"><input type="hidden" name="_csrf" value="{{ csrf_token }}"><button class="text-xs text-shelf-error" type="submit">Remove match</button></form>
+            <form method="post" action="/api/discogs/items/{{ item.id }}/refresh"><input type="hidden" name="_csrf" value="{{ request.cookies.get('csrf_token', '') }}"><button class="text-xs text-shelf-accent2" type="submit">Refresh</button></form>
+            <form method="post" action="/api/discogs/items/{{ item.id }}/remove"><input type="hidden" name="_csrf" value="{{ request.cookies.get('csrf_token', '') }}"><button class="text-xs text-shelf-error" type="submit">Remove match</button></form>
             {% endif %}
         </div>
-        <p class="text-[11px] text-shelf-muted">Discogs data refreshed {{ discogs.updated_at }}. MusicBrainz remains the canonical release identity.</p>
+        <p class="text-xs text-shelf-muted">Discogs data refreshed {{ discogs.updated_at }}. MusicBrainz remains the canonical release identity.</p>
     </div>
     {% elif configured %}
     <p class="text-sm text-shelf-muted mt-3">No Discogs pressing has been selected for this release.</p>
