@@ -44,8 +44,11 @@ def test_arrange_page_auto_orders_series(live_server, authed_page):
     expect(authed_page.locator("body")).to_contain_text("E2E Ordered Shelf")
     expect(authed_page.locator("[data-copy-id]")).to_have_count(2)
 
-    authed_page.locator("[data-auto-order='series']").click()
-    authed_page.wait_for_load_state("networkidle")
+    with authed_page.expect_response(
+        lambda response: f"/api/locations/{location_id}/auto-order" in response.url
+        and response.request.method == "POST"
+    ):
+        authed_page.locator("[data-auto-order='series']").click()
 
     conn = sqlite3.connect(str(db_path))
     try:

@@ -242,7 +242,6 @@ CREATE TABLE IF NOT EXISTS item_copies (
     provenance         TEXT,
     copy_barcode       TEXT UNIQUE,
     is_primary         INTEGER NOT NULL DEFAULT 0 CHECK(is_primary IN (0, 1)),
-    position_order     INTEGER DEFAULT NULL,
     created_at         TEXT NOT NULL DEFAULT (datetime('now')),
     updated_at         TEXT NOT NULL DEFAULT (datetime('now')),
     UNIQUE(item_id, copy_number)
