@@ -21,7 +21,7 @@ jobs:
       - name: Apply location ordering slice
         run: python scripts/zz_build_location_order.py
       - name: Install Python dependencies
-        run: pip install -r requirements.txt
+        run: pip install -r requirements-dev.txt
       - name: Run focused tests and offline checks
         run: |
           pytest -q tests/test_location_order.py
