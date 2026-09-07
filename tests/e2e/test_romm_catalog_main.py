@@ -1,0 +1,44 @@
+"""Product smoke test for the fork-main RomM synced library."""
+
+import sqlite3
+
+import pytest
+from playwright.sync_api import expect
+
+pytestmark = pytest.mark.e2e
+
+
+def test_romm_library_filters_by_provider_platform(live_server, authed_page):
+    db_path = live_server["data_dir"] / "shelf.db"
+    conn = sqlite3.connect(str(db_path))
+    try:
+        snes_item = conn.execute(
+            "INSERT INTO items (title, media_type, source, owned, platform, romm_id, romm_platform_id) "
+            "VALUES ('RomM Catalogue SNES', 'digital_game', 'romm', 1, 'snes', 'e2e-rom-snes', 'e2e-platform-snes')"
+        ).lastrowid
+        gba_item = conn.execute(
+            "INSERT INTO items (title, media_type, source, owned, platform, romm_id, romm_platform_id) "
+            "VALUES ('RomM Catalogue GBA', 'digital_game', 'romm', 1, 'gba', 'e2e-rom-gba', 'e2e-platform-gba')"
+        ).lastrowid
+        # Keep the fork's library mapping truthful for non-admin access paths too.
+        conn.execute(
+            "INSERT OR IGNORE INTO library_items (item_id, library_id) VALUES (?, 1)",
+            (snes_item,),
+        )
+        conn.execute(
+            "INSERT OR IGNORE INTO library_items (item_id, library_id) VALUES (?, 1)",
+            (gba_item,),
+        )
+        conn.commit()
+    finally:
+        conn.close()
+
+    authed_page.goto(f"{live_server['url']}/romm/library")
+    expect(authed_page.locator("body")).to_contain_text("RomM Library")
+    expect(authed_page.locator("body")).to_contain_text("RomM Catalogue SNES")
+    expect(authed_page.locator("body")).to_contain_text("RomM Catalogue GBA")
+
+    with authed_page.expect_navigation():
+        authed_page.locator("a[href*='platform=e2e-platform-snes']").click()
+    expect(authed_page.locator("body")).to_contain_text("RomM Catalogue SNES")
+    expect(authed_page.locator("body")).not_to_contain_text("RomM Catalogue GBA")
