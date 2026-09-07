@@ -1,0 +1,58 @@
+name: Temporary RomM main asset builder
+
+on:
+  push:
+    branches:
+      - tmp/romm-catalog-main-assets
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: tmp/romm-catalog-main-assets
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+      - name: Add RomM catalogue discovery link
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          path = Path('app/templates/fragments/settings/romm.html')
+          text = path.read_text()
+          needle = '{% include "fragments/settings/romm_public_url.html" %}\n\n    <div class="border-t border-shelf-border pt-4 mt-4">'
+          replacement = '''{% include "fragments/settings/romm_public_url.html" %}
+
+    <div class="mt-3">
+        <a href="/romm/library" class="inline-flex px-4 py-2 bg-shelf-hover text-shelf-text rounded-lg text-sm hover:bg-shelf-border transition-colors">Browse synced library</a>
+    </div>
+
+    <div class="border-t border-shelf-border pt-4 mt-4">'''
+          if 'href="/romm/library"' not in text:
+              if needle not in text:
+                  raise SystemExit('RomM settings insertion point not found')
+              text = text.replace(needle, replacement, 1)
+              path.write_text(text)
+          PY
+      - run: npm ci
+      - run: make css
+      - name: Commit generated output
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add app/templates/fragments/settings/romm.html static/css/app.css static/sw.js
+          if git diff --cached --quiet; then
+            echo "Nothing to commit"
+          else
+            git commit -m "Regenerate RomM catalogue assets"
+            git push origin HEAD:tmp/romm-catalog-main-assets
+          fi
