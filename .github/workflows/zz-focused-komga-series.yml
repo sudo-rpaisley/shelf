@@ -1,0 +1,24 @@
+name: Focused Komga series validation
+
+on:
+  push:
+    branches:
+      - upstream/komga-series-browse-036-helper
+
+jobs:
+  focused:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+          cache: pip
+      - name: Install dependencies
+        run: pip install -r requirements.txt -r requirements-dev.txt
+      - name: Run focused unit tests
+        run: python -m pytest tests/test_komga_series_browse.py -q --tb=short --no-header
+      - name: Install Chromium
+        run: playwright install --with-deps chromium
+      - name: Run focused browser test
+        run: python -m pytest tests/e2e/test_komga_series_browse.py -q --tb=short --no-header -m e2e
