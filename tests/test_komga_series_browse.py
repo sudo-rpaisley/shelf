@@ -1,4 +1,5 @@
 from app.services import komga_records, komga_series_browse
+from app.services.item_write import insert_item
 
 
 def _candidate(komga_id: str, series_id: str, position: float, *, name="Shared Name", kind="manga"):
@@ -42,6 +43,32 @@ def test_browse_groups_by_stable_komga_series_id_not_display_name(db):
     assert groups["series-b"]["browse_series_count"] == 1
     assert groups["series-a"]["browse_series_name"] == "Shared Name"
 
+
+def test_grouping_happens_before_pagination_without_repeating_a_series(db):
+    _add(db, "book-a1", "series-a", 1, name="A Series")
+    _add(db, "book-a2", "series-a", 2, name="A Series")
+    _add(db, "book-a3", "series-a", 3, name="A Series")
+    insert_item(db, {"title": "B Standalone", "media_type": "book", "source": "test"})
+    insert_item(db, {"title": "C Standalone", "media_type": "book", "source": "test"})
+
+    first, raw_total, display_total = komga_series_browse.fetch_page(
+        db, "", [], "i.title COLLATE NOCASE ASC",
+        limit=2, offset=0, values={},
+    )
+    second, raw_total_2, display_total_2 = komga_series_browse.fetch_page(
+        db, "", [], "i.title COLLATE NOCASE ASC",
+        limit=2, offset=2, values={},
+    )
+
+    assert raw_total == raw_total_2 == 5
+    assert display_total == display_total_2 == 3
+    assert len(first) == 2
+    assert len(second) == 1
+    assert sum(item["browse_series_id"] == "series-a" for item in first + second) == 1
+    assert {item["title"] for item in first + second if not item["browse_series_group"]} == {
+        "B Standalone",
+        "C Standalone",
+    }
 
 def test_explicit_series_filter_keeps_individual_item_browse(db):
     _add(db, "book-a1", "series-a", 1)
