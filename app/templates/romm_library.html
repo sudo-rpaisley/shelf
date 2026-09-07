@@ -34,7 +34,11 @@
         {% for game in games %}
         <div class="bg-shelf-card rounded-xl border border-shelf-border overflow-hidden min-w-0">
             <a href="/item/{{ game.item_id }}" class="block aspect-[3/4] bg-shelf-bg">
-                {% if game.cover_path %}<img src="/covers/{{ game.cover_path }}" alt="" class="w-full h-full object-cover">{% endif %}
+                {% if game.cover_path %}
+                <img src="/{{ game.cover_path }}" alt="{{ game.title }}" class="w-full h-full object-cover" loading="lazy">
+                {% else %}
+                <div class="w-full h-full flex items-center justify-center p-4 text-center text-sm text-shelf-muted">{{ game.title }}</div>
+                {% endif %}
             </a>
             <div class="p-3">
                 <a href="/item/{{ game.item_id }}" class="font-medium text-sm line-clamp-2 hover:text-shelf-accent2">{{ game.title }}</a>
