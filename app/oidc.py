@@ -1,27 +1,36 @@
-"""Provider-neutral OpenID Connect identity policy for Shelf (#89).
+"""Provider-neutral OpenID Connect identity and authorisation flow for Shelf.
 
-This module deliberately starts with the security/policy boundary that Shelf
-must own regardless of provider: issuer validation, group claim extraction,
+The first layer owns Shelf policy: issuer validation, group claim extraction,
 required-group access control and deterministic mapping to Shelf's existing
-admin/editor/viewer roles.
-
-Transport, Authorization Code + PKCE, token validation and local-account
-provisioning are layered on top of this core rather than embedding provider-
-specific assumptions here. Authentik, Authelia, Keycloak, Dex and other
-conforming providers can therefore use the same Shelf policy.
+admin/editor/viewer roles. This stacked layer adds standards-based discovery
+and Authorization Code + PKCE state/nonce handling, still without binding the
+flow to Shelf's login routes or local user provisioning.
 """
 
 from __future__ import annotations
 
+import base64
+import hashlib
+import json
 import os
 import re
+import secrets
+import time
 from dataclasses import dataclass
 from typing import Any
-from urllib.parse import urlsplit
+from urllib.parse import urlencode, urlsplit
+
+import httpx
+
+from app.crypto import decrypt_value, encrypt_value, get_encryption_key
 
 
 _USERNAME_SAFE = re.compile(r"[^A-Za-z0-9._-]+")
 _GROUP_SPLIT = re.compile(r"[\r\n,]+")
+
+FLOW_COOKIE = "oidc_flow"
+FLOW_TTL_SECONDS = 600
+HTTP_TIMEOUT_SECONDS = 10.0
 
 
 class OIDCError(Exception):
@@ -44,12 +53,20 @@ class OIDCConfig:
     default_role: str = "deny"
     auto_provision: bool = True
     sync_roles: bool = True
+    client_secret: str = ""
+    scopes: str = "openid profile email"
 
     def __post_init__(self) -> None:
         if self.default_role not in {"deny", "viewer", "editor"}:
             raise OIDCError("Invalid default OIDC role")
         if not self.group_claim.strip():
             raise OIDCError("OIDC group claim cannot be blank")
+        if self.scopes and "openid" not in self.scopes.split():
+            object.__setattr__(self, "scopes", "openid " + self.scopes.strip())
+
+    @property
+    def configured(self) -> bool:
+        return bool(self.issuer.strip() and self.client_id.strip())
 
 
 @dataclass(frozen=True)
@@ -92,6 +109,143 @@ def validate_issuer_url(url: str) -> None:
         or parsed.fragment
     ):
         raise OIDCError("OIDC issuer URL is invalid")
+
+
+def _validate_endpoint_url(url: str, label: str) -> None:
+    parsed = urlsplit(url)
+    allow_http = bool(os.environ.get("SHELF_OIDC_ALLOW_INSECURE_HTTP"))
+    valid_schemes = {"https", "http"} if allow_http else {"https"}
+    if parsed.scheme not in valid_schemes or not parsed.netloc:
+        raise OIDCError(f"OIDC {label} is not a valid HTTPS URL")
+    if parsed.username or parsed.password or parsed.fragment:
+        raise OIDCError(f"OIDC {label} is invalid")
+
+
+async def discover(
+    config: OIDCConfig,
+    *,
+    client: httpx.AsyncClient | None = None,
+) -> dict[str, Any]:
+    """Fetch and strictly validate the provider's discovery document."""
+    if not config.configured:
+        raise OIDCError("OIDC is not configured")
+    validate_issuer_url(config.issuer)
+    discovery_url = config.issuer.rstrip("/") + "/.well-known/openid-configuration"
+
+    owns_client = client is None
+    if client is None:
+        client = httpx.AsyncClient(timeout=HTTP_TIMEOUT_SECONDS, follow_redirects=False)
+    try:
+        response = await client.get(discovery_url, headers={"Accept": "application/json"})
+        response.raise_for_status()
+        metadata = response.json()
+    except (httpx.HTTPError, ValueError) as exc:
+        raise OIDCError("Could not retrieve the OpenID Connect provider configuration") from exc
+    finally:
+        if owns_client:
+            await client.aclose()
+
+    if not isinstance(metadata, dict) or metadata.get("issuer") != config.issuer:
+        raise OIDCError("OIDC discovery issuer does not exactly match the configured issuer")
+
+    for field, label in (
+        ("authorization_endpoint", "authorization endpoint"),
+        ("token_endpoint", "token endpoint"),
+        ("jwks_uri", "JWKS endpoint"),
+    ):
+        endpoint = metadata.get(field)
+        if not isinstance(endpoint, str):
+            raise OIDCError(f"OIDC discovery is missing the {label}")
+        _validate_endpoint_url(endpoint, label)
+
+    response_types = metadata.get("response_types_supported")
+    if isinstance(response_types, list) and "code" not in response_types:
+        raise OIDCError("OIDC provider does not advertise Authorization Code flow support")
+    pkce_methods = metadata.get("code_challenge_methods_supported")
+    if isinstance(pkce_methods, list) and "S256" not in pkce_methods:
+        raise OIDCError("OIDC provider does not advertise PKCE S256 support")
+    return metadata
+
+
+def _pkce_verifier() -> str:
+    # token_urlsafe(64) produces an RFC 7636-compliant verifier length.
+    return secrets.token_urlsafe(64)
+
+
+def _pkce_challenge(verifier: str) -> str:
+    digest = hashlib.sha256(verifier.encode("ascii")).digest()
+    return base64.urlsafe_b64encode(digest).rstrip(b"=").decode("ascii")
+
+
+def _encode_flow(payload: dict[str, Any]) -> str:
+    return encrypt_value(
+        json.dumps(payload, separators=(",", ":")), get_encryption_key()
+    )
+
+
+def _decode_flow(value: str | None) -> dict[str, Any]:
+    if not value:
+        raise OIDCError("OIDC sign-in session is missing or expired")
+    try:
+        raw = decrypt_value(value, get_encryption_key(), key_name=FLOW_COOKIE)
+        payload = json.loads(raw)
+    except (TypeError, ValueError, json.JSONDecodeError) as exc:
+        raise OIDCError("OIDC sign-in session is invalid") from exc
+    if not isinstance(payload, dict):
+        raise OIDCError("OIDC sign-in session is invalid")
+    try:
+        expires_at = float(payload.get("exp", 0))
+    except (TypeError, ValueError) as exc:
+        raise OIDCError("OIDC sign-in session is invalid") from exc
+    if expires_at < time.time():
+        raise OIDCError("OIDC sign-in session is missing or expired")
+    return payload
+
+
+def build_authorization_redirect(
+    config: OIDCConfig,
+    metadata: dict[str, Any],
+    *,
+    redirect_uri: str,
+) -> tuple[str, dict[str, Any]]:
+    """Build an Authorization Code + PKCE request and encrypted-cookie payload."""
+    if not config.configured:
+        raise OIDCError("OIDC is not configured")
+    endpoint = metadata.get("authorization_endpoint")
+    if not isinstance(endpoint, str):
+        raise OIDCError("OIDC discovery is missing the authorization endpoint")
+    _validate_endpoint_url(endpoint, "authorization endpoint")
+
+    state = secrets.token_urlsafe(32)
+    nonce = secrets.token_urlsafe(32)
+    verifier = _pkce_verifier()
+    params = {
+        "client_id": config.client_id,
+        "response_type": "code",
+        "redirect_uri": redirect_uri,
+        "scope": config.scopes,
+        "state": state,
+        "nonce": nonce,
+        "code_challenge": _pkce_challenge(verifier),
+        "code_challenge_method": "S256",
+    }
+    flow = {
+        "state": state,
+        "nonce": nonce,
+        "verifier": verifier,
+        "redirect_uri": redirect_uri,
+        "issuer": config.issuer,
+        "exp": time.time() + FLOW_TTL_SECONDS,
+    }
+    return endpoint + "?" + urlencode(params), flow
+
+
+def validate_callback_state(flow: dict[str, Any], state: str | None) -> None:
+    expected = flow.get("state")
+    if not isinstance(expected, str) or not isinstance(state, str):
+        raise OIDCError("OIDC state validation failed")
+    if not secrets.compare_digest(expected, state):
+        raise OIDCError("OIDC state validation failed")
 
 
 def _claim_value(claims: dict[str, Any], path: str) -> Any:
