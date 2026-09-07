@@ -83,10 +83,7 @@ async def _apply_release_artwork(item_id: int, release_id: str) -> None:
 
     if cover_path:
         with get_db() as db:
-            db.execute(
-                "UPDATE items SET cover_path = ?, updated_at = datetime('now') WHERE id = ?",
-                (cover_path, item_id),
-            )
+            update_item_fields(db, item_id, {"cover_path": cover_path})
 
 
 @router.get("/music")
