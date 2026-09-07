@@ -1,0 +1,41 @@
+name: Build RomM catalogue follow-up
+on:
+  push:
+    branches: [upstream/romm-catalog-036-helper]
+permissions:
+  contents: write
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: upstream/romm-catalog-036-helper
+          fetch-depth: 0
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+      - name: Apply RomM catalogue slice
+        run: python scripts/zz_build_romm_catalog.py
+      - name: Install Python dependencies
+        run: pip install -r requirements.txt
+      - name: Run focused tests and offline checks
+        run: |
+          pytest -q tests/test_romm_catalog.py tests/test_romm_records.py tests/test_romm_full_integration.py
+          python scripts/check_csrf.py
+          python scripts/check_alpine_csp.py
+      - name: Rebuild committed frontend assets
+        run: |
+          npm install
+          make css
+      - name: Commit finished tree without helper machinery
+        run: |
+          rm -f scripts/zz_build_romm_catalog.py .github/workflows/zz-build-romm-catalog.yml
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add -A
+          git commit -m 'Add RomM synced-library catalogue'
+          git push origin HEAD:upstream/romm-catalog-036-helper
