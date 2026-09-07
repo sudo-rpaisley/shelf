@@ -109,6 +109,9 @@ def test_environment_discogs_token_wins(db, monkeypatch):
 
 def test_select_pressing_persists_exact_release(admin_client, db, monkeypatch):
     item_id = _music_item(db)
+    # TestClient handles the request on a separate DB connection, so the
+    # catalogue row and its MusicBrainz release must be committed first.
+    db.commit()
     monkeypatch.setenv("DISCOGS_TOKEN", "token")
     chosen = provider_result.found("discogs", {
         "discogs_release_id": 321,
