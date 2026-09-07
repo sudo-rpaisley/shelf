@@ -14,7 +14,7 @@ router = APIRouter()
 async def arrange_location(
     request: Request,
     location_id: int,
-    _=Depends(require_role("viewer")),
+    user=Depends(require_role("viewer")),
 ):
     with get_db() as db:
         location = db.execute(
@@ -30,7 +30,6 @@ async def arrange_location(
         ).fetchall()
         copies = order_svc.direct_copies(db, location_id)
 
-    user = getattr(request.state, "user", None) or {}
     return request.app.state.templates.TemplateResponse(
         request,
         "location_order.html",
@@ -38,7 +37,7 @@ async def arrange_location(
             "location": dict(location),
             "children": [dict(row) for row in children],
             "copies": copies,
-            "can_edit": user.get("role") in {"admin", "editor"},
+            "can_edit": user["role"] in {"admin", "editor"},
         },
     )
 
