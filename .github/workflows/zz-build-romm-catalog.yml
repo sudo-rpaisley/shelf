@@ -20,17 +20,18 @@ jobs:
           node-version: '20'
       - name: Apply RomM catalogue slice
         run: python scripts/zz_build_romm_catalog.py
-      - name: Install Python dependencies
-        run: pip install -r requirements-dev.txt
-      - name: Run focused tests and offline checks
+      - name: Install dependencies
         run: |
-          pytest -q tests/test_romm_catalog.py tests/test_romm_records.py tests/test_romm_full_integration.py
-          python scripts/check_csrf.py
-          python scripts/check_alpine_csp.py
-      - name: Rebuild committed frontend assets
-        run: |
+          pip install -r requirements-dev.txt
           npm install
+      - name: Run focused tests
+        run: pytest -q tests/test_romm_catalog.py tests/test_romm_records.py tests/test_romm_full_integration.py
+      - name: Refresh generated projections
+        run: |
+          make badges
           make css
+      - name: Run repository offline checks
+        run: make checks-fast
       - name: Commit finished tree without helper machinery
         run: |
           rm -f scripts/zz_build_romm_catalog.py .github/workflows/zz-build-romm-catalog.yml
