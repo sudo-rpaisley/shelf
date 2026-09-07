@@ -21,7 +21,7 @@ jobs:
       - name: Apply RomM catalogue slice
         run: python scripts/zz_build_romm_catalog.py
       - name: Install Python dependencies
-        run: pip install -r requirements.txt
+        run: pip install -r requirements-dev.txt
       - name: Run focused tests and offline checks
         run: |
           pytest -q tests/test_romm_catalog.py tests/test_romm_records.py tests/test_romm_full_integration.py
