@@ -57,6 +57,14 @@ jobs:
       - name: Rebuild the stylesheet and restamp the service worker
         run: make css
 
+      - name: Upload regenerated frontend assets
+        uses: actions/upload-artifact@v4
+        with:
+          name: regenerated-frontend-assets
+          path: |
+            static/css/app.css
+            static/sw.js
+
       - name: Committed build output must match the rebuild
         run: |
           git diff --exit-code --stat static/css/app.css static/sw.js || {
