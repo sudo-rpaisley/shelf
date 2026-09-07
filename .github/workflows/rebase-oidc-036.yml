@@ -1,0 +1,37 @@
+name: Rebase OIDC 0.36
+
+on:
+  pull_request:
+
+permissions:
+  contents: write
+
+jobs:
+  rebase:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: tmp/oidc-rebase-036-helper
+          fetch-depth: 0
+
+      - name: Replay clean OIDC stack on Shelf 0.36
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git fetch origin \
+            upstream/0.36.0-base \
+            upstream/oidc-role-mapping \
+            upstream/oidc-auth-flow \
+            upstream/oidc-token-validation
+
+          git checkout -B oidc-rebased origin/upstream/0.36.0-base
+          git cherry-pick e57cd81d2326d6beafd7a585f06110d294f44c16
+          git push --force origin HEAD:tmp/oidc-role-mapping-036-built
+
+          git cherry-pick 088fd54302109b36fad3804e947928cca77c6c1c
+          git push --force origin HEAD:tmp/oidc-auth-flow-036-built
+
+          git cherry-pick 0edd53de49acac683478c04eabcd51971b43c2c1
+          git push --force origin HEAD:tmp/oidc-token-validation-036-built
