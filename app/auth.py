@@ -292,6 +292,63 @@ def require_role(minimum_role: str):
     return _dependency
 
 
+def require_item_role(minimum_role: str):
+    """FastAPI dependency for one item governed by its Shelf library.
+
+    Authentication remains app-wide. For non-admins, the item's library
+    membership is authoritative for item-local viewer/editor rights. A denied
+    or unmapped item is treated as missing so guessed IDs do not reveal which
+    private catalogue rows exist.
+    """
+    if minimum_role not in ("viewer", "editor"):
+        raise ValueError("Item role must be viewer or editor")
+
+    async def _dependency(request: Request):
+        user = getattr(request.state, "user", None)
+        if not user:
+            _raise_auth_required(request)
+
+        raw_item_id = request.path_params.get("item_id")
+        try:
+            item_id = int(raw_item_id)
+        except (TypeError, ValueError):
+            _raise_item_not_found(request)
+
+        from app.services import libraries
+        with get_db() as db:
+            actor = dict(user)
+            exists = db.execute(
+                "SELECT 1 FROM items WHERE id = ?", (item_id,)
+            ).fetchone() is not None
+            allowed = exists and libraries.has_item_role(
+                db, actor, item_id, minimum_role
+            )
+            visible = allowed or (
+                exists and libraries.has_item_role(db, actor, item_id, "viewer")
+            )
+        if not exists:
+            # Let the route keep its established missing-item response shape.
+            # The item does not exist, so there is no private identity to hide.
+            return user
+        if not allowed:
+            # An item the actor may already see is not secret; preserve Shelf's
+            # normal 403 surface when they simply lack edit rights. Only an
+            # existing inaccessible/unmapped item is hidden as a 404.
+            if minimum_role == "editor" and visible:
+                _raise_insufficient_role(request)
+            _raise_item_not_found(request)
+        return user
+
+    return _dependency
+
+
+def _raise_item_not_found(request: Request):
+    """Hide private or unmapped catalogue IDs behind the missing-item surface."""
+    if request.headers.get("HX-Request") or request.url.path.startswith("/api/"):
+        raise _ResponseException(HTMLResponse("Not found", status_code=404))
+    raise _ResponseException(RedirectResponse(url="/browse", status_code=303))
+
+
 def _raise_auth_required(request: Request):
     """Raise appropriate response for unauthenticated requests."""
     if request.headers.get("HX-Request"):

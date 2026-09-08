@@ -161,8 +161,16 @@ def direct_links(db, item_id: int) -> list[dict]:
     return [dict(row) for row in rows]
 
 
-def search_candidates(db, item_id: int, query: str, *, limit: int = 20):
-    """Find catalogue items not already in this item's related-media group."""
+def search_candidates(
+    db,
+    item_id: int,
+    query: str,
+    *,
+    limit: int = 20,
+    visibility_sql: str | None = None,
+    visibility_params: list | tuple = (),
+):
+    """Find catalogue items outside this related group, optionally ACL-scoped."""
     if not db.execute("SELECT 1 FROM items WHERE id = ?", (item_id,)).fetchone():
         return []
     excluded = sorted(related_ids(db, item_id, include_self=True))
@@ -171,14 +179,16 @@ def search_candidates(db, item_id: int, query: str, *, limit: int = 20):
         return []
     like = f"%{q}%"
     placeholders = ",".join("?" for _ in excluded)
+    visibility_clause = f" AND ({visibility_sql})" if visibility_sql else ""
     rows = db.execute(
-        f"""SELECT * FROM items
-            WHERE (title LIKE ? COLLATE NOCASE
-               OR authors LIKE ? COLLATE NOCASE
-               OR series_name LIKE ? COLLATE NOCASE)
-              AND id NOT IN ({placeholders})
-            ORDER BY title COLLATE NOCASE, media_type, id
+        f"""SELECT i.* FROM items i
+            WHERE (i.title LIKE ? COLLATE NOCASE
+               OR i.authors LIKE ? COLLATE NOCASE
+               OR i.series_name LIKE ? COLLATE NOCASE)
+              AND i.id NOT IN ({placeholders})
+              {visibility_clause}
+            ORDER BY i.title COLLATE NOCASE, i.media_type, i.id
             LIMIT ?""",
-        (like, like, like, *excluded, limit),
+        (like, like, like, *excluded, *visibility_params, limit),
     ).fetchall()
     return rows

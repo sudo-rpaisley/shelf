@@ -4,7 +4,7 @@ from fastapi import APIRouter, Depends, Query, Request
 from fastapi.responses import RedirectResponse
 
 from app import browse_filters, nav
-from app.auth import require_role
+from app.auth import require_item_role, require_role
 from app.config import MEDIA_TYPES, DEFAULT_PAGE_SIZE, BOOK_MEDIA_TYPES
 from app.currency import get_currency
 from app.database import get_db, get_setting, get_game_platforms, get_reading_history
@@ -332,7 +332,7 @@ async def item_edit(
     item_id: int,
     from_: str = Query("", alias="from"),
     error: str | None = Query(None),
-    _=Depends(require_role("editor")),
+    _=Depends(require_item_role("editor")),
 ):
     back = nav.back_target(from_)
     with get_db() as db:

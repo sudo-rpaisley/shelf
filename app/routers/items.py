@@ -10,7 +10,7 @@ from starlette.responses import StreamingResponse
 
 from app import browse_filters
 from app import nav
-from app.auth import require_role
+from app.auth import require_item_role, require_role
 
 logger = logging.getLogger(__name__)
 from app.config import MEDIA_TYPES, HTTP_TIMEOUT, DEFAULT_PAGE_SIZE
@@ -990,7 +990,7 @@ async def merge_items(request: Request, _=Depends(require_role("admin"))):
 
 
 @router.post("/items/{item_id}")
-async def update_item(request: Request, item_id: int, _=Depends(require_role("editor"))):
+async def update_item(request: Request, item_id: int, _=Depends(require_item_role("editor"))):
     form = await request.form()
     back_key = nav.back_target(form.get("from"))["key"]
     redirect_url = f"/item/{item_id}" + (f"?from={back_key}" if back_key else "")
@@ -1096,7 +1096,7 @@ async def update_item(request: Request, item_id: int, _=Depends(require_role("ed
 
 
 @router.post("/items/{item_id}/reading-status")
-async def set_reading_status(request: Request, item_id: int, status: str = Form(""), _=Depends(require_role("viewer"))):
+async def set_reading_status(request: Request, item_id: int, status: str = Form(""), _=Depends(require_item_role("viewer"))):
     """Quick-toggle reading status from detail or browse page."""
     templates = request.app.state.templates
     # `""` is the clear action; anything else is the funnel's to judge (#54).
@@ -1191,7 +1191,7 @@ async def _push_status_to_hardcover(item_id: int, status: str):
 
 
 @router.post("/items/{item_id}/fetch-synopsis")
-async def fetch_synopsis(item_id: int, _=Depends(require_role("editor"))):
+async def fetch_synopsis(item_id: int, _=Depends(require_item_role("editor"))):
     """Look up a description for an item that's missing one."""
     with get_db() as db:
         item = db.execute(
@@ -1288,7 +1288,7 @@ async def backfill_synopses_stream(request: Request, _=Depends(require_role("adm
 
 
 @router.delete("/items/{item_id}")
-async def delete_item(item_id: int, _=Depends(require_role("editor"))):
+async def delete_item(item_id: int, _=Depends(require_item_role("editor"))):
     with get_db() as db:
         row = db.execute("SELECT title FROM items WHERE id = ?", (item_id,)).fetchone()
         title = row["title"] if row else "Item"

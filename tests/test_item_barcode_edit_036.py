@@ -1,6 +1,6 @@
 from pathlib import Path
 
-from app.services import upc
+from app.services import libraries, upc
 
 
 UPC_A = "078073003501"
@@ -8,10 +8,14 @@ EAN_13 = "4006381333931"
 
 
 def _item(db, *, title="Disc", media_type="dvd", upc_value=None):
-    return db.execute(
+    item_id = db.execute(
         "INSERT INTO items (title, media_type, owned, upc) VALUES (?, ?, 1, ?)",
         (title, media_type, upc_value),
     ).lastrowid
+    # This legacy helper predates first-class libraries. Model the upgraded
+    # single-library installation used by the rest of the general test suite.
+    libraries.assign_item(db, item_id, libraries.DEFAULT_LIBRARY_ID)
+    return item_id
 
 
 def test_editable_upc_canonicalises_upca_to_ean13():

@@ -8,7 +8,7 @@ from fastapi import APIRouter, Depends, Form, Request
 from fastapi.responses import JSONResponse, RedirectResponse
 from starlette.responses import StreamingResponse
 
-from app.auth import require_role
+from app.auth import require_item_role, require_role
 from app.config import HTTP_TIMEOUT
 from app.database import get_db, get_setting
 from app.services import hardcover, covers
@@ -199,7 +199,7 @@ async def set_hardcover_schedule(interval: str = Form("off"), _=Depends(require_
 
 
 @router.post("/push/{item_id}")
-async def push_to_hardcover(item_id: int, _=Depends(require_role("editor"))):
+async def push_to_hardcover(item_id: int, _=Depends(require_item_role("editor"))):
     """Push a single item to Hardcover. Returns JSON result."""
     with get_db() as db:
         token = get_setting(db, "hardcover_token")

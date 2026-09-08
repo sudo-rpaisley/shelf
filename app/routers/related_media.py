@@ -3,7 +3,7 @@
 from fastapi import APIRouter, Depends, Form, Query, Request
 from fastapi.responses import HTMLResponse
 
-from app.auth import require_role
+from app.auth import require_item_role, require_role
 from app.database import get_db
 from app.services import libraries, media_groups
 
@@ -67,12 +67,21 @@ async def related_media_search(
     request: Request,
     item_id: int,
     q: str = Query("", max_length=120),
-    _=Depends(require_role("editor")),
+    _=Depends(require_item_role("editor")),
 ):
+    user = dict(request.state.user)
     with get_db() as db:
-        if not db.execute("SELECT 1 FROM items WHERE id = ?", (item_id,)).fetchone():
-            return HTMLResponse("Item not found", status_code=404)
-        candidates = media_groups.search_candidates(db, item_id, q, limit=20)
+        visibility_sql, visibility_params = libraries.item_access_condition(
+            user, item_alias="i", minimum_role="editor"
+        )
+        candidates = media_groups.search_candidates(
+            db,
+            item_id,
+            q,
+            limit=20,
+            visibility_sql=visibility_sql,
+            visibility_params=visibility_params,
+        )
     return request.app.state.templates.TemplateResponse(
         request,
         "fragments/related_media_search.html",
@@ -86,13 +95,17 @@ async def related_media_link(
     item_id: int,
     other_item_id: int = Form(...),
     link_type: str = Form("related"),
-    _=Depends(require_role("editor")),
+    _=Depends(require_item_role("editor")),
 ):
     if item_id == other_item_id:
         return HTMLResponse("An item cannot be related to itself", status_code=400)
 
+    user = dict(request.state.user)
     with get_db() as db:
-        if not _both_items_exist(db, item_id, other_item_id):
+        if (
+            not libraries.has_item_role(db, user, item_id, "editor")
+            or not libraries.has_item_role(db, user, other_item_id, "editor")
+        ):
             return HTMLResponse("Item not found", status_code=404)
         try:
             media_groups.link_items(
@@ -108,10 +121,14 @@ async def related_media_unlink(
     request: Request,
     item_id: int,
     other_item_id: int,
-    _=Depends(require_role("editor")),
+    _=Depends(require_item_role("editor")),
 ):
+    user = dict(request.state.user)
     with get_db() as db:
-        if not _both_items_exist(db, item_id, other_item_id):
+        if (
+            not libraries.has_item_role(db, user, item_id, "editor")
+            or not libraries.has_item_role(db, user, other_item_id, "editor")
+        ):
             return HTMLResponse("Item not found", status_code=404)
         if not media_groups.unlink_items(db, item_id, other_item_id):
             return HTMLResponse("Related-media link not found", status_code=404)

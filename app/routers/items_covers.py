@@ -14,7 +14,7 @@ from fastapi import APIRouter, Depends, Form, Request
 from fastapi.responses import HTMLResponse, JSONResponse
 from starlette.responses import StreamingResponse
 
-from app.auth import require_role
+from app.auth import require_item_role, require_role
 from app.config import COVERS_DIR, HTTP_TIMEOUT
 from app.database import get_db, get_setting
 from app.routers import items_common
@@ -55,7 +55,7 @@ async def cover_status(request: Request, item_id: int, attempt: int = 0, _=Depen
     )
 
 @router.post("/items/{item_id}/retry-cover")
-async def retry_cover(item_id: int, _=Depends(require_role("editor"))):
+async def retry_cover(item_id: int, _=Depends(require_item_role("editor"))):
     """Re-attempt cover download for an item."""
     with get_db() as db:
         item = db.execute("SELECT isbn FROM items WHERE id = ?", (item_id,)).fetchone()
@@ -135,7 +135,7 @@ def _cover_search_credentials(db, media_type: str | None) -> dict[str, str]:
 
 
 @router.get("/items/{item_id}/cover-search")
-async def cover_search(request: Request, item_id: int, query: str | None = None, _=Depends(require_role("editor"))):
+async def cover_search(request: Request, item_id: int, query: str | None = None, _=Depends(require_item_role("editor"))):
     """Search for cover candidates by title/author. Returns HTMX fragment."""
     templates = request.app.state.templates
     with get_db() as db:
@@ -176,7 +176,7 @@ async def cover_select(
     item_id: int,
     url: str = Form(...),
     query: str | None = Form(None),
-    _=Depends(require_role("editor")),
+    _=Depends(require_item_role("editor")),
 ):
     """Download a selected cover URL and save it for an item."""
     async with httpx.AsyncClient(timeout=HTTP_TIMEOUT) as client:
@@ -231,7 +231,7 @@ async def cover_from_url(
     item_id: int,
     url: str = Form(...),
     return_to: str | None = Form(None),
-    _=Depends(require_role("editor")),
+    _=Depends(require_item_role("editor")),
 ):
     """Use a user-pasted public HTTPS image as an item's cover."""
     with get_db() as db:
@@ -261,7 +261,7 @@ async def cover_from_url(
 
 
 @router.post("/items/{item_id}/cover-upload")
-async def cover_upload(request: Request, item_id: int, _=Depends(require_role("editor"))):
+async def cover_upload(request: Request, item_id: int, _=Depends(require_item_role("editor"))):
     """Save a user-supplied image as an item's cover. Returns no body.
 
     Both outcomes return an empty body on purpose: the picker's upload form is
@@ -304,7 +304,7 @@ async def cover_upload(request: Request, item_id: int, _=Depends(require_role("e
     return resp
 
 @router.post("/items/{item_id}/cover-remove")
-async def cover_remove(item_id: int, _=Depends(require_role("editor"))):
+async def cover_remove(item_id: int, _=Depends(require_item_role("editor"))):
     """Clear an item's cover. Returns no body.
 
     The file stays on disk — covers overwrite `{item_id}.jpg` in place, so
