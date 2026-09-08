@@ -23,12 +23,10 @@ jobs:
           cache: pip
       - run: pip install -r requirements.txt -r requirements-dev.txt
 
-      - name: Focused account-menu and CSP tests
-        run: |
-          python -m pytest tests/test_account_menu_037.py tests/test_nav.py -q --tb=short
-          make checks-fast
+      - name: Focused account-menu tests
+        run: python -m pytest tests/test_account_menu_037.py tests/test_nav.py -q --tb=short
 
-      - name: Full unit regression and badges
+      - name: Stamp badges then run full checks
         run: |
           make badges
           make test
