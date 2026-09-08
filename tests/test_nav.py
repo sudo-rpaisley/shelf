@@ -39,7 +39,7 @@ VIEWER = {"id": 3, "username": "viewer", "role": "viewer"}
 
 def test_registry_covers_the_twelve_tabs():
     assert [t["key"] for t in NAV_TABS] == [
-        "browse", "scan", "intake", "shelf-fill", "store", "series",
+        "browse", "my-list", "scan", "intake", "shelf-fill", "store", "series",
         "music", "periodicals", "discover", "stats", "settings", "logs",
     ]
     for tab in NAV_TABS:
@@ -75,7 +75,7 @@ def test_browse_and_settings_are_not_hideable():
 
 def test_viewer_sees_no_scan_intake_settings_or_logs(db):
     keys = _keys(VIEWER)
-    assert "browse" in keys and "store" in keys and "stats" in keys
+    assert "browse" in keys and "my-list" in keys and "store" in keys and "stats" in keys
     for gated in ("scan", "intake", "settings", "logs"):
         assert gated not in keys
 
