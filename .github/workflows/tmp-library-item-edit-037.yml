@@ -21,6 +21,7 @@ jobs:
         run: |
           git fetch origin tmp/library-item-edit-037-build
           git show origin/tmp/library-item-edit-037-build:tests/test_library_item_edit_037.py > tests/test_library_item_edit_037.py
+          git show origin/tmp/library-item-edit-037-build:tests/test_item_barcode_edit_036.py > tests/test_item_barcode_edit_036.py
           git show origin/tmp/library-item-edit-037-build:tmp/apply_library_item_edit_037.py > /tmp/apply_library_item_edit_037.py
           git show origin/tmp/library-item-edit-037-build:tmp/fix_item_role_semantics.py > /tmp/fix_item_role_semantics.py
           python /tmp/apply_library_item_edit_037.py
@@ -40,6 +41,9 @@ jobs:
             tests/test_library_item_access_037.py \
             tests/test_related_media_ui.py \
             tests/test_tags.py \
+            tests/test_synopsis.py \
+            tests/test_tag_boundaries.py \
+            tests/test_item_barcode_edit_036.py \
             -q --tb=short
 
       - name: Full unit regression and checks
@@ -62,6 +66,7 @@ jobs:
             app/routers/hardcover.py \
             app/services/media_groups.py \
             tests/test_library_item_edit_037.py \
+            tests/test_item_barcode_edit_036.py \
             README.md
           git diff --check --cached
           git commit -m "LIBRARIES: enforce item-level edit permissions" || true
