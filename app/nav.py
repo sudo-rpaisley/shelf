@@ -34,6 +34,8 @@ NAV_TABS = [
     {"key": "periodicals", "label": "Periodicals", "path": "/periodicals"},
     {"key": "discover", "label": "Discover", "path": "/discover", "requires": "hardcover"},
     {"key": "stats", "label": "Stats", "path": "/stats"},
+    {"key": "attention", "label": "Needs Attention", "path": "/attention",
+     "roles": ("admin", "editor", "viewer")},
     {"key": "settings", "label": "Settings", "path": "/settings", "roles": ("admin",),
      "menu": "account"},
     {"key": "logs", "label": "Logs", "path": "/logs", "roles": ("admin",),

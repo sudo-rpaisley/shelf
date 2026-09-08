@@ -40,7 +40,7 @@ VIEWER = {"id": 3, "username": "viewer", "role": "viewer"}
 def test_registry_covers_the_twelve_tabs():
     assert [t["key"] for t in NAV_TABS] == [
         "browse", "my-list", "scan", "intake", "shelf-fill", "store", "series",
-        "music", "periodicals", "discover", "stats", "settings", "logs",
+        "music", "periodicals", "discover", "stats", "attention", "settings", "logs",
     ]
     for tab in NAV_TABS:
         assert tab["label"] and tab["path"].startswith("/")
