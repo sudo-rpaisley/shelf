@@ -31,9 +31,7 @@ jobs:
           path = Path('app/services/item_write.py')
           text = path.read_text()
 
-          anchor = '''def _validated_names(db, values: Mapping[str, Any], managed: frozenset[str],
-                             who: str) -> None:
-          '''
+          anchor = 'def _validated_names('
           helper = '''def _resolve_insert_library(db, requested_library_id) -> int | None:
               """Validate an item's target security library before inserting it.
 
