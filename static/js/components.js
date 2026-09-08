@@ -31,9 +31,9 @@ document.addEventListener('alpine:init', function () {
         };
     });
 
-    // base.html — user menu. Settings belongs with the signed-in user rather
-    // than consuming one of the library's primary navigation tabs. Account
-    // still opens the existing profile/password modal.
+    // base.html — signed-in user menu. Administration lives with the account,
+    // while profile/password remains the existing modal. Shortcut help is also
+    // reachable here so the top-right menu is a complete user-action surface.
     Alpine.data('accountMenu', function () {
         return {
             open: false,
@@ -42,6 +42,14 @@ document.addEventListener('alpine:init', function () {
             close() { this.open = false },
             openAccount() { this.open = false; this.showAccount = true },
             closeAccount() { this.showAccount = false },
+            openShortcuts() {
+                this.open = false;
+                const modal = document.getElementById('shortcut-modal');
+                if (modal) {
+                    modal.classList.remove('hidden');
+                    modal.classList.add('flex');
+                }
+            },
             closeAll() { this.open = false; this.showAccount = false }
         };
     });
