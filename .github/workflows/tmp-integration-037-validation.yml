@@ -1,0 +1,61 @@
+name: Final Shelf 0.37 rebuilt integration validation
+
+on:
+  push:
+    branches:
+      - tmp/integration-037-validation
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: rebuild/integration-037
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+          cache: pip
+      - run: pip install -r requirements.txt -r requirements-dev.txt
+      - name: Full unit/integration suite
+        run: make test
+      - name: Offline architecture and safety checks
+        run: make checks-fast
+
+  css:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: rebuild/integration-037
+      - uses: actions/setup-node@v5
+        with:
+          node-version: '22'
+          cache: npm
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+      - run: npm ci
+      - name: Rebuild committed frontend assets
+        run: make css
+      - name: CSS and service-worker output is reproducible
+        run: git diff --exit-code -- static/css/app.css static/sw.js
+
+  e2e:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: rebuild/integration-037
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+          cache: pip
+      - run: pip install -r requirements.txt -r requirements-dev.txt
+      - name: Install Chromium
+        run: playwright install --with-deps chromium
+      - name: Full browser E2E suite
+        run: make test-e2e
