@@ -1,9 +1,7 @@
 """OIDC fixed-session and break-glass recovery policy coverage."""
 
 import time
-from types import SimpleNamespace
 
-import jwt
 import pytest
 from fastapi import Request, Response
 
@@ -33,6 +31,20 @@ def _request_with_token(token: str) -> Request:
         "scheme": "http",
     }
     return Request(scope)
+
+
+def _set_oidc_ready(db, *, enabled: bool = True, issuer: str = "https://id.example/", client_id: str = "shelf") -> None:
+    for key, value in (
+        ("oidc_enabled", "1" if enabled else "0"),
+        ("oidc_issuer", issuer),
+        ("oidc_client_id", client_id),
+    ):
+        db.execute(
+            "INSERT INTO settings (key, value) VALUES (?, ?) "
+            "ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+            (key, value),
+        )
+    db.commit()
 
 
 def test_oidc_token_uses_fixed_reauthentication_ceiling(monkeypatch, admin_user):
@@ -118,26 +130,18 @@ def test_session_hours_default_validate_and_persist(db):
     assert get_oidc_session_hours() == DEFAULT_OIDC_SESSION_HOURS
 
 
-def test_recovery_only_requires_configured_oidc(monkeypatch, admin_user):
-    import app.oidc as oidc
+def test_recovery_only_requires_enabled_and_configured_oidc(db, admin_user):
+    _set_oidc_ready(db, enabled=False)
+    with pytest.raises(OIDCPolicyError, match="Enable and configure OIDC"):
+        save_local_login_policy(LOCAL_LOGIN_RECOVERY_ONLY, admin_user["username"])
 
-    monkeypatch.setattr(
-        oidc,
-        "get_oidc_config",
-        lambda: SimpleNamespace(enabled=False, configured=False),
-    )
+    _set_oidc_ready(db, enabled=True, client_id="")
     with pytest.raises(OIDCPolicyError, match="Enable and configure OIDC"):
         save_local_login_policy(LOCAL_LOGIN_RECOVERY_ONLY, admin_user["username"])
 
 
-def test_recovery_only_allows_only_selected_local_admin(monkeypatch, db, admin_user, viewer_user):
-    import app.oidc as oidc
-
-    monkeypatch.setattr(
-        oidc,
-        "get_oidc_config",
-        lambda: SimpleNamespace(enabled=True, configured=True),
-    )
+def test_recovery_only_allows_only_selected_local_admin(db, admin_user, viewer_user):
+    _set_oidc_ready(db)
     policy = save_local_login_policy(
         LOCAL_LOGIN_RECOVERY_ONLY, admin_user["username"]
     )
@@ -151,14 +155,8 @@ def test_recovery_only_allows_only_selected_local_admin(monkeypatch, db, admin_u
     assert local_password_login_allowed(viewer_user["id"])
 
 
-def test_break_glass_must_remain_local_admin(monkeypatch, db, admin_user):
-    import app.oidc as oidc
-
-    monkeypatch.setattr(
-        oidc,
-        "get_oidc_config",
-        lambda: SimpleNamespace(enabled=True, configured=True),
-    )
+def test_break_glass_must_remain_local_admin(db, admin_user):
+    _set_oidc_ready(db)
     save_local_login_policy(LOCAL_LOGIN_RECOVERY_ONLY, admin_user["username"])
 
     db.execute(
