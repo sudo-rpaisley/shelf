@@ -87,6 +87,17 @@
         </section>
     </div>
 
+    <section id="continue-section"
+             class="mb-8"
+             hx-get="/api/home/continue"
+             hx-trigger="load"
+             hx-swap="outerHTML"
+             data-testid="continue-loading">
+        <div class="bg-shelf-card border border-shelf-border rounded-lg p-5 text-sm text-shelf-muted">
+            Loading your Continue list…
+        </div>
+    </section>
+
     <section>
         <div class="flex items-center justify-between gap-4 mb-4">
             <div>
