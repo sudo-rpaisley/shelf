@@ -129,6 +129,7 @@ async def match_discogs_release(
             "artist": artist or (item["authors"] or ""),
             "barcode": barcode or (item["upc"] or ""),
             "catalog_number": catalog_number or (release.get("catalog_number") or ""),
+            "csrf_token": request.cookies.get("csrf_token", ""),
         },
     )
 
