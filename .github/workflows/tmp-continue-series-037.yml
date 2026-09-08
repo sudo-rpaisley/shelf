@@ -1,0 +1,76 @@
+name: Temporary Continue Series 0.37 validation
+
+on:
+  push:
+    branches:
+      - tmp/continue-series-037-build
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: rebuild/continue-series-037
+          fetch-depth: 0
+
+      - name: Load Continue Series payload
+        run: |
+          git fetch origin tmp/continue-series-037-payload
+          git show origin/tmp/continue-series-037-payload:app/routers/continue_home.py > app/routers/continue_home.py
+          mkdir -p app/templates/fragments
+          git show origin/tmp/continue-series-037-payload:app/templates/fragments/continue.html > app/templates/fragments/continue.html
+          git show origin/tmp/continue-series-037-payload:tests/test_continue_series_037.py > tests/test_continue_series_037.py
+          git show origin/tmp/continue-series-037-payload:tmp/apply_continue_series_037.py > /tmp/apply_continue_series_037.py
+          python /tmp/apply_continue_series_037.py
+          git diff --check
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+          cache: pip
+      - run: pip install -r requirements.txt -r requirements-dev.txt
+
+      - name: Focused Continue Series regressions
+        run: |
+          python -m pytest \
+            tests/test_continue_series_037.py \
+            tests/test_home_dashboard.py \
+            tests/test_home_page.py \
+            tests/test_back_nav.py \
+            tests/test_nav.py \
+            tests/test_router_registration.py \
+            tests/test_series.py \
+            tests/test_personal_state_routes_037.py \
+            tests/test_user_state_foundation_037.py \
+            tests/test_library_secondary_reads_037.py \
+            tests/test_library_item_access_037.py \
+            tests/test_library_scan_acl_037.py \
+            tests/test_schema_ownership.py \
+            tests/test_module_sizes.py \
+            -q --tb=short
+
+      - name: Full regression and architecture checks
+        run: |
+          make badges
+          make test
+          make checks-fast
+
+      - name: Publish validated Continue Series
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add \
+            app/main.py \
+            app/nav.py \
+            app/routers/continue_home.py \
+            app/templates/home.html \
+            app/templates/fragments/continue.html \
+            tests/test_continue_series_037.py \
+            README.md
+          git diff --check --cached
+          git commit -m "HOME: add personal Continue Series rail" || true
+          git push origin HEAD:rebuild/continue-series-037
