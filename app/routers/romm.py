@@ -1,21 +1,27 @@
-"""Admin API and item action for the RomM integration."""
+"""RomM integration API, item action and viewer-facing synced catalogue."""
 
 from __future__ import annotations
 
 import asyncio
 import json
 import logging
+from math import ceil
+from urllib.parse import urlencode
 
 import httpx
-from fastapi import APIRouter, Depends, Request
-from starlette.responses import StreamingResponse
+from fastapi import APIRouter, Depends, Query, Request
+from starlette.responses import RedirectResponse, StreamingResponse
 
 from app.auth import require_role
-from app.services import romm_client, romm_sync
+from app.database import get_db
+from app.services import romm_catalog, romm_client, romm_sync
 
 logger = logging.getLogger(__name__)
 
-router = APIRouter(prefix="/api/romm")
+# Keep one explicitly registered router in app/main.py. API paths carry their
+# full prefix here so the same router can also own the viewer-facing catalogue.
+router = APIRouter()
+PER_PAGE = 60
 
 
 async def _json_body(request: Request) -> dict:
@@ -26,7 +32,69 @@ async def _json_body(request: Request) -> dict:
     return body if isinstance(body, dict) else {}
 
 
-@router.get("/status", dependencies=[Depends(require_role("admin"))])
+@router.get("/romm", dependencies=[Depends(require_role("viewer"))])
+async def romm_index():
+    return RedirectResponse(url="/romm/library", status_code=303)
+
+
+@router.get("/romm/library", dependencies=[Depends(require_role("viewer"))])
+async def romm_library(
+    request: Request,
+    q: str = Query("", max_length=200),
+    platform: str = Query("", max_length=200),
+    page: int = Query(1, ge=1),
+):
+    offset = (page - 1) * PER_PAGE
+    with get_db() as db:
+        summaries = romm_catalog.platform_summaries(db)
+        games, total = romm_catalog.fetch_page(
+            db,
+            platform_id=platform,
+            query=q,
+            limit=PER_PAGE,
+            offset=offset,
+        )
+
+    config = romm_sync.configuration()
+    server = str(config.get("url") or "").strip()
+    public = str(config.get("public_url") or "").strip() or None
+    for game in games:
+        game["romm_url"] = None
+        if server:
+            try:
+                game["romm_url"] = romm_client.browser_rom_url(
+                    server, game["romm_id"], public_url=public
+                )
+            except romm_client.RomMError:
+                pass
+
+    page_count = max(1, ceil(total / PER_PAGE)) if total else 1
+    if total and page > page_count:
+        params: dict[str, object] = {"page": page_count}
+        if platform:
+            params["platform"] = platform
+        if q:
+            params["q"] = q
+        return RedirectResponse(
+            url=f"/romm/library?{urlencode(params)}", status_code=303
+        )
+
+    return request.app.state.templates.TemplateResponse(
+        request,
+        "romm_library.html",
+        {
+            "games": games,
+            "platforms": summaries,
+            "total": total,
+            "q": q,
+            "selected_platform": platform,
+            "page": page,
+            "page_count": page_count,
+        },
+    )
+
+
+@router.get("/api/romm/status", dependencies=[Depends(require_role("admin"))])
 async def status():
     config = romm_sync.configuration()
     return {
@@ -37,7 +105,7 @@ async def status():
     }
 
 
-@router.post("/settings", dependencies=[Depends(require_role("admin"))])
+@router.post("/api/romm/settings", dependencies=[Depends(require_role("admin"))])
 async def save_settings(request: Request):
     body = await _json_body(request)
     url = body.get("url")
@@ -60,7 +128,7 @@ async def save_settings(request: Request):
     return {"ok": True, "message": "RomM settings saved"}
 
 
-@router.post("/test", dependencies=[Depends(require_role("admin"))])
+@router.post("/api/romm/test", dependencies=[Depends(require_role("admin"))])
 async def test_connection(request: Request):
     body = await _json_body(request)
     url = body.get("url")
@@ -78,7 +146,7 @@ async def test_connection(request: Request):
     return {"ok": True, "message": f"Connected — {len(platforms)} platform(s) found"}
 
 
-@router.get("/platforms", dependencies=[Depends(require_role("admin"))])
+@router.get("/api/romm/platforms", dependencies=[Depends(require_role("admin"))])
 async def platforms():
     try:
         rows = await romm_sync.discover_platforms()
@@ -87,7 +155,7 @@ async def platforms():
     return {"ok": True, "platforms": rows}
 
 
-@router.post("/platforms", dependencies=[Depends(require_role("admin"))])
+@router.post("/api/romm/platforms", dependencies=[Depends(require_role("admin"))])
 async def save_platforms(request: Request):
     body = await _json_body(request)
     rows = body.get("platforms")
@@ -100,7 +168,7 @@ async def save_platforms(request: Request):
     return {"ok": True, "message": "RomM platform selection saved"}
 
 
-@router.get("/sync/stream", dependencies=[Depends(require_role("admin"))])
+@router.get("/api/romm/sync/stream", dependencies=[Depends(require_role("admin"))])
 async def sync_stream():
     queue: asyncio.Queue = asyncio.Queue()
 
@@ -138,7 +206,10 @@ async def sync_stream():
     return StreamingResponse(events(), media_type="text/event-stream")
 
 
-@router.get("/items/{item_id}/action", dependencies=[Depends(require_role("viewer"))])
+@router.get(
+    "/api/romm/items/{item_id}/action",
+    dependencies=[Depends(require_role("viewer"))],
+)
 async def item_action(item_id: int):
     try:
         url = romm_sync.item_action(item_id)

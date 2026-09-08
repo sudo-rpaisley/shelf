@@ -39,3 +39,9 @@ If an imported game has no local cover, Shelf may fetch RomM-provided artwork. C
 ## Open in RomM
 
 Items backed by RomM get a compact **Open in RomM** action on the main item card. The action uses the optional Browser URL when configured, keeping Docker-internal addresses out of browser links.
+
+## Browse the synced RomM catalogue
+
+After a sync, **Settings → Integrations → RomM → Browse synced library** opens a read-only catalogue of records contributed by RomM. It shows counts by stable RomM platform identity, supports platform filtering and title/publisher search, and paginates large libraries rather than loading every game in one response.
+
+Games with the same title on different platforms remain separate provider records. The catalogue does not infer that a RomM game is the same release as a physical cartridge or disc and does not create Related Media links automatically. Use explicit Related Media relationships when the user knows two records belong together.
