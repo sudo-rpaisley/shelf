@@ -458,6 +458,34 @@ CREATE TABLE IF NOT EXISTS music_identifiers (
 CREATE INDEX IF NOT EXISTS idx_music_identifiers_item ON music_identifiers(item_id);
 CREATE INDEX IF NOT EXISTS idx_music_identifiers_value
     ON music_identifiers(value COLLATE NOCASE);
+
+-- Optional Discogs exact-pressing enrichment
+CREATE TABLE IF NOT EXISTS music_discogs (
+    item_id             INTEGER PRIMARY KEY REFERENCES items(id) ON DELETE CASCADE,
+    discogs_release_id  INTEGER NOT NULL,
+    discogs_master_id   INTEGER,
+    label               TEXT,
+    catalog_number      TEXT,
+    format_summary      TEXT,
+    genres_json         TEXT,
+    styles_json         TEXT,
+    notes               TEXT,
+    discogs_url         TEXT,
+    updated_at          TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_music_discogs_release
+    ON music_discogs(discogs_release_id);
+
+CREATE TABLE IF NOT EXISTS music_discogs_identifiers (
+    id               INTEGER PRIMARY KEY AUTOINCREMENT,
+    item_id          INTEGER NOT NULL REFERENCES items(id) ON DELETE CASCADE,
+    identifier_type  TEXT NOT NULL,
+    value            TEXT NOT NULL,
+    description      TEXT,
+    UNIQUE(item_id, identifier_type, value)
+);
+CREATE INDEX IF NOT EXISTS idx_music_discogs_identifiers_item
+    ON music_discogs_identifiers(item_id);
 """
 
 

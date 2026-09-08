@@ -63,6 +63,10 @@
         </div>
         {% endif %}
 
+        <div hx-get="/api/discogs/items/{{ item.id }}/card" hx-trigger="load" hx-swap="outerHTML">
+            <section class="mt-4 pt-4 border-t border-shelf-border text-sm text-shelf-muted">Loading optional Discogs pressing data…</section>
+        </div>
+
         {% if release.musicbrainz_release_id %}
         <p class="mt-4 pt-4 border-t border-shelf-border text-xs text-shelf-muted">MusicBrainz release: <a href="https://musicbrainz.org/release/{{ release.musicbrainz_release_id }}" target="_blank" rel="noopener" class="text-shelf-accent2">{{ release.musicbrainz_release_id }}</a></p>
         {% endif %}
