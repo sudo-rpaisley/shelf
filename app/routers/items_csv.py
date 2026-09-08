@@ -17,7 +17,7 @@ from starlette.responses import Response
 from app.auth import require_role
 from app.database import get_db
 from app.routers import items_common
-from app.services import cover_queue
+from app.services import cover_queue, user_state
 from app.services import isbn as isbn_svc
 from app.services.item_write import ItemValueError, insert_item, update_item_fields
 
@@ -58,7 +58,7 @@ async def export_csv(_=Depends(require_role("viewer"))):
     )
 
 @router.post("/import/csv")
-async def import_csv(request: Request, _=Depends(require_role("admin"))):
+async def import_csv(request: Request, user=Depends(require_role("admin"))):
     """Import items from a CSV file upload.
 
     Accepts Shelf's own CSV format plus Goodreads and StoryGraph exports —
@@ -109,6 +109,19 @@ async def import_csv(request: Request, _=Depends(require_role("admin"))):
     seen_in_file: set[tuple] = set()
 
     _CSV_MAX_TEXT = 1000
+
+    def _save_personal_tracker_state(db, item_id: int, norm: dict) -> None:
+        if fmt == reading_imports.GENERIC:
+            return
+        changes = {}
+        if norm["reading_status"] is not None:
+            changes["reading_status"] = norm["reading_status"]
+        if norm["date_finished"] is not None:
+            changes["date_finished"] = norm["date_finished"]
+        if to_read_wishlist and norm["reading_status"] == "want_to_read":
+            changes["wishlist"] = 1
+        if changes:
+            user_state.save_state(db, user["id"], item_id, **changes)
 
     with get_db() as db:
         for i, row in enumerate(reader, start=2):
@@ -214,6 +227,7 @@ async def import_csv(request: Request, _=Depends(require_role("admin"))):
                         if norm["date_finished"] is not None:
                             tracker_fields["date_finished"] = norm["date_finished"]
                         update_item_fields(db, existing["id"], tracker_fields)
+                        _save_personal_tracker_state(db, existing["id"], norm)
                     imported += 1
                     continue
 
@@ -236,6 +250,7 @@ async def import_csv(request: Request, _=Depends(require_role("admin"))):
                     owned=int(owned),
                     source=source,
                 )
+                _save_personal_tracker_state(db, new_id, norm)
                 if isbn_val:
                     new_item_ids.append(new_id)
                 imported += 1

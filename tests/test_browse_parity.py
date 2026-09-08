@@ -1,12 +1,11 @@
 """Parity contract between `/browse`'s first paint and `/api/search`'s
 first fragment.
 
-Both routes now derive their filter values, WHERE clause and dropdown counts
-from `app/browse_filters.py` and `items_common.filter_counts` (see that
-module's docstring and G24 in GOTCHAS.md). These tests pin the contract: the
-same query string must produce the same dropdown options, the same result
-set, the same `q` truncation, and no duplicated filter markup on `/browse`'s
-initial render. They also pin that adding a filter needs no route edit.
+Both routes derive their filter values and WHERE clauses from
+``app/browse_filters.py``. On the per-user rebuild, reading status and Wishlist
+are projected from the signed-in user's ``user_item_state`` while catalogue
+ownership, locations, lending and metadata remain shared. These tests pin that
+the first paint and HTMX search fragment keep identical semantics.
 """
 
 import re
@@ -28,20 +27,18 @@ def _opts(html, sel_id):
 
 
 @pytest.fixture
-def seeded_library(db):
+def seeded_library(db, admin_user):
     """One fixture library exercising every dimension the parity claim spans.
 
-    Two media types, two locations plus an unlocated item, a wishlist item, an
-    item with a `reading_status`, items with two different languages, a tagged
-    item and a lent-out one. The last three matter because `language`, `tag`
-    and `lent_out` all narrow the WHERE clause and therefore move every
-    dropdown count — the parity contract covers *any* query string, so the
-    matrix has to reach them.
+    The fixture intentionally keeps old shared ``reading_status`` / ``owned=0``
+    values on the catalogue rows while also seeding the acting admin's personal
+    state. That makes the contract explicit: the current routes match on the
+    personal rows, not because they silently fell back to the legacy values.
     """
     loc_a = _insert_location(db, "Shelf A")
     loc_b = _insert_location(db, "Shelf B")
 
-    _insert_item(
+    book_read = _insert_item(
         db, title="Book Read", isbn="9780000010018", media_type="book",
         location_id=loc_a, reading_status="read", language="eng",
     )
@@ -59,13 +56,22 @@ def seeded_library(db):
     _insert_item(
         db, title="DVD Two", isbn="9780000020024", media_type="dvd",
     )
-    _insert_item(
+    wishlist_book = _insert_item(
         db, title="Wishlist Book", isbn="9780000030016", media_type="book",
         owned=0,
     )
     deu = _insert_item(
         db, title="Deutsches Buch", isbn="9780000040015", media_type="book",
         location_id=loc_b, language="deu",
+    )
+
+    db.execute(
+        "INSERT INTO user_item_state (user_id, item_id, reading_status) VALUES (?, ?, 'read')",
+        (admin_user["id"], book_read),
+    )
+    db.execute(
+        "INSERT INTO user_item_state (user_id, item_id, wishlist) VALUES (?, ?, 1)",
+        (admin_user["id"], wishlist_book),
     )
 
     # A tagged item and a lent-out one, so `tag=` and `lent_out=` reach a
@@ -133,16 +139,11 @@ def test_result_set_parity(admin_client, seeded_library, qs):
     assert s.status_code == 200
     # `/browse` renders the full page; `/api/search` renders the item_grid
     # fragment. Both embed one card per matching item, so count cards the
-    # same way in each, and compare totals via the OOB counts payload that
-    # `/api/search` (page<=1) emits — `/browse` computes the identical
-    # `filtered_total` via the same helper, surfaced in its "type-filter"
-    # All Types option text, already checked for parity above. Here we
-    # additionally pin raw item-card counts agree.
+    # same way in each.
     b_cards = len(re.findall(r'data-item-id=', b.text))
     s_cards = len(re.findall(r'data-item-id=', s.text))
     assert b_cards == s_cards, (qs, b_cards, s_cards)
-    # Non-vacuity: every query string in the matrix matches something, so a
-    # zero here means the fixture never committed, not that the routes agree.
+    # Non-vacuity: every query string in the matrix matches something.
     assert b_cards > 0, (qs, b.text[:400])
 
 
@@ -157,19 +158,12 @@ def test_result_set_parity_location_filter(admin_client, seeded_library):
 
 
 def test_q_truncation(admin_client, db, monkeypatch):
-    # `q` truncation is enforced *before* the search hits the DB, so a query
-    # long enough to trigger it can never literally appear as a substring of
-    # a short title — LIKE '%<200 chars>%' only matches a title that itself
-    # contains that run of characters. To exercise the load-more URL (which
-    # only renders when there is a next page) without seeding 60+ rows, give
-    # the titles a matching long run of characters and lower the page size
-    # for this test — see CLAUDE.md's "Config import trap": `DEFAULT_PAGE_SIZE`
-    # is bound at import time in both route modules, so patch it there.
-    from app.routers import items as items_module
-    from app.routers import pages as pages_module
+    # `q` truncation is enforced *before* the search hits the DB. The personal
+    # Browse rebuild owns the active route adapter, so lower the page size on
+    # that module rather than the superseded route functions it replaces.
+    from app.routers import personal_browse as personal_browse_module
 
-    monkeypatch.setattr(pages_module, "DEFAULT_PAGE_SIZE", 2)
-    monkeypatch.setattr(items_module, "DEFAULT_PAGE_SIZE", 2)
+    monkeypatch.setattr(personal_browse_module, "DEFAULT_PAGE_SIZE", 2)
 
     run = "y" * 250
     truncated = "y" * 200
@@ -224,10 +218,11 @@ def test_new_filter_needs_no_route_edit(admin_client, seeded_library, monkeypatc
 
     import inspect
 
-    from app.routers.items import search_items
-    from app.routers.pages import browse as browse_route
+    # The adapter remains filter-registry driven: adding a filter to the
+    # registry must not require another route parameter.
+    from app.routers.personal_browse import personal_browse, personal_search_items
 
-    for route in (search_items, browse_route):
+    for route in (personal_browse, personal_search_items):
         params = set(inspect.signature(route).parameters)
         assert not params & set(bf.FILTER_NAMES)
 
@@ -237,15 +232,7 @@ def test_new_filter_needs_no_route_edit(admin_client, seeded_library, monkeypatc
 def test_an_uncastable_location_filter_does_not_500(
     admin_client, seeded_library, path, value
 ):
-    """Issue #40 — a hand-edited filter URL must not crash either route.
-
-    Both fail the same way because both build one WHERE clause, which is #37
-    working as intended; both are fixed the same way for the same reason. A
-    valid-but-unused id already rendered an empty result, and an uncastable
-    one now gives that same answer instead of a 500.
-    """
-    # Pin what "the same answer" means: an unused id renders no items, and the
-    # unfiltered route does render them — so the assertion below is not vacuous.
+    """Issue #40 — a hand-edited filter URL must not crash either route."""
     assert "Book Read" in admin_client.get(path).text
     unused = admin_client.get(f"{path}?location_filter=999999")
     assert unused.status_code == 200

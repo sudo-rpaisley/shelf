@@ -88,9 +88,9 @@ def _search(value):
 
 
 def _owned(value):
-    # Tri-state: "" (either), "1" (owned), "0" (wishlist). Note `owned = 0` binds
-    # no parameter, so the condition and its params must be built together —
-    # which is the whole reason this returns both.
+    # Tri-state: "" (either), "1" (owned), "0" (wishlist). In user-aware
+    # Browse requests, the wishlist branch is replaced below with the acting
+    # user's personal wishlist while physical ownership remains shared.
     if value == "1":
         return "i.owned = 1", []
     if value == "0":
@@ -109,6 +109,29 @@ def _tag(value):
         "i.id IN (SELECT it.item_id FROM item_tags it "
         "JOIN tags t ON it.tag_id = t.id WHERE t.name = ?)",
         [value],
+    )
+
+
+def personal_reading_status_sql(user_id: int) -> tuple[str, list]:
+    """SQL expression for exactly one user's consumption status.
+
+    The 0.37 personal-state migrations snapshot legacy shared state for users
+    present at upgrade. A missing row after that snapshot is genuinely unset;
+    Browse must never fall back to another account's shared legacy value.
+    """
+    return (
+        "(SELECT uis.reading_status FROM user_item_state uis "
+        "WHERE uis.user_id = ? AND uis.item_id = i.id)",
+        [int(user_id)],
+    )
+
+
+def personal_wishlist_sql(user_id: int) -> tuple[str, list]:
+    """SQL expression for exactly one user's wishlist flag."""
+    return (
+        "COALESCE((SELECT uis.wishlist FROM user_item_state uis "
+        "WHERE uis.user_id = ? AND uis.item_id = i.id), 0)",
+        [int(user_id)],
     )
 
 
@@ -214,12 +237,21 @@ def filter_includes(exclude=None) -> Markup:
     return Markup(",".join(f"[name='{f.name}']" for f in FILTERS if f.name not in names))
 
 
-def build_where(values: Mapping[str, str], exclude=None) -> "tuple[str, list]":
+def build_where(
+    values: Mapping[str, str],
+    exclude=None,
+    *,
+    user_id: int | None = None,
+) -> "tuple[str, list]":
     """Build a WHERE clause from filter values, optionally dropping some.
 
     Excluding a filter is how each dropdown's cross-filter counts are built:
     the location counts are "everything except the location filter", so the
     numbers next to each location say what selecting it would yield.
+
+    When ``user_id`` is supplied, status and Wishlist resolve exclusively from
+    that account's `user_item_state`. Shared ownership remains a catalogue
+    fact; only the old `owned=0` Wishlist query-string value changes meaning.
 
     Returns ``("WHERE a AND b", params)`` or ``("", [])`` when nothing is
     active — the empty string is what the callers interpolate.
@@ -233,6 +265,20 @@ def build_where(values: Mapping[str, str], exclude=None) -> "tuple[str, list]":
         value = values.get(f.name, "")
         if not f.is_active(value):
             continue
+
+        if user_id is not None and f.name == "reading_status":
+            expression, expression_params = personal_reading_status_sql(user_id)
+            conditions.append(f"{expression} = ?")
+            params.extend(expression_params)
+            params.append(value)
+            continue
+
+        if user_id is not None and f.name == "owned" and value == "0":
+            expression, expression_params = personal_wishlist_sql(user_id)
+            conditions.append(f"{expression} = 1")
+            params.extend(expression_params)
+            continue
+
         built = f.condition(value)
         if built is None:
             continue
