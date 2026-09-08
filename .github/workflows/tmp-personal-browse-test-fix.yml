@@ -1,0 +1,90 @@
+name: Temporary personal Browse test alignment
+
+on:
+  push:
+    branches:
+      - tmp/personal-browse-test-fix
+
+permissions:
+  contents: write
+
+jobs:
+  fix:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: rebuild/per-user-browse-037
+          fetch-depth: 0
+
+      - name: Align legacy language fixture with signed-in state
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          path = Path('tests/test_items.py')
+          text = path.read_text()
+          old = '''    def test_reading_status_counts_respect_language(self, viewer_client, db):
+              """R3: rs_conds_clean is rebuilt from scratch — it must include the
+              language condition."""
+              self._seed(db)
+              resp = viewer_client.get("/api/search", params={
+                  "language": "de", "reading_status": "read",
+              })
+              html = resp.content.decode()
+              import re
+              m = re.search(r'<option value="read"[^>]*>Read(?: \\((\\d+)\\))?</option>', html)
+              assert m, "Read option missing"
+              # 2 items are 'read' overall but only 1 is German.
+              assert m.group(1) == "1", m.group(0)
+          '''
+          new = '''    def test_reading_status_counts_respect_language(self, viewer_client, viewer_user, db):
+              """R3: personal reading-status counts still respect language."""
+              self._seed(db)
+              rows = db.execute(
+                  "SELECT id FROM items WHERE title IN ('German Novel', 'English Novel') ORDER BY id"
+              ).fetchall()
+              for row in rows:
+                  db.execute(
+                      "INSERT INTO user_item_state (user_id, item_id, reading_status) "
+                      "VALUES (?, ?, 'read')",
+                      (viewer_user["id"], row["id"]),
+                  )
+              db.commit()
+              resp = viewer_client.get("/api/search", params={
+                  "language": "de", "reading_status": "read",
+              })
+              html = resp.content.decode()
+              import re
+              m = re.search(r'<option value="read"[^>]*>Read(?: \\((\\d+)\\))?</option>', html)
+              assert m, "Read option missing"
+              # The viewer has 2 personal 'read' items overall but only 1 is German.
+              assert m.group(1) == "1", m.group(0)
+          '''
+          if old not in text:
+              raise SystemExit('target test block not found')
+          path.write_text(text.replace(old, new, 1))
+          PY
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+          cache: pip
+      - run: pip install -r requirements.txt -r requirements-dev.txt
+
+      - name: Re-run the previously failing unit tests
+        run: |
+          python -m pytest \
+            tests/test_items.py::TestLanguageFilter::test_reading_status_counts_respect_language \
+            tests/test_browse_parity.py::test_result_set_parity \
+            tests/test_browse_parity.py::test_q_truncation \
+            -q --tb=short
+
+      - name: Commit aligned test
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add tests/test_items.py
+          git diff --check --cached
+          git commit -m "TESTS: seed personal reading state in language filter fixture"
+          git push origin HEAD:rebuild/per-user-browse-037
