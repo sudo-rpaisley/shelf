@@ -41,6 +41,19 @@ def _enabled_policy() -> LocalLoginPolicy:
     return LocalLoginPolicy(mode=LOCAL_LOGIN_ENABLED)
 
 
+def _setting_enabled(value: str | None) -> bool:
+    return (value or "").strip().lower() in {"1", "true", "yes", "on"}
+
+
+def _oidc_recovery_mode_ready() -> bool:
+    """Return whether OIDC is enabled and has the minimum sign-in settings."""
+    with get_db() as db:
+        enabled = _setting_enabled(get_setting(db, "oidc_enabled"))
+        issuer = (get_setting(db, "oidc_issuer") or "").strip()
+        client_id = (get_setting(db, "oidc_client_id") or "").strip()
+    return enabled and bool(issuer and client_id)
+
+
 def get_local_login_policy() -> LocalLoginPolicy:
     """Return validated local-login policy, failing open if recovery is unsafe."""
     with get_db() as db:
@@ -94,10 +107,7 @@ def save_local_login_policy(mode: str, break_glass_username: str = "") -> LocalL
             db.execute("DELETE FROM settings WHERE key = 'oidc_break_glass_user_id'")
         return _enabled_policy()
 
-    from app.oidc import get_oidc_config
-
-    oidc = get_oidc_config()
-    if not oidc.enabled or not oidc.configured:
+    if not _oidc_recovery_mode_ready():
         raise OIDCPolicyError("Enable and configure OIDC before restricting local login")
 
     username = break_glass_username.strip()
