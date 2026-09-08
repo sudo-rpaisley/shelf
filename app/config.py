@@ -204,6 +204,7 @@ SECRET_ENV_VARS = {
     "tmdb_api_key": "TMDB_API_KEY",
     "igdb_client_id": "IGDB_CLIENT_ID",
     "igdb_client_secret": "IGDB_CLIENT_SECRET",
+    "oidc_client_secret": "OIDC_CLIENT_SECRET",
 }
 
 

@@ -56,7 +56,7 @@ class SecurityHeadersMiddleware(BaseHTTPMiddleware):
         response = await call_next(request)
         response.headers["X-Content-Type-Options"] = "nosniff"
         response.headers["Strict-Transport-Security"] = "max-age=31536000; includeSubDomains"
-        response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
+        response.headers.setdefault("Referrer-Policy", "strict-origin-when-cross-origin")
         response.headers["X-XSS-Protection"] = "1; mode=block"
         # No 'unsafe-inline', no CDN hosts, and no 'unsafe-eval': all JS is
         # served from /static and Alpine is the CSP build (no new Function) —
