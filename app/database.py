@@ -180,6 +180,76 @@ MIGRATIONS: Sequence[tuple[int, str, str]] = (
      "CREATE INDEX IF NOT EXISTS idx_locations_parent ON locations(parent_id, sort_order)"),
     (31, "Add physical copy shelf position",
      "ALTER TABLE item_copies ADD COLUMN position_order INTEGER DEFAULT NULL"),
+    (32, "Add per-user item state table",
+     """CREATE TABLE IF NOT EXISTS user_item_state (
+            user_id         INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+            item_id         INTEGER NOT NULL REFERENCES items(id) ON DELETE CASCADE,
+            reading_status  TEXT CHECK(reading_status IS NULL OR reading_status IN ('want_to_read','reading','read')),
+            date_started    TEXT,
+            date_finished   TEXT,
+            rating          INTEGER CHECK(rating IS NULL OR (rating >= 1 AND rating <= 5)),
+            wishlist        INTEGER NOT NULL DEFAULT 0 CHECK(wishlist IN (0,1)),
+            favourite       INTEGER NOT NULL DEFAULT 0 CHECK(favourite IN (0,1)),
+            personal_notes  TEXT,
+            progress_value  REAL,
+            progress_total  REAL,
+            progress_unit   TEXT,
+            created_at      TEXT NOT NULL DEFAULT (datetime('now')),
+            updated_at      TEXT NOT NULL DEFAULT (datetime('now')),
+            PRIMARY KEY (user_id, item_id)
+        )"""),
+    (33, "Index per-user item state by item",
+     "CREATE INDEX IF NOT EXISTS idx_user_item_state_item ON user_item_state(item_id)"),
+    (34, "Index per-user consumption status",
+     "CREATE INDEX IF NOT EXISTS idx_user_item_state_status ON user_item_state(user_id, reading_status)"),
+    (35, "Index per-user wishlist",
+     "CREATE INDEX IF NOT EXISTS idx_user_item_state_wishlist ON user_item_state(user_id, wishlist)"),
+    (36, "Index per-user favourites",
+     "CREATE INDEX IF NOT EXISTS idx_user_item_state_favourite ON user_item_state(user_id, favourite)"),
+    (37, "Add per-user reading history table",
+     """CREATE TABLE IF NOT EXISTS user_reading_log (
+            id            INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_id       INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+            item_id       INTEGER NOT NULL REFERENCES items(id) ON DELETE CASCADE,
+            status        TEXT NOT NULL,
+            date_started  TEXT,
+            date_finished TEXT,
+            notes         TEXT,
+            created_at    TEXT NOT NULL DEFAULT (datetime('now'))
+        )"""),
+    (38, "Index per-user reading history",
+     "CREATE INDEX IF NOT EXISTS idx_user_reading_log_user_item ON user_reading_log(user_id, item_id)"),
+    (39, "Snapshot legacy item state for existing users",
+     """INSERT OR IGNORE INTO user_item_state (
+            user_id, item_id, reading_status, date_started, date_finished,
+            wishlist, favourite
+        )
+        SELECT u.id, i.id, i.reading_status, i.date_started, i.date_finished,
+               CASE WHEN i.owned = 0 THEN 1 ELSE 0 END, 0
+          FROM users u
+          CROSS JOIN items i
+         WHERE i.reading_status IS NOT NULL
+            OR i.date_started IS NOT NULL
+            OR i.date_finished IS NOT NULL
+            OR i.owned = 0"""),
+    (40, "Snapshot legacy reading history for existing users",
+     """INSERT INTO user_reading_log (
+            user_id, item_id, status, date_started, date_finished, notes, created_at
+        )
+        SELECT u.id, r.item_id, r.status, r.date_started, r.date_finished,
+               r.notes, r.created_at
+          FROM users u
+          CROSS JOIN reading_log r
+         WHERE NOT EXISTS (
+            SELECT 1 FROM user_reading_log p
+             WHERE p.user_id = u.id
+               AND p.item_id = r.item_id
+               AND p.status = r.status
+               AND p.date_started IS r.date_started
+               AND p.date_finished IS r.date_finished
+               AND p.notes IS r.notes
+               AND p.created_at = r.created_at
+         )"""),
 )
 
 MIGRATION_TABLES = """
@@ -288,6 +358,45 @@ CREATE TABLE IF NOT EXISTS users (
     created_at     TEXT NOT NULL DEFAULT (datetime('now')),
     updated_at     TEXT NOT NULL DEFAULT (datetime('now'))
 );
+
+CREATE TABLE IF NOT EXISTS user_item_state (
+    user_id         INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    item_id         INTEGER NOT NULL REFERENCES items(id) ON DELETE CASCADE,
+    reading_status  TEXT CHECK(reading_status IS NULL OR reading_status IN ('want_to_read','reading','read')),
+    date_started    TEXT,
+    date_finished   TEXT,
+    rating          INTEGER CHECK(rating IS NULL OR (rating >= 1 AND rating <= 5)),
+    wishlist        INTEGER NOT NULL DEFAULT 0 CHECK(wishlist IN (0,1)),
+    favourite       INTEGER NOT NULL DEFAULT 0 CHECK(favourite IN (0,1)),
+    personal_notes  TEXT,
+    progress_value  REAL,
+    progress_total  REAL,
+    progress_unit   TEXT,
+    created_at      TEXT NOT NULL DEFAULT (datetime('now')),
+    updated_at      TEXT NOT NULL DEFAULT (datetime('now')),
+    PRIMARY KEY (user_id, item_id)
+);
+CREATE INDEX IF NOT EXISTS idx_user_item_state_item
+    ON user_item_state(item_id);
+CREATE INDEX IF NOT EXISTS idx_user_item_state_status
+    ON user_item_state(user_id, reading_status);
+CREATE INDEX IF NOT EXISTS idx_user_item_state_wishlist
+    ON user_item_state(user_id, wishlist);
+CREATE INDEX IF NOT EXISTS idx_user_item_state_favourite
+    ON user_item_state(user_id, favourite);
+
+CREATE TABLE IF NOT EXISTS user_reading_log (
+    id            INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id       INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    item_id       INTEGER NOT NULL REFERENCES items(id) ON DELETE CASCADE,
+    status        TEXT NOT NULL,
+    date_started  TEXT,
+    date_finished TEXT,
+    notes         TEXT,
+    created_at    TEXT NOT NULL DEFAULT (datetime('now'))
+);
+CREATE INDEX IF NOT EXISTS idx_user_reading_log_user_item
+    ON user_reading_log(user_id, item_id);
 
 CREATE TABLE IF NOT EXISTS game_platforms (
     id         INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -667,10 +776,10 @@ def gc_orphaned_series_meta(db, *names: str | None) -> None:
     series_meta row can only go orphaned when its name stops being
     referenced, so there's never a reason to GC a brand-new name.
 
-    Call this against the same `db` connection/transaction that performed
-    the items UPDATE, and only after that UPDATE has executed. SQLite
-    connections see their own uncommitted writes, so this does not need to
-    wait for get_db()'s commit-on-exit — but it does need the UPDATE to have
+    Call this against the same `with get_db() as db:` connection/transaction
+    that performed the items UPDATE, and only after that UPDATE has executed.
+    SQLite connections see their own uncommitted writes, so this does not need
+    to wait for get_db()'s commit-on-exit — but it does need the UPDATE to have
     already run on this connection, or the "still referenced?" check below
     will see stale rows.
 
