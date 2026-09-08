@@ -46,7 +46,8 @@ jobs:
             tests/test_oidc_accounts_037.py \
             tests/test_oidc_core.py \
             tests/test_auth.py \
-            tests/test_auth_hardening.py \
+            tests/test_auth_boundaries.py \
+            tests/test_auth_routes.py \
             tests/test_library_permissions_037.py \
             tests/test_schema_ownership.py \
             tests/test_module_sizes.py \
