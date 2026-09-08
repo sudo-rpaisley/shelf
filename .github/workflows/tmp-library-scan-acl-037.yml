@@ -21,8 +21,10 @@ jobs:
         run: |
           git fetch origin tmp/library-scan-acl-037-payload
           git show origin/tmp/library-scan-acl-037-payload:tmp/apply_library_scan_acl_037.py > /tmp/apply_library_scan_acl_037.py
+          git show origin/tmp/library-scan-acl-037-payload:tmp/refine_library_scan_acl_037.py > /tmp/refine_library_scan_acl_037.py
           git show origin/tmp/library-scan-acl-037-payload:tests/test_library_scan_acl_037.py > tests/test_library_scan_acl_037.py
           python /tmp/apply_library_scan_acl_037.py
+          python /tmp/refine_library_scan_acl_037.py
           git diff --check
 
       - uses: actions/setup-python@v6
