@@ -14,7 +14,7 @@ from app.config import get_client_ip
 from app.database import get_db
 from app.oidc import OIDCAccessDenied, OIDCError
 from app.oidc_policy import get_local_login_policy, get_oidc_session_ttl_seconds
-from app.services import oidc_login
+from app.services import oidc_login, oidc_accounts
 from app.services.oidc_logout import get_provider_logout_url
 
 logger = logging.getLogger(__name__)
@@ -275,11 +275,28 @@ async def setup(
 
 @router.get("/api/users")
 async def list_users(request: Request, _=Depends(require_role("admin"))):
+    config = oidc_login.get_login_config().core
+    managed = oidc_accounts.managed_user_ids() if config.sync_roles else set()
+    policy = get_local_login_policy()
     with get_db() as db:
         users = db.execute(
             "SELECT id, username, display_name, role, created_at FROM users ORDER BY created_at"
         ).fetchall()
-    return [dict(u) for u in users]
+        oidc_user_ids = {
+            int(row["user_id"])
+            for row in db.execute(
+                "SELECT DISTINCT user_id FROM user_identities"
+            ).fetchall()
+        }
+    result = []
+    for row in users:
+        item = dict(row)
+        user_id = int(row["id"])
+        item["role_managed"] = user_id in managed
+        item["auth_provider"] = "OIDC" if user_id in oidc_user_ids else "Local"
+        item["break_glass"] = policy.recovery_only and user_id == policy.break_glass_user_id
+        result.append(item)
+    return result
 
 
 @router.post("/api/users")
@@ -323,6 +340,14 @@ async def update_user_role(
 ):
     if role not in ("admin", "editor", "viewer"):
         return {"ok": False, "message": "Invalid role"}
+    if oidc_accounts.is_role_managed(
+        user_id, oidc_login.get_login_config().core
+    ):
+        return {"ok": False, "message": "This user's role is managed by OIDC group mapping"}
+
+    policy = get_local_login_policy()
+    if policy.recovery_only and user_id == policy.break_glass_user_id and role != "admin":
+        return {"ok": False, "message": "The break-glass recovery account must remain an administrator"}
 
     current_user = request.state.user
     with get_db() as db:
@@ -352,6 +377,11 @@ async def reset_user_password(
     password: str = Form(...),
     _=Depends(require_role("admin")),
 ):
+    if _is_oidc_account(user_id):
+        return {
+            "ok": False,
+            "message": "OIDC accounts do not use Shelf passwords; keep a separate local break-glass administrator",
+        }
     if len(password) < 8:
         return {"ok": False, "message": "Password must be at least 8 characters"}
 
@@ -375,8 +405,10 @@ async def change_own_password(
     new_password: str = Form(...),
     _=Depends(require_role("viewer")),
 ):
-    """Any authenticated user can change their own password."""
+    """Any locally authenticated account can change its own password."""
     user = request.state.user
+    if _is_oidc_account(user["id"]):
+        return {"ok": False, "message": "Your account is managed by OIDC and does not use a Shelf password"}
     if len(new_password) < 8:
         return {"ok": False, "message": "New password must be at least 8 characters"}
 
@@ -407,8 +439,10 @@ async def change_display_name(
     display_name: str = Form(...),
     _=Depends(require_role("viewer")),
 ):
-    """Any authenticated user can update their own display name."""
+    """Locally managed users can update their own display name."""
     user = request.state.user
+    if _is_oidc_account(user["id"]):
+        return {"ok": False, "message": "Your display name is managed by your OIDC identity provider"}
     display_name = display_name.strip()
     if not display_name:
         return {"ok": False, "message": "Display name cannot be empty"}
@@ -437,6 +471,10 @@ async def delete_user(request: Request, user_id: int, _=Depends(require_role("ad
     current_user = request.state.user
     if current_user["id"] == user_id:
         return {"ok": False, "message": "Cannot delete your own account"}
+
+    policy = get_local_login_policy()
+    if policy.recovery_only and user_id == policy.break_glass_user_id:
+        return {"ok": False, "message": "Cannot delete the configured break-glass recovery account"}
 
     with get_db() as db:
         target = db.execute("SELECT id, role FROM users WHERE id = ?", (user_id,)).fetchone()

@@ -188,6 +188,46 @@
         </form>
     </div>
 
+    {% set oidc_account_status = request.query_params.get('oidc_account_status') %}
+    {% if oidc_account_status == 'linked' %}
+    <div class="bg-shelf-success/10 border border-shelf-success/40 text-shelf-success text-sm rounded-lg px-4 py-2" role="status">Existing Shelf account linked to OIDC.</div>
+    {% elif oidc_account_status in ('not_configured', 'invalid', 'missing_user', 'recovery_account', 'already_linked', 'subject_used', 'last_local_admin') %}
+    <div class="bg-shelf-error/10 border border-shelf-error/30 text-shelf-error text-sm rounded-lg px-4 py-2" role="alert">
+        {% if oidc_account_status == 'not_configured' %}Configure the OIDC issuer and Client ID before linking an account.
+        {% elif oidc_account_status == 'missing_user' %}The selected Shelf user was not found.
+        {% elif oidc_account_status == 'recovery_account' %}The break-glass recovery administrator cannot be linked to OIDC.
+        {% elif oidc_account_status == 'already_linked' %}That Shelf account already has an external identity.
+        {% elif oidc_account_status == 'subject_used' %}That OIDC subject is already linked to another Shelf account.
+        {% elif oidc_account_status == 'last_local_admin' %}Keep at least one separate local administrator before linking this account.
+        {% else %}The account link request was invalid.{% endif %}
+    </div>
+    {% endif %}
+
+    <div class="bg-shelf-card rounded-xl border border-shelf-border p-6">
+        <h2 class="text-lg font-semibold">Link an existing Shelf account</h2>
+        <p class="text-sm text-shelf-muted mt-1 mb-4">Bind a local account to the provider's stable OIDC <code>sub</code> value. Shelf never infers identity from a matching username or email address.</p>
+        <form method="POST" action="/api/settings/oidc/accounts/link-existing" class="grid grid-cols-1 md:grid-cols-3 gap-4 items-end">
+            <div>
+                <label for="oidc_link_username" class="block text-sm font-medium text-shelf-muted mb-1">Shelf username</label>
+                <input id="oidc_link_username" name="shelf_username" type="text" maxlength="128" required autocomplete="off"
+                       class="w-full bg-shelf-bg border border-shelf-border rounded-lg px-3 py-2 text-sm text-shelf-text">
+            </div>
+            <div>
+                <label for="oidc_link_subject" class="block text-sm font-medium text-shelf-muted mb-1">OIDC subject (sub)</label>
+                <input id="oidc_link_subject" name="oidc_subject" type="text" maxlength="512" required autocomplete="off"
+                       class="w-full bg-shelf-bg border border-shelf-border rounded-lg px-3 py-2 text-sm text-shelf-text">
+            </div>
+            <div>
+                <label for="oidc_link_email" class="block text-sm font-medium text-shelf-muted mb-1">Provider email <span class="font-normal">(optional)</span></label>
+                <input id="oidc_link_email" name="oidc_email" type="email" maxlength="320" autocomplete="off"
+                       class="w-full bg-shelf-bg border border-shelf-border rounded-lg px-3 py-2 text-sm text-shelf-text">
+            </div>
+            <div class="md:col-span-3">
+                <button type="submit" class="px-4 py-2 bg-shelf-hover hover:bg-shelf-border text-shelf-text rounded-lg text-sm border border-shelf-border">Link existing account</button>
+            </div>
+        </form>
+    </div>
+
     <div class="grid grid-cols-1 xl:grid-cols-2 gap-6">
         <div class="bg-shelf-card rounded-xl border border-shelf-border p-6">
             <h2 class="text-lg font-semibold">Local sign-in recovery</h2>
