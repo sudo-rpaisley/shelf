@@ -132,7 +132,8 @@ def test_non_admin_stats_do_not_leak_global_valuation_history(
     viewer_html = viewer_client.get("/stats").text
     admin_html = admin_client.get("/stats").text
 
-    assert "Run batch valuations" in viewer_html
+    assert "snapshots cover the whole catalogue" in viewer_html
+    assert "snapshots cover the whole catalogue" not in admin_html
     assert "Run batch valuations" not in admin_html
 
 
