@@ -20,6 +20,8 @@ jobs:
       - name: Fetch and apply direct-access port
         run: |
           git show origin/tmp/library-item-access-037-build:.github/tmp_patch_library_item_access_037.py > /tmp/patch.py
+          git show origin/tmp/library-item-access-037-build:.github/tmp_fix_library_item_patch_037.py > /tmp/fix_patch.py
+          python /tmp/fix_patch.py
           python /tmp/patch.py
           python -m py_compile \
             app/routers/pages.py \
