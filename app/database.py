@@ -698,7 +698,21 @@ def init_db():
     COVERS_DIR.mkdir(parents=True, exist_ok=True)
     with get_db() as db:
         db.executescript(SCHEMA)
+
+        # Old sudo-rpaisley builds and upstream Shelf independently occupied
+        # migration numbers 24+. Translate that legacy namespace before the
+        # normal migration pass can interpret those numbers as upstream work.
+        # The prepare phase is committed deliberately: if a later migration or
+        # provider projection fails, the next startup can detect and retry the
+        # partially prepared database without repeating destructive steps.
+        from app.services import fork_upgrade
+        prepared_fork = fork_upgrade.prepare_pre_037_fork(db)
+        if prepared_fork:
+            db.commit()
+
         migration_logs = _run_migrations(db)
+        if prepared_fork or fork_upgrade.is_pre_037_fork_database(db):
+            migration_logs.extend(fork_upgrade.finish_pre_037_fork(db))
     # Only now, with the migration transaction committed and its connection
     # closed, is it safe for SQLiteHandler to open its own connection and
     # write these records to log_entries.
