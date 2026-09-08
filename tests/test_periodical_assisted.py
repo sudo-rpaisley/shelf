@@ -57,7 +57,7 @@ def test_assisted_search_preserves_scanned_barcode(admin_client):
         "cover_url": None,
     }])
     with patch(
-        "app.routers.periodical_assisted.periodical_google.search_issues",
+        "app.routers.periodicals.periodical_google.search_issues",
         new=AsyncMock(return_value=found),
     ):
         response = admin_client.get(
@@ -82,7 +82,7 @@ def test_selecting_candidate_refills_confirmation_without_losing_addon(admin_cli
         "language": "en",
     })
     with patch(
-        "app.routers.periodical_assisted.periodical_google.lookup_issue",
+        "app.routers.periodicals.periodical_google.lookup_issue",
         new=AsyncMock(return_value=selected),
     ):
         response = admin_client.get(
@@ -105,7 +105,7 @@ def test_bad_provider_issn_falls_back_to_scanned_carrier_hint(admin_client):
         "issn": "2049-3631",
     })
     with patch(
-        "app.routers.periodical_assisted.periodical_google.lookup_issue",
+        "app.routers.periodicals.periodical_google.lookup_issue",
         new=AsyncMock(return_value=selected),
     ):
         response = admin_client.get(
