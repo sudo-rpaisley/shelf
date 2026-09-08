@@ -1,0 +1,64 @@
+name: Temporary Komga series Browse 0.37 port
+
+on:
+  push:
+    branches:
+      - tmp/komga-series-037-build
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: upstream/komga-series-browse-037
+          fetch-depth: 0
+
+      - name: Apply focused 0.36 feature delta
+        run: |
+          set -euo pipefail
+          git fetch origin upstream/komga-series-browse-036
+          git diff --binary 4cf280ba5a546215c4f09e8169d1617f368b60df 423238f720f97fdc7224e66e3848d8c293034514 -- . \
+            ':(exclude)README.md' \
+            ':(exclude)static/css/app.css' \
+            ':(exclude)static/sw.js' > /tmp/komga-series.patch
+          git apply --3way --index /tmp/komga-series.patch
+          git diff --check --cached
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+          cache: pip
+      - run: pip install -r requirements.txt -r requirements-dev.txt
+
+      - name: Validate current-upstream behaviour
+        run: |
+          make badges
+          make test
+          make checks-fast
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+      - run: npm ci
+
+      - name: Rebuild committed frontend assets
+        run: make css
+
+      - name: Focused Komga product smoke
+        run: |
+          python -m playwright install --with-deps chromium
+          python -m pytest tests/e2e/test_komga_series_browse.py -q --tb=short -m e2e
+
+      - name: Commit clean port
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add README.md app static tests
+          git diff --check --cached
+          git commit -m "KOMGA: group stable provider series in Browse"
+          git push origin HEAD:upstream/komga-series-browse-037
