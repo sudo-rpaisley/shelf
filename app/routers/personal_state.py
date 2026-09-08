@@ -5,7 +5,7 @@ from fastapi.responses import HTMLResponse
 
 from app.auth import require_role
 from app.database import get_db
-from app.services import user_state
+from app.services import libraries, user_state
 
 # Install the focused per-user Browse route adaptations while pages/items are
 # imported but before app.main mounts either APIRouter onto FastAPI.
@@ -21,6 +21,9 @@ def _user_id(request: Request) -> int:
 
 def _render(request: Request, item_id: int, *, status_code: int = 200):
     with get_db() as db:
+        user = dict(request.state.user)
+        if not libraries.has_item_role(db, user, item_id, "viewer"):
+            return HTMLResponse("Item not found", status_code=404)
         item = db.execute(
             "SELECT id, title, media_type FROM items WHERE id = ?",
             (item_id,),
@@ -61,10 +64,13 @@ async def update_personal_state(
 ):
     """Update supplied personal fields and re-render the personal-state card."""
     form = await request.form()
-    user_id = _user_id(request)
+    user = dict(request.state.user)
+    user_id = int(user["id"])
 
     try:
         with get_db() as db:
+            if not libraries.has_item_role(db, user, item_id, "viewer"):
+                return HTMLResponse("Item not found", status_code=404)
             if not db.execute(
                 "SELECT 1 FROM items WHERE id = ?", (item_id,)
             ).fetchone():

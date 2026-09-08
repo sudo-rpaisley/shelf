@@ -1,4 +1,4 @@
-from app.services import user_state
+from app.services import libraries, user_state
 
 
 def _item(db, title="Shared Catalogue Book", media_type="book"):
@@ -6,6 +6,7 @@ def _item(db, title="Shared Catalogue Book", media_type="book"):
         "INSERT INTO items (title, media_type, source) VALUES (?, ?, 'test')",
         (title, media_type),
     ).lastrowid
+    libraries.assign_item(db, item_id, libraries.DEFAULT_LIBRARY_ID)
     # Client requests use their own SQLite connection. Commit fixture writes
     # before crossing that connection boundary so the route can see the item.
     db.commit()

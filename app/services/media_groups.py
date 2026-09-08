@@ -56,35 +56,85 @@ def unlink_items(db, item_a_id: int, item_b_id: int) -> bool:
     return bool(cursor.rowcount)
 
 
-def related_ids(db, item_id: int, *, include_self: bool = False) -> list[int]:
-    """Return the full transitive item-link component containing ``item_id``."""
-    if not db.execute("SELECT 1 FROM items WHERE id = ?", (item_id,)).fetchone():
-        return []
+def related_ids(
+    db,
+    item_id: int,
+    *,
+    include_self: bool = False,
+    visibility_sql: str | None = None,
+    visibility_params: list | tuple = (),
+) -> list[int]:
+    """Return the transitive item-link component containing ``item_id``.
 
-    rows = db.execute(
-        """WITH RECURSIVE connected(id) AS (
-               SELECT ?
-               UNION
-               SELECT CASE
-                        WHEN il.item_a_id = connected.id THEN il.item_b_id
-                        ELSE il.item_a_id
-                      END
-               FROM item_links il
-               JOIN connected
-                 ON il.item_a_id = connected.id OR il.item_b_id = connected.id
-           )
-           SELECT id FROM connected ORDER BY id""",
-        (item_id,),
-    ).fetchall()
+    With a visibility predicate, inaccessible nodes are removed from the graph
+    itself. A hidden B in A↔B↔C therefore cannot act as an invisible bridge.
+    The predicate must reference the ``i`` alias and remain parameter-bound.
+    """
+    if visibility_sql:
+        rows = db.execute(
+            f"""WITH RECURSIVE
+            visible(id) AS (
+                SELECT i.id FROM items i WHERE {visibility_sql}
+            ),
+            connected(id) AS (
+                SELECT ? WHERE EXISTS (SELECT 1 FROM visible WHERE id = ?)
+                UNION
+                SELECT CASE
+                         WHEN il.item_a_id = connected.id THEN il.item_b_id
+                         ELSE il.item_a_id
+                       END
+                  FROM item_links il
+                  JOIN connected
+                    ON il.item_a_id = connected.id OR il.item_b_id = connected.id
+                  JOIN visible v
+                    ON v.id = CASE
+                                WHEN il.item_a_id = connected.id THEN il.item_b_id
+                                ELSE il.item_a_id
+                              END
+            )
+            SELECT id FROM connected ORDER BY id""",
+            [*visibility_params, item_id, item_id],
+        ).fetchall()
+    else:
+        if not db.execute("SELECT 1 FROM items WHERE id = ?", (item_id,)).fetchone():
+            return []
+        rows = db.execute(
+            """WITH RECURSIVE connected(id) AS (
+                   SELECT ?
+                   UNION
+                   SELECT CASE
+                            WHEN il.item_a_id = connected.id THEN il.item_b_id
+                            ELSE il.item_a_id
+                          END
+                   FROM item_links il
+                   JOIN connected
+                     ON il.item_a_id = connected.id OR il.item_b_id = connected.id
+               )
+               SELECT id FROM connected ORDER BY id""",
+            (item_id,),
+        ).fetchall()
     ids = [row["id"] for row in rows]
     if not include_self:
         ids = [value for value in ids if value != item_id]
     return ids
 
 
-def related_items(db, item_id: int, *, include_self: bool = False):
+def related_items(
+    db,
+    item_id: int,
+    *,
+    include_self: bool = False,
+    visibility_sql: str | None = None,
+    visibility_params: list | tuple = (),
+):
     """Hydrate a related-media component in stable display order."""
-    ids = related_ids(db, item_id, include_self=include_self)
+    ids = related_ids(
+        db,
+        item_id,
+        include_self=include_self,
+        visibility_sql=visibility_sql,
+        visibility_params=visibility_params,
+    )
     if not ids:
         return []
     placeholders = ",".join("?" for _ in ids)

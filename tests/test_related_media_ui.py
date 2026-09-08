@@ -1,11 +1,13 @@
-from app.services import media_groups
+from app.services import libraries, media_groups
 
 
 def _item(db, title, media_type="book", authors=None):
-    return db.execute(
+    item_id = db.execute(
         "INSERT INTO items (title, media_type, authors, owned) VALUES (?, ?, ?, 1)",
         (title, media_type, authors),
     ).lastrowid
+    libraries.assign_item(db, item_id, libraries.DEFAULT_LIBRARY_ID)
+    return item_id
 
 
 def test_item_detail_loads_related_media_panel(admin_client, db):

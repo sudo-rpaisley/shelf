@@ -5,21 +5,29 @@ from fastapi.responses import HTMLResponse
 
 from app.auth import require_role
 from app.database import get_db
-from app.services import media_groups
+from app.services import libraries, media_groups
 
 router = APIRouter()
 
 
-def _panel_context(db, item_id: int) -> dict | None:
+def _panel_context(db, item_id: int, user: dict) -> dict | None:
+    if not libraries.has_item_role(db, user, item_id, "viewer"):
+        return None
     item = db.execute(
         "SELECT id, title, media_type FROM items WHERE id = ?", (item_id,)
     ).fetchone()
     if not item:
         return None
 
+    visibility_sql, visibility_params = libraries.item_access_condition(user, item_alias="i")
     direct = {row["item_id"]: row for row in media_groups.direct_links(db, item_id)}
     related = []
-    for row in media_groups.related_items(db, item_id):
+    for row in media_groups.related_items(
+        db,
+        item_id,
+        visibility_sql=visibility_sql,
+        visibility_params=visibility_params,
+    ):
         value = dict(row)
         edge = direct.get(row["id"])
         value["direct"] = edge is not None
@@ -30,7 +38,7 @@ def _panel_context(db, item_id: int) -> dict | None:
 
 def _render_panel(request: Request, item_id: int):
     with get_db() as db:
-        context = _panel_context(db, item_id)
+        context = _panel_context(db, item_id, dict(request.state.user))
     if context is None:
         return HTMLResponse("Item not found", status_code=404)
     return request.app.state.templates.TemplateResponse(

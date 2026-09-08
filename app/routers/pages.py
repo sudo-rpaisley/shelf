@@ -12,6 +12,7 @@ from app.routers import items_common
 from app.routers.items_common import SORT_OPTIONS
 from app.routers.series import find_gaps
 from app.services.home_dashboard import dashboard_summary
+from app.services import libraries
 
 router = APIRouter()
 
@@ -190,7 +191,11 @@ async def item_detail(
     _=Depends(require_role("viewer")),
 ):
     back = nav.back_target(from_)
+    user = dict(request.state.user)
     with get_db() as db:
+        if not libraries.has_item_role(db, user, item_id, "viewer"):
+            return RedirectResponse(url="/browse", status_code=303)
+        access_sql, access_params = libraries.item_access_condition(user, item_alias="i")
         item = db.execute(
             "SELECT i.*, l.name as location_name FROM items i "
             "LEFT JOIN locations l ON i.location_id = l.id "
@@ -227,8 +232,9 @@ async def item_detail(
         linked_items = db.execute(
             "SELECT i.id, i.title, i.media_type, i.abs_id FROM item_links il "
             "JOIN items i ON (i.id = CASE WHEN il.item_a_id = ? THEN il.item_b_id ELSE il.item_a_id END) "
-            "WHERE (il.item_a_id = ? OR il.item_b_id = ?) AND il.link_type = 'format'",
-            (item_id, item_id, item_id),
+            "WHERE (il.item_a_id = ? OR il.item_b_id = ?) AND il.link_type = 'format' "
+            f"AND ({access_sql})",
+            [item_id, item_id, item_id] + access_params,
         ).fetchall()
 
         # ABS playback URLs — for this item and for linked formats, so a
@@ -255,9 +261,15 @@ async def item_detail(
 
         game_platforms = get_game_platforms(db)
 
-        from app.routers.tags import get_item_tags, get_all_tags
+        from app.routers.tags import get_item_tags
         item_tags = get_item_tags(db, item_id)
-        all_tags = get_all_tags(db)
+        all_tags = db.execute(
+            "SELECT t.id, t.name, COUNT(DISTINCT it.item_id) AS count "
+            "FROM tags t JOIN item_tags it ON it.tag_id = t.id "
+            "JOIN items i ON i.id = it.item_id "
+            f"WHERE {access_sql} GROUP BY t.id, t.name ORDER BY t.name COLLATE NOCASE",
+            access_params,
+        ).fetchall()
 
         reading_history = get_reading_history(db, item_id)
 
@@ -268,9 +280,9 @@ async def item_detail(
         series_progress = None
         if item["series_name"] and item["series_name"].strip():
             siblings = db.execute(
-                "SELECT owned, series_position FROM items "
-                "WHERE series_name = ? COLLATE NOCASE",
-                (item["series_name"],),
+                "SELECT i.owned, i.series_position FROM items i "
+                f"WHERE i.series_name = ? COLLATE NOCASE AND ({access_sql})",
+                [item["series_name"]] + access_params,
             ).fetchall()
             positions = [r["series_position"] for r in siblings]
             whole = [int(p) for p in positions
@@ -324,6 +336,8 @@ async def item_edit(
 ):
     back = nav.back_target(from_)
     with get_db() as db:
+        if not libraries.has_item_role(db, dict(request.state.user), item_id, "editor"):
+            return RedirectResponse(url="/browse", status_code=303)
         item = db.execute("SELECT * FROM items WHERE id = ?", (item_id,)).fetchone()
         locations = db.execute(
             "SELECT * FROM locations ORDER BY sort_order, name"
