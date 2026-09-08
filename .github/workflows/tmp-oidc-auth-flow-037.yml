@@ -1,0 +1,48 @@
+name: Temporary OIDC auth flow 0.37
+
+on:
+  push:
+    branches:
+      - tmp/oidc-auth-flow-037-build
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: upstream/oidc-auth-flow-037
+          fetch-depth: 0
+
+      - name: Replay PKCE/auth-flow layer
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git cherry-pick c9af878837a90cd0c900c3ebf9280b812094e098
+          git commit --amend -m "OIDC: add Authorization Code and PKCE flow on Shelf 0.37.2"
+          git diff --check HEAD^
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+          cache: pip
+      - run: pip install -r requirements.txt -r requirements-dev.txt
+
+      - name: Focused OIDC flow tests
+        run: python -m pytest tests/test_oidc_core.py tests/test_oidc_auth_flow.py -q --tb=short
+
+      - name: Full regression and checks
+        run: |
+          make badges
+          make test
+          make checks-fast
+
+      - name: Publish clean layer
+        run: |
+          git add README.md
+          git diff --check --cached
+          git commit --amend --no-edit
+          git push --force-with-lease origin HEAD:upstream/oidc-auth-flow-037
