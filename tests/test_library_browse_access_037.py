@@ -135,7 +135,8 @@ def test_access_predicate_is_bound_and_role_aware(viewer_user):
     sql, params = libraries.item_access_condition(viewer_user, item_alias="catalogue_item")
     assert "catalogue_item.id" in sql
     assert "lm.user_id = ?" in sql
-    assert str(viewer_user["id"]) not in sql
+    assert f"lm.user_id = {viewer_user['id']}" not in sql
+    assert sql.count("?") == 1
     assert params == [viewer_user["id"]]
 
     editor_sql, editor_params = libraries.item_access_condition(
@@ -144,6 +145,7 @@ def test_access_predicate_is_bound_and_role_aware(viewer_user):
         minimum_role="editor",
     )
     assert "('editor')" in editor_sql
+    assert editor_sql.count("?") == 1
     assert editor_params == [viewer_user["id"]]
 
 
