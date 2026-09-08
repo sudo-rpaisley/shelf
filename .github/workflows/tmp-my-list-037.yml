@@ -1,3 +1,4 @@
+# Temporary builder: never merge this workflow into the feature branch.
 name: Temporary My List 0.37 rebuild
 
 on:
