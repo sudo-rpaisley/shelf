@@ -36,11 +36,16 @@ jobs:
           python -m pytest \
             tests/test_library_scan_acl_037.py \
             tests/test_scan_modes.py \
-            tests/test_upc_scan.py \
+            tests/test_scan_upc_enrichment.py \
             tests/test_upc_manual_add.py \
+            tests/test_scan_fetch_boundaries.py \
+            tests/test_isbn_scan_quota.py \
             tests/test_library_item_access_037.py \
             tests/test_library_item_assignment_037.py \
-            tests/test_user_state_037.py \
+            tests/test_user_state_foundation_037.py \
+            tests/test_personal_state_routes_037.py \
+            tests/test_catalogue_add_boundaries.py \
+            tests/test_manual_add_boundaries.py \
             -q --tb=short
 
       - name: Full unit regression and checks
