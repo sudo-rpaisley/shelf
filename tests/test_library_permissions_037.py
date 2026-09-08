@@ -2,6 +2,7 @@
 
 import json
 
+from app import database
 from app.auth import hash_password
 from app.services import libraries
 from tests.conftest import _insert_item
@@ -23,7 +24,7 @@ def _user(db, username: str, role: str = "viewer") -> dict:
 def _migration_sql(version: int) -> str:
     return next(
         sql
-        for number, _description, sql in libraries._LIBRARY_MIGRATIONS
+        for number, _description, sql in database.MIGRATIONS
         if number == version
     )
 
@@ -34,9 +35,10 @@ def _run_upgrade_snapshot(db) -> None:
 
 
 def test_library_migrations_use_current_037_namespace():
-    assert [version for version, _description, _sql in libraries._LIBRARY_MIGRATIONS] == list(
-        range(41, 49)
-    )
+    assert [
+        version for version, _description, _sql in database.MIGRATIONS
+        if 41 <= version <= 48
+    ] == list(range(41, 49))
 
 
 def test_init_creates_default_main_library(db):

@@ -1,11 +1,7 @@
 """First-class Shelf libraries and per-library catalogue permissions.
 
-A Shelf library is a logical security boundary. It is not a Collection and it
-is not an external provider's native library identifier.
-
-The first rollout keeps the existing global ``users.role`` column intact for
-compatibility. Global admins bypass library checks; for every other account the
-membership role is authoritative and may differ from library to library.
+Schema ownership lives in :mod:`app.database`; this service is deliberately
+query/policy-only so permission checks never execute DDL on request paths.
 """
 
 from __future__ import annotations
@@ -16,117 +12,8 @@ DEFAULT_LIBRARY_ID = 1
 DEFAULT_LIBRARY_NAME = "Main Library"
 LEGACY_FORK_LEDGER_KEY = "sudo_fork_037_migration_ledger_v1"
 
-_CREATE_LIBRARIES = """CREATE TABLE IF NOT EXISTS libraries (
-    id            INTEGER PRIMARY KEY AUTOINCREMENT,
-    name          TEXT NOT NULL UNIQUE COLLATE NOCASE,
-    description   TEXT,
-    is_archived   INTEGER NOT NULL DEFAULT 0 CHECK(is_archived IN (0,1)),
-    created_at    TEXT NOT NULL DEFAULT (datetime('now')),
-    updated_at    TEXT NOT NULL DEFAULT (datetime('now'))
-)"""
-
-_CREATE_LIBRARY_MEMBERSHIPS = """CREATE TABLE IF NOT EXISTS library_memberships (
-    library_id    INTEGER NOT NULL REFERENCES libraries(id) ON DELETE CASCADE,
-    user_id       INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-    role          TEXT NOT NULL CHECK(role IN ('viewer','editor')),
-    created_at    TEXT NOT NULL DEFAULT (datetime('now')),
-    updated_at    TEXT NOT NULL DEFAULT (datetime('now')),
-    PRIMARY KEY (library_id, user_id)
-)"""
-
-# A one-to-one mapping table is intentional for the first implementation.
-# ``item_id`` is the primary key, so an item can belong to exactly one Shelf
-# library. This gives us real foreign keys without a risky rebuild of Shelf's
-# large historical ``items`` table merely to add a NOT NULL library_id column.
-_CREATE_LIBRARY_ITEMS = """CREATE TABLE IF NOT EXISTS library_items (
-    item_id       INTEGER PRIMARY KEY REFERENCES items(id) ON DELETE CASCADE,
-    library_id    INTEGER NOT NULL REFERENCES libraries(id) ON DELETE RESTRICT,
-    created_at    TEXT NOT NULL DEFAULT (datetime('now'))
-)"""
-
-_SCHEMA_STATEMENTS = (
-    _CREATE_LIBRARIES,
-    _CREATE_LIBRARY_MEMBERSHIPS,
-    _CREATE_LIBRARY_ITEMS,
-    "CREATE INDEX IF NOT EXISTS idx_library_memberships_user ON library_memberships(user_id)",
-    "CREATE INDEX IF NOT EXISTS idx_library_items_library ON library_items(library_id)",
-)
-
-# The pre-0.37 fork already used migration numbers 57-64 for this feature.
-# The 0.37 bridge archives that old ledger under LEGACY_FORK_LEDGER_KEY before
-# releasing those numbers back to upstream. These migrations therefore use the
-# next free 0.37 numbers, 41-48. The membership seed has one extra guard: if the
-# archived ledger proves legacy migration 62 already ran, missing membership
-# rows are deliberate current state and must not be silently re-granted.
-_LIBRARY_MIGRATIONS = (
-    (41, "Add Shelf libraries", _CREATE_LIBRARIES),
-    (42, "Add per-library user memberships", _CREATE_LIBRARY_MEMBERSHIPS),
-    (43, "Add one-library-per-item mapping", _CREATE_LIBRARY_ITEMS),
-    (
-        44,
-        "Create default Main Library",
-        "INSERT OR IGNORE INTO libraries (id, name, description) "
-        "VALUES (1, 'Main Library', 'Default library created during upgrade')",
-    ),
-    (
-        45,
-        "Assign existing catalogue items to Main Library",
-        "INSERT OR IGNORE INTO library_items (item_id, library_id) "
-        "SELECT id, 1 FROM items",
-    ),
-    (
-        46,
-        "Seed Main Library memberships from existing roles",
-        """INSERT OR IGNORE INTO library_memberships (library_id, user_id, role)
-           SELECT 1, id, role FROM users
-            WHERE role IN ('viewer','editor')
-              AND NOT EXISTS (
-                    SELECT 1 FROM settings
-                     WHERE key = 'sudo_fork_037_migration_ledger_v1'
-                       AND value LIKE '%\"version\":62%'
-              )""",
-    ),
-    (
-        47,
-        "Index library memberships by user",
-        "CREATE INDEX IF NOT EXISTS idx_library_memberships_user "
-        "ON library_memberships(user_id)",
-    ),
-    (
-        48,
-        "Index catalogue items by library",
-        "CREATE INDEX IF NOT EXISTS idx_library_items_library "
-        "ON library_items(library_id)",
-    ),
-)
-
-
-def _register_migrations() -> None:
-    """Register library migrations with Shelf's central atomic runner."""
-    from app import database
-
-    existing = {version for version, _description, _sql in database.MIGRATIONS}
-    pending = tuple(m for m in _LIBRARY_MIGRATIONS if m[0] not in existing)
-    if pending:
-        database.MIGRATIONS = tuple(database.MIGRATIONS) + pending
-
-
-_register_migrations()
-
-
-def ensure_schema(db) -> None:
-    """Create the library tables/indexes without granting any new access.
-
-    Upgrade data backfills deliberately live in migrations 44-46. Re-running
-    this helper must never silently restore a membership an administrator has
-    intentionally removed.
-    """
-    for statement in _SCHEMA_STATEMENTS:
-        db.execute(statement)
-
 
 def list_libraries(db, *, include_archived: bool = False) -> list[dict]:
-    ensure_schema(db)
     where = "" if include_archived else "WHERE is_archived = 0"
     rows = db.execute(
         f"SELECT id, name, description, is_archived, created_at, updated_at "
@@ -136,7 +23,6 @@ def list_libraries(db, *, include_archived: bool = False) -> list[dict]:
 
 
 def create_library(db, name: str, description: str | None = None) -> dict:
-    ensure_schema(db)
     clean_name = str(name or "").strip()
     if not clean_name:
         raise ValueError("Library name is required")
@@ -162,7 +48,6 @@ def create_library(db, name: str, description: str | None = None) -> dict:
 
 def set_membership(db, library_id: int, user_id: int, role: str) -> dict:
     """Grant or change a non-admin library membership."""
-    ensure_schema(db)
     if role not in ("viewer", "editor"):
         raise ValueError("Library role must be viewer or editor")
     if not db.execute("SELECT 1 FROM libraries WHERE id = ?", (library_id,)).fetchone():
@@ -187,7 +72,6 @@ def set_membership(db, library_id: int, user_id: int, role: str) -> dict:
 
 
 def remove_membership(db, library_id: int, user_id: int) -> None:
-    ensure_schema(db)
     db.execute(
         "DELETE FROM library_memberships WHERE library_id = ? AND user_id = ?",
         (library_id, user_id),
@@ -201,7 +85,6 @@ def membership_role(db, user: dict, library_id: int) -> str | None:
     are intentionally ignored here once memberships exist; they are migration
     input, not a permanent permission ceiling.
     """
-    ensure_schema(db)
     if user.get("role") == "admin":
         return "admin"
     row = db.execute(
@@ -220,7 +103,6 @@ def has_library_role(db, user: dict, library_id: int, minimum_role: str = "viewe
 
 def accessible_library_ids(db, user: dict, *, include_archived: bool = False) -> list[int]:
     """Return libraries visible to a user in stable name order."""
-    ensure_schema(db)
     archived_clause = "" if include_archived else "AND l.is_archived = 0"
     if user.get("role") == "admin":
         rows = db.execute(
@@ -240,7 +122,6 @@ def accessible_library_ids(db, user: dict, *, include_archived: bool = False) ->
 
 def assign_item(db, item_id: int, library_id: int) -> None:
     """Assign or move one catalogue item to exactly one Shelf library."""
-    ensure_schema(db)
     if not db.execute("SELECT 1 FROM items WHERE id = ?", (item_id,)).fetchone():
         raise LookupError("Item not found")
     if not db.execute("SELECT 1 FROM libraries WHERE id = ?", (library_id,)).fetchone():
@@ -253,7 +134,6 @@ def assign_item(db, item_id: int, library_id: int) -> None:
 
 
 def item_library_id(db, item_id: int) -> int | None:
-    ensure_schema(db)
     row = db.execute(
         "SELECT library_id FROM library_items WHERE item_id = ?",
         (item_id,),

@@ -250,6 +250,51 @@ MIGRATIONS: Sequence[tuple[int, str, str]] = (
                AND p.notes IS r.notes
                AND p.created_at = r.created_at
          )"""),
+    (41, "Add Shelf libraries",
+     """CREATE TABLE IF NOT EXISTS libraries (
+            id            INTEGER PRIMARY KEY AUTOINCREMENT,
+            name          TEXT NOT NULL UNIQUE COLLATE NOCASE,
+            description   TEXT,
+            is_archived   INTEGER NOT NULL DEFAULT 0 CHECK(is_archived IN (0,1)),
+            created_at    TEXT NOT NULL DEFAULT (datetime('now')),
+            updated_at    TEXT NOT NULL DEFAULT (datetime('now'))
+        )"""),
+    (42, "Add per-library user memberships",
+     """CREATE TABLE IF NOT EXISTS library_memberships (
+            library_id    INTEGER NOT NULL REFERENCES libraries(id) ON DELETE CASCADE,
+            user_id       INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+            role          TEXT NOT NULL CHECK(role IN ('viewer','editor')),
+            created_at    TEXT NOT NULL DEFAULT (datetime('now')),
+            updated_at    TEXT NOT NULL DEFAULT (datetime('now')),
+            PRIMARY KEY (library_id, user_id)
+        )"""),
+    (43, "Add one-library-per-item mapping",
+     """CREATE TABLE IF NOT EXISTS library_items (
+            item_id       INTEGER PRIMARY KEY REFERENCES items(id) ON DELETE CASCADE,
+            library_id    INTEGER NOT NULL REFERENCES libraries(id) ON DELETE RESTRICT,
+            created_at    TEXT NOT NULL DEFAULT (datetime('now'))
+        )"""),
+    (44, "Create default Main Library",
+     "INSERT OR IGNORE INTO libraries (id, name, description) "
+     "VALUES (1, 'Main Library', 'Default library created during upgrade')"),
+    (45, "Assign existing catalogue items to Main Library",
+     "INSERT OR IGNORE INTO library_items (item_id, library_id) "
+     "SELECT id, 1 FROM items"),
+    (46, "Seed Main Library memberships from existing roles",
+     """INSERT OR IGNORE INTO library_memberships (library_id, user_id, role)
+        SELECT 1, id, role FROM users
+         WHERE role IN ('viewer','editor')
+           AND NOT EXISTS (
+                 SELECT 1 FROM settings
+                  WHERE key = 'sudo_fork_037_migration_ledger_v1'
+                    AND value LIKE '%\"version\":62%'
+           )"""),
+    (47, "Index library memberships by user",
+     "CREATE INDEX IF NOT EXISTS idx_library_memberships_user "
+     "ON library_memberships(user_id)"),
+    (48, "Index catalogue items by library",
+     "CREATE INDEX IF NOT EXISTS idx_library_items_library "
+     "ON library_items(library_id)"),
 )
 
 MIGRATION_TABLES = """
@@ -397,6 +442,37 @@ CREATE TABLE IF NOT EXISTS user_reading_log (
 );
 CREATE INDEX IF NOT EXISTS idx_user_reading_log_user_item
     ON user_reading_log(user_id, item_id);
+
+-- First-class Shelf libraries and per-library permissions. These tables are
+-- also created by migrations 41-43 for upgrades; baking them into the central
+-- table script keeps fresh databases on the same schema without request-path DDL.
+CREATE TABLE IF NOT EXISTS libraries (
+    id            INTEGER PRIMARY KEY AUTOINCREMENT,
+    name          TEXT NOT NULL UNIQUE COLLATE NOCASE,
+    description   TEXT,
+    is_archived   INTEGER NOT NULL DEFAULT 0 CHECK(is_archived IN (0,1)),
+    created_at    TEXT NOT NULL DEFAULT (datetime('now')),
+    updated_at    TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+CREATE TABLE IF NOT EXISTS library_memberships (
+    library_id    INTEGER NOT NULL REFERENCES libraries(id) ON DELETE CASCADE,
+    user_id       INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    role          TEXT NOT NULL CHECK(role IN ('viewer','editor')),
+    created_at    TEXT NOT NULL DEFAULT (datetime('now')),
+    updated_at    TEXT NOT NULL DEFAULT (datetime('now')),
+    PRIMARY KEY (library_id, user_id)
+);
+CREATE INDEX IF NOT EXISTS idx_library_memberships_user
+    ON library_memberships(user_id);
+
+CREATE TABLE IF NOT EXISTS library_items (
+    item_id       INTEGER PRIMARY KEY REFERENCES items(id) ON DELETE CASCADE,
+    library_id    INTEGER NOT NULL REFERENCES libraries(id) ON DELETE RESTRICT,
+    created_at    TEXT NOT NULL DEFAULT (datetime('now'))
+);
+CREATE INDEX IF NOT EXISTS idx_library_items_library
+    ON library_items(library_id);
 
 CREATE TABLE IF NOT EXISTS game_platforms (
     id         INTEGER PRIMARY KEY AUTOINCREMENT,
