@@ -46,6 +46,7 @@ jobs:
             tests/test_scan_fetch_boundaries.py \
             tests/test_isbn_scan_quota.py \
             tests/test_legacy_book_scan.py \
+            tests/test_security_fixes.py \
             tests/test_library_item_access_037.py \
             tests/test_library_item_assignment_037.py \
             tests/test_user_state_foundation_037.py \
@@ -79,4 +80,4 @@ jobs:
           git commit -m "LIBRARIES: enforce scanner access boundaries" || true
           git push origin HEAD:rebuild/library-scan-acl-037
 
-# payload trigger: scanner state service extraction
+# payload trigger: preserve scan-log compatibility seam
