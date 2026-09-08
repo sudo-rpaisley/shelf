@@ -1,0 +1,148 @@
+name: Temporary library item assignment 0.37 validation
+
+on:
+  push:
+    branches:
+      - tmp/library-item-assignment-037-build
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: rebuild/library-item-assignment-037
+          fetch-depth: 0
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+          cache: pip
+      - run: pip install -r requirements.txt -r requirements-dev.txt
+
+      - name: Apply atomic library assignment patch
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          path = Path('app/services/item_write.py')
+          text = path.read_text()
+
+          anchor = '''def _validated_names(db, values: Mapping[str, Any], managed: frozenset[str],
+                             who: str) -> None:
+          '''
+          helper = '''def _resolve_insert_library(db, requested_library_id) -> int | None:
+              """Validate an item's target security library before inserting it.
+
+              Existing add/import paths do not choose a library yet, so an omitted
+              target means Main Library. Historical tests may construct a pre-library
+              schema; only that absent-table case remains neutral when no target was
+              explicitly requested.
+              """
+              from app.services import libraries
+
+              explicit = requested_library_id not in (None, "")
+              if explicit:
+                  try:
+                      target = int(requested_library_id)
+                  except (TypeError, ValueError):
+                      raise LookupError("Library not found") from None
+              else:
+                  target = libraries.DEFAULT_LIBRARY_ID
+
+              try:
+                  exists = db.execute(
+                      "SELECT 1 FROM libraries WHERE id = ?", (target,)
+                  ).fetchone()
+              except Exception as exc:
+                  if explicit or "no such table" not in str(exc).casefold():
+                      raise
+                  return None
+
+              if not exists:
+                  raise LookupError("Library not found")
+              return target
+
+
+          '''
+          if helper not in text:
+              if anchor not in text:
+                  raise SystemExit('helper anchor not found')
+              text = text.replace(anchor, helper + anchor, 1)
+
+          old_doc = '''    That means the defaults live in exactly one place too.\n\n    Raises `ValueError` on an unknown or database-managed field rather than\n'''
+          new_doc = '''    That means the defaults live in exactly one place too.\n\n    ``library_id`` is a deliberate non-column input selecting the item's Shelf\n    security library. Until add/import surfaces expose a selector, omitting it\n    assigns the item to Main Library.\n\n    Raises `ValueError` on an unknown or database-managed field rather than\n'''
+          if old_doc in text:
+              text = text.replace(old_doc, new_doc, 1)
+
+          old_values = '''    values: dict[str, Any] = dict(fields or {})
+              values.update(kwargs)
+
+              if not values.get("title"):
+          '''
+          new_values = '''    values: dict[str, Any] = dict(fields or {})
+              values.update(kwargs)
+              requested_library_id = values.pop("library_id", None)
+
+              if not values.get("title"):
+          '''
+          if old_values not in text:
+              raise SystemExit('insert values anchor not found')
+          text = text.replace(old_values, new_values, 1)
+
+          old_validate = '''    _validated_names(db, values, _MANAGED, "insert_item")
+              values = validate_item_fields(db, values)
+
+              names = list(values)
+          '''
+          new_validate = '''    _validated_names(db, values, _MANAGED, "insert_item")
+              values = validate_item_fields(db, values)
+              target_library_id = _resolve_insert_library(db, requested_library_id)
+
+              names = list(values)
+          '''
+          if old_validate not in text:
+              raise SystemExit('insert validation anchor not found')
+          text = text.replace(old_validate, new_validate, 1)
+
+          old_after = '''    item_id = cursor.lastrowid
+              if "location_id" in values:
+                  item_copies.sync_primary_location(db, item_id, values["location_id"])
+              return item_id
+          '''
+          new_after = '''    item_id = cursor.lastrowid
+              if target_library_id is not None:
+                  from app.services import libraries
+                  libraries.assign_item(db, item_id, target_library_id)
+              if "location_id" in values:
+                  item_copies.sync_primary_location(db, item_id, values["location_id"])
+              return item_id
+          '''
+          if old_after not in text:
+              raise SystemExit('post-insert anchor not found')
+          text = text.replace(old_after, new_after, 1)
+
+          path.write_text(text)
+          PY
+
+      - name: Focused assignment tests
+        run: |
+          python -m pytest tests/test_library_item_assignment_037.py tests/test_item_write.py -q --tb=short
+
+      - name: Full unit regression and checks
+        run: |
+          make badges
+          make test
+          make checks-fast
+
+      - name: Publish validated assignment slice
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add app/services/item_write.py tests/test_library_item_assignment_037.py README.md
+          git diff --check --cached
+          git commit -m "LIBRARIES: assign new catalogue items atomically" || true
+          git push origin HEAD:rebuild/library-item-assignment-037
