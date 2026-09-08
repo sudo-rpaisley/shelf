@@ -551,6 +551,7 @@ def test_every_top_level_page_is_reachable_from_the_nav():
 
     EXEMPT = {
         "/": "the brand link in base.html is the Home affordance",
+        "/romm/library": "integration catalogue linked from Settings → RomM",
         "/login": "pre-auth",
         "/setup": "pre-auth, first run only",
         "/health": "machine endpoint, not a page",
