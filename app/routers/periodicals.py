@@ -119,6 +119,7 @@ async def render_scan_candidate(
 async def confirm_periodical_issue(
     raw_barcode: str = Form(...),
     publication_title: str = Form(...),
+    publication_issn: str = Form(""),
     publisher: str = Form(""),
     language: str = Form(""),
     volume: str = Form(""),
@@ -138,11 +139,16 @@ async def confirm_periodical_issue(
         mode = "add"
 
     try:
+        # The scanned carrier remains the issue-barcode identity. An explicit,
+        # checksum-valid ISSN can correct only the publication identity when
+        # stronger evidence (provider result or printed masthead) proves the
+        # 977-derived hint is misleading.
+        confirmed_issn = periodicals.normalise_issn(publication_issn) or serial.issn
         with get_db() as db:
             publication_id = periodical_records.upsert_publication(
                 db,
                 title=publication_title,
-                issn=serial.issn,
+                issn=confirmed_issn,
                 publisher=publisher.strip() or None,
                 language=language.strip() or None,
             )
