@@ -22,7 +22,9 @@ jobs:
           git fetch origin tmp/library-item-edit-037-build
           git show origin/tmp/library-item-edit-037-build:tests/test_library_item_edit_037.py > tests/test_library_item_edit_037.py
           git show origin/tmp/library-item-edit-037-build:tmp/apply_library_item_edit_037.py > /tmp/apply_library_item_edit_037.py
+          git show origin/tmp/library-item-edit-037-build:tmp/fix_item_role_semantics.py > /tmp/fix_item_role_semantics.py
           python /tmp/apply_library_item_edit_037.py
+          python /tmp/fix_item_role_semantics.py
           git diff --check
 
       - uses: actions/setup-python@v6
