@@ -71,3 +71,5 @@ jobs:
           git diff --check --cached
           git commit -m "LIBRARIES: enforce scanner access boundaries" || true
           git push origin HEAD:rebuild/library-scan-acl-037
+
+# payload trigger: stable inventory refinement
