@@ -56,15 +56,24 @@ jobs:
 
           tests = Path('tests/test_nav.py')
           t = tests.read_text()
-          # Registry-order expectations intentionally put My List immediately after Browse.
+          old_registry = '''        "browse", "scan", "intake", "shelf-fill", "store", "series",
+                  "music", "periodicals", "discover", "stats", "settings", "logs",
+          '''
+          new_registry = '''        "browse", "my-list", "scan", "intake", "shelf-fill", "store", "series",
+                  "music", "periodicals", "discover", "stats", "settings", "logs",
+          '''
+          if old_registry not in t:
+              raise SystemExit('nav registry expectation not found')
+          t = t.replace(old_registry, new_registry, 1)
+          old_viewer = '    assert "browse" in keys and "store" in keys and "stats" in keys\n'
+          if old_viewer not in t:
+              raise SystemExit('viewer expectation not found')
           t = t.replace(
-              '["browse", "scan", "intake",',
-              '["browse", "my-list", "scan", "intake",',
+              old_viewer,
+              '    assert "browse" in keys and "my-list" in keys and "store" in keys and "stats" in keys\n',
+              1,
           )
-          t = t.replace(
-              '["browse", "store", "series",',
-              '["browse", "my-list", "store", "series",',
-          )
+          # Anonymous users must remain unable to see the authenticated My List entry.
           tests.write_text(t)
           PY
           python -m py_compile app/main.py app/nav.py app/routers/my_list.py
