@@ -1,0 +1,66 @@
+name: Temporary library scanner ACL 0.37 validation
+
+on:
+  push:
+    branches:
+      - tmp/library-scan-acl-037-build
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: rebuild/library-scan-acl-037
+          fetch-depth: 0
+
+      - name: Load scanner ACL validation payload
+        run: |
+          git fetch origin tmp/library-scan-acl-037-payload
+          git show origin/tmp/library-scan-acl-037-payload:tmp/apply_library_scan_acl_037.py > /tmp/apply_library_scan_acl_037.py
+          git show origin/tmp/library-scan-acl-037-payload:tests/test_library_scan_acl_037.py > tests/test_library_scan_acl_037.py
+          python /tmp/apply_library_scan_acl_037.py
+          git diff --check
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+          cache: pip
+      - run: pip install -r requirements.txt -r requirements-dev.txt
+
+      - name: Focused scanner ACL regressions
+        run: |
+          python -m pytest \
+            tests/test_library_scan_acl_037.py \
+            tests/test_scan_modes.py \
+            tests/test_upc_scan.py \
+            tests/test_upc_manual_add.py \
+            tests/test_library_item_access_037.py \
+            tests/test_library_item_assignment_037.py \
+            tests/test_user_state_037.py \
+            -q --tb=short
+
+      - name: Full unit regression and checks
+        run: |
+          make badges
+          make test
+          make checks-fast
+
+      - name: Publish validated scanner ACL
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add \
+            app/routers/items.py \
+            app/routers/items_common.py \
+            app/routers/items_scan_modes.py \
+            app/templates/fragments/scan_result.html \
+            tests/test_scan_modes.py \
+            tests/test_library_scan_acl_037.py \
+            README.md
+          git diff --check --cached
+          git commit -m "LIBRARIES: enforce scanner access boundaries" || true
+          git push origin HEAD:rebuild/library-scan-acl-037
