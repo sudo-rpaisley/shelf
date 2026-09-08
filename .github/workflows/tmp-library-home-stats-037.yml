@@ -40,9 +40,8 @@ jobs:
             tests/test_home_page.py \
             tests/test_stats_dashboard.py \
             -q --tb=short
-          make checks-fast
 
-      - name: Full unit regression
+      - name: Full unit regression and checks
         run: |
           make badges
           make test
@@ -63,4 +62,4 @@ jobs:
           git commit -m "LIBRARIES: scope Home and Stats dashboards" || true
           git push origin HEAD:rebuild/library-home-stats-037
 
-# rerun: isolated viewer/admin valuation sessions
+# rerun: stamp badges before fast checks
