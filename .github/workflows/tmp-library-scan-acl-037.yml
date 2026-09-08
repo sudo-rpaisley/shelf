@@ -22,9 +22,12 @@ jobs:
           git fetch origin tmp/library-scan-acl-037-payload
           git show origin/tmp/library-scan-acl-037-payload:tmp/apply_library_scan_acl_037.py > /tmp/apply_library_scan_acl_037.py
           git show origin/tmp/library-scan-acl-037-payload:tmp/refine_library_scan_acl_037.py > /tmp/refine_library_scan_acl_037.py
+          git show origin/tmp/library-scan-acl-037-payload:tmp/refactor_library_scan_acl_037.py > /tmp/refactor_library_scan_acl_037.py
+          git show origin/tmp/library-scan-acl-037-payload:app/services/scanner_state.py > app/services/scanner_state.py
           git show origin/tmp/library-scan-acl-037-payload:tests/test_library_scan_acl_037.py > tests/test_library_scan_acl_037.py
           python /tmp/apply_library_scan_acl_037.py
           python /tmp/refine_library_scan_acl_037.py
+          python /tmp/refactor_library_scan_acl_037.py
           git diff --check
 
       - uses: actions/setup-python@v6
@@ -42,12 +45,14 @@ jobs:
             tests/test_upc_manual_add.py \
             tests/test_scan_fetch_boundaries.py \
             tests/test_isbn_scan_quota.py \
+            tests/test_legacy_book_scan.py \
             tests/test_library_item_access_037.py \
             tests/test_library_item_assignment_037.py \
             tests/test_user_state_foundation_037.py \
             tests/test_personal_state_routes_037.py \
             tests/test_catalogue_add_boundaries.py \
             tests/test_manual_add_boundaries.py \
+            tests/test_module_sizes.py \
             -q --tb=short
 
       - name: Full unit regression and checks
@@ -64,12 +69,14 @@ jobs:
             app/routers/items.py \
             app/routers/items_common.py \
             app/routers/items_scan_modes.py \
+            app/services/scanner_state.py \
             app/templates/fragments/scan_result.html \
             tests/test_scan_modes.py \
+            tests/test_legacy_book_scan.py \
             tests/test_library_scan_acl_037.py \
             README.md
           git diff --check --cached
           git commit -m "LIBRARIES: enforce scanner access boundaries" || true
           git push origin HEAD:rebuild/library-scan-acl-037
 
-# payload trigger: stable inventory refinement
+# payload trigger: scanner state service extraction
