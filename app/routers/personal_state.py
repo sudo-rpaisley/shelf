@@ -7,6 +7,10 @@ from app.auth import require_role
 from app.database import get_db
 from app.services import user_state
 
+# Install the focused per-user Browse route adaptations while pages/items are
+# imported but before app.main mounts either APIRouter onto FastAPI.
+from app.routers import personal_browse  # noqa: F401,E402
+
 
 router = APIRouter(prefix="/api/items")
 
