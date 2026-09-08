@@ -1,0 +1,103 @@
+name: Temporary My List 0.37 v2
+
+on:
+  push:
+    branches:
+      - tmp/my-list-037-v2-build
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: rebuild/my-list-037-v2
+          fetch-depth: 0
+
+      - name: Replay focused My List commits
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git cherry-pick 6e7031e0aaa13ebe745c062609fdc446381d9572
+          git cherry-pick 3823cb76e93d0f8c910c165dd24a5bd85ff109ff
+          git cherry-pick bbf8bd8ef9984777a1ada2d01143eb5f2007f4e7
+
+      - name: Register route and authenticated navigation
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          main = Path('app/main.py')
+          text = main.read_text()
+          import_line = 'from app.routers import pages, items, items_covers, items_csv, items_catalog, locations, location_order, platforms, settings, sync, checkouts, valuation, hardcover, store, series, share, tags, intake, archive, shelf_fill, romm, komga, periodicals, music, related_media, personal_state\n'
+          if import_line not in text:
+              raise SystemExit('main router import anchor not found')
+          text = text.replace(import_line, import_line.rstrip('\n') + ', my_list\n', 1)
+          include = 'app.include_router(personal_state.router)\n'
+          if include not in text:
+              raise SystemExit('personal_state router include anchor not found')
+          text = text.replace(include, include + 'app.include_router(my_list.router)\n', 1)
+          main.write_text(text)
+
+          nav = Path('app/nav.py')
+          text = nav.read_text()
+          anchor = '    {"key": "browse", "label": "Browse", "path": "/browse"},\n'
+          if anchor not in text:
+              raise SystemExit('browse nav anchor not found')
+          text = text.replace(
+              anchor,
+              anchor + '    {"key": "my-list", "label": "My List", "path": "/my-list", "roles": ("admin", "editor", "viewer")},\n',
+              1,
+          )
+          nav.write_text(text)
+
+          tests = Path('tests/test_nav.py')
+          t = tests.read_text()
+          # Registry-order expectations intentionally put My List immediately after Browse.
+          t = t.replace(
+              '["browse", "scan", "intake",',
+              '["browse", "my-list", "scan", "intake",',
+          )
+          t = t.replace(
+              '["browse", "store", "series",',
+              '["browse", "my-list", "store", "series",',
+          )
+          tests.write_text(t)
+          PY
+          python -m py_compile app/main.py app/nav.py app/routers/my_list.py
+          git add app/main.py app/nav.py tests/test_nav.py
+          git diff --check --cached
+          git commit -m "MY LIST: register authenticated navigation on 0.37.2"
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+          cache: pip
+      - run: pip install -r requirements.txt -r requirements-dev.txt
+
+      - name: Focused My List and nav tests
+        run: python -m pytest tests/test_my_list_037.py tests/test_nav.py -q --tb=short
+
+      - name: Refresh badges and run full regression
+        run: |
+          make badges
+          make test
+          make checks-fast
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+      - run: npm ci
+      - run: make css
+
+      - name: Publish clean rebuild
+        run: |
+          python scripts/stamp_sw_version.py
+          git add README.md static/css/app.css static/sw.js
+          git diff --check --cached
+          git commit -m "MY LIST: refresh generated assets" || true
+          git push origin HEAD:rebuild/my-list-037-v2
