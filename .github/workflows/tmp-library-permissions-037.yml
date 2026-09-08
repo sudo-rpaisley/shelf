@@ -11,6 +11,8 @@ permissions:
 jobs:
   build:
     runs-on: ubuntu-latest
+    env:
+      DATA_DIR: /tmp/shelf-library-ci
     steps:
       - uses: actions/checkout@v7
         with:
