@@ -68,8 +68,10 @@ def test_viewer_can_render_and_update_own_personal_state(
 
 
 def test_two_users_receive_different_item_state_fragments(
-    db, admin_client, admin_user, viewer_client, viewer_user
+    db, client, admin_user, viewer_user
 ):
+    from app.auth import create_token
+
     item_id = _item(db)
     user_state.save_state(
         db,
@@ -87,8 +89,27 @@ def test_two_users_receive_different_item_state_fragments(
     )
     db.commit()
 
-    admin = admin_client.get(f"/api/items/{item_id}/personal-state")
-    viewer = viewer_client.get(f"/api/items/{item_id}/personal-state")
+    # admin_client and viewer_client intentionally share the function-scoped
+    # base TestClient fixture, so asking for both in one test would leave both
+    # names pointing at the last access_token written. Switch the same browser
+    # between accounts explicitly instead.
+    admin_token = create_token(
+        admin_user["id"],
+        admin_user["username"],
+        admin_user["role"],
+        admin_user["display_name"],
+    )
+    client.cookies.set("access_token", admin_token)
+    admin = client.get(f"/api/items/{item_id}/personal-state")
+
+    viewer_token = create_token(
+        viewer_user["id"],
+        viewer_user["username"],
+        viewer_user["role"],
+        viewer_user["display_name"],
+    )
+    client.cookies.set("access_token", viewer_token)
+    viewer = client.get(f"/api/items/{item_id}/personal-state")
 
     assert admin.status_code == 200
     assert viewer.status_code == 200
