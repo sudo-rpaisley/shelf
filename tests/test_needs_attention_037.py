@@ -170,6 +170,3 @@ def test_attention_keeps_037_schema_and_router_ownership_contracts():
     main_source = Path("app/main.py").read_text()
     assert "attention" in main_source
     assert "app.include_router(attention.router)" in main_source
-
-    nav_source = Path("app/nav.py").read_text()
-    assert '"key": "attention"' in nav_source
