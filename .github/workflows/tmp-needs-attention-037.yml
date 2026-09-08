@@ -1,0 +1,67 @@
+name: Temporary Needs Attention 0.37 validation
+
+on:
+  push:
+    branches:
+      - tmp/needs-attention-037-build
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: rebuild/needs-attention-037
+          fetch-depth: 0
+
+      - name: Load Needs Attention payload
+        run: |
+          git fetch origin tmp/needs-attention-037-payload
+          git show origin/tmp/needs-attention-037-payload:app/routers/attention.py > app/routers/attention.py
+          git show origin/tmp/needs-attention-037-payload:app/templates/attention.html > app/templates/attention.html
+          git show origin/tmp/needs-attention-037-payload:tests/test_needs_attention_037.py > tests/test_needs_attention_037.py
+          git show origin/tmp/needs-attention-037-payload:tmp/apply_needs_attention_037.py > /tmp/apply_needs_attention_037.py
+          python /tmp/apply_needs_attention_037.py
+          git diff --check
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+          cache: pip
+      - run: pip install -r requirements.txt -r requirements-dev.txt
+
+      - name: Focused Needs Attention regressions
+        run: |
+          python -m pytest \
+            tests/test_needs_attention_037.py \
+            tests/test_continue_series_037.py \
+            tests/test_library_scan_acl_037.py \
+            tests/test_library_home_stats_037.py \
+            tests/test_library_item_access_037.py \
+            tests/test_router_registration.py \
+            tests/test_schema_ownership.py \
+            tests/test_module_sizes.py \
+            -q --tb=short
+
+      - name: Full regression and architecture checks
+        run: |
+          make badges
+          make test
+          make checks-fast
+
+      - name: Publish validated Needs Attention
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add \
+            app/main.py \
+            app/routers/attention.py \
+            app/templates/attention.html \
+            tests/test_needs_attention_037.py \
+            README.md
+          git diff --check --cached
+          git commit -m "CATALOGUE: add library-aware Needs Attention" || true
+          git push origin HEAD:rebuild/needs-attention-037
