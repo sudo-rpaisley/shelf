@@ -1,0 +1,52 @@
+name: Temporary OIDC login 0.37 probe
+
+on:
+  push:
+    branches:
+      - tmp/oidc-login-037-probe
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: rebuild/oidc-session-policy-037
+          fetch-depth: 0
+
+      - name: Apply OIDC login/callback payload
+        run: |
+          git fetch origin tmp/oidc-login-037-payload
+          git show origin/tmp/oidc-login-037-payload:app/services/oidc_login.py > app/services/oidc_login.py
+          git show origin/tmp/oidc-login-037-payload:app/templates/login.html > app/templates/login.html
+          git show origin/tmp/oidc-login-037-payload:tests/test_oidc_login_037.py > tests/test_oidc_login_037.py
+          git show origin/tmp/oidc-login-037-payload:tmp/apply_oidc_login_037.py > /tmp/apply_oidc_login_037.py
+          python /tmp/apply_oidc_login_037.py
+          git diff --check
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+          cache: pip
+      - run: pip install -r requirements.txt -r requirements-dev.txt
+
+      - name: OIDC login/session/account compatibility
+        run: |
+          python -m pytest \
+            tests/test_oidc_login_037.py \
+            tests/test_oidc_session_policy_037.py \
+            tests/test_oidc_accounts_037.py \
+            tests/test_oidc_core.py \
+            tests/test_oidc_auth_flow.py \
+            tests/test_oidc_tokens.py \
+            tests/test_auth.py \
+            tests/test_auth_boundaries.py \
+            tests/test_auth_routes.py \
+            tests/test_library_permissions_037.py \
+            tests/test_schema_ownership.py \
+            tests/test_module_sizes.py \
+            -q --tb=short
+          make checks-fast
