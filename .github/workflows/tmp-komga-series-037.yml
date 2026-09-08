@@ -89,9 +89,18 @@ jobs:
           '''
           text = text[:discover_at] + route + text[discover_at:]
           path.write_text(text)
+
+          # Current Shelf owns komga_records in app/database.py. The old 0.36
+          # E2E's request-path schema bootstrap must not be carried forward.
+          e2e = Path('tests/e2e/test_komga_series_browse.py')
+          e2e_text = e2e.read_text()
+          stale = '        komga_records.ensure_schema(conn)\n'
+          if stale not in e2e_text:
+              raise SystemExit('stale Komga ensure_schema call not found')
+          e2e.write_text(e2e_text.replace(stale, '', 1))
           PY
 
-          git add app/routers/pages.py
+          git add app/routers/pages.py tests/e2e/test_komga_series_browse.py
           git diff --check --cached
 
       - uses: actions/setup-python@v6
