@@ -90,14 +90,21 @@ jobs:
           text = text[:discover_at] + route + text[discover_at:]
           path.write_text(text)
 
-          # Current Shelf owns komga_records in app/database.py. The old 0.36
-          # E2E's request-path schema bootstrap must not be carried forward.
+          # Current Shelf owns komga_records in app/database.py and login now
+          # lands on Home. Update only those two stale 0.36 E2E assumptions.
           e2e = Path('tests/e2e/test_komga_series_browse.py')
           e2e_text = e2e.read_text()
-          stale = '        komga_records.ensure_schema(conn)\n'
-          if stale not in e2e_text:
+          e2e_text = e2e_text.replace('from app.services import komga_records\n', '')
+          stale_schema = '        komga_records.ensure_schema(conn)\n'
+          if stale_schema not in e2e_text:
               raise SystemExit('stale Komga ensure_schema call not found')
-          e2e.write_text(e2e_text.replace(stale, '', 1))
+          e2e_text = e2e_text.replace(stale_schema, '', 1)
+          stale_login = '        page.wait_for_url(f"{base}/browse", timeout=10_000)\n        page.wait_for_load_state("networkidle")\n'
+          replacement_login = '        page.wait_for_url(f"{base}/", timeout=10_000)\n        page.goto(f"{base}/browse")\n        page.wait_for_load_state("networkidle")\n'
+          if stale_login not in e2e_text:
+              raise SystemExit('stale Komga login redirect assumption not found')
+          e2e_text = e2e_text.replace(stale_login, replacement_login, 1)
+          e2e.write_text(e2e_text)
           PY
 
           git add app/routers/pages.py tests/e2e/test_komga_series_browse.py
