@@ -35,29 +35,19 @@ jobs:
           text = path.read_text()
 
           import_anchor = 'from app.services.home_dashboard import dashboard_summary\n'
-          assert import_anchor in text
-          text = text.replace(
-              import_anchor,
-              import_anchor + 'from app.services import komga_series_browse\n',
-              1,
+          if 'from app.services import komga_series_browse\n' not in text:
+              text = text.replace(
+                  import_anchor,
+                  import_anchor + 'from app.services import komga_series_browse\n',
+                  1,
+              )
+
+          browse_at = text.index('@router.get("/browse")')
+          query_start = text.index(
+              '        from app.routers.checkouts import OVERDUE_CONDITION, get_overdue_days\n',
+              browse_at,
           )
-
-          old_query = '''        from app.routers.checkouts import OVERDUE_CONDITION, get_overdue_days
-          items = db.execute(
-              f"SELECT i.*, l.name as location_name, "
-              f"(SELECT b.name FROM checkouts c JOIN borrowers b ON c.borrower_id = b.id "
-              f" WHERE c.item_id = i.id AND c.checked_in IS NULL LIMIT 1) AS lent_to, "
-              f"(SELECT 1 FROM checkouts c WHERE c.item_id = i.id AND {OVERDUE_CONDITION} LIMIT 1) AS lent_overdue "
-              f"FROM items i "
-              f"LEFT JOIN locations l ON i.location_id = l.id "
-              f"{where} ORDER BY {order_clause} LIMIT ?",
-              [get_overdue_days(db)] + params + [DEFAULT_PAGE_SIZE],
-          ).fetchall()
-
-          total_filtered = db.execute(
-              f"SELECT COUNT(*) as c FROM items i {where}", params
-          ).fetchone()["c"]
-          '''
+          query_end = text.index('        series_names = [\n', query_start)
           new_query = '''        items, total_filtered, display_total = komga_series_browse.fetch_page(
               db,
               where,
@@ -67,16 +57,18 @@ jobs:
               offset=0,
               values=values,
           )
+
           '''
-          assert old_query in text
-          text = text.replace(old_query, new_query, 1)
+          text = text[:query_start] + new_query + text[query_end:]
 
-          old_more = '        has_more = len(items) < total_filtered\n'
-          assert old_more in text
-          text = text.replace(old_more, '        has_more = len(items) < display_total\n', 1)
+          more_at = text.index('        has_more = len(items) < total_filtered\n', browse_at)
+          text = (
+              text[:more_at]
+              + '        has_more = len(items) < display_total\n'
+              + text[more_at + len('        has_more = len(items) < total_filtered\n'):]
+          )
 
-          marker = '\n\n@router.get("/discover")\n'
-          assert marker in text
+          discover_at = text.index('\n\n@router.get("/discover")\n', browse_at)
           route = '''
 
           @router.get("/series/komga/{series_id}")
@@ -95,7 +87,7 @@ jobs:
                   {"series": series},
               )
           '''
-          text = text.replace(marker, route + marker, 1)
+          text = text[:discover_at] + route + text[discover_at:]
           path.write_text(text)
           PY
 
