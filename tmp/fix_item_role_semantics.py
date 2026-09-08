@@ -14,12 +14,23 @@ old = '''        from app.services import libraries
 new = '''        from app.services import libraries
         with get_db() as db:
             actor = dict(user)
-            allowed = libraries.has_item_role(db, actor, item_id, minimum_role)
-            visible = allowed or libraries.has_item_role(db, actor, item_id, "viewer")
+            exists = db.execute(
+                "SELECT 1 FROM items WHERE id = ?", (item_id,)
+            ).fetchone() is not None
+            allowed = exists and libraries.has_item_role(
+                db, actor, item_id, minimum_role
+            )
+            visible = allowed or (
+                exists and libraries.has_item_role(db, actor, item_id, "viewer")
+            )
+        if not exists:
+            # Let the route keep its established missing-item response shape.
+            # The item does not exist, so there is no private identity to hide.
+            return user
         if not allowed:
             # An item the actor may already see is not secret; preserve Shelf's
             # normal 403 surface when they simply lack edit rights. Only an
-            # inaccessible/unmapped item is hidden as a 404.
+            # existing inaccessible/unmapped item is hidden as a 404.
             if minimum_role == "editor" and visible:
                 _raise_insufficient_role(request)
             _raise_item_not_found(request)
