@@ -17,5 +17,6 @@ jobs:
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git cherry-pick dd1652ff824a07038f73a47210eb0fcc3fecfdad
+          git fetch origin pull/127/head:pr127
+          git cherry-pick pr127
           git diff --check HEAD^
