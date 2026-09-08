@@ -22,6 +22,7 @@ jobs:
           git fetch origin upstream/oidc-token-validation-037 tmp/oidc-account-037-payload
           git show origin/upstream/oidc-token-validation-037:app/oidc.py > app/oidc.py
           git show origin/upstream/oidc-token-validation-037:app/oidc_tokens.py > app/oidc_tokens.py
+          git show origin/upstream/oidc-token-validation-037:tests/test_oidc_core.py > tests/test_oidc_core.py
           git show origin/tmp/oidc-account-037-payload:app/services/oidc_accounts.py > app/services/oidc_accounts.py
           git show origin/tmp/oidc-account-037-payload:tests/test_oidc_accounts_037.py > tests/test_oidc_accounts_037.py
           git show origin/tmp/oidc-account-037-payload:tmp/apply_oidc_accounts_037.py > /tmp/apply_oidc_accounts_037.py
