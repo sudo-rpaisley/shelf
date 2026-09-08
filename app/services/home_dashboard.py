@@ -77,7 +77,8 @@ def dashboard_summary(db, *, recent_limit: int = 8, user: dict | None = None) ->
 
     def scalar(condition: str = "1 = 1", params=()):
         return db.execute(
-            f"SELECT COUNT(*) AS c FROM items i WHERE {condition} AND {access_sql}",
+            f"SELECT COUNT(*) AS c FROM items i "
+            f"WHERE ({condition}) AND ({access_sql})",
             [*params, *access_params],
         ).fetchone()["c"]
 
@@ -88,14 +89,14 @@ def dashboard_summary(db, *, recent_limit: int = 8, user: dict | None = None) ->
     wishlist = db.execute(
         "SELECT COUNT(*) AS c FROM items i "
         "JOIN user_item_state uis ON uis.item_id = i.id AND uis.user_id = ? "
-        f"WHERE uis.wishlist = 1 AND {access_sql}",
+        f"WHERE uis.wishlist = 1 AND ({access_sql})",
         [user_id, *access_params],
     ).fetchone()["c"]
 
     lent_out = db.execute(
         "SELECT COUNT(DISTINCT c.item_id) AS c FROM checkouts c "
         "JOIN items i ON i.id = c.item_id "
-        f"WHERE c.checked_in IS NULL AND {access_sql}",
+        f"WHERE c.checked_in IS NULL AND ({access_sql})",
         access_params,
     ).fetchone()["c"]
 
@@ -105,7 +106,7 @@ def dashboard_summary(db, *, recent_limit: int = 8, user: dict | None = None) ->
         "SUM(CASE WHEN COALESCE(uis.wishlist, 0) = 1 THEN 1 ELSE 0 END) AS wishlist_count "
         "FROM items i "
         "LEFT JOIN user_item_state uis ON uis.item_id = i.id AND uis.user_id = ? "
-        f"WHERE {access_sql} "
+        f"WHERE ({access_sql}) "
         "GROUP BY i.media_type "
         "ORDER BY item_count DESC, i.media_type COLLATE NOCASE",
         [user_id, *access_params],
@@ -122,7 +123,7 @@ def dashboard_summary(db, *, recent_limit: int = 8, user: dict | None = None) ->
                 "FROM items i "
                 "LEFT JOIN user_item_state uis "
                 "ON uis.item_id = i.id AND uis.user_id = ? "
-                f"WHERE {access_sql} "
+                f"WHERE ({access_sql}) "
                 "ORDER BY i.created_at DESC, i.id DESC LIMIT ?",
                 [user_id, *access_params, limit],
             ).fetchall()
