@@ -2,10 +2,14 @@ from app.services import user_state
 
 
 def _item(db, title="Shared Catalogue Book", media_type="book"):
-    return db.execute(
+    item_id = db.execute(
         "INSERT INTO items (title, media_type, source) VALUES (?, ?, 'test')",
         (title, media_type),
     ).lastrowid
+    # Client requests use their own SQLite connection. Commit fixture writes
+    # before crossing that connection boundary so the route can see the item.
+    db.commit()
+    return item_id
 
 
 def test_personal_state_routes_are_registered_through_main():
@@ -81,6 +85,7 @@ def test_two_users_receive_different_item_state_fragments(
         rating=2,
         personal_notes="Viewer private note",
     )
+    db.commit()
 
     admin = admin_client.get(f"/api/items/{item_id}/personal-state")
     viewer = viewer_client.get(f"/api/items/{item_id}/personal-state")
@@ -98,6 +103,7 @@ def test_personal_state_rejects_bad_values_without_overwriting_previous_state(
 ):
     item_id = _item(db)
     user_state.save_state(db, viewer_user["id"], item_id, rating=3)
+    db.commit()
 
     response = viewer_client.post(
         f"/api/items/{item_id}/personal-state",
