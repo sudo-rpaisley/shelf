@@ -32,11 +32,6 @@ async def _json_body(request: Request) -> dict:
     return body if isinstance(body, dict) else {}
 
 
-@router.get("/romm", dependencies=[Depends(require_role("viewer"))])
-async def romm_index():
-    return RedirectResponse(url="/romm/library", status_code=303)
-
-
 @router.get("/romm/library", dependencies=[Depends(require_role("viewer"))])
 async def romm_library(
     request: Request,
