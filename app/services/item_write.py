@@ -132,6 +132,39 @@ def reset_column_cache() -> None:
     _columns = None
 
 
+def _resolve_insert_library(db, requested_library_id) -> int | None:
+    """Validate an item's target security library before inserting it.
+
+    Existing add/import paths do not choose a library yet, so an omitted
+    target means Main Library. Historical tests may construct a pre-library
+    schema; only that absent-table case remains neutral when no target was
+    explicitly requested.
+    """
+    from app.services import libraries
+
+    explicit = requested_library_id not in (None, "")
+    if explicit:
+        try:
+            target = int(requested_library_id)
+        except (TypeError, ValueError):
+            raise LookupError("Library not found") from None
+    else:
+        target = libraries.DEFAULT_LIBRARY_ID
+
+    try:
+        exists = db.execute(
+            "SELECT 1 FROM libraries WHERE id = ?", (target,)
+        ).fetchone()
+    except Exception as exc:
+        if explicit or "no such table" not in str(exc).casefold():
+            raise
+        return None
+
+    if not exists:
+        raise LookupError("Library not found")
+    return target
+
+
 def _validated_names(db, values: Mapping[str, Any], managed: frozenset[str],
                      who: str) -> None:
     """Refuse an unknown or database-managed field name, loudly."""
@@ -263,6 +296,7 @@ def insert_item(db, fields: Mapping[str, Any] | None = None, **kwargs) -> int:
     """
     values: dict[str, Any] = dict(fields or {})
     values.update(kwargs)
+    requested_library_id = values.pop("library_id", None)
 
     if not values.get("title"):
         raise ValueError(
@@ -272,6 +306,7 @@ def insert_item(db, fields: Mapping[str, Any] | None = None, **kwargs) -> int:
 
     _validated_names(db, values, _MANAGED, "insert_item")
     values = validate_item_fields(db, values)
+    target_library_id = _resolve_insert_library(db, requested_library_id)
 
     names = list(values)
     placeholders = ", ".join("?" for _ in names)
@@ -280,6 +315,9 @@ def insert_item(db, fields: Mapping[str, Any] | None = None, **kwargs) -> int:
         [values[n] for n in names],
     )
     item_id = cursor.lastrowid
+    if target_library_id is not None:
+        from app.services import libraries
+        libraries.assign_item(db, item_id, target_library_id)
     if "location_id" in values:
         item_copies.sync_primary_location(db, item_id, values["location_id"])
     return item_id
