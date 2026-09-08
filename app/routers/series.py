@@ -11,7 +11,7 @@ from fastapi import APIRouter, Depends, Form, Request
 from app.auth import require_role
 from app.config import BOOK_MEDIA_TYPES
 from app.database import gc_orphaned_series_meta, get_db, get_setting
-from app.services import hardcover
+from app.services import hardcover, libraries
 
 logger = logging.getLogger(__name__)
 
@@ -50,13 +50,26 @@ def find_gaps(positions: list) -> list[int]:
 @router.get("/series")
 async def series_page(request: Request, _=Depends(require_role("viewer"))):
     templates = request.app.state.templates
+    actor = dict(request.state.user)
+    user_id = int(actor["id"])
     with get_db() as db:
+        access_sql, access_params = libraries.item_access_condition(
+            actor, item_alias="i"
+        )
         rows = db.execute(
-            "SELECT id, title, authors, cover_path, series_name, series_position, "
-            "owned, reading_status FROM items WHERE series_name IS NOT NULL "
-            "AND TRIM(series_name) != '' "
-            "ORDER BY series_name COLLATE NOCASE, "
-            "series_position IS NULL, series_position, title COLLATE NOCASE"
+            f"""SELECT i.id, i.title, i.authors, i.cover_path,
+                       i.series_name, i.series_position, i.owned,
+                       COALESCE(uis.wishlist, 0) AS wishlist
+                FROM items i
+                LEFT JOIN user_item_state uis
+                  ON uis.item_id = i.id AND uis.user_id = ?
+                WHERE i.series_name IS NOT NULL
+                  AND TRIM(i.series_name) != ''
+                  AND {access_sql}
+                ORDER BY i.series_name COLLATE NOCASE,
+                         i.series_position IS NULL, i.series_position,
+                         i.title COLLATE NOCASE""",
+            [user_id, *access_params],
         ).fetchall()
         has_hardcover = bool(get_setting(db, "hardcover_token"))
         meta_rows = {
@@ -66,47 +79,63 @@ async def series_page(request: Request, _=Depends(require_role("viewer"))):
                 "FROM series_meta"
             ).fetchall()
         }
-        _unassigned_where = (
-            "(series_name IS NULL OR TRIM(series_name) = '') "
-            f"AND media_type IN ({','.join('?' * len(UNASSIGNED_MEDIA_TYPES))})"
+        unassigned_base = (
+            "(i.series_name IS NULL OR TRIM(i.series_name) = '') "
+            f"AND i.media_type IN ({','.join('?' * len(UNASSIGNED_MEDIA_TYPES))})"
         )
         unassigned_total = db.execute(
-            f"SELECT COUNT(*) FROM items WHERE {_unassigned_where}",
-            UNASSIGNED_MEDIA_TYPES,
+            f"SELECT COUNT(*) FROM items i WHERE {unassigned_base} AND {access_sql}",
+            [*UNASSIGNED_MEDIA_TYPES, *access_params],
         ).fetchone()[0]
-        unassigned_items = [dict(r) for r in db.execute(
-            "SELECT id, title, authors, cover_path, series_name, series_position, "
-            f"owned, reading_status FROM items WHERE {_unassigned_where} "
-            "ORDER BY title COLLATE NOCASE LIMIT ?",
-            (*UNASSIGNED_MEDIA_TYPES, UNASSIGNED_STRIP_CAP),
-        ).fetchall()]
+        unassigned_items = [
+            dict(r)
+            for r in db.execute(
+                f"""SELECT i.id, i.title, i.authors, i.cover_path,
+                           i.series_name, i.series_position, i.owned,
+                           COALESCE(uis.wishlist, 0) AS wishlist
+                    FROM items i
+                    LEFT JOIN user_item_state uis
+                      ON uis.item_id = i.id AND uis.user_id = ?
+                    WHERE {unassigned_base} AND {access_sql}
+                    ORDER BY i.title COLLATE NOCASE LIMIT ?""",
+                [
+                    user_id,
+                    *UNASSIGNED_MEDIA_TYPES,
+                    *access_params,
+                    UNASSIGNED_STRIP_CAP,
+                ],
+            ).fetchall()
+        ]
 
-    # Group by NOCASE identity, not raw spelling: series_meta.name, the rename
-    # and disband endpoints, /api/series/check and the item detail page's
-    # progress line are all case-insensitive, so grouping by raw spelling here
-    # was the odd one out — it split "Dune Saga" / "dune saga" into two cards
-    # that every other surface treats as one series.
+    # Group by NOCASE identity, matching the case-insensitive series metadata
+    # and mutation surfaces already used by Shelf.
     series: dict[str, dict] = {}
     for r in rows:
         entry = series.setdefault(
             r["series_name"].casefold(),
             {"name": r["series_name"], "items": [], "_spellings": {}},
         )
-        entry["_spellings"][r["series_name"]] = entry["_spellings"].get(r["series_name"], 0) + 1
+        entry["_spellings"][r["series_name"]] = (
+            entry["_spellings"].get(r["series_name"], 0) + 1
+        )
         entry["items"].append(dict(r))
 
     for entry in series.values():
-        # Display spelling: the most common variant, ties broken by binary sort
-        # order so the choice is deterministic across runs.
         spellings = entry.pop("_spellings")
-        entry["name"] = min(spellings.items(), key=lambda kv: (-kv[1], kv[0]))[0]
+        entry["name"] = min(
+            spellings.items(), key=lambda kv: (-kv[1], kv[0])
+        )[0]
 
-    # series_meta.name is COLLATE NOCASE, so match case-insensitively here too
     meta_ci = {name.casefold(): meta for name, meta in meta_rows.items()}
 
     for entry in series.values():
         entry["owned_count"] = sum(1 for i in entry["items"] if i["owned"])
-        entry["gaps"] = find_gaps([i["series_position"] for i in entry["items"]])
+        entry["wishlist_count"] = sum(
+            1 for i in entry["items"] if i["wishlist"]
+        )
+        entry["gaps"] = find_gaps(
+            [i["series_position"] for i in entry["items"]]
+        )
         meta = meta_ci.get(entry["name"].casefold())
         entry["description"] = meta["description"] if meta else None
         entry["complete"] = meta["complete"] if meta else None
@@ -114,11 +143,14 @@ async def series_page(request: Request, _=Depends(require_role("viewer"))):
         entry["hc_missing"] = meta["hc_missing"] if meta else None
         entry["hc_checked_at"] = meta["hc_checked_at"] if meta else None
 
-    # Largest series first; ties alphabetical
-    series_list = sorted(series.values(), key=lambda s: (-len(s["items"]), s["name"].casefold()))
+    series_list = sorted(
+        series.values(),
+        key=lambda s: (-len(s["items"]), s["name"].casefold()),
+    )
 
     return templates.TemplateResponse(
-        request, "series.html",
+        request,
+        "series.html",
         {
             "series_list": series_list,
             "has_hardcover": has_hardcover,
@@ -129,50 +161,75 @@ async def series_page(request: Request, _=Depends(require_role("viewer"))):
 
 
 @router.get("/api/series/check")
-async def check_series(name: str = "", _=Depends(require_role("viewer"))):
-    """Compare a local series against Hardcover's full listing."""
+async def check_series(
+    request: Request,
+    name: str = "",
+    _=Depends(require_role("viewer")),
+):
+    """Compare the acting user's accessible local series with Hardcover."""
     name = name.strip()
     if not name:
         return {"ok": False, "message": "Series name required"}
 
+    actor = dict(request.state.user)
+    user_id = int(actor["id"])
     with get_db() as db:
         token = get_setting(db, "hardcover_token")
         if not token:
             return {"ok": False, "message": "Hardcover integration not configured"}
+        access_sql, access_params = libraries.item_access_condition(
+            actor, item_alias="i"
+        )
         local = db.execute(
-            "SELECT title, owned, hardcover_book_id FROM items "
-            "WHERE series_name = ? COLLATE NOCASE",
-            (name,),
+            f"""SELECT i.title, i.owned, i.hardcover_book_id,
+                       COALESCE(uis.wishlist, 0) AS wishlist
+                FROM items i
+                LEFT JOIN user_item_state uis
+                  ON uis.item_id = i.id AND uis.user_id = ?
+                WHERE i.series_name = ? COLLATE NOCASE
+                  AND {access_sql}""",
+            [user_id, name, *access_params],
         ).fetchall()
 
     books = await hardcover.get_series_books(name, token)
     if books is None:
-        return {"ok": False, "message": "Series not found on Hardcover (or lookup failed)"}
+        return {
+            "ok": False,
+            "message": "Series not found on Hardcover (or lookup failed)",
+        }
 
-    by_hc_id = {r["hardcover_book_id"]: r for r in local if r["hardcover_book_id"]}
+    by_hc_id = {
+        r["hardcover_book_id"]: r for r in local if r["hardcover_book_id"]
+    }
     by_title = {r["title"].casefold().strip(): r for r in local}
 
     out = []
-    for b in books:
-        match = by_hc_id.get(b["hardcover_book_id"]) or by_title.get(b["title"].casefold().strip())
-        if match:
-            status = "owned" if match["owned"] else "wishlist"
+    for book in books:
+        match = by_hc_id.get(book["hardcover_book_id"]) or by_title.get(
+            book["title"].casefold().strip()
+        )
+        if match and match["owned"]:
+            status = "owned"
+        elif match and match["wishlist"]:
+            status = "wishlist"
         else:
             status = "missing"
-        out.append({**b, "status": status, "series_name": name})
+        out.append({**book, "status": status, "series_name": name})
 
-    missing = sum(1 for b in out if b["status"] == "missing")
+    missing = sum(1 for book in out if book["status"] == "missing")
 
-    # Cache the result only for a series the library actually holds. This is a
-    # viewer-role GET, so without the guard any name Hardcover recognises would
-    # let a viewer create series_meta rows for series that do not exist here —
-    # and a check against an empty local set is meaningless anyway (every book
-    # would read as "missing"). Same not-found rule the complete endpoint uses.
+    # Only an accessible local series is allowed to populate the shared cache.
     if local:
         with get_db() as db:
             _upsert_series_check(db, name, len(out), missing)
 
-    return {"ok": True, "series": name, "total": len(out), "missing": missing, "books": out}
+    return {
+        "ok": True,
+        "series": name,
+        "total": len(out),
+        "missing": missing,
+        "books": out,
+    }
 
 
 def _upsert_series_check(db, name: str, hc_total: int, hc_missing: int) -> None:

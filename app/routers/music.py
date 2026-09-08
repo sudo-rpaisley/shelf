@@ -8,10 +8,10 @@ import httpx
 from fastapi import APIRouter, Depends, Form, Query, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
 
-from app.auth import require_role
+from app.auth import require_item_role, require_role
 from app.config import HTTP_TIMEOUT, MEDIA_TYPES, MUSIC_MEDIA_TYPES
 from app.database import get_db
-from app.services import covers, music_catalog, musicbrainz
+from app.services import covers, libraries, music_catalog, musicbrainz
 from app.services import upc as upc_svc
 from app.services.item_write import insert_item, update_item_fields
 from app.services.write_targets import UnknownLocationError, validated_location_id
@@ -108,7 +108,11 @@ async def music_page(
     catalog_number = catalog_number.strip()[:100]
 
     placeholders, music_types = _music_types_sql()
+    actor = dict(request.state.user)
     with get_db() as db:
+        access_sql, access_params = libraries.item_access_condition(
+            actor, item_alias="i"
+        )
         items = db.execute(
             f"""SELECT i.id, i.title, i.authors, i.media_type, i.cover_path,
                        i.publish_year, mr.format_summary, mr.catalog_number,
@@ -116,9 +120,10 @@ async def music_page(
                 FROM items i
                 LEFT JOIN music_releases mr ON mr.item_id = i.id
                 WHERE i.media_type IN ({placeholders})
+                  AND {access_sql}
                 ORDER BY i.authors COLLATE NOCASE, i.title COLLATE NOCASE, i.id
                 LIMIT 250""",
-            music_types,
+            [*music_types, *access_params],
         ).fetchall()
         locations = db.execute(
             "SELECT id, name FROM locations ORDER BY sort_order, name"
@@ -248,7 +253,7 @@ async def add_music_release(
 async def music_item_page(
     request: Request,
     item_id: int,
-    _=Depends(require_role("viewer")),
+    _=Depends(require_item_role("viewer")),
 ):
     with get_db() as db:
         item = db.execute(
@@ -268,7 +273,7 @@ async def music_item_page(
 @router.post("/api/music/items/{item_id}/refresh")
 async def refresh_music_release(
     item_id: int,
-    _=Depends(require_role("editor")),
+    _=Depends(require_item_role("editor")),
 ):
     with get_db() as db:
         item = db.execute(

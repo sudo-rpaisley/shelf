@@ -6,6 +6,7 @@ import pytest
 
 from app.database import MIGRATIONS, SCHEMA, _run_migrations
 from app.routers.series import find_gaps
+from app.services import user_state
 from tests.conftest import _insert_item
 
 
@@ -58,12 +59,20 @@ class TestSeriesPage:
         assert "possibly missing" in html
         assert "#3" in html
 
-    def test_wishlist_items_badged(self, admin_client, db):
-        _insert_item(db, title="Want It", isbn="9789000003563", series_name="Solo", series_position=1, owned=0)
+    def test_wishlist_items_badged(self, admin_client, admin_user, db):
+        item_id = _insert_item(
+            db,
+            title="Want It",
+            isbn="9789000003563",
+            series_name="Solo",
+            series_position=1,
+            owned=0,
+        )
+        user_state.save_state(db, admin_user["id"], item_id, wishlist=1)
         db.execute("COMMIT")
         html = admin_client.get("/series").text
         assert "Solo" in html
-        assert "1 wishlisted" in html
+        assert "1 on your wishlist" in html
 
     def test_check_button_only_with_token(self, admin_client, db):
         self._seed(db)
@@ -201,8 +210,13 @@ class TestSeriesCheck:
              "cover_url": None, "year": 1976, "series_position": 3},
         ]
 
-    def test_classification(self, admin_client, db):
+    def test_classification(self, admin_client, admin_user, db):
         self._seed(db)
+        item_id = db.execute(
+            "SELECT id FROM items WHERE title = 'Dune Messiah'"
+        ).fetchone()["id"]
+        user_state.save_state(db, admin_user["id"], item_id, wishlist=1)
+        db.commit()
         with patch("app.services.hardcover.get_series_books",
                    new=AsyncMock(return_value=self._hc_books())):
             data = admin_client.get("/api/series/check", params={"name": "Dune Saga"}).json()
