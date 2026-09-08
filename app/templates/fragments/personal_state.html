@@ -1,4 +1,4 @@
-<div id="personal-state-section" class="mt-4 rounded-lg border border-shelf-border bg-shelf-bg/40 p-4 space-y-4" data-testid="personal-state">
+<div id="personal-state-section" class="mt-4 rounded-lg border border-shelf-border bg-shelf-bg p-4 space-y-4" data-testid="personal-state">
     {% set state = personal_state %}
     {% set rs = state.reading_status %}
 
@@ -69,7 +69,7 @@
         </button>
     </div>
 
-    <label class="block text-xs text-shelf-muted max-w-40">
+    <label class="block text-xs text-shelf-muted max-w-[200px]">
         My rating
         <select name="rating"
                 hx-post="/api/items/{{ item.id }}/personal-state"
