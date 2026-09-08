@@ -70,35 +70,27 @@ if old not in text:
 path.write_text(text.replace(old, new, 1))
 
 # Inventory is a shared mutation workflow. The SQL predicate is the primary
-# filter; retain an explicit policy check on the resulting rows as defence in
-# depth so no later query refactor can expose a visible-only or private row.
+# filter; retain an explicit item-policy check before rendering as defence in
+# depth. Anchor this immediately before the unique `missing =` projection so
+# it remains stable even if the query formatting changes.
 path = Path("app/routers/items.py")
 text = path.read_text()
-old = '''        access_sql, access_params = libraries.item_access_condition(
-            dict(request.state.user), item_alias="i", minimum_role="editor"
-        )
-        items = db.execute(
-            "SELECT i.id, i.title, i.authors, i.cover_path FROM items i "
-            f"WHERE i.location_id = ? AND {access_sql} ORDER BY i.title",
-            [location_id, *access_params],
-        ).fetchall()
+old = '''        ).fetchall()
+
+    missing = [dict(i) for i in items if i["id"] not in scanned]
 '''
-new = '''        actor = dict(request.state.user)
-        access_sql, access_params = libraries.item_access_condition(
-            actor, item_alias="i", minimum_role="editor"
-        )
-        items = db.execute(
-            "SELECT i.id, i.title, i.authors, i.cover_path FROM items i "
-            f"WHERE i.location_id = ? AND {access_sql} ORDER BY i.title",
-            [location_id, *access_params],
-        ).fetchall()
+new = '''        ).fetchall()
         items = [
             row for row in items
-            if libraries.has_item_role(db, actor, int(row["id"]), "editor")
+            if libraries.has_item_role(
+                db, dict(request.state.user), int(row["id"]), "editor"
+            )
         ]
+
+    missing = [dict(i) for i in items if i["id"] not in scanned]
 '''
 if old not in text:
-    raise SystemExit("patched inventory scope anchor not found")
+    raise SystemExit("inventory missing projection anchor not found")
 path.write_text(text.replace(old, new, 1))
 
 print("scanner ACL refinements applied")
