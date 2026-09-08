@@ -1,0 +1,52 @@
+name: Temporary Library ACL foundation 0.37
+
+on:
+  push:
+    branches:
+      - tmp/library-permissions-037-build
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: rebuild/library-permissions-037
+          fetch-depth: 0
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+          cache: pip
+      - run: pip install -r requirements.txt -r requirements-dev.txt
+
+      - name: Verify startup registration
+        run: |
+          python - <<'PY'
+          from app.main import app  # noqa: F401
+          from app import database
+          versions = {v for v, _d, _s in database.MIGRATIONS}
+          assert set(range(41, 49)) <= versions, versions
+          PY
+
+      - name: Focused library and fork-upgrade tests
+        run: |
+          python -m pytest tests/test_library_permissions_037.py tests/test_fork_upgrade_037.py tests/test_fork_upgrade_startup_037.py -q --tb=short
+
+      - name: Full regression and checks
+        run: |
+          make badges
+          make test
+          make checks-fast
+
+      - name: Publish validated foundation
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add README.md
+          git diff --check --cached
+          git commit -m "LIBRARIES: refresh test counts" || true
+          git push origin HEAD:rebuild/library-permissions-037
