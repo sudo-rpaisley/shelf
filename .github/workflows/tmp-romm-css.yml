@@ -5,6 +5,9 @@ on:
     branches:
       - tmp/romm-css-build
 
+permissions:
+  contents: write
+
 jobs:
   build:
     runs-on: ubuntu-latest
@@ -19,9 +22,10 @@ jobs:
           python-version: '3.13'
       - run: npm ci
       - run: make css
-      - uses: actions/upload-artifact@v4
-        with:
-          name: romm-generated-assets
-          path: |
-            static/css/app.css
-            static/sw.js
+      - name: Commit generated assets
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add static/css/app.css static/sw.js
+          git diff --cached --quiet || git commit -m "TEMP: capture generated RomM assets"
+          git push
