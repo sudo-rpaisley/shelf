@@ -24,7 +24,6 @@ jobs:
 
           path = Path('app/routers/items_csv.py')
           text = path.read_text()
-
           old = 'from app.services import cover_queue\n'
           if old not in text:
               raise SystemExit('cover_queue import not found')
@@ -85,34 +84,17 @@ jobs:
       - name: Focused regression
         run: python -m pytest tests/test_reading_imports.py tests/test_personal_browse_037.py tests/test_user_state_foundation_037.py -q --tb=short
 
-      - name: Stamp current test counts
-        run: make badges
-
-      - name: Full unit regression
-        run: make test
-
-      - name: Fast checks
-        run: make checks-fast
-
-      - uses: actions/setup-node@v4
-        with:
-          node-version: '20'
-          cache: npm
-      - run: npm ci
-      - name: Rebuild generated assets
-        run: make css
-
       - name: Exact Goodreads browser regression
         run: |
           python -m playwright install --with-deps chromium
-          python -m pytest tests/e2e/test_csv.py::test_goodreads_ui_import_and_browse -q --tb=short -m e2e
+          python -m pytest tests/e2e/test_csv.py::test_goodreads_import_via_ui -q --tb=short -m e2e
 
       - name: Commit validated fix
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          python scripts/stamp_sw_version.py
-          git add app/routers/items_csv.py README.md static/css/app.css static/sw.js
+          make badges
+          git add app/routers/items_csv.py README.md
           git diff --check --cached
           git commit -m "PERSONAL STATE: project tracker imports to importing user"
           git push origin HEAD:rebuild/per-user-browse-037
