@@ -34,4 +34,34 @@ if "app.include_router(attention.router)" not in text:
     )
 path.write_text(text)
 
+# Shelf deliberately guards against top-level pages that users cannot reach.
+# Keep Needs Attention as an ordinary hideable signed-in tab for now; the
+# later navigation-polish branch may move specialist destinations into a
+# More menu without changing this feature's route or permissions.
+path = Path("app/nav.py")
+text = path.read_text()
+if '"key": "attention"' not in text:
+    anchor = '    {"key": "stats", "label": "Stats", "path": "/stats"},\n'
+    if anchor not in text:
+        raise SystemExit("nav Stats anchor not found")
+    text = text.replace(
+        anchor,
+        anchor
+        + '    {"key": "attention", "label": "Needs Attention", "path": "/attention",\n'
+        + '     "roles": ("admin", "editor", "viewer")},\n',
+        1,
+    )
+path.write_text(text)
+
+# Pin the registry shape so the navigation guard and product test agree on
+# the new reachable page.
+path = Path("tests/test_nav.py")
+text = path.read_text()
+text = text.replace(
+    '        "music", "periodicals", "discover", "stats", "settings", "logs",\n',
+    '        "music", "periodicals", "discover", "stats", "attention", "settings", "logs",\n',
+    1,
+)
+path.write_text(text)
+
 print("Needs Attention 0.37 integration applied")
