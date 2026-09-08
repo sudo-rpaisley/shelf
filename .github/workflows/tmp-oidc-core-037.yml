@@ -1,0 +1,69 @@
+name: Temporary OIDC core 0.37 validation
+
+on:
+  push:
+    branches:
+      - tmp/oidc-core-037-build
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: rebuild/oidc-core-037
+          fetch-depth: 0
+
+      - name: Replay validated OIDC core
+        run: |
+          git fetch origin upstream/oidc-token-validation-037
+          git show origin/upstream/oidc-token-validation-037:app/oidc.py > app/oidc.py
+          git show origin/upstream/oidc-token-validation-037:app/oidc_tokens.py > app/oidc_tokens.py
+          git show origin/upstream/oidc-token-validation-037:tests/test_oidc_core.py > tests/test_oidc_core.py
+          git show origin/upstream/oidc-token-validation-037:tests/test_oidc_auth_flow.py > tests/test_oidc_auth_flow.py
+          git show origin/upstream/oidc-token-validation-037:tests/test_oidc_tokens.py > tests/test_oidc_tokens.py
+          git diff --check
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+          cache: pip
+      - run: pip install -r requirements.txt -r requirements-dev.txt
+
+      - name: Focused OIDC core regressions
+        run: |
+          python -m pytest \
+            tests/test_oidc_core.py \
+            tests/test_oidc_auth_flow.py \
+            tests/test_oidc_tokens.py \
+            tests/test_library_permissions_037.py \
+            tests/test_library_scan_acl_037.py \
+            tests/test_continue_series_037.py \
+            tests/test_needs_attention_037.py \
+            tests/test_schema_ownership.py \
+            tests/test_module_sizes.py \
+            -q --tb=short
+
+      - name: Full regression and architecture checks
+        run: |
+          make badges
+          make test
+          make checks-fast
+
+      - name: Publish validated OIDC core
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add \
+            app/oidc.py \
+            app/oidc_tokens.py \
+            tests/test_oidc_core.py \
+            tests/test_oidc_auth_flow.py \
+            tests/test_oidc_tokens.py \
+            README.md
+          git diff --check --cached
+          git commit -m "OIDC: replay validated protocol core on rebuilt stack" || true
+          git push origin HEAD:rebuild/oidc-core-037
