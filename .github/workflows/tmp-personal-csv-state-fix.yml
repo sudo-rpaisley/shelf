@@ -1,0 +1,280 @@
+name: Temporary personal CSV state fix
+
+on:
+  push:
+    branches:
+      - tmp/personal-csv-state-fix
+
+permissions:
+  contents: write
+
+jobs:
+  fix:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: rebuild/per-user-browse-037
+          fetch-depth: 0
+
+      - name: Route reading-tracker imports into personal state
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          path = Path('app/routers/items_csv.py')
+          text = path.read_text()
+
+          text = text.replace(
+              'from app.services import cover_queue\n',
+              'from app.services import cover_queue, user_state\n',
+              1,
+          )
+          text = text.replace(
+              'async def import_csv(request: Request, _=Depends(require_role("admin"))):',
+              'async def import_csv(request: Request, user=Depends(require_role("admin"))):',
+              1,
+          )
+
+          anchor = '    _CSV_MAX_TEXT = 1000\n\n'
+          helper = '''    _CSV_MAX_TEXT = 1000
+
+              def _save_personal_tracker_state(db, item_id: int, norm: dict) -> None:
+                  """Store reading-tracker state for the importing account only."""
+                  if fmt == reading_imports.GENERIC:
+                      return
+                  changes = {}
+                  if norm["reading_status"] is not None:
+                      changes["reading_status"] = norm["reading_status"]
+                  if norm["date_finished"] is not None:
+                      changes["date_finished"] = norm["date_finished"]
+                  if to_read_wishlist and norm["reading_status"] == "want_to_read":
+                      changes["wishlist"] = 1
+                  if changes:
+                      user_state.save_state(db, user["id"], item_id, **changes)
+
+          '''
+          if anchor not in text:
+              raise SystemExit('CSV helper anchor not found')
+          text = text.replace(anchor, helper, 1)
+
+          old_update = '''                    if fmt != reading_imports.GENERIC:
+                          # COALESCE semantics: only touch reading_status /
+                          # date_finished when this row actually carries one;
+                          # owned is always authoritative from the row.
+                          tracker_fields = {"owned": int(owned)}
+                          if norm["reading_status"] is not None:
+                              tracker_fields["reading_status"] = norm["reading_status"]
+                          if norm["date_finished"] is not None:
+                              tracker_fields["date_finished"] = norm["date_finished"]
+                          update_item_fields(db, existing["id"], tracker_fields)
+          '''
+          new_update = '''                    if fmt != reading_imports.GENERIC:
+                          # Ownership is catalogue state; reading progress/status belongs
+                          # only to the account performing this import.
+                          update_item_fields(db, existing["id"], {"owned": int(owned)})
+                          _save_personal_tracker_state(db, existing["id"], norm)
+          '''
+          if old_update not in text:
+              raise SystemExit('tracker update block not found')
+          text = text.replace(old_update, new_update, 1)
+
+          text = text.replace(
+              '                    reading_status=norm["reading_status"],\n'
+              '                    date_finished=norm["date_finished"],\n',
+              '                    reading_status=(norm["reading_status"] if fmt == reading_imports.GENERIC else None),\n'
+              '                    date_finished=(norm["date_finished"] if fmt == reading_imports.GENERIC else None),\n',
+              1,
+          )
+          insert_tail = '''                if isbn_val:
+                      new_item_ids.append(new_id)
+                  imported += 1
+          '''
+          insert_new = '''                _save_personal_tracker_state(db, new_id, norm)
+                  if isbn_val:
+                      new_item_ids.append(new_id)
+                  imported += 1
+          '''
+          if insert_tail not in text:
+              raise SystemExit('new-item state anchor not found')
+          text = text.replace(insert_tail, insert_new, 1)
+          path.write_text(text)
+
+          tests = Path('tests/test_reading_imports.py')
+          t = tests.read_text()
+
+          t = t.replace(
+              '    def test_import_maps_fields(self, admin_client, db):\n',
+              '    def test_import_maps_fields(self, admin_client, admin_user, db):\n',
+              1,
+          )
+          old = '''        assert item["title"] == "Dune"
+                  assert item["reading_status"] == "read"
+                  assert item["date_finished"] == "2023-08-15"
+                  assert item["owned"] == 0  # Owned Copies is 0 in the export
+                  assert item["source"] == "goodreads_import"
+          '''
+          new = '''        assert item["title"] == "Dune"
+                  assert item["reading_status"] is None
+                  assert item["date_finished"] is None
+                  assert item["owned"] == 0  # Owned Copies is 0 in the export
+                  assert item["source"] == "goodreads_import"
+                  state = db.execute(
+                      "SELECT reading_status, date_finished FROM user_item_state "
+                      "WHERE user_id = ? AND item_id = ?",
+                      (admin_user["id"], item["id"]),
+                  ).fetchone()
+                  assert state["reading_status"] == "read"
+                  assert state["date_finished"] == "2023-08-15"
+          '''
+          if old not in t:
+              raise SystemExit('Goodreads mapping assertions not found')
+          t = t.replace(old, new, 1)
+
+          t = t.replace(
+              '    def test_to_read_wishlist_option(self, admin_client, db):\n',
+              '    def test_to_read_wishlist_option(self, admin_client, admin_user, db):\n',
+              1,
+          )
+          old = '''        item = db.execute("SELECT * FROM items WHERE isbn = '9780553283686'").fetchone()
+                  assert item["reading_status"] == "want_to_read"
+                  assert item["owned"] == 0
+          '''
+          new = '''        item = db.execute("SELECT * FROM items WHERE isbn = '9780553283686'").fetchone()
+                  assert item["reading_status"] is None
+                  assert item["owned"] == 0
+                  state = db.execute(
+                      "SELECT reading_status, wishlist FROM user_item_state "
+                      "WHERE user_id = ? AND item_id = ?",
+                      (admin_user["id"], item["id"]),
+                  ).fetchone()
+                  assert state["reading_status"] == "want_to_read"
+                  assert state["wishlist"] == 1
+          '''
+          if old not in t:
+              raise SystemExit('Goodreads wishlist assertions not found')
+          t = t.replace(old, new, 1)
+
+          t = t.replace(
+              '    def test_update_mode_refreshes_status(self, admin_client, db):\n',
+              '    def test_update_mode_refreshes_status(self, admin_client, admin_user, db):\n',
+              1,
+          )
+          old = '''        item = db.execute("SELECT * FROM items WHERE isbn = '9780441013593'").fetchone()
+                  assert item["reading_status"] == "read"
+                  assert item["date_finished"] == "2024-01-05"
+          '''
+          new = '''        item = db.execute("SELECT * FROM items WHERE isbn = '9780441013593'").fetchone()
+                  assert item["reading_status"] is None
+                  assert item["date_finished"] is None
+                  state = db.execute(
+                      "SELECT reading_status, date_finished FROM user_item_state "
+                      "WHERE user_id = ? AND item_id = ?",
+                      (admin_user["id"], item["id"]),
+                  ).fetchone()
+                  assert state["reading_status"] == "read"
+                  assert state["date_finished"] == "2024-01-05"
+          '''
+          if old not in t:
+              raise SystemExit('Goodreads update assertions not found')
+          t = t.replace(old, new, 1)
+
+          marker = 'class TestStorygraphImport:\n    def test_import_maps_fields(self, admin_client, db):\n'
+          if marker not in t:
+              raise SystemExit('StoryGraph mapping test not found')
+          t = t.replace(
+              marker,
+              'class TestStorygraphImport:\n    def test_import_maps_fields(self, admin_client, admin_user, db):\n',
+              1,
+          )
+          old = '''        assert item["title"] == "The Hobbit"
+                  assert item["media_type"] == "ebook"
+                  assert item["reading_status"] == "read"
+                  assert item["source"] == "storygraph_import"
+          '''
+          new = '''        assert item["title"] == "The Hobbit"
+                  assert item["media_type"] == "ebook"
+                  assert item["reading_status"] is None
+                  assert item["source"] == "storygraph_import"
+                  state = db.execute(
+                      "SELECT reading_status, date_finished FROM user_item_state "
+                      "WHERE user_id = ? AND item_id = ?",
+                      (admin_user["id"], item["id"]),
+                  ).fetchone()
+                  assert state["reading_status"] == "read"
+                  assert state["date_finished"] == "2023-02-20"
+          '''
+          if old not in t:
+              raise SystemExit('StoryGraph assertions not found')
+          t = t.replace(old, new, 1)
+
+          # Explicit isolation regression: a second account must not inherit tracker imports.
+          addition = '''
+              def test_tracker_import_state_is_not_shared(self, admin_client, admin_user, viewer_user, db):
+                  csv_content = GOODREADS_HEADER + "\\n" + _gr_row(
+                      title="Private Reading State", isbn13="9780307277671", isbn10="0307277674",
+                      shelf="to-read", date_read="",
+                  )
+                  data = _post_csv(admin_client, csv_content, to_read_wishlist="1").json()
+                  assert data["imported"] == 1
+                  item = db.execute("SELECT id FROM items WHERE isbn = '9780307277671'").fetchone()
+                  mine = db.execute(
+                      "SELECT reading_status, wishlist FROM user_item_state "
+                      "WHERE user_id = ? AND item_id = ?",
+                      (admin_user["id"], item["id"]),
+                  ).fetchone()
+                  other = db.execute(
+                      "SELECT reading_status, wishlist FROM user_item_state "
+                      "WHERE user_id = ? AND item_id = ?",
+                      (viewer_user["id"], item["id"]),
+                  ).fetchone()
+                  assert mine["reading_status"] == "want_to_read"
+                  assert mine["wishlist"] == 1
+                  assert other is None
+          '''
+          insertion = '\n    def test_in_file_duplicate_skipped(self, admin_client):\n'
+          if insertion not in t:
+              raise SystemExit('Goodreads isolation insertion point not found')
+          t = t.replace(insertion, addition + insertion, 1)
+          tests.write_text(t)
+          PY
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+          cache: pip
+      - run: pip install -r requirements.txt -r requirements-dev.txt
+
+      - name: Focused import and personal Browse tests
+        run: |
+          python -m pytest tests/test_reading_imports.py tests/test_personal_browse_037.py -q --tb=short
+
+      - name: Full unit regression
+        run: make test
+
+      - name: Fast checks
+        run: make checks-fast
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+      - run: npm ci
+      - name: Rebuild generated assets
+        run: make css
+
+      - name: Goodreads browser regression
+        run: |
+          python -m playwright install --with-deps chromium
+          python -m pytest tests/e2e/test_csv.py::test_goodreads_ui_import_and_browse -q --tb=short -m e2e
+
+      - name: Commit fix to personal Browse branch
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          make badges
+          python scripts/stamp_sw_version.py
+          git add app/routers/items_csv.py tests/test_reading_imports.py README.md static/css/app.css static/sw.js
+          git diff --check --cached
+          git commit -m "PERSONAL STATE: keep reading tracker imports user-scoped"
+          git push origin HEAD:rebuild/per-user-browse-037
