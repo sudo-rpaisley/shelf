@@ -1,0 +1,68 @@
+name: Temporary OIDC account 0.37 validation
+
+on:
+  push:
+    branches:
+      - tmp/oidc-account-037-build
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: rebuild/oidc-account-037
+          fetch-depth: 0
+
+      - name: Load OIDC account provisioning payload
+        run: |
+          git fetch origin tmp/oidc-account-037-payload
+          git show origin/tmp/oidc-account-037-payload:app/services/oidc_accounts.py > app/services/oidc_accounts.py
+          git show origin/tmp/oidc-account-037-payload:tests/test_oidc_accounts_037.py > tests/test_oidc_accounts_037.py
+          git show origin/tmp/oidc-account-037-payload:tmp/apply_oidc_accounts_037.py > /tmp/apply_oidc_accounts_037.py
+          python /tmp/apply_oidc_accounts_037.py
+          git diff --check
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+          cache: pip
+      - run: pip install -r requirements.txt -r requirements-dev.txt
+
+      - name: Focused OIDC account regressions
+        run: |
+          python -m pytest \
+            tests/test_oidc_accounts_037.py \
+            tests/test_oidc_core.py \
+            tests/test_oidc_auth_flow.py \
+            tests/test_oidc_tokens.py \
+            tests/test_library_permissions_037.py \
+            tests/test_library_item_access_037.py \
+            tests/test_fork_upgrade_037.py \
+            tests/test_fork_upgrade_startup_037.py \
+            tests/test_schema_parity.py \
+            tests/test_schema_ownership.py \
+            tests/test_module_sizes.py \
+            -q --tb=short
+
+      - name: Full regression and architecture checks
+        run: |
+          make badges
+          make test
+          make checks-fast
+
+      - name: Publish validated OIDC account provisioning
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add \
+            app/database.py \
+            app/services/oidc_accounts.py \
+            tests/test_oidc_accounts_037.py \
+            README.md
+          git diff --check --cached
+          git commit -m "OIDC: add ACL-aware account provisioning" || true
+          git push origin HEAD:rebuild/oidc-account-037
