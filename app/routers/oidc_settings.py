@@ -156,11 +156,11 @@ async def update_oidc_settings(request: Request):
 @router.post("/local-login")
 async def update_local_login_policy(request: Request):
     form = await request.form()
-    mode = _text(form, "oidc_local_login_mode", LOCAL_LOGIN_ENABLED, limit=32)
-    username = _text(form, "oidc_break_glass_username", limit=128)
     try:
+        mode = _text(form, "oidc_local_login_mode", LOCAL_LOGIN_ENABLED, limit=32)
+        username = _text(form, "oidc_break_glass_username", limit=128)
         save_local_login_policy(mode, username)
-    except OIDCPolicyError:
+    except (OIDCPolicyError, OIDCSettingsError):
         return _redirect("policy_invalid")
     return _redirect("policy_saved")
 
@@ -169,7 +169,8 @@ async def update_local_login_policy(request: Request):
 async def update_session_policy(request: Request):
     form = await request.form()
     try:
-        save_oidc_session_hours(_text(form, "oidc_session_hours", limit=8))
-    except OIDCPolicyError:
+        hours = _text(form, "oidc_session_hours", limit=8)
+        save_oidc_session_hours(hours)
+    except (OIDCPolicyError, OIDCSettingsError):
         return _redirect("session_invalid")
     return _redirect("session_saved")
