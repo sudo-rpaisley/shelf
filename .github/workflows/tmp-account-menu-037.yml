@@ -1,0 +1,57 @@
+name: Temporary account menu 0.37 validation
+
+on:
+  push:
+    branches:
+      - tmp/account-menu-037-build
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: rebuild/account-menu-037
+          fetch-depth: 0
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+          cache: pip
+      - run: pip install -r requirements.txt -r requirements-dev.txt
+
+      - name: Focused account-menu and CSP tests
+        run: |
+          python -m pytest tests/test_account_menu_037.py tests/test_nav.py -q --tb=short
+          make checks-fast
+
+      - name: Full unit regression and badges
+        run: |
+          make badges
+          make test
+          make checks-fast
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+      - run: npm ci
+      - name: Rebuild CSS and service-worker stamp
+        run: make css
+
+      - name: Install Chromium
+        run: playwright install --with-deps chromium
+      - name: Focused browser journey
+        run: python -m pytest tests/e2e/test_account_menu_037.py -q --tb=short
+
+      - name: Publish validated generated output
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add README.md static/css/app.css static/sw.js
+          git diff --check --cached
+          git commit -m "UI: rebuild account menu assets and badges" || true
+          git push origin HEAD:rebuild/account-menu-037
