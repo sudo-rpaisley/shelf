@@ -627,6 +627,9 @@ async def settings(request: Request, _=Depends(require_role("admin"))):
     # while the nav bar shows it. The no-arg path reads the same env-aware
     # snapshot the nav itself uses.
     hideable_nav_tab_states = hideable_tab_states()
+    from app.oidc_policy import get_local_login_policy, get_oidc_session_hours
+    oidc_login_policy = get_local_login_policy()
+    oidc_session_hours = get_oidc_session_hours()
     # Never hand decrypted credentials to the template — it only needs to know
     # whether one is saved. Fields are write-only; blank submit keeps the value.
     from app.crypto import SENSITIVE_KEYS
@@ -659,5 +662,7 @@ async def settings(request: Request, _=Depends(require_role("admin"))):
          "game_platforms_list": game_platforms_list,
          "hideable_nav_tab_states": hideable_nav_tab_states,
          "borrower_error_message": borrower_error_message,
-         "missing_covers": missing_covers, "cover_queue_stats": cover_queue_stats},
+         "missing_covers": missing_covers, "cover_queue_stats": cover_queue_stats,
+         "oidc_login_policy": oidc_login_policy,
+         "oidc_session_hours": oidc_session_hours},
     )

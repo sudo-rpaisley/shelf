@@ -47,7 +47,7 @@ from app.config import COVERS_DIR, DATA_DIR, MEDIA_TYPES, get_client_ip
 from app.currency import CURRENCIES, format_money, get_currency
 from app.services.national import SEARCH_LANGS
 from app.database import init_db, get_db
-from app.routers import pages, items, items_covers, items_csv, items_catalog, locations, location_order, platforms, settings, sync, checkouts, valuation, hardcover, store, series, share, tags, intake, archive, shelf_fill, romm, komga, periodicals, music, related_media, personal_state, my_list, continue_home, attention
+from app.routers import pages, items, items_covers, items_csv, items_catalog, locations, location_order, platforms, settings, oidc_settings, sync, checkouts, valuation, hardcover, store, series, share, tags, intake, archive, shelf_fill, romm, komga, periodicals, music, related_media, personal_state, my_list, continue_home, attention
 from app.routers import auth_routes
 
 
@@ -499,6 +499,7 @@ app.include_router(locations.router)
 app.include_router(location_order.router)
 app.include_router(platforms.router)
 app.include_router(settings.router)
+app.include_router(oidc_settings.router)
 app.include_router(sync.router)
 app.include_router(checkouts.router)
 app.include_router(valuation.router)
