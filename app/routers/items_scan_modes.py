@@ -13,6 +13,7 @@ were"; this is that split.
 
 from app.database import get_db
 from app.routers import items_common
+from app.services import user_state
 from app.services.item_write import ItemValueError, update_item_fields
 
 
@@ -208,13 +209,12 @@ def _scan_mode_lookup(request, templates, item: dict | None, raw: str):
     )
 
 
-def _scan_mode_quick_rate(request, templates, item: dict, raw: str):
-    """Handle quick rate mode: mark item as read/completed."""
-    from datetime import date
+def _scan_mode_quick_rate(
+    request, templates, item: dict, raw: str, *, user_id: int
+):
+    """Mark this item read for the acting user only."""
     with get_db() as db:
-        update_item_fields(db, item["id"], {
-            "reading_status": "read", "date_finished": date.today().isoformat(),
-        })
+        user_state.set_reading_status(db, user_id, item["id"], "read")
 
     items_common._log_scan(raw, item.get("media_type", ""), "marked_read", item["id"], "quick_rate")
     resp = templates.TemplateResponse(

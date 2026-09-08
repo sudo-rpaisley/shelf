@@ -263,7 +263,7 @@ class TestLegacyBookAdd:
 
 class TestLegacyBookExistingModes:
     def test_remembered_mapping_supports_every_existing_item_mode(
-        self, admin_client, db
+        self, admin_client, admin_user, db
     ):
         home = _insert_location(db, "Home")
         target = _insert_location(db, "Target")
@@ -316,12 +316,16 @@ class TestLegacyBookExistingModes:
         assert "Marked as read" in rated.text
         no_lookup.assert_not_awaited()
         row = db.execute(
-            "SELECT location_id, reading_status, date_finished FROM items WHERE id = ?",
-            (item_id,),
+            "SELECT location_id FROM items WHERE id = ?", (item_id,)
+        ).fetchone()
+        personal = db.execute(
+            "SELECT reading_status, date_finished FROM user_item_state "
+            "WHERE user_id = ? AND item_id = ?",
+            (admin_user["id"], item_id),
         ).fetchone()
         assert row["location_id"] == home
-        assert row["reading_status"] == "read"
-        assert row["date_finished"] is not None
+        assert personal["reading_status"] == "read"
+        assert personal["date_finished"] is not None
         assert db.execute(
             "SELECT checked_in FROM checkouts WHERE item_id = ?", (item_id,)
         ).fetchone()["checked_in"] is not None

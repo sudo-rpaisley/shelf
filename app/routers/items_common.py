@@ -24,11 +24,12 @@ import sqlite3
 import httpx
 
 from fastapi import Request
+from fastapi.responses import HTMLResponse
 
 from app import browse_filters
 from app.config import HTTP_TIMEOUT, MEDIA_TYPES
 from app.database import get_db, get_setting
-from app.services import covers, detect, googlebooks, hardcover, national, openlibrary, provider_result
+from app.services import covers, detect, googlebooks, hardcover, national, openlibrary, provider_result, scanner_state, user_state
 from app.services import cover_queue
 from app.services import authors as authors_svc
 from app.services import igdb, scan_outcome, title_lookup, tmdb, upcitemdb
@@ -133,6 +134,19 @@ def _toast_header(message: str, toast_type: str = "success") -> str:
     return json.dumps({"showToast": {"message": message, "type": toast_type}})
 
 
+def _default_library_edit_allowed(request: Request) -> bool:
+    return scanner_state.default_library_edit_allowed(dict(request.state.user))
+
+
+def _scan_duplicate_response(
+    request: Request, templates, existing, barcode: str, *, mode: str,
+    media_type: str | None = None,
+):
+    return scanner_state.duplicate_response(
+        request, templates, existing, barcode, mode=mode, media_type=media_type
+    )
+
+
 async def _lookup_metadata(isbn13: str, hc_token: str | None, client: httpx.AsyncClient,
                            *, google_api_key: str | None = None
                            ) -> tuple[dict | None, str, dict, provider_result.ProviderResult]:
@@ -207,30 +221,16 @@ async def _lookup_metadata(isbn13: str, hc_token: str | None, client: httpx.Asyn
 
     return metadata, source, hc_ids, provider_result.combine(legs, provider="isbn-cascade")
 
-def _save_item(metadata: dict, isbn13: str, media_type: str, location_id: int | None,
-               source: str, hc_ids: dict) -> int:
-    """Insert from scan metadata; `isbn13` is boundary-validated by every
-    caller, and the funnel derives `isbn10`. Returns the new item ID."""
-    with get_db() as db:
-        return insert_item(
-            db,
-            title=metadata["title"],
-            subtitle=metadata.get("subtitle"),
-            authors=metadata.get("authors"),
-            isbn=isbn13,
-            media_type=media_type,
-            publisher=metadata.get("publisher"),
-            publish_year=metadata.get("publish_year"),
-            page_count=metadata.get("page_count"),
-            description=metadata.get("description"),
-            series_name=metadata.get("series_name"),
-            series_position=metadata.get("series_position"),
-            location_id=location_id,
-            source=source,
-            language=metadata.get("language"),
-            hardcover_book_id=hc_ids.get("hardcover_book_id"),
-            hardcover_edition_id=hc_ids.get("hardcover_edition_id"),
-        )
+def _save_item(
+    metadata: dict, isbn13: str, media_type: str, location_id: int | None,
+    source: str, hc_ids: dict, *, owned: int = 1,
+    wishlist_user_id: int | None = None,
+) -> int:
+    return scanner_state.save_scanned_item(
+        metadata, isbn13, media_type, location_id, source, hc_ids,
+        owned=owned, wishlist_user_id=wishlist_user_id,
+    )
+
 
 async def _fetch_preview_cover(isbn13: str, client: httpx.AsyncClient) -> str | None:
     """Try to grab an Amazon cover preview for manual-add fallback."""
@@ -365,27 +365,21 @@ async def _enrich_import_covers(item_ids: list[int]) -> None:
     else:
         logger.info("Queued %d items for cover enrichment", queued)
 
-_SCAN_LOG_RETENTION_DAYS = 90
+# Compatibility patch point retained for existing security tests and any
+# extension that deliberately resets the prune clock. The service owns the
+# implementation; the facade synchronises this one scalar before/after calls.
+_scan_log_last_prune = scanner_state._scan_log_last_prune
 
-_SCAN_LOG_PRUNE_INTERVAL = 3600  # seconds between prune checks
 
-_scan_log_last_prune: float = float("-inf")  # -inf triggers prune on first call
-
-def _log_scan(isbn: str, media_type: str, result: str, item_id: int | None = None, mode: str = "add"):
-    import time
+def _log_scan(
+    isbn: str, media_type: str, result: str, item_id: int | None = None,
+    mode: str = "add",
+):
     global _scan_log_last_prune
-    with get_db() as db:
-        db.execute(
-            "INSERT INTO scan_log (isbn, media_type, result, item_id, mode) VALUES (?, ?, ?, ?, ?)",
-            (isbn, media_type, result, item_id, mode),
-        )
-        now = time.monotonic()
-        if now - _scan_log_last_prune >= _SCAN_LOG_PRUNE_INTERVAL:
-            _scan_log_last_prune = now
-            db.execute(
-                "DELETE FROM scan_log WHERE created_at < datetime('now', ?)",
-                (f"-{_SCAN_LOG_RETENTION_DAYS} days",),
-            )
+    scanner_state._scan_log_last_prune = _scan_log_last_prune
+    result_value = scanner_state.log_scan(isbn, media_type, result, item_id, mode)
+    _scan_log_last_prune = scanner_state._scan_log_last_prune
+    return result_value
 
 
 # Values are the funnel's job: `item_write.validate_item_fields` refuses an
@@ -473,11 +467,19 @@ async def _scan_upc(request: Request, templates, upc_code: str, media_type: str,
             "SELECT id, title, media_type FROM items WHERE upc = ?", (upc_key,)
         ).fetchone()
     if existing:
-        _log_scan(upc_norm, existing["media_type"], "duplicate", existing["id"], mode)
-        return templates.TemplateResponse(
-            request, "fragments/scan_result.html",
-            {"status": "duplicate", "isbn": upc_norm, "title": existing["title"], "item_id": existing["id"]},
+        return _scan_duplicate_response(
+            request,
+            templates,
+            existing,
+            upc_norm,
+            mode=mode,
+            media_type=existing["media_type"],
         )
+
+    # A new shared catalogue row will land in Main Library. Refuse before any
+    # outbound metadata work if the actor may not edit that library.
+    if not _default_library_edit_allowed(request):
+        return HTMLResponse("Forbidden", status_code=403)
 
     # --- One UPC Item DB lookup, above the game/film fork.
     #
@@ -581,7 +583,7 @@ async def _scan_upc(request: Request, templates, upc_code: str, media_type: str,
             {"status": "not_found", "isbn": upc_norm, "media_type": media_type,
              "message": "Not found — add manually below", "preview_cover": None,
              "enrich_status": scan_outcome.not_found_status(product_result),
-             "locations": _manual_form_locations()},
+             "locations": _manual_form_locations(), "mode": mode},
         )
 
     # The thin-metadata notice, as a *state*, not as markup — the copy lives
@@ -655,6 +657,10 @@ async def _scan_upc(request: Request, templates, upc_code: str, media_type: str,
                     # an item-creation field, so it belongs in the insert.
                     owned=0 if mode == "wishlist" else 1,
                 )
+                if mode == "wishlist":
+                    user_state.save_state(
+                        db, int(request.state.user["id"]), item_id, wishlist=1
+                    )
             except ItemValueError as e:  # a stale location (#54)
                 value_error = str(e)
             except sqlite3.IntegrityError:
@@ -671,11 +677,8 @@ async def _scan_upc(request: Request, templates, upc_code: str, media_type: str,
             {"status": "error", "isbn": upc_norm, "message": value_error},
         )
     if existing:
-        _log_scan(upc_norm, media_type, "duplicate", existing["id"], mode)
-        return templates.TemplateResponse(
-            request, "fragments/scan_result.html",
-            {"status": "duplicate", "isbn": upc_norm, "title": existing["title"],
-             "item_id": existing["id"]},
+        return _scan_duplicate_response(
+            request, templates, existing, upc_norm, mode=mode, media_type=media_type
         )
 
     # Download cover
@@ -760,7 +763,7 @@ async def _scan_upc_game(request: Request, templates, upc_norm: str, product: di
             {"status": "not_found", "isbn": upc_norm, "media_type": "video_game",
              "message": "Not found — add manually below", "preview_cover": None,
              "enrich_status": scan_outcome.not_found_status(product_result),
-             "locations": _manual_form_locations()},
+             "locations": _manual_form_locations(), "mode": mode},
         )
 
     # Step 2: Search IGDB for metadata using that title
@@ -830,6 +833,10 @@ async def _scan_upc_game(request: Request, templates, upc_norm: str, product: di
                     source=source,
                     owned=0 if mode == "wishlist" else 1,
                 )
+                if mode == "wishlist":
+                    user_state.save_state(
+                        db, int(request.state.user["id"]), item_id, wishlist=1
+                    )
             except ItemValueError as e:  # unknown platform or stale location (#54)
                 value_error = str(e)
             except sqlite3.IntegrityError:
@@ -845,11 +852,13 @@ async def _scan_upc_game(request: Request, templates, upc_norm: str, product: di
             {"status": "error", "isbn": upc_norm, "message": value_error},
         )
     if existing:
-        _log_scan(upc_norm, "video_game", "duplicate", existing["id"], mode)
-        return templates.TemplateResponse(
-            request, "fragments/scan_result.html",
-            {"status": "duplicate", "isbn": upc_norm, "title": existing["title"],
-             "item_id": existing["id"]},
+        return _scan_duplicate_response(
+            request,
+            templates,
+            existing,
+            upc_norm,
+            mode=mode,
+            media_type="video_game",
         )
 
     # Download cover

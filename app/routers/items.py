@@ -24,7 +24,7 @@ from app.services import isbn as isbn_svc
 from app.services.item_write import (ItemValueError, insert_item, update_item_fields,
                                      update_items_fields, validate_item_fields,
                                      validated_location_id)
-from app.services import openlibrary, googlebooks, hardcover, covers, national
+from app.services import openlibrary, googlebooks, hardcover, covers, libraries, national, user_state
 from app.services import detect
 from app.services import cover_queue
 from app.services import legacy_book
@@ -353,6 +353,16 @@ async def scan_isbn(
     if mode in _EXISTING_ITEM_MODES:
         lookup_barcode = legacy_isbn13 if legacy_candidates else raw
         item = _find_item_by_barcode(lookup_barcode)
+        actor = dict(request.state.user)
+        if item:
+            minimum_role = "viewer" if mode in {"lookup", "quick_rate"} else "editor"
+            with get_db() as db:
+                visible = libraries.has_item_role(db, actor, item["id"], "viewer")
+                allowed = libraries.has_item_role(db, actor, item["id"], minimum_role)
+            if not visible:
+                item = None
+            elif not allowed:
+                return HTMLResponse("Forbidden", status_code=403)
         # inventory mode handles not-found specially
         if mode == "inventory":
             return items_scan_modes._scan_mode_inventory(
@@ -378,7 +388,9 @@ async def scan_isbn(
         if mode == "lookup":
             return items_scan_modes._scan_mode_lookup(request, templates, item, raw)
         if mode == "quick_rate":
-            return items_scan_modes._scan_mode_quick_rate(request, templates, item, raw)
+            return items_scan_modes._scan_mode_quick_rate(
+                request, templates, item, raw, user_id=int(actor["id"])
+            )
 
     # --- Add / Wishlist modes (create new items) ---
     if legacy_candidates:
@@ -444,11 +456,12 @@ async def scan_isbn(
             (isbn13, media_type),
         ).fetchone()
     if existing:
-        items_common._log_scan(isbn13, media_type, "duplicate", existing["id"], mode)
-        return templates.TemplateResponse(
-            request, "fragments/scan_result.html",
-            {"status": "duplicate", "isbn": isbn13, "title": existing["title"], "item_id": existing["id"]},
+        return items_common._scan_duplicate_response(
+            request, templates, existing, isbn13, mode=mode, media_type=media_type
         )
+
+    if not items_common._default_library_edit_allowed(request):
+        return HTMLResponse("Forbidden", status_code=403)
 
     # Get optional metadata-provider credentials — and refuse a stale location
     # id here rather than after the cascade: the funnel would raise on the
@@ -521,15 +534,22 @@ async def scan_isbn(
                     "enrich_status": scan_outcome.not_found_status(cascade),
                     "enrich_provider": scan_outcome.provider_label(cascade),
                     "locations": items_common._manual_form_locations(),
+                    "mode": mode,
                 },
             )
 
-        item_id = items_common._save_item(metadata, isbn13, media_type, location_id, source, hc_ids)
-
-        # Wishlist mode: set owned = 0
-        if mode == "wishlist":
-            with get_db() as db:
-                update_item_fields(db, item_id, {"owned": 0})
+        item_id = items_common._save_item(
+            metadata,
+            isbn13,
+            media_type,
+            location_id,
+            source,
+            hc_ids,
+            owned=0 if mode == "wishlist" else 1,
+            wishlist_user_id=(
+                int(request.state.user["id"]) if mode == "wishlist" else None
+            ),
+        )
 
         # Queue the cover instead of downloading it in-request. The
         # hints are the exact three inputs the download used to take, so
@@ -575,6 +595,7 @@ async def manual_add(request: Request, _=Depends(require_role("editor"))):
     templates = request.app.state.templates
     form = await request.form()
 
+    mode = (form.get("mode") or "add").strip()
     title = form.get("title", "").strip()
     if not title:
         return templates.TemplateResponse(
@@ -636,6 +657,9 @@ async def manual_add(request: Request, _=Depends(require_role("editor"))):
         except (TypeError, ValueError):
             location_id = None
 
+    if not items_common._default_library_edit_allowed(request):
+        return HTMLResponse("Forbidden", status_code=403)
+
     # Media type, platform and location are the funnel's to check (#54):
     # `insert_item` raises `ItemValueError` and the card carries its message.
     # Rendered after the block so nothing runs under the write.
@@ -658,7 +682,12 @@ async def manual_add(request: Request, _=Depends(require_role("editor"))):
                     location_id=location_id,
                     language=language,
                     source="manual",
+                    owned=0 if mode == "wishlist" else 1,
                 )
+                if mode == "wishlist":
+                    user_state.save_state(
+                        db, int(request.state.user["id"]), item_id, wishlist=1
+                    )
             except ItemValueError as e:
                 value_error = str(e)
             except sqlite3.IntegrityError:
@@ -677,11 +706,8 @@ async def manual_add(request: Request, _=Depends(require_role("editor"))):
 
     if existing:
         code = isbn13 or upc_code or ""
-        items_common._log_scan(code, media_type, "duplicate", existing["id"])
-        return templates.TemplateResponse(
-            request, "fragments/scan_result.html",
-            {"status": "duplicate", "isbn": code, "title": existing["title"],
-             "item_id": existing["id"]},
+        return items_common._scan_duplicate_response(
+            request, templates, existing, code, mode=mode, media_type=media_type
         )
 
     # Handle cover upload
@@ -708,12 +734,15 @@ async def manual_add(request: Request, _=Depends(require_role("editor"))):
         with get_db() as db:
             db.execute("UPDATE items SET cover_path = ? WHERE id = ?", (cover_path, item_id))
 
-    items_common._log_scan(isbn13 or upc_code or "", media_type, "added", item_id)
+    result_status = "wishlisted" if mode == "wishlist" else "added"
+    items_common._log_scan(
+        isbn13 or upc_code or "", media_type, result_status, item_id, mode
+    )
 
     resp = templates.TemplateResponse(
         request, "fragments/scan_result.html",
         {
-            "status": "added",
+            "status": result_status,
             "isbn": isbn13 or upc_code or "",
             "title": title,
             "authors": form.get("authors"),
@@ -728,7 +757,11 @@ async def manual_add(request: Request, _=Depends(require_role("editor"))):
 
 
 @router.get("/items/suggest")
-async def suggest_items(q: str = "", _=Depends(require_role("editor"))):
+async def suggest_items(
+    request: Request,
+    q: str = "",
+    _=Depends(require_role("editor")),
+):
     """Title-prefix suggestions for the manual-add "copy from" picker (#19).
 
     JSON only (no HTMX fragment) — the picker is a small Alpine dropdown, not
@@ -738,16 +771,23 @@ async def suggest_items(q: str = "", _=Depends(require_role("editor"))):
     if not q:
         return JSONResponse([])
     with get_db() as db:
+        access_sql, access_params = libraries.item_access_condition(
+            dict(request.state.user), item_alias="i"
+        )
         rows = db.execute(
-            "SELECT id, title, authors FROM items WHERE title LIKE ? "
-            "ORDER BY title COLLATE NOCASE LIMIT 10",
-            (f"{q}%",),
+            "SELECT i.id, i.title, i.authors FROM items i WHERE i.title LIKE ? "
+            f"AND {access_sql} ORDER BY i.title COLLATE NOCASE LIMIT 10",
+            [f"{q}%", *access_params],
         ).fetchall()
     return JSONResponse([{"id": r["id"], "title": r["title"], "authors": r["authors"]} for r in rows])
 
 
 @router.get("/items/{item_id}/copy-template")
-async def copy_template(item_id: int, _=Depends(require_role("editor"))):
+async def copy_template(
+    item_id: int,
+    _role=Depends(require_role("editor")),
+    _item=Depends(require_item_role("viewer")),
+):
     """Copyable-field subset of an item for manual-add prefill (#19).
 
     Explicitly excludes title, isbn/upc, cover, reading status, value, and
@@ -1339,11 +1379,15 @@ async def recent_scans(
     """Return recent scan results filtered by mode. Returns HTMX fragment."""
     templates = request.app.state.templates
     with get_db() as db:
+        access_sql, access_params = libraries.item_access_condition(
+            dict(request.state.user), item_alias="i"
+        )
         scans = db.execute(
             "SELECT sl.*, i.title, i.authors, i.cover_path "
             "FROM scan_log sl LEFT JOIN items i ON sl.item_id = i.id "
-            "WHERE sl.mode = ? ORDER BY sl.created_at DESC LIMIT 20",
-            (mode,),
+            f"WHERE sl.mode = ? AND (sl.item_id IS NULL OR ({access_sql})) "
+            "ORDER BY sl.created_at DESC LIMIT 20",
+            [mode, *access_params],
         ).fetchall()
     return templates.TemplateResponse(
         request, "fragments/recent_scans.html", {"recent_scans": scans},
@@ -1370,6 +1414,12 @@ async def inventory_missing(
             "SELECT id, title, authors, cover_path FROM items WHERE location_id = ? ORDER BY title",
             (location_id,),
         ).fetchall()
+        items = [
+            row for row in items
+            if libraries.has_item_role(
+                db, dict(request.state.user), int(row["id"]), "editor"
+            )
+        ]
 
     missing = [dict(i) for i in items if i["id"] not in scanned]
 

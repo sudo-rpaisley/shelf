@@ -30,17 +30,25 @@ class TestAddMode:
 
 
 class TestWishlistMode:
-    def test_wishlist_sets_owned_zero(self, admin_client, db):
-        """Wishlist mode should create item with owned=0."""
-        # We can't easily test full metadata lookup without mocking external APIs,
-        # but we can test the duplicate path returns correctly
-        item_id = _insert_item(db, title="Already Here", isbn="9780000000002")
+    def test_wishlist_existing_item_is_personal(self, admin_client, admin_user, db):
+        """Wishlist mode on an existing row changes only the acting user's state."""
+        item_id = _insert_item(db, title="Already Here", isbn="9780000000002", owned=1)
         db.commit()
         resp = admin_client.post("/api/scan", data={
             "isbn": "9780000000002", "media_type": "book", "mode": "wishlist",
         })
         assert resp.status_code == 200
-        assert b"duplicate" in resp.content
+        assert b"wishlisted" in resp.content
+        with get_db() as check_db:
+            owned = check_db.execute(
+                "SELECT owned FROM items WHERE id = ?", (item_id,)
+            ).fetchone()["owned"]
+            state = check_db.execute(
+                "SELECT wishlist FROM user_item_state WHERE user_id = ? AND item_id = ?",
+                (admin_user["id"], item_id),
+            ).fetchone()
+        assert owned == 1
+        assert state["wishlist"] == 1
 
 
 class TestLendMode:
@@ -232,7 +240,7 @@ class TestLookupMode:
 
 
 class TestQuickRateMode:
-    def test_quick_rate_marks_as_read(self, admin_client, db):
+    def test_quick_rate_marks_as_read(self, admin_client, admin_user, db):
         item_id = _insert_item(db, title="Rate Me", isbn="9780000000705")
         db.commit()
         resp = admin_client.post("/api/scan", data={
@@ -243,9 +251,19 @@ class TestQuickRateMode:
         assert "HX-Trigger" not in resp.headers
 
         with get_db() as check_db:
-            row = check_db.execute("SELECT reading_status, date_finished FROM items WHERE id = ?", (item_id,)).fetchone()
-        assert row["reading_status"] == "read"
-        assert row["date_finished"] is not None
+            legacy = check_db.execute(
+                "SELECT reading_status, date_finished FROM items WHERE id = ?",
+                (item_id,),
+            ).fetchone()
+            personal = check_db.execute(
+                "SELECT reading_status, date_finished FROM user_item_state "
+                "WHERE user_id = ? AND item_id = ?",
+                (admin_user["id"], item_id),
+            ).fetchone()
+        assert legacy["reading_status"] is None
+        assert legacy["date_finished"] is None
+        assert personal["reading_status"] == "read"
+        assert personal["date_finished"] is not None
 
     def test_quick_rate_not_in_collection(self, admin_client):
         resp = admin_client.post("/api/scan", data={
