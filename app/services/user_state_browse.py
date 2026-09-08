@@ -8,6 +8,7 @@ account's legacy shared state.
 """
 
 from app import browse_filters
+from app.services import libraries
 
 
 def overlay_items(db, user_id: int, items: list[dict]) -> list[dict]:
@@ -56,10 +57,24 @@ def overlay_items(db, user_id: int, items: list[dict]) -> list[dict]:
     return items
 
 
-def filter_counts(db, values: dict, total: int, user_id: int) -> dict:
-    """Build Browse cross-filter counts using one user's personal state."""
+def filter_counts(
+    db,
+    values: dict,
+    total: int,
+    user_id: int,
+    *,
+    user: dict | None = None,
+) -> dict:
+    """Build cross-filter counts using one user's state and accessible rows."""
     def _count_where(exclude):
-        return browse_filters.build_where(values, exclude=exclude, user_id=user_id)
+        where, params = browse_filters.build_where(
+            values,
+            exclude=exclude,
+            user_id=user_id,
+        )
+        if user is not None:
+            where, params = libraries.scope_where(where, params, user)
+        return where, params
 
     type_where, type_params = _count_where("media_type_filter")
     type_counts = {
@@ -115,6 +130,8 @@ def filter_counts(db, values: dict, total: int, user_id: int) -> dict:
         ).fetchall()
     }
 
+    # Locations describe the shared physical world and remain globally named;
+    # the counts above reveal only items visible to this account.
     locations = db.execute(
         "SELECT * FROM locations ORDER BY sort_order, name"
     ).fetchall()
