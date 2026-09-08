@@ -131,10 +131,11 @@ def test_non_admin_stats_do_not_leak_global_valuation_history(
 
     viewer_html = viewer_client.get("/stats").text
     admin_html = admin_client.get("/stats").text
+    viewer_valuation = viewer_html.split('data-testid="chart-valuation"', 1)[1].split("</div>", 1)[0]
+    admin_valuation = admin_html.split('data-testid="chart-valuation"', 1)[1].split("</div>", 1)[0]
 
-    assert "snapshots cover the whole catalogue" in viewer_html
-    assert "snapshots cover the whole catalogue" not in admin_html
-    assert "Run batch valuations" not in admin_html
+    assert "<svg" not in viewer_valuation
+    assert "<svg" in admin_valuation
 
 
 def test_admin_home_and_stats_keep_global_catalogue_recovery_visibility(
