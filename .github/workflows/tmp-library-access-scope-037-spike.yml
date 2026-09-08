@@ -1,0 +1,21 @@
+name: Temporary Library Browse scope 0.37 spike
+
+on:
+  push:
+    branches:
+      - tmp/library-access-scope-037-spike
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: tmp/library-access-scope-037-spike
+          fetch-depth: 0
+      - name: Probe reviewed Browse-scope delta
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git cherry-pick dd1652ff824a07038f73a47210eb0fcc3fecfdad
+          git diff --check HEAD^
