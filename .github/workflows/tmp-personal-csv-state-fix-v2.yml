@@ -1,0 +1,157 @@
+name: Temporary personal CSV state fix v2
+
+on:
+  push:
+    branches:
+      - tmp/personal-csv-state-fix-v2
+
+permissions:
+  contents: write
+
+jobs:
+  fix:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: rebuild/per-user-browse-037
+          fetch-depth: 0
+
+      - name: Add personal reading-tracker projection
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          path = Path('app/routers/items_csv.py')
+          text = path.read_text()
+          old = 'from app.services import cover_queue\n'
+          if old not in text:
+              raise SystemExit('cover_queue import not found')
+          text = text.replace(old, 'from app.services import cover_queue, user_state\n', 1)
+
+          old = 'async def import_csv(request: Request, _=Depends(require_role("admin"))):'
+          if old not in text:
+              raise SystemExit('import_csv dependency signature not found')
+          text = text.replace(old, 'async def import_csv(request: Request, user=Depends(require_role("admin"))):', 1)
+
+          anchor = '    _CSV_MAX_TEXT = 1000\n\n'
+          helper = '''    _CSV_MAX_TEXT = 1000
+
+              def _save_personal_tracker_state(db, item_id: int, norm: dict) -> None:
+                  if fmt == reading_imports.GENERIC:
+                      return
+                  changes = {}
+                  if norm["reading_status"] is not None:
+                      changes["reading_status"] = norm["reading_status"]
+                  if norm["date_finished"] is not None:
+                      changes["date_finished"] = norm["date_finished"]
+                  if to_read_wishlist and norm["reading_status"] == "want_to_read":
+                      changes["wishlist"] = 1
+                  if changes:
+                      user_state.save_state(db, user["id"], item_id, **changes)
+
+          '''
+          if anchor not in text:
+              raise SystemExit('CSV helper anchor not found')
+          text = text.replace(anchor, helper, 1)
+
+          update_line = '                        update_item_fields(db, existing["id"], tracker_fields)\n'
+          if update_line not in text:
+              raise SystemExit('tracker update line not found')
+          text = text.replace(
+              update_line,
+              update_line + '                        _save_personal_tracker_state(db, existing["id"], norm)\n',
+              1,
+          )
+
+          new_anchor = '                if isbn_val:\n                    new_item_ids.append(new_id)\n'
+          if new_anchor not in text:
+              raise SystemExit('new-item anchor not found')
+          text = text.replace(
+              new_anchor,
+              '                _save_personal_tracker_state(db, new_id, norm)\n' + new_anchor,
+              1,
+          )
+          path.write_text(text)
+
+          test = Path('tests/test_csv_personal_state_037.py')
+          test.write_text('''import io
+
+
+GOODREADS_HEADER = (
+    "Book Id,Title,Author,Author l-f,Additional Authors,ISBN,ISBN13,My Rating,"
+    "Average Rating,Publisher,Binding,Number of Pages,Year Published,"
+    "Original Publication Year,Date Read,Date Added,Bookshelves,"
+    "Bookshelves with positions,Exclusive Shelf,My Review,Spoiler,"
+    "Private Notes,Read Count,Owned Copies"
+)
+
+
+def test_goodreads_to_read_import_is_personal(admin_client, admin_user, viewer_user, db):
+    row = (
+        '123,Hyperion,Dan Simmons,"Simmons, Dan",,'
+        '"=""0553283685""","=""9780553283686""",0,4.2,Bantam,Paperback,482,'
+        '1989,1989,,2026/09/08,,,,to-read,,,,1,0'
+    )
+    response = admin_client.post(
+        "/api/import/csv",
+        files={"file": ("goodreads.csv", io.BytesIO((GOODREADS_HEADER + "\\n" + row).encode()), "text/csv")},
+        data={"mode": "skip", "to_read_wishlist": "1"},
+    )
+    data = response.json()
+    assert data["imported"] == 1, data
+    item = db.execute("SELECT id, owned FROM items WHERE isbn = '9780553283686'").fetchone()
+    assert item["owned"] == 0
+
+    mine = db.execute(
+        "SELECT reading_status, wishlist FROM user_item_state WHERE user_id = ? AND item_id = ?",
+        (admin_user["id"], item["id"]),
+    ).fetchone()
+    other = db.execute(
+        "SELECT reading_status, wishlist FROM user_item_state WHERE user_id = ? AND item_id = ?",
+        (viewer_user["id"], item["id"]),
+    ).fetchone()
+    assert mine["reading_status"] == "want_to_read"
+    assert mine["wishlist"] == 1
+    assert other is None
+''')
+          PY
+          python -m py_compile app/routers/items_csv.py tests/test_csv_personal_state_037.py
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+          cache: pip
+      - run: pip install -r requirements.txt -r requirements-dev.txt
+
+      - name: Focused regression
+        run: python -m pytest tests/test_csv_personal_state_037.py tests/test_reading_imports.py tests/test_personal_browse_037.py -q --tb=short
+
+      - name: Full unit regression
+        run: make test
+
+      - name: Fast checks
+        run: make checks-fast
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+      - run: npm ci
+      - run: make css
+
+      - name: Exact browser regression
+        run: |
+          python -m playwright install --with-deps chromium
+          python -m pytest tests/e2e/test_csv.py::test_goodreads_ui_import_and_browse -q --tb=short -m e2e
+
+      - name: Commit validated fix
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          make badges
+          python scripts/stamp_sw_version.py
+          git add app/routers/items_csv.py tests/test_csv_personal_state_037.py README.md static/css/app.css static/sw.js
+          git diff --check --cached
+          git commit -m "PERSONAL STATE: project tracker imports to importing user"
+          git push origin HEAD:rebuild/per-user-browse-037
