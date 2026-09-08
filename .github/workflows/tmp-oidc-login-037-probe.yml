@@ -49,4 +49,5 @@ jobs:
             tests/test_schema_ownership.py \
             tests/test_module_sizes.py \
             -q --tb=short
+          make badges
           make checks-fast
