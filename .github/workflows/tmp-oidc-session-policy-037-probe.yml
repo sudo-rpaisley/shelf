@@ -1,0 +1,55 @@
+name: Temporary OIDC session policy 0.37 probe
+
+on:
+  push:
+    branches:
+      - tmp/oidc-session-policy-037-probe
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: rebuild/needs-attention-037
+          fetch-depth: 0
+
+      - name: Replay OIDC core, account and session payloads
+        run: |
+          git fetch origin upstream/oidc-token-validation-037 tmp/oidc-account-037-payload tmp/oidc-session-policy-037-payload
+          git show origin/upstream/oidc-token-validation-037:app/oidc.py > app/oidc.py
+          git show origin/upstream/oidc-token-validation-037:app/oidc_tokens.py > app/oidc_tokens.py
+          git show origin/upstream/oidc-token-validation-037:tests/test_oidc_core.py > tests/test_oidc_core.py
+          git show origin/tmp/oidc-account-037-payload:app/services/oidc_accounts.py > app/services/oidc_accounts.py
+          git show origin/tmp/oidc-account-037-payload:tests/test_oidc_accounts_037.py > tests/test_oidc_accounts_037.py
+          git show origin/tmp/oidc-account-037-payload:tmp/apply_oidc_accounts_037.py > /tmp/apply_oidc_accounts_037.py
+          python /tmp/apply_oidc_accounts_037.py
+          git show origin/tmp/oidc-session-policy-037-payload:app/oidc_policy.py > app/oidc_policy.py
+          git show origin/tmp/oidc-session-policy-037-payload:tests/test_oidc_session_policy_037.py > tests/test_oidc_session_policy_037.py
+          git show origin/tmp/oidc-session-policy-037-payload:tmp/apply_oidc_session_auth_037.py > /tmp/apply_oidc_session_auth_037.py
+          python /tmp/apply_oidc_session_auth_037.py
+          git diff --check
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+          cache: pip
+      - run: pip install -r requirements.txt -r requirements-dev.txt
+
+      - name: OIDC session/account/ACL compatibility
+        run: |
+          python -m pytest \
+            tests/test_oidc_session_policy_037.py \
+            tests/test_oidc_accounts_037.py \
+            tests/test_oidc_core.py \
+            tests/test_auth.py \
+            tests/test_auth_hardening.py \
+            tests/test_library_permissions_037.py \
+            tests/test_schema_ownership.py \
+            tests/test_module_sizes.py \
+            -q --tb=short
+          make badges
+          make checks-fast
