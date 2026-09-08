@@ -1,4 +1,4 @@
-name: Temporary Komga series Browse 0.37 port
+name: Temporary My List 0.37 rebuild
 
 on:
   push:
@@ -14,100 +14,48 @@ jobs:
     steps:
       - uses: actions/checkout@v7
         with:
-          ref: upstream/komga-series-browse-037
+          ref: rebuild/my-list-037
           fetch-depth: 0
 
-      - name: Apply focused 0.36 feature delta
+      - name: Register My List and navigation
         run: |
           set -euo pipefail
-          git fetch origin upstream/komga-series-browse-036
-          git diff --binary 4cf280ba5a546215c4f09e8169d1617f368b60df 423238f720f97fdc7224e66e3848d8c293034514 -- . \
-            ':(exclude)README.md' \
-            ':(exclude)app/routers/pages.py' \
-            ':(exclude)static/css/app.css' \
-            ':(exclude)static/sw.js' > /tmp/komga-series.patch
-          git apply --3way --index /tmp/komga-series.patch
-
           python - <<'PY'
           from pathlib import Path
 
-          path = Path('app/routers/pages.py')
-          text = path.read_text()
+          main = Path('app/main.py')
+          text = main.read_text()
+          old_import = 'related_media, personal_state\n'
+          if old_import not in text:
+              raise SystemExit('router import anchor not found')
+          text = text.replace(old_import, 'related_media, personal_state, my_list\n', 1)
+          anchor = 'app.include_router(personal_state.router)'
+          if anchor not in text:
+              raise SystemExit('router include anchor not found')
+          text = text.replace(anchor, anchor + '\napp.include_router(my_list.router)', 1)
+          main.write_text(text)
 
-          import_anchor = 'from app.services.home_dashboard import dashboard_summary\n'
-          if 'from app.services import komga_series_browse\n' not in text:
-              text = text.replace(
-                  import_anchor,
-                  import_anchor + 'from app.services import komga_series_browse\n',
-                  1,
-              )
-
-          browse_at = text.index('@router.get("/browse")')
-          query_start = text.index(
-              '        from app.routers.checkouts import OVERDUE_CONDITION, get_overdue_days\n',
-              browse_at,
+          nav = Path('app/nav.py')
+          text = nav.read_text()
+          browse = '    {"key": "browse", "label": "Browse", "path": "/browse"},\n'
+          if browse not in text:
+              raise SystemExit('nav Browse anchor not found')
+          text = text.replace(
+              browse,
+              browse + '    {"key": "my-list", "label": "My List", "path": "/my-list"},\n',
+              1,
           )
-          query_end = text.index('        series_names = [\n', query_start)
-          new_query = '''        items, total_filtered, display_total = komga_series_browse.fetch_page(
-              db,
-              where,
-              params,
-              order_clause,
-              limit=DEFAULT_PAGE_SIZE,
-              offset=0,
-              values=values,
+          back = 'BACK_TARGETS = {\n'
+          if back not in text:
+              raise SystemExit('back-target anchor not found')
+          text = text.replace(
+              back,
+              back + '    "my_list": ("/my-list", "Back to My List"),\n',
+              1,
           )
-
-          '''
-          text = text[:query_start] + new_query + text[query_end:]
-
-          more_at = text.index('        has_more = len(items) < total_filtered\n', browse_at)
-          text = (
-              text[:more_at]
-              + '        has_more = len(items) < display_total\n'
-              + text[more_at + len('        has_more = len(items) < total_filtered\n'):]
-          )
-
-          discover_at = text.index('\n\n@router.get("/discover")\n', browse_at)
-          route = '''
-
-          @router.get("/series/komga/{series_id}")
-          async def komga_series_detail(
-              request: Request,
-              series_id: str,
-              _=Depends(require_role("viewer")),
-          ):
-              with get_db() as db:
-                  series = komga_series_browse.series_detail(db, series_id)
-              if series is None:
-                  return RedirectResponse(url="/browse")
-              return request.app.state.templates.TemplateResponse(
-                  request,
-                  "komga_series_detail.html",
-                  {"series": series},
-              )
-          '''
-          text = text[:discover_at] + route + text[discover_at:]
-          path.write_text(text)
-
-          # Current Shelf owns komga_records in app/database.py and login now
-          # lands on Home. Update only those two stale 0.36 E2E assumptions.
-          e2e = Path('tests/e2e/test_komga_series_browse.py')
-          e2e_text = e2e.read_text()
-          e2e_text = e2e_text.replace('from app.services import komga_records\n', '')
-          stale_schema = '        komga_records.ensure_schema(conn)\n'
-          if stale_schema not in e2e_text:
-              raise SystemExit('stale Komga ensure_schema call not found')
-          e2e_text = e2e_text.replace(stale_schema, '', 1)
-          stale_login = '        page.wait_for_url(f"{base}/browse", timeout=10_000)\n        page.wait_for_load_state("networkidle")\n'
-          replacement_login = '        page.wait_for_url(f"{base}/", timeout=10_000)\n        page.goto(f"{base}/browse")\n        page.wait_for_load_state("networkidle")\n'
-          if stale_login not in e2e_text:
-              raise SystemExit('stale Komga login redirect assumption not found')
-          e2e_text = e2e_text.replace(stale_login, replacement_login, 1)
-          e2e.write_text(e2e_text)
+          nav.write_text(text)
           PY
-
-          git add app/routers/pages.py tests/e2e/test_komga_series_browse.py
+          git add app/main.py app/nav.py
           git diff --check --cached
 
       - uses: actions/setup-python@v6
@@ -116,8 +64,9 @@ jobs:
           cache: pip
       - run: pip install -r requirements.txt -r requirements-dev.txt
 
-      - name: Validate current-upstream behaviour
+      - name: Validate My List and current rebuild
         run: |
+          python -m pytest tests/test_my_list_037.py tests/test_router_registration.py -q --tb=short
           make badges
           make test
           make checks-fast
@@ -127,20 +76,14 @@ jobs:
           node-version: '20'
           cache: npm
       - run: npm ci
-
       - name: Rebuild committed frontend assets
         run: make css
 
-      - name: Focused Komga product smoke
-        run: |
-          python -m playwright install --with-deps chromium
-          python -m pytest tests/e2e/test_komga_series_browse.py -q --tb=short -m e2e
-
-      - name: Commit clean port
+      - name: Commit clean dependent rebuild
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add README.md app static tests
+          git add README.md app tests static/css/app.css static/sw.js
           git diff --check --cached
-          git commit -m "KOMGA: group stable provider series in Browse"
-          git push origin HEAD:upstream/komga-series-browse-037
+          git commit -m "MY LIST: restore per-user cross-media want-to list"
+          git push origin HEAD:rebuild/my-list-037
