@@ -31,11 +31,21 @@ text = text[:start] + wrappers + text[end:]
 
 start = text.index("_SCAN_LOG_RETENTION_DAYS = 90")
 end = text.index("# Values are the funnel's job", start)
-log_wrapper = '''def _log_scan(
+log_wrapper = '''# Compatibility patch point retained for existing security tests and any
+# extension that deliberately resets the prune clock. The service owns the
+# implementation; the facade synchronises this one scalar before/after calls.
+_scan_log_last_prune = scanner_state._scan_log_last_prune
+
+
+def _log_scan(
     isbn: str, media_type: str, result: str, item_id: int | None = None,
     mode: str = "add",
 ):
-    return scanner_state.log_scan(isbn, media_type, result, item_id, mode)
+    global _scan_log_last_prune
+    scanner_state._scan_log_last_prune = _scan_log_last_prune
+    result_value = scanner_state.log_scan(isbn, media_type, result, item_id, mode)
+    _scan_log_last_prune = scanner_state._scan_log_last_prune
+    return result_value
 
 
 '''
