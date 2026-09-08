@@ -117,8 +117,10 @@ def test_stats_scopes_catalogue_rows_and_uses_personal_reading_state(
 
 
 def test_non_admin_stats_do_not_leak_global_valuation_history(
-    db, viewer_client, admin_client
+    db, client, viewer_user, admin_user
 ):
+    from app.auth import create_token
+
     db.execute(
         "INSERT INTO valuation_history (total_value, priced_count, created_at) "
         "VALUES (123456, 2, '2026-01-01 00:00:00')"
@@ -129,8 +131,24 @@ def test_non_admin_stats_do_not_leak_global_valuation_history(
     )
     db.commit()
 
-    viewer_html = viewer_client.get("/stats").text
-    admin_html = admin_client.get("/stats").text
+    viewer_token = create_token(
+        viewer_user["id"],
+        viewer_user["username"],
+        viewer_user["role"],
+        viewer_user["display_name"],
+    )
+    client.cookies.set("access_token", viewer_token)
+    viewer_html = client.get("/stats").text
+
+    admin_token = create_token(
+        admin_user["id"],
+        admin_user["username"],
+        admin_user["role"],
+        admin_user["display_name"],
+    )
+    client.cookies.set("access_token", admin_token)
+    admin_html = client.get("/stats").text
+
     viewer_valuation = viewer_html.split('data-testid="chart-valuation"', 1)[1].split("</div>", 1)[0]
     admin_valuation = admin_html.split('data-testid="chart-valuation"', 1)[1].split("</div>", 1)[0]
 
