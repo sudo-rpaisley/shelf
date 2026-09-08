@@ -1,0 +1,64 @@
+name: Temporary library Home and Stats 0.37 validation
+
+on:
+  push:
+    branches:
+      - tmp/library-home-stats-037-build
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: rebuild/library-home-stats-037
+          fetch-depth: 0
+
+      - name: Load validation payload
+        run: |
+          git fetch origin tmp/library-home-stats-037-payload
+          git show origin/tmp/library-home-stats-037-payload:app/services/home_dashboard.py > app/services/home_dashboard.py
+          git show origin/tmp/library-home-stats-037-payload:tests/test_library_home_stats_037.py > tests/test_library_home_stats_037.py
+          git show origin/tmp/library-home-stats-037-payload:tmp/apply_library_home_stats_037.py > /tmp/apply_library_home_stats_037.py
+          python /tmp/apply_library_home_stats_037.py
+          git diff --check
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+          cache: pip
+      - run: pip install -r requirements.txt -r requirements-dev.txt
+
+      - name: Focused Home and Stats ACL regressions
+        run: |
+          python -m pytest \
+            tests/test_library_home_stats_037.py \
+            tests/test_home_dashboard.py \
+            tests/test_home_page.py \
+            tests/test_stats_dashboard.py \
+            -q --tb=short
+          make checks-fast
+
+      - name: Full unit regression
+        run: |
+          make badges
+          make test
+          make checks-fast
+
+      - name: Publish validated Home and Stats ACL
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add \
+            app/services/home_dashboard.py \
+            app/routers/pages.py \
+            app/templates/home.html \
+            app/templates/stats.html \
+            tests/test_library_home_stats_037.py \
+            README.md
+          git diff --check --cached
+          git commit -m "LIBRARIES: scope Home and Stats dashboards" || true
+          git push origin HEAD:rebuild/library-home-stats-037
