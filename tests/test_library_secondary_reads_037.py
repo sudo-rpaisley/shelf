@@ -224,10 +224,9 @@ def test_music_page_hides_items_outside_accessible_libraries(
     assert "Hidden Album" not in html
 
 
-def test_hidden_music_item_page_is_not_found_for_viewer(
+def test_hidden_music_item_page_uses_private_html_surface(
     db, viewer_client, admin_client
 ):
-    # Both clients share one TestClient fixture, so query as viewer first.
     private = _private_library(db, "Private music detail")
     hidden = _insert_item(
         db,
@@ -238,7 +237,8 @@ def test_hidden_music_item_page_is_not_found_for_viewer(
     )
     db.commit()
 
-    # admin_client creation has overwritten the shared cookie; restore viewer.
+    # Both fixtures share one TestClient instance; restore each identity before
+    # its request so the assertions genuinely exercise both permission paths.
     from app.auth import create_token
     row = db.execute(
         "SELECT id, username, role, display_name FROM users WHERE username = 'viewer'"
@@ -247,7 +247,9 @@ def test_hidden_music_item_page_is_not_found_for_viewer(
         "access_token",
         create_token(row["id"], row["username"], row["role"], row["display_name"]),
     )
-    assert viewer_client.get(f"/music/item/{hidden}").status_code == 404
+    response = viewer_client.get(f"/music/item/{hidden}", follow_redirects=False)
+    assert response.status_code == 303
+    assert response.headers["location"] == "/browse"
 
     admin = db.execute(
         "SELECT id, username, role, display_name FROM users WHERE username = 'admin'"
