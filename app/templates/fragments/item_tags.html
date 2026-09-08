@@ -29,3 +29,7 @@
     </div>
     {% endif %}
 </div>
+
+<div hx-get="/api/related-media/items/{{ item_id }}/panel" hx-trigger="load" hx-swap="outerHTML">
+    <div class="mb-6 text-xs text-shelf-muted">Loading related media…</div>
+</div>
