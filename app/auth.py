@@ -164,19 +164,33 @@ def verify_password(plain: str, hashed: str) -> bool:
     return bcrypt.checkpw(plain.encode(), hashed.encode())
 
 
-def create_token(user_id: int, username: str, role: str, display_name: str | None = None, token_version: int = 1) -> str:
+def create_token(
+    user_id: int,
+    username: str,
+    role: str,
+    display_name: str | None = None,
+    token_version: int = 1,
+    *,
+    auth_method: str = "local",
+    reauth_at: int | None = None,
+) -> str:
+    """Create Shelf's session JWT with an optional fixed reauth ceiling."""
     now = datetime.now(timezone.utc)
+    normal_exp = int(now.timestamp()) + JWT_EXPIRY_SECONDS
+    exp = min(normal_exp, int(reauth_at)) if reauth_at is not None else normal_exp
     payload = {
         "sub": str(user_id),
         "username": username,
         "role": role,
         "display_name": display_name or username,
         "tv": token_version,
+        "authn": auth_method,
         "iat": now,
-        "exp": now + timedelta(seconds=JWT_EXPIRY_SECONDS),
+        "exp": exp,
     }
+    if reauth_at is not None:
+        payload["reauth"] = int(reauth_at)
     return jwt.encode(payload, get_secret_key(), algorithm=JWT_ALGORITHM)
-
 
 def decode_token(token: str) -> dict | None:
     try:
@@ -189,7 +203,13 @@ def decode_token(token: str) -> dict | None:
         return None
 
 
-def set_auth_cookie(response: Response, token: str, csrf_token: str | None = None) -> None:
+def set_auth_cookie(
+    response: Response,
+    token: str,
+    csrf_token: str | None = None,
+    *,
+    max_age: int = JWT_EXPIRY_SECONDS,
+) -> None:
     secure = not os.environ.get("SHELF_DEV_INSECURE_COOKIES")
     if os.environ.get("SHELF_DEV_INSECURE_COOKIES"):
         logger.warning(
@@ -202,10 +222,9 @@ def set_auth_cookie(response: Response, token: str, csrf_token: str | None = Non
         httponly=True,
         secure=secure,
         samesite="strict",
-        max_age=JWT_EXPIRY_SECONDS,
+        max_age=max_age,
         path="/",
     )
-    # Set a paired CSRF token cookie (readable by JS for double-submit)
     if csrf_token is None:
         csrf_token = secrets.token_hex(32)
     response.set_cookie(
@@ -214,10 +233,9 @@ def set_auth_cookie(response: Response, token: str, csrf_token: str | None = Non
         httponly=False,
         secure=secure,
         samesite="strict",
-        max_age=JWT_EXPIRY_SECONDS,
+        max_age=max_age,
         path="/",
     )
-
 
 def clear_auth_cookie(response: Response) -> None:
     response.delete_cookie(key="access_token", path="/")
@@ -225,7 +243,7 @@ def clear_auth_cookie(response: Response) -> None:
 
 
 def get_current_user(request: Request) -> dict | None:
-    """Read user from JWT cookie. Returns dict with id, username, role, display_name or None."""
+    """Read the user from the session JWT and verify local invalidation."""
     token = request.cookies.get("access_token")
     if not token:
         return None
@@ -233,14 +251,13 @@ def get_current_user(request: Request) -> dict | None:
     if not payload:
         return None
 
-    # Check token version against DB to detect invalidated tokens
     token_tv = payload.get("tv", 1)
     user_id = int(payload["sub"])
     with get_db() as db:
-        row = db.execute("SELECT token_version FROM users WHERE id = ?", (user_id,)).fetchone()
-        if not row:
-            return None
-        if row["token_version"] != token_tv:
+        row = db.execute(
+            "SELECT token_version FROM users WHERE id = ?", (user_id,)
+        ).fetchone()
+        if not row or row["token_version"] != token_tv:
             return None
 
     return {
@@ -248,16 +265,19 @@ def get_current_user(request: Request) -> dict | None:
         "username": payload["username"],
         "role": payload["role"],
         "display_name": payload.get("display_name", payload["username"]),
+        "auth_method": payload.get("authn", "local"),
+        "reauth_at": payload.get("reauth"),
     }
 
-
 def should_refresh_token(request: Request) -> str | None:
-    """If token is past half-life, return a fresh token. Otherwise None."""
+    """Refresh local sessions at half-life; OIDC sessions never slide."""
     token = request.cookies.get("access_token")
     if not token:
         return None
     payload = decode_token(token)
     if not payload:
+        return None
+    if payload.get("authn") == "oidc":
         return None
     exp = payload.get("exp", 0)
     iat = payload.get("iat", 0)
@@ -265,11 +285,15 @@ def should_refresh_token(request: Request) -> str | None:
     half_life = (exp - iat) / 2
     if now > iat + half_life:
         return create_token(
-            int(payload["sub"]), payload["username"], payload["role"],
-            payload.get("display_name"), payload.get("tv", 1),
+            int(payload["sub"]),
+            payload["username"],
+            payload["role"],
+            payload.get("display_name"),
+            payload.get("tv", 1),
+            auth_method=payload.get("authn", "local"),
+            reauth_at=payload.get("reauth"),
         )
     return None
-
 
 def get_user_count() -> int:
     with get_db() as db:
