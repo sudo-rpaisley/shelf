@@ -116,7 +116,9 @@ def test_related_media_search_and_link_do_not_cross_library_editor_boundary(
         params={"q": "Classified relation target"},
     )
     assert search.status_code == 200
-    assert "Classified relation target" not in search.text
+    # The empty-state message echoes the query, so assert on the candidate's
+    # hidden form value rather than its title text.
+    assert f'name="other_item_id" value="{hidden}"' not in search.text
 
     link = editor_client.post(
         f"/api/related-media/items/{visible}/links",
