@@ -63,4 +63,4 @@ jobs:
           git commit -m "LIBRARIES: scope Home and Stats dashboards" || true
           git push origin HEAD:rebuild/library-home-stats-037
 
-# rerun: structural valuation ACL assertion
+# rerun: isolated viewer/admin valuation sessions
