@@ -31,7 +31,7 @@ jobs:
       - run: pip install -r requirements.txt -r requirements-dev.txt
 
       - name: Focused OIDC token tests
-        run: python -m pytest tests/test_oidc_core.py tests/test_oidc_flow.py tests/test_oidc_tokens.py -q --tb=short
+        run: python -m pytest tests/test_oidc_core.py tests/test_oidc_auth_flow.py tests/test_oidc_tokens.py -q --tb=short
 
       - name: Full regression and checks
         run: |
