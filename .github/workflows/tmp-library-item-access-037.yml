@@ -21,14 +21,17 @@ jobs:
         run: |
           git show origin/tmp/library-item-access-037-build:.github/tmp_patch_library_item_access_037.py > /tmp/patch.py
           git show origin/tmp/library-item-access-037-build:.github/tmp_fix_library_item_patch_037.py > /tmp/fix_patch.py
+          git show origin/tmp/library-item-access-037-build:.github/tmp_fix_related_fixture_037.py > /tmp/fix_related_fixture.py
           python /tmp/fix_patch.py
           python /tmp/patch.py
+          python /tmp/fix_related_fixture.py
           python -m py_compile \
             app/routers/pages.py \
             app/routers/personal_state.py \
             app/routers/related_media.py \
             app/services/media_groups.py \
-            tests/test_library_item_access_037.py
+            tests/test_library_item_access_037.py \
+            tests/test_related_media_ui.py
           git diff --check
 
       - uses: actions/setup-python@v6
@@ -66,6 +69,7 @@ jobs:
             app/routers/related_media.py \
             app/services/media_groups.py \
             tests/test_personal_state_routes_037.py \
+            tests/test_related_media_ui.py \
             tests/test_library_item_access_037.py
           git diff --check --cached
           git commit -m "LIBRARIES: scope direct item reads"
