@@ -1,0 +1,67 @@
+name: Temporary OIDC provider logout 0.37 validation
+
+on:
+  push:
+    branches:
+      - tmp/oidc-provider-logout-037-build
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: rebuild/oidc-settings-037
+          fetch-depth: 0
+
+      - name: Apply explicit provider logout payload
+        run: |
+          git fetch origin tmp/oidc-provider-logout-037-payload
+          git show origin/tmp/oidc-provider-logout-037-payload:app/services/oidc_logout.py > app/services/oidc_logout.py
+          git show origin/tmp/oidc-provider-logout-037-payload:tests/test_oidc_provider_logout_037.py > tests/test_oidc_provider_logout_037.py
+          git show origin/tmp/oidc-provider-logout-037-payload:tmp/apply_oidc_provider_logout_037.py > /tmp/apply_oidc_provider_logout_037.py
+          python /tmp/apply_oidc_provider_logout_037.py
+          git diff --check
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+          cache: pip
+      - run: pip install -r requirements.txt -r requirements-dev.txt
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version: '22'
+          cache: npm
+      - run: npm ci
+
+      - name: Focused provider logout regressions
+        run: |
+          python -m pytest \
+            tests/test_oidc_provider_logout_037.py \
+            tests/test_oidc_settings_037.py \
+            tests/test_oidc_login_037.py \
+            tests/test_oidc_session_policy_037.py \
+            tests/test_oidc_accounts_037.py \
+            tests/test_auth.py \
+            tests/test_auth_routes.py \
+            -q --tb=short
+
+      - name: Full regression and frontend checks
+        run: |
+          make css
+          make badges
+          make test
+          make checks-fast
+          git diff --check
+
+      - name: Publish validated provider logout slice
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add app/services/oidc_logout.py app/routers/oidc_settings.py app/routers/auth_routes.py app/templates/fragments/settings/oidc.html tests/test_oidc_provider_logout_037.py static/css/app.css static/sw.js README.md
+          git commit -m 'OIDC: add explicit provider logout on Shelf 0.37'
+          git push origin HEAD:refs/heads/rebuild/oidc-provider-logout-037
