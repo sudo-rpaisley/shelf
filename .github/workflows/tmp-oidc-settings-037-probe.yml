@@ -1,0 +1,50 @@
+name: Temporary OIDC settings 0.37 probe
+
+on:
+  push:
+    branches:
+      - tmp/oidc-settings-037-probe
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: rebuild/oidc-login-037
+          fetch-depth: 0
+
+      - name: Apply OIDC settings payload
+        run: |
+          git fetch origin tmp/oidc-settings-037-payload
+          git show origin/tmp/oidc-settings-037-payload:app/routers/oidc_settings.py > app/routers/oidc_settings.py
+          git show origin/tmp/oidc-settings-037-payload:app/templates/fragments/settings/oidc.html > app/templates/fragments/settings/oidc.html
+          git show origin/tmp/oidc-settings-037-payload:tests/test_oidc_settings_037.py > tests/test_oidc_settings_037.py
+          git show origin/tmp/oidc-settings-037-payload:tmp/apply_oidc_settings_037.py > /tmp/apply_oidc_settings_037.py
+          python /tmp/apply_oidc_settings_037.py
+          git diff --check
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+          cache: pip
+      - run: pip install -r requirements.txt -r requirements-dev.txt
+
+      - name: OIDC settings/login/policy compatibility
+        run: |
+          python -m pytest \
+            tests/test_oidc_settings_037.py \
+            tests/test_oidc_login_037.py \
+            tests/test_oidc_session_policy_037.py \
+            tests/test_oidc_accounts_037.py \
+            tests/test_oidc_core.py \
+            tests/test_settings.py \
+            tests/test_auth_routes.py \
+            tests/test_schema_ownership.py \
+            tests/test_module_sizes.py \
+            -q --tb=short
+          make badges
+          make checks-fast
