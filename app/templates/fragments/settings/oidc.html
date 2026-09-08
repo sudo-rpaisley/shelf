@@ -97,6 +97,14 @@
             </div>
 
             <div>
+                <label for="oidc_provider_logout_url" class="block text-sm font-medium text-shelf-muted mb-1">Provider logout URL <span class="font-normal">(optional)</span></label>
+                <input id="oidc_provider_logout_url" name="oidc_provider_logout_url" type="url" inputmode="url" maxlength="2048"
+                       value="{{ settings.get('oidc_provider_logout_url', '') }}" placeholder="https://auth.example.com/application/o/shelf/end-session/"
+                       class="w-full bg-shelf-bg border border-shelf-border rounded-lg px-3 py-2 text-sm text-shelf-text focus:outline-none focus:border-shelf-accent">
+                <p class="text-xs text-shelf-muted mt-1">Used only for users signed in through OIDC. Shelf never guesses this endpoint from provider discovery.</p>
+            </div>
+
+            <div>
                 <label for="oidc_scopes" class="block text-sm font-medium text-shelf-muted mb-1">Scopes</label>
                 <input id="oidc_scopes" name="oidc_scopes" type="text" maxlength="1024"
                        value="{{ settings.get('oidc_scopes', 'openid profile email') }}"

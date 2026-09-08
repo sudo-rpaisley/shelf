@@ -20,6 +20,7 @@ from app.oidc_policy import (
     save_oidc_session_hours,
 )
 from app.services import oidc_login
+from app.services.oidc_logout import validate_provider_logout_url, OIDCLogoutError
 
 router = APIRouter(
     prefix="/api/settings/oidc",
@@ -95,6 +96,9 @@ async def update_oidc_settings(request: Request):
         issuer = _text(form, "oidc_issuer", limit=1024)
         client_id = _text(form, "oidc_client_id", limit=512)
         client_secret = _text(form, "oidc_client_secret", limit=4096)
+        provider_logout_url = _text(form, "oidc_provider_logout_url", limit=2048)
+        if provider_logout_url:
+            validate_provider_logout_url(provider_logout_url)
         scopes = _normalise_scopes(_text(form, "oidc_scopes", "openid profile email", limit=1024))
         group_claim = _text(form, "oidc_group_claim", "groups", limit=256) or "groups"
         required_group = _text(form, "oidc_required_group", limit=512)
@@ -108,7 +112,7 @@ async def update_oidc_settings(request: Request):
             validate_issuer_url(issuer)
         if enabled and not (issuer and client_id):
             raise OIDCSettingsError("enabled OIDC requires issuer and client ID")
-    except (OIDCSettingsError, OIDCError):
+    except (OIDCSettingsError, OIDCError, OIDCLogoutError):
         return _redirect("invalid")
 
     with get_db() as db:
@@ -117,6 +121,7 @@ async def update_oidc_settings(request: Request):
             "oidc_provider_name": provider_name or "OpenID Connect",
             "oidc_issuer": issuer,
             "oidc_client_id": client_id,
+            "oidc_provider_logout_url": provider_logout_url,
             "oidc_scopes": scopes,
             "oidc_group_claim": group_claim,
             "oidc_required_group": required_group,

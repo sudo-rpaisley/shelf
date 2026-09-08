@@ -15,6 +15,7 @@ from app.database import get_db
 from app.oidc import OIDCAccessDenied, OIDCError
 from app.oidc_policy import get_local_login_policy, get_oidc_session_ttl_seconds
 from app.services import oidc_login
+from app.services.oidc_logout import get_provider_logout_url
 
 logger = logging.getLogger(__name__)
 
@@ -194,8 +195,13 @@ async def login(request: Request, username: str = Form(...), password: str = For
 
 
 @router.post("/logout")
-async def logout():
-    response = RedirectResponse(url="/login", status_code=303)
+async def logout(request: Request):
+    user = getattr(request.state, "user", None)
+    target = "/login"
+    if user and user.get("auth_method") == "oidc":
+        target = get_provider_logout_url() or "/login"
+    response = RedirectResponse(url=target, status_code=303)
+    response.headers["Cache-Control"] = "no-store"
     clear_auth_cookie(response)
     oidc_login.clear_flow_cookie(response)
     return response
