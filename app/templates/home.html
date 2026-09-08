@@ -101,7 +101,7 @@
             {% for item in recent_items %}
             <a href="/item/{{ item.id }}" class="group relative">
                 <div class="cover-card bg-shelf-card rounded-lg overflow-hidden border border-shelf-border group-hover:border-shelf-accent/50 transition-colors shadow-lg">
-                    {% if not item.owned %}
+                    {% if item.wishlist %}
                     <div class="absolute top-2 right-2 z-10 px-1.5 py-0.5 rounded text-[10px] font-medium bg-shelf-warning/90 text-black shadow">Wishlist</div>
                     {% endif %}
                     {% if item.cover_path %}
