@@ -51,7 +51,7 @@
             </div>
             <a href="/browse" class="text-sm text-shelf-accent2 hover:text-shelf-accent">View everything</a>
         </div>
-        <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+        <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4" data-testid="home-media-types">
             {% for family in families %}
             <a href="{{ family.href }}"
                class="group bg-shelf-card border border-shelf-border rounded-xl p-5 hover:bg-shelf-hover hover:border-shelf-accent/40 transition-colors"
