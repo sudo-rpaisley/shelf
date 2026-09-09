@@ -632,8 +632,13 @@ def insert_reading_log(data_dir: Path, item_id: int, count: int = 1) -> None:
         conn.close()
 
 
-def insert_item(data_dir: Path, **kwargs) -> int:
-    """Insert a test item directly into the E2E SQLite DB; return its id."""
+def insert_item(data_dir: Path, *, _library_id=1, **kwargs) -> int:
+    """Insert a test item directly into the E2E DB and map it by default.
+
+    The general E2E suite models an upgraded single-library installation, just
+    like ``tests.conftest._insert_item``. Pass ``_library_id=None`` only when an
+    ACL-specific browser test intentionally needs an unmapped catalogue row.
+    """
     db_path = data_dir / "shelf.db"
     fields = {
         "title": "Test Book",
@@ -647,7 +652,18 @@ def insert_item(data_dir: Path, **kwargs) -> int:
     conn.row_factory = sqlite3.Row
     try:
         cur = conn.execute(f"INSERT INTO items ({cols}) VALUES ({placeholders})", list(fields.values()))
+        item_id = int(cur.lastrowid)
+        if _library_id is not None:
+            library_exists = conn.execute(
+                "SELECT 1 FROM libraries WHERE id = ?", (int(_library_id),)
+            ).fetchone()
+            if library_exists:
+                conn.execute(
+                    "INSERT INTO library_items (item_id, library_id) VALUES (?, ?) "
+                    "ON CONFLICT(item_id) DO UPDATE SET library_id = excluded.library_id",
+                    (item_id, int(_library_id)),
+                )
         conn.commit()
-        return cur.lastrowid
+        return item_id
     finally:
         conn.close()

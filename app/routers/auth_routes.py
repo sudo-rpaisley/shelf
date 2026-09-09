@@ -14,7 +14,7 @@ from app.config import get_client_ip
 from app.database import get_db
 from app.oidc import OIDCAccessDenied, OIDCError
 from app.oidc_policy import get_local_login_policy, get_oidc_session_ttl_seconds
-from app.services import oidc_login, oidc_accounts
+from app.services import oidc_login, oidc_accounts, libraries
 from app.services.oidc_logout import get_provider_logout_url
 
 logger = logging.getLogger(__name__)
@@ -319,10 +319,22 @@ async def create_user(
 
     try:
         with get_db() as db:
-            db.execute(
+            cursor = db.execute(
                 "INSERT INTO users (username, password, display_name, role) VALUES (?, ?, ?, ?)",
                 (username, hash_password(password), display_name, role),
             )
+            # Preserve the familiar single-library behaviour for accounts
+            # created through Shelf's existing Users panel. Per-library
+            # permissions remain authoritative, but until an administrator
+            # explicitly changes them a new Viewer/Editor can actually use
+            # the default Main Library. Site admins need no membership row.
+            if role in ("viewer", "editor"):
+                libraries.set_membership(
+                    db,
+                    libraries.DEFAULT_LIBRARY_ID,
+                    int(cursor.lastrowid),
+                    role,
+                )
     except sqlite3.IntegrityError:
         logger.warning("Failed to create user '%s': username already exists", username)
         return {"ok": False, "message": "Username already exists"}

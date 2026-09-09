@@ -97,6 +97,29 @@ def test_legacy_fork_ledger_prevents_revoked_membership_from_being_regranted(db)
     ).fetchone() is None
 
 
+def test_admin_created_non_admins_get_default_main_library_access(admin_client, db):
+    """The existing Users panel must not create accounts with an empty catalogue."""
+    for username, role in (("new-viewer", "viewer"), ("new-editor", "editor")):
+        response = admin_client.post(
+            "/api/users",
+            data={
+                "username": username,
+                "display_name": username.title(),
+                "password": "password123",
+                "role": role,
+            },
+        )
+        assert response.status_code == 200
+        assert response.json()["ok"] is True
+        user = db.execute(
+            "SELECT id, username, role FROM users WHERE username = ?", (username,)
+        ).fetchone()
+        assert user is not None
+        assert libraries.membership_role(
+            db, dict(user), libraries.DEFAULT_LIBRARY_ID
+        ) == role
+
+
 def test_library_role_is_independent_of_legacy_global_viewer_role(db):
     user = _user(db, "mixed-access", "viewer")
     books = libraries.create_library(db, "Books")

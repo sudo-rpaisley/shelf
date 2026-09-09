@@ -43,11 +43,9 @@ def test_stats_dashboard_reflects_real_collection_and_links_back_to_item(
         authors="Smoke Test Author",
         owned=1,
         location_id=location_id,
-        reading_status="read",
-        date_finished=f"{current_year}-03-15",
         manual_value=40.0,
     )
-    insert_item(
+    wishlist_item_id = insert_item(
         server["data_dir"],
         title="Smoke Wishlist Disc",
         media_type="dvd",
@@ -66,6 +64,23 @@ def test_stats_dashboard_reflects_real_collection_and_links_back_to_item(
 
     conn = sqlite3.connect(str(db_path))
     try:
+        admin_id = conn.execute(
+            "SELECT id FROM users WHERE username = ?",
+            (credentials["username"],),
+        ).fetchone()[0]
+        # Reading and acquisition intent are personal state in the rebuilt
+        # model; seed them for the signed-in admin instead of legacy item
+        # columns so the dashboard exercises the real 0.37 behaviour.
+        conn.execute(
+            "INSERT INTO user_item_state "
+            "(user_id, item_id, reading_status, date_finished, wishlist) "
+            "VALUES (?, ?, 'read', ?, 0)",
+            (admin_id, read_item_id, f"{current_year}-03-15"),
+        )
+        conn.execute(
+            "INSERT INTO user_item_state (user_id, item_id, wishlist) VALUES (?, ?, 1)",
+            (admin_id, wishlist_item_id),
+        )
         conn.execute(
             "INSERT INTO valuation_history (total_value, priced_count, created_at) "
             "VALUES (50, 2, '2026-01-01 12:00:00')"
