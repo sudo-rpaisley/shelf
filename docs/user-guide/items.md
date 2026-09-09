@@ -48,7 +48,11 @@ its home.
   appears on books, kids' books, audiobooks, ebooks and comics — discs and
   games don't carry one.
 - **Location** and **owned / wishlist** flag. Locations can be nested, and an
-  item shows the full path — see [Locations](locations.md).
+  item shows the full path — see [Locations](locations.md). An item with more
+  than one physical copy shows a **Copies** list instead of the single Location
+  line: one row per copy with its location, its position on that shelf, and
+  whatever condition, acquisition and provenance detail that copy carries. One
+  copy still shows the single line.
 - **Tags** — add or remove chips inline.
 - **Loan state** — who has it and since when, with check-in right there.
 - **Value** — ISBNdb list price if valued, or a manual value you enter.
@@ -105,7 +109,40 @@ book-family rows.
 The automatic chain tries, in order: Open Library → Hardcover → DNB (German
 ISBNs) → Amazon → Google Books → IGDB (games). A miss is retried in the
 background, and Settings → Data → Maintenance → **Retry missing covers** sweeps
-every cover-less item with an ISBN.
+cover-less items — but **only book-shaped ones** (books, comics, manga). It
+deliberately never touches a DVD, a game, a CD or a record: the automatic
+chain's fallback is a book-catalogue title search, and turning it loose on a
+disc once wrote a novel's cover and ISBN onto it.
+
+### The review queue
+
+That leaves everything the sweep cannot reach, which is exactly the media the
+automatic chain is worst at. **Settings → Data → Maintenance → Review covers
+needing attention** opens a queue that walks **every** cover-less item — discs,
+games and music included — one at a time, with the full cover picker inline so
+you can search, pick or upload without leaving it. Each pick advances to the
+next item.
+
+Three things make it different from Retry missing covers:
+
+- **It shows you everything**, not just books, because a person is choosing
+  rather than an algorithm guessing.
+- **It remembers.** Some items genuinely have no findable cover — a
+  self-published paperback, a burned CD. **Not available** takes one out of the
+  queue for good, so the list converges on zero instead of showing you the same
+  handful forever. That verdict survives a restart, and a library
+  export/restore carries it with the item.
+- **It is a decision, not a sweep.** Retry missing covers is unattended and
+  fast; the queue is for the ones that need a look.
+
+The two compose: run Retry missing covers first to clear the easy book rows,
+then walk what is left.
+
+**Removing a cover puts the item back in the queue** and clears any previous
+"not available" verdict — so a cover you decide was wrong becomes reviewable
+again. Note that Retry missing covers still sweeps a dismissed item, which is
+deliberate: it is currently the only way an accidental **Not available** comes
+back on its own.
 
 Covers you keep are stored locally in `data/covers/`; nothing hot-links to
 the source. While the picker is open, though, the candidate tiles *are*
@@ -141,6 +178,11 @@ Bulk **Merge** copies the fields the kept record lacks from the others
 before removing them. A merge that would copy an invalid ISBN is refused and
 both records are left in place. The message names the record it stopped on,
 by title and id, so a merge of several records tells you which one to fix.
+
+Merging two records that were filed in **different** places keeps both physical
+copies, in both places — the kept record then shows a Copies list naming each
+room, and each room's inventory audit expects it. That is the point of merging
+duplicate records rather than deleting one: you had two books, and you still do.
 
 ## Deleting
 

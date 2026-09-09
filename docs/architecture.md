@@ -66,18 +66,38 @@ object rather than to the edition: `condition`, `acquired_date`,
 `copy_barcode` (unique across the collection) and its own `location_id`
 (`ON DELETE SET NULL`). `(item_id, copy_number)` is unique and a partial
 unique index allows at most one `is_primary = 1` row per item; deleting an item
-cascades to its copies. **`items.location_id` is the compatibility seam** and
-remains the only location surface in the UI: `item_write.py` mirrors a written
-`location_id` into that item's primary copy (creating it if needed), a null
-never invents a copy, and secondary copies are never moved by the legacy field
-— see `app/services/item_copies.py` and `docs/item-copies.md`. The upgrade
-backfill creates a primary copy only for an item that is *both* owned and
-already located; `owned` alone is not treated as evidence that a row is
-physical.
+cascades to its copies. **`items.location_id` is the compatibility seam**:
+`item_write.py` mirrors a written `location_id` into that item's primary copy
+(creating it if needed), a null never invents a copy, and secondary copies are
+never moved by the legacy field — see `app/services/item_copies.py` and
+`docs/item-copies.md`. The upgrade backfill creates a primary
+copy only for an item that is *both* owned and already located; `owned` alone
+is not treated as evidence that a row is physical.
+
+**The seam is no longer the whole story in the UI.** Since 0.38.0 (issue #116)
+the item page, the shelf audit (`/api/inventory/missing`), Scan's Inventory and
+Lookup modes, and the portable archive all read `item_copies` directly, because
+a merged item legitimately has copies in two rooms and the seam names only one.
+Where an item has no copy rows at all — the conservative backfill leaves
+wishlist rows without one — those readers fall back to the seam, which is then
+the only answer there is. Browse, Scan's Move mode, the valuation report and
+the Stats dashboard still group by the seam, deliberately: per-copy totals would
+change the numbers on an insurance report, which is its own decision.
+
+**`item_copies` has a write funnel.** `insert_copy` and `update_copy` in
+`app/services/item_copies.py` are the only way a row reaches the table, exactly
+as `item_write.py` is for `items`: column names are validated against
+`PRAGMA table_info`, so an unknown column raises instead of being dropped, and
+a location change clears the copy's location-scoped `position_order` unless the
+caller sets one explicitly. `tests/test_item_write.py` enforces the funnel by
+scanning `app/` for raw statements. Two set-based `INSERT ... SELECT` backfills
+stay raw and are allowlisted by path — migration 26's, which runs before any
+application code is importable, and `backfill_legacy_locations`.
 
 **A copy also carries its place on the shelf.** `item_copies.position_order`
 (migration 31) is the copy's rank within its location, and
-`services/location_order.py` is the only reader and writer of it: `direct_copies`
+it is read and written through the copy write funnel, and
+`services/location_order.py` holds the ordering logic: `direct_copies`
 orders NULLs last so a location that has never been arranged still lists
 sensibly, `apply_copy_order` writes an explicit drag order, and
 `auto_order_copies` fills it from one of the five keys in `_SORT_KEYS` — title,
@@ -547,6 +567,39 @@ Open Library hit for an item with no authors and then stores the ISBN it found
 `cover_queue.COVER_REQUEUE_MEDIA_TYPES` is what keeps non-book rows out, and
 widening it is the mistake this invariant exists to prevent; the disc and game
 covers are fetched straight through `covers._download_to_item` instead.
+
+**The terminal stage: the cover review queue** (`app/routers/cover_review.py`
+for the page and the reads, `cover_review_actions.py` for the three writes).
+Everything the automatic stages cannot or must not touch ends here, and this is
+the one stage whose predicate is **unfiltered by media type**:
+
+```sql
+WHERE cover_path IS NULL AND cover_review_dismissed = 0
+```
+
+That is legal precisely because it is the stage where a *human* decides. The
+rows are rendered for a person who picks from `covers.search_covers`, which
+dispatches by media type; **nothing in either module reaches
+`resolve_missing_cover` or `_search_isbn_for_item`**, which is the property the
+invariant above actually cares about, and it is enforced by a test over the
+modules' own source plus a database-level pin that picking a cover for an
+ISBN-less DVD leaves `isbn` NULL. Adding an automatic retry to this page would
+reintroduce the defect the invariant exists to prevent, with a wider blast
+radius than the original.
+
+`items.cover_review_dismissed` (migration 32) is the durable half.
+`cover_queue.py` is deliberately in-memory and its docstring delegates per-item
+cover state here. Three readers honour the flag — the queue's own predicate,
+`cover_queue.requeue_recent_missing` (so a boot does not override a human), and
+the Settings/Home cover-less counts. The two bulk Retry Missing Covers sweeps
+deliberately do **not**, because with no un-dismiss control in the UI they are
+the only way an accidental dismissal returns. `items_covers.cover_remove`
+clears the flag, which is the intended route back.
+
+Advancing through the queue is a **keyset seek** over `(updated_at DESC,
+id DESC)`, and each action captures its ordering key *before* writing: setting
+a cover bumps `updated_at`, so a key read afterwards would return the head of
+the queue and walk the reviewer backwards.
 
 ## Background tasks
 
