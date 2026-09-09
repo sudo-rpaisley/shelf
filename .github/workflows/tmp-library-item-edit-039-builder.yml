@@ -1,0 +1,77 @@
+name: Build item mutation library ACL
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build-test-publish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: tmp/library-item-edit-039-prep
+          fetch-depth: 0
+      - name: Preserve builder and reset to published direct-read ACL
+        shell: bash
+        run: |
+          set -euo pipefail
+          cp scripts/tmp_build_library_item_edit_039.py /tmp/build_item_edit.py
+          git fetch origin '+refs/heads/*:refs/remotes/origin/*'
+          git reset --hard origin/upstream/library-item-read-039
+          echo "PARENT_SHA=$(git rev-parse HEAD)" >> "$GITHUB_ENV"
+          git config user.name "Robert J Paisley"
+          git config user.email "56076332+sudo-rpaisley@users.noreply.github.com"
+      - name: Build item mutation ACL slice
+        run: |
+          python /tmp/build_item_edit.py
+          git diff --check
+          python -m compileall -q app
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.13'
+      - run: pip install -r requirements.txt -r requirements-dev.txt
+      - name: Regenerate test badge
+        run: make badges
+      - name: Focused item mutation ACL checks
+        run: |
+          pytest -q \
+            tests/test_library_permissions.py \
+            tests/test_library_browse_access.py \
+            tests/test_share_links.py \
+            tests/test_library_item_reads.py \
+            tests/test_library_item_edit_039.py \
+            tests/test_items.py \
+            tests/test_cover_review.py \
+            tests/test_tags.py \
+            tests/test_hardcover.py \
+            tests/test_music_catalog.py
+          make check-alpine
+          make check-csrf
+      - name: Full unit and static checks
+        run: |
+          make test
+          make checks-fast
+      - name: Full Chromium E2E
+        shell: bash
+        run: |
+          sudo rm -f /etc/apt/sources.list.d/google-chrome.list
+          playwright install --with-deps chromium
+          make test-e2e
+      - name: Publish one-commit dependent PR branch
+        shell: bash
+        run: |
+          set -euo pipefail
+          git add -A
+          git reset --soft "$PARENT_SHA"
+          git commit -m "LIBRARIES: enforce item mutation permissions"
+          git fetch origin refs/heads/upstream/library-item-edit-039:refs/remotes/origin/upstream/library-item-edit-039 || true
+          if git show-ref --verify --quiet refs/remotes/origin/upstream/library-item-edit-039; then
+            expected=$(git rev-parse refs/remotes/origin/upstream/library-item-edit-039)
+            git push origin HEAD:upstream/library-item-edit-039 \
+              --force-with-lease=refs/heads/upstream/library-item-edit-039:$expected
+          else
+            git push origin HEAD:upstream/library-item-edit-039
+          fi
