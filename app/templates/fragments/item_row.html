@@ -20,17 +20,20 @@
     'identifier': 'text-shelf-muted text-xs font-mono',
 } %}
 {% set on_wishlist = item.personal_wishlist if item.personal_wishlist is defined else false %}
+{% set can_edit = item.can_edit if item.can_edit is defined else false %}
 <tr class="border-b border-shelf-border hover:bg-shelf-hover/50 transition-colors cursor-pointer"
-    data-item-id="{{ item.id }}"
-    @click="openOrToggle({{ item.id }}, '/item/{{ item.id }}', $event)"
+    data-item-id="{{ item.id }}" data-can-edit="{{ 1 if can_edit else 0 }}"
+    @click="openOrToggle({{ item.id }}, '/item/{{ item.id }}', $event, {{ 'true' if can_edit else 'false' }})"
     :class="selectedIds.includes({{ item.id }}) ? 'bg-shelf-accent/10' : ''">
     {% for col in browse_columns %}
     {%- if col.name == 'select' %}
     <td x-show="selectMode" data-col="select" class="px-3 py-2 w-8">
+        {% if can_edit %}
         <div class="w-5 h-5 rounded border-2 flex items-center justify-center text-xs"
              :class="selectedIds.includes({{ item.id }}) ? 'bg-shelf-accent border-shelf-accent text-white' : 'border-shelf-border'">
             <span x-show="selectedIds.includes({{ item.id }})">&#10003;</span>
         </div>
+        {% endif %}
     </td>
     {%- elif col.name == 'cover' %}
     <td data-col="cover" class="px-3 py-2 w-10">

@@ -189,6 +189,55 @@ def accessible_options(db, user: dict) -> list[dict]:
     return [dict(row) for row in rows]
 
 
+def editable_options(db, user: dict) -> list[dict]:
+    """Collections the user can modify, labelled with their library."""
+    return [
+        row for row in accessible_options(db, user)
+        if libraries.has_library_role(db, user, row["library_id"], "editor")
+    ]
+
+
+def bulk_change_items(
+    db, user: dict, collection_id: int, item_ids: list[int], action: str
+) -> int:
+    """Atomically add/remove a validated item set from one Collection."""
+    if action not in {"add", "remove"}:
+        raise ValueError("Action must be add or remove")
+    ids = list(dict.fromkeys(int(item_id) for item_id in item_ids))
+    if not ids:
+        raise ValueError("Select at least one item")
+    collection = get_collection(db, user, collection_id)
+    if not collection:
+        raise LookupError("Collection not found")
+    if not collection["can_edit"]:
+        raise PermissionError("Library editor access required")
+
+    marks = ",".join("?" for _ in ids)
+    rows = db.execute(
+        "SELECT i.id, li.library_id FROM items i "
+        "LEFT JOIN library_items li ON li.item_id = i.id "
+        f"WHERE i.id IN ({marks})",
+        ids,
+    ).fetchall()
+    if len(rows) != len(ids):
+        raise LookupError("One or more selected items were not found")
+    if any(row["library_id"] != collection["library_id"] for row in rows):
+        raise ValueError("All selected items must belong to the Collection's library")
+
+    before = db.total_changes
+    if action == "add":
+        db.executemany(
+            "INSERT OR IGNORE INTO collection_items (collection_id, item_id) VALUES (?, ?)",
+            [(collection_id, item_id) for item_id in ids],
+        )
+    else:
+        db.execute(
+            f"DELETE FROM collection_items WHERE collection_id = ? AND item_id IN ({marks})",
+            [collection_id, *ids],
+        )
+    return db.total_changes - before
+
+
 def item_options(db, user: dict, item_id: int) -> tuple[list[dict], bool]:
     """Same-library Collections for one visible item plus edit capability."""
     if not libraries.has_item_role(db, user, item_id, "viewer"):
