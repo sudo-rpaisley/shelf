@@ -1,0 +1,107 @@
+name: Build RomM catalogue on Shelf 0.39
+
+on:
+  push:
+    branches:
+      - tmp/romm-catalog-039-builder
+
+permissions:
+  contents: write
+
+jobs:
+  build-test-publish:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out target 0.39 branch
+        uses: actions/checkout@v7
+        with:
+          ref: rebuild/main-039-with-romm-catalog
+          fetch-depth: 0
+
+      - name: Replay RomM catalogue from fork main cleanly
+        shell: bash
+        run: |
+          set -euo pipefail
+          git fetch origin feature/romm-catalog-main:refs/remotes/origin/feature/romm-catalog-main
+
+          for path in \
+            app/routers/romm_catalog.py \
+            app/services/romm_catalog.py \
+            app/templates/romm_library.html \
+            docs/romm-catalog.md \
+            tests/test_romm_catalog_main.py \
+            tests/e2e/test_romm_catalog_main.py
+          do
+            mkdir -p "$(dirname "$path")"
+            git show "origin/feature/romm-catalog-main:$path" > "$path"
+          done
+
+          python - <<'PY'
+          from pathlib import Path
+
+          p = Path('app/main.py')
+          s = p.read_text()
+          old = 'shelf_fill, romm, komga, periodicals'
+          new = 'shelf_fill, romm, romm_catalog, komga, periodicals'
+          if old not in s:
+              raise SystemExit('main.py RomM import anchor not found')
+          s = s.replace(old, new, 1)
+          old = 'app.include_router(romm.router)\napp.include_router(komga.router)'
+          new = 'app.include_router(romm.router)\napp.include_router(romm_catalog.router)\napp.include_router(komga.router)'
+          if old not in s:
+              raise SystemExit('main.py RomM router anchor not found')
+          s = s.replace(old, new, 1)
+          p.write_text(s)
+
+          p = Path('app/templates/fragments/settings/romm.html')
+          s = p.read_text()
+          old = '<button id="romm-sync" type="button" class="px-4 py-2 bg-shelf-hover text-shelf-text rounded-lg text-sm hover:bg-shelf-border transition-colors">Sync Now</button>'
+          new = '''<div class="flex flex-wrap gap-2">
+                <button id="romm-sync" type="button" class="px-4 py-2 bg-shelf-hover text-shelf-text rounded-lg text-sm hover:bg-shelf-border transition-colors">Sync Now</button>
+                <a href="/romm/library" class="inline-flex items-center px-4 py-2 bg-shelf-hover text-shelf-text rounded-lg text-sm hover:bg-shelf-border transition-colors">Browse synced library</a>
+            </div>'''
+          if old not in s:
+              raise SystemExit('RomM settings sync anchor not found')
+          s = s.replace(old, new, 1)
+          p.write_text(s)
+          PY
+
+          python -m compileall -q app
+          git diff --check
+          git diff --stat
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.13'
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt -r requirements-dev.txt
+
+      - name: Focused unit and route tests
+        run: |
+          pytest -q tests/test_romm_catalog_main.py tests/test_romm*.py tests/test_library*.py
+          make check-alpine
+
+      - name: Install Chromium
+        run: playwright install --with-deps chromium
+
+      - name: Focused Chromium smoke
+        run: pytest -q tests/e2e/test_romm_catalog_main.py -m e2e
+
+      - name: Publish clean feature commit
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "Robert J Paisley"
+          git config user.email "56076332+sudo-rpaisley@users.noreply.github.com"
+          git add \
+            app/main.py \
+            app/routers/romm_catalog.py \
+            app/services/romm_catalog.py \
+            app/templates/fragments/settings/romm.html \
+            app/templates/romm_library.html \
+            docs/romm-catalog.md \
+            tests/test_romm_catalog_main.py \
+            tests/e2e/test_romm_catalog_main.py
+          git commit -m "ROMM: restore synced-library catalogue on Shelf 0.39"
+          git push origin HEAD:rebuild/main-039-with-romm-catalog
