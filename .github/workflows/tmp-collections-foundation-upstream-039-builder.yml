@@ -9,29 +9,41 @@ permissions:
   contents: write
 
 jobs:
-  build-test:
+  build-test-publish:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
         with:
           ref: tmp/collections-foundation-upstream-039-builder
           fetch-depth: 0
-      - name: Preserve helpers and reset to live upstream
+      - name: Preserve builder and reset to green library foundation
         shell: bash
         run: |
           cp scripts/tmp_build_collections_foundation_039.py /tmp/build_collections.py
           git fetch origin '+refs/heads/*:refs/remotes/origin/*'
-          git show origin/tmp/library-permissions-upstream-039-builder:scripts/tmp_build_library_permissions_039.py > /tmp/build_library_permissions.py
-          git reset --hard 78a946d199489da70b5b5a5215097ce12e287b38
+          git reset --hard 52065a5a59c5971bdbc24022660583e1318159dc
           git config user.name "Robert J Paisley"
           git config user.email "56076332+sudo-rpaisley@users.noreply.github.com"
-      - name: Build exact library prerequisite
-        run: |
-          python /tmp/build_library_permissions.py
-          git add app/database.py app/services/libraries.py tests/test_library_permissions.py
-          git commit -m 'LIBRARIES: add per-library permission foundation'
-      - name: Rebuild Collections foundation integration points
+      - name: Rebuild Collections foundation
         run: python /tmp/build_collections.py
+      - name: Make membership assumptions explicit in Collections tests
+        shell: bash
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          p = Path("tests/test_collections.py")
+          s = p.read_text()
+          a = 'def test_viewer_sees_only_collections_in_accessible_libraries(viewer_client, viewer_user, db):\n'
+          b = a + '    libraries.set_membership(db, 1, viewer_user["id"], "viewer")\n'
+          assert a in s
+          s = s.replace(a, b, 1)
+          a = 'def test_editor_can_create_only_in_an_editable_library(editor_client, editor_user, db):\n'
+          b = a + '    libraries.set_membership(db, 1, editor_user["id"], "editor")\n'
+          assert a in s
+          s = s.replace(a, b, 1)
+          p.write_text(s)
+          PY
+          git diff --check
       - uses: actions/setup-python@v6
         with:
           python-version: '3.13'
@@ -54,17 +66,17 @@ jobs:
         run: |
           make test
           make checks-fast
-      - name: Chromium E2E
+      - name: Full Chromium E2E
         shell: bash
         run: |
           sudo rm -f /etc/apt/sources.list.d/google-chrome.list
           playwright install --with-deps chromium
           make test-e2e
-      - name: Publish synthetic tested stack for later restack
+      - name: Publish one-commit dependent PR branch
         shell: bash
         run: |
-          git add README.md static/css/app.css static/sw.js
-          if ! git diff --cached --quiet; then
-            git commit -m 'Chore: regenerate Collections foundation assets'
-          fi
-          git push origin HEAD:tmp/collections-foundation-039-synthetic --force
+          set -euo pipefail
+          git add -A
+          git reset --soft 52065a5a59c5971bdbc24022660583e1318159dc
+          git commit -m "COLLECTIONS: add library-scoped foundation"
+          git push origin HEAD:upstream/collections-foundation-039 --force-with-lease
