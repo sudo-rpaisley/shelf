@@ -1,0 +1,54 @@
+name: Probe Collections slices on current upstream
+
+on:
+  push:
+    branches:
+      - tmp/collections-upstream-039-builder
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: tmp/upstream-current-039
+          fetch-depth: 0
+      - name: Fetch fork feature history
+        run: git fetch origin '+refs/heads/*:refs/remotes/origin/*'
+      - name: Probe dependency chain
+        shell: bash
+        run: |
+          set -u
+          git config user.name "Robert J Paisley"
+          git config user.email "56076332+sudo-rpaisley@users.noreply.github.com"
+
+          echo '=== foundation 5b5a3535 ==='
+          if ! git cherry-pick 5b5a3535b0b2d16650d4957ccefd366e74964dcd; then
+            echo 'FOUNDATION_CONFLICTS'
+            git diff --name-only --diff-filter=U
+            exit 10
+          fi
+
+          echo '=== assignment d25b41bc ==='
+          if ! git cherry-pick d25b41bc6e28d72a31c0ff38b7640e27c885b2bd; then
+            echo 'ASSIGNMENT_CONFLICTS'
+            git diff --name-only --diff-filter=U
+            exit 11
+          fi
+
+          echo '=== toolbar 82be5a36 ==='
+          if ! git cherry-pick 82be5a36830f019005f7697856e59fb818571bff; then
+            echo 'TOOLBAR_CONFLICTS'
+            git diff --name-only --diff-filter=U
+            exit 12
+          fi
+
+          echo '=== detail f9605ece ==='
+          if ! git cherry-pick f9605ece807f853a6b8267b46c2a87ec60ba99ee; then
+            echo 'DETAIL_CONFLICTS'
+            git diff --name-only --diff-filter=U
+            exit 13
+          fi
+
+          echo 'ALL_FOUR_APPLIED_CLEANLY'
+          git --no-pager log --oneline -5
