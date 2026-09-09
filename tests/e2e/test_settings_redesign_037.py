@@ -19,7 +19,7 @@ def test_settings_sidebar_switches_current_sections(live_server, authed_page):
     expect(authed_page.locator("#komga-panel")).to_be_visible()
 
     authed_page.get_by_test_id("tab-users").click()
-    expect(authed_page.get_by_text("Add User", exact=True)).to_be_visible()
+    expect(authed_page.get_by_role("heading", name="Add User", exact=True)).to_be_visible()
 
 
 def test_settings_remains_reachable_from_account_menu(live_server, authed_page):
