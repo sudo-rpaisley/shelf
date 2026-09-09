@@ -314,34 +314,32 @@ def _rebuild_legacy_item_copies(
     _create_current_item_copies(db)
     _ensure_position_order(db)
 
+    from app.services import item_copies
+
     for row in rows:
         old_location = row.get("location_id")
         new_location = (
             location_mapping[int(old_location)] if old_location is not None else None
         )
-        db.execute(
-            """INSERT INTO item_copies (
-                id, item_id, copy_number, location_id, condition, notes,
-                acquired_date, acquisition_source, acquisition_price, provenance,
-                copy_barcode, is_primary, created_at, updated_at, position_order
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
-            (
-                row["id"],
-                row["item_id"],
-                row["copy_number"],
-                new_location,
-                row.get("condition"),
-                row.get("notes"),
-                row.get("acquired_date"),
-                row.get("acquisition_source"),
-                row.get("acquisition_price"),
-                row.get("provenance"),
-                row.get("copy_barcode"),
-                row.get("is_primary", 0),
-                row.get("created_at"),
-                row.get("updated_at"),
-                row.get("position_order"),
-            ),
+        item_copies.insert_copy(
+            db,
+            {
+                "item_id": row["item_id"],
+                "copy_number": row["copy_number"],
+                "location_id": new_location,
+                "condition": row.get("condition"),
+                "notes": row.get("notes"),
+                "acquired_date": row.get("acquired_date"),
+                "acquisition_source": row.get("acquisition_source"),
+                "acquisition_price": row.get("acquisition_price"),
+                "provenance": row.get("provenance"),
+                "copy_barcode": row.get("copy_barcode"),
+                "is_primary": row.get("is_primary", 0),
+                "created_at": row.get("created_at"),
+                "updated_at": row.get("updated_at"),
+                "position_order": row.get("position_order"),
+            },
+            preserve_id=int(row["id"]),
         )
 
     db.execute("DROP TABLE item_copies_pre037")
@@ -380,13 +378,28 @@ def _ensure_upstream_item_copies(
         _create_item_copy_indexes(db)
 
     # Reproduce upstream migration 26 for catalogue rows that never passed
-    # through the fork's holdings projection.
-    db.execute(
-        """INSERT INTO item_copies (item_id, copy_number, location_id, is_primary)
-           SELECT i.id, 1, i.location_id, 1 FROM items i
+    # through the fork's holdings projection, but use the current copy
+    # write funnel rather than carrying a second raw INSERT path.
+    from app.services import item_copies
+
+    missing = db.execute(
+        """SELECT i.id, i.location_id FROM items i
            WHERE i.owned = 1 AND i.location_id IS NOT NULL
-             AND NOT EXISTS (SELECT 1 FROM item_copies c WHERE c.item_id = i.id)"""
-    )
+             AND NOT EXISTS (
+                 SELECT 1 FROM item_copies c WHERE c.item_id = i.id
+             )
+           ORDER BY i.id"""
+    ).fetchall()
+    for row in missing:
+        item_copies.insert_copy(
+            db,
+            {
+                "item_id": int(row["id"]),
+                "copy_number": 1,
+                "location_id": row["location_id"],
+                "is_primary": 1,
+            },
+        )
     _sync_catalogue_locations_from_primary_copies(db)
 
 

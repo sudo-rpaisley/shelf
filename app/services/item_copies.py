@@ -98,7 +98,9 @@ def _validated_names(db, values: Mapping[str, Any], managed: frozenset[str],
         )
 
 
-def insert_copy(db, fields: Mapping[str, Any]) -> int:
+def insert_copy(
+    db, fields: Mapping[str, Any], *, preserve_id: int | None = None,
+) -> int:
     """Insert one row into `item_copies` and return its id.
 
     Fields whose value is not supplied are left out of the statement, so the
@@ -114,6 +116,15 @@ def insert_copy(db, fields: Mapping[str, Any]) -> int:
     values: dict[str, Any] = dict(fields)
 
     _validated_names(db, values, _MANAGED, "insert_copy")
+    if preserve_id is not None:
+        if not isinstance(preserve_id, int) or preserve_id <= 0:
+            raise ValueError(
+                "insert_copy() preserve_id must be a positive integer"
+            )
+        # Migration bridges occasionally need to preserve row identity.
+        # Keep the managed id outside caller-supplied fields, then add it
+        # here inside the single item_copies INSERT funnel.
+        values = {"id": preserve_id, **values}
     for required in ("item_id", "copy_number"):
         if values.get(required) is None:
             raise ValueError(
