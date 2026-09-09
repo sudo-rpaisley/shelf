@@ -113,6 +113,7 @@ document.addEventListener('keydown', function(e) {
         var shortcutModal = document.getElementById('shortcut-modal');
         if (shortcutModal && !shortcutModal.classList.contains('hidden')) {
             shortcutModal.classList.add('hidden');
+            shortcutModal.classList.remove('flex');
             return;
         }
     }
@@ -122,36 +123,44 @@ document.addEventListener('keydown', function(e) {
     if (e.key === '/' ) { e.preventDefault(); var q = document.querySelector('[name="q"]'); if (q) q.focus(); }
     else if (e.key === 's') { window.location.href = '/scan'; }
     else if (e.key === 'b') { window.location.href = '/browse'; }
-    else if (e.key === '?') { document.getElementById('shortcut-modal').classList.toggle('hidden'); }
+    else if (e.key === '?') {
+        var modal = document.getElementById('shortcut-modal');
+        if (modal) {
+            var opening = modal.classList.contains('hidden');
+            modal.classList.toggle('hidden');
+            modal.classList.toggle('flex', opening);
+        }
+    }
 });
 
-// The visible shortcut-help controls used inline onclick handlers. Shelf's
-// script-src 'self' CSP refuses those handlers, so the button and both close
-// surfaces looked clickable but did nothing. Bind the same behaviour from this
-// external script instead. Remove the inert inline attributes before a user can
-// click them so browsers do not report a CSP violation for the dead handler.
+// Keyboard-shortcut dialog controls live in this external script so they work
+// under Shelf's no-inline CSP. The old floating trigger is optional; current
+// navigation opens the same dialog from the account menu.
 (function() {
     var modal = document.getElementById('shortcut-modal');
+    if (!modal) return;
+
+    function closeShortcutModal() {
+        modal.classList.add('hidden');
+        modal.classList.remove('flex');
+    }
+
     var trigger = document.querySelector('[title="Keyboard shortcuts (?)"]');
-    if (!modal || !trigger) return;
-
-    trigger.removeAttribute('onclick');
-    trigger.addEventListener('click', function() {
-        modal.classList.toggle('hidden');
-    });
-
-    modal.removeAttribute('onclick');
-    modal.addEventListener('click', function(e) {
-        if (e.target === modal) modal.classList.add('hidden');
-    });
-
-    var close = modal.querySelector('button[onclick]');
-    if (close) {
-        close.removeAttribute('onclick');
-        close.addEventListener('click', function() {
-            modal.classList.add('hidden');
+    if (trigger) {
+        trigger.removeAttribute('onclick');
+        trigger.addEventListener('click', function() {
+            var opening = modal.classList.contains('hidden');
+            modal.classList.toggle('hidden');
+            modal.classList.toggle('flex', opening);
         });
     }
+
+    modal.addEventListener('click', function(e) {
+        if (e.target === modal) closeShortcutModal();
+    });
+
+    var close = modal.querySelector('[data-shortcut-close]');
+    if (close) close.addEventListener('click', closeShortcutModal);
 })();
 
 // --- Search-result form sync ---

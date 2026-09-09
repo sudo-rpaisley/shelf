@@ -82,7 +82,7 @@ def test_js_stack_boots_under_csp(live_server, browser, setup_admin):
 def test_shortcut_help_interacts_without_inline_script_violation(
     live_server, browser, setup_admin
 ):
-    """The keyboard-help button must actually work under Shelf's no-inline CSP."""
+    """The account-menu keyboard help works without inline CSP violations."""
     ctx = browser.new_context()
     try:
         page = attach_page_guard(ctx.new_page())
@@ -93,19 +93,24 @@ def test_shortcut_help_interacts_without_inline_script_violation(
         page.click("button[type=submit]")
         page.wait_for_url(f"{live_server['url']}/", timeout=10_000)
 
-        trigger = page.locator('button[title="Keyboard shortcuts (?)"]')
         modal = page.locator("#shortcut-modal")
         expect(modal).to_be_hidden()
 
-        trigger.click()
+        def open_shortcuts():
+            page.get_by_test_id("account-menu-button").click()
+            panel = page.get_by_test_id("account-menu-panel")
+            expect(panel).to_be_visible()
+            panel.get_by_test_id("account-menu-shortcuts").click()
+
+        open_shortcuts()
         expect(modal).to_be_visible()
         expect(modal).to_contain_text("Keyboard Shortcuts")
         assert page.evaluate("window.__cspViolations") == []
 
-        modal.locator("button").click()
+        page.get_by_role("button", name="Close keyboard shortcuts").click()
         expect(modal).to_be_hidden()
 
-        trigger.click()
+        open_shortcuts()
         expect(modal).to_be_visible()
         page.keyboard.press("Escape")
         expect(modal).to_be_hidden()

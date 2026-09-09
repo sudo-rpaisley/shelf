@@ -21,24 +21,24 @@ logger = logging.getLogger(__name__)
 # — base.html used to skip `settings` with a hardcoded comparison in two
 # places, which is one place too many the moment a second tab moves.
 NAV_TABS = [
-    {"key": "browse", "label": "Browse", "path": "/browse"},
-    {"key": "my-list", "label": "My List", "path": "/my-list", "roles": ("admin", "editor", "viewer")},
-    {"key": "scan", "label": "Scan", "path": "/scan", "roles": ("admin", "editor")},
-    {"key": "intake", "label": "Intake", "path": "/intake", "roles": ("admin", "editor"),
+    {"key": "browse", "label": "Browse", "path": "/browse", "group": "primary"},
+    {"key": "my-list", "label": "My List", "path": "/my-list", "group": "primary", "roles": ("admin", "editor", "viewer")},
+    {"key": "scan", "label": "Scan", "path": "/scan", "group": "add", "roles": ("admin", "editor")},
+    {"key": "intake", "label": "Intake", "path": "/intake", "group": "add", "roles": ("admin", "editor"),
      "requires": "vision"},
-    {"key": "shelf-fill", "label": "Shelf Fill", "path": "/shelf-fill",
+    {"key": "shelf-fill", "label": "Shelf Fill", "path": "/shelf-fill", "group": "add",
      "roles": ("admin", "editor")},
-    {"key": "store", "label": "Store", "path": "/store"},
-    {"key": "series", "label": "Series", "path": "/series"},
-    {"key": "music", "label": "Music", "path": "/music"},
-    {"key": "periodicals", "label": "Periodicals", "path": "/periodicals"},
-    {"key": "discover", "label": "Discover", "path": "/discover", "requires": "hardcover"},
-    {"key": "stats", "label": "Stats", "path": "/stats"},
-    {"key": "attention", "label": "Needs Attention", "path": "/attention",
+    {"key": "store", "label": "Store", "path": "/store", "group": "more"},
+    {"key": "series", "label": "Series", "path": "/series", "group": "primary"},
+    {"key": "music", "label": "Music", "path": "/music", "group": "more"},
+    {"key": "periodicals", "label": "Periodicals", "path": "/periodicals", "group": "more"},
+    {"key": "discover", "label": "Discover", "path": "/discover", "group": "primary", "requires": "hardcover"},
+    {"key": "stats", "label": "Stats", "path": "/stats", "group": "more"},
+    {"key": "attention", "label": "Needs Attention", "path": "/attention", "group": "more",
      "roles": ("admin", "editor", "viewer")},
-    {"key": "settings", "label": "Settings", "path": "/settings", "roles": ("admin",),
+    {"key": "settings", "label": "Settings", "path": "/settings", "group": "account", "roles": ("admin",),
      "menu": "account"},
-    {"key": "logs", "label": "Logs", "path": "/logs", "roles": ("admin",),
+    {"key": "logs", "label": "Logs", "path": "/logs", "group": "account", "roles": ("admin",),
      "menu": "account"},
 ]
 
@@ -180,6 +180,7 @@ def visible_tabs(user: dict | None) -> list[dict]:
             "label": tab["label"],
             "path": tab["path"],
             "menu": tab.get("menu", ""),
+            "group": tab.get("group", "primary"),
         })
     return tabs
 

@@ -51,36 +51,80 @@
                 <div class="flex items-center gap-1">
                     <a href="/" class="text-lg font-bold text-shelf-accent2 tracking-tight mr-6">Shelf</a>
 
-                    <!-- Disclosure menu: below lg the full tab row overflows
-                         the bar, so it collapses to this. Settings lives under
-                         the signed-in account menu instead of in this row. -->
+                    {% set primary_tabs = nav_tabs | selectattr('group', 'equalto', 'primary') | list %}
+                    {% set add_tabs = nav_tabs | selectattr('group', 'equalto', 'add') | list %}
+                    {% set more_tabs = nav_tabs | selectattr('group', 'equalto', 'more') | list %}
+
+                    <!-- Compact disclosure menu on smaller screens. -->
                     <div class="relative lg:hidden" x-data="navMenu"
                          @click.outside="close()" @keydown.escape.window="close()">
                         <button type="button" @click="toggle()" data-testid="nav-menu-button"
-                                aria-label="Main menu" :aria-expanded="open"
+                                aria-label="Main menu" aria-haspopup="menu" :aria-expanded="open"
                                 class="px-2 py-2 rounded-md text-shelf-muted hover:text-white hover:bg-shelf-hover transition-colors">
-                            <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 12h16M4 18h16"/></svg>
+                            <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 12h16M4 18h16"/></svg>
                         </button>
-                        <div x-show="open" x-cloak data-testid="nav-menu-panel"
-                             class="absolute left-0 top-full mt-2 w-48 bg-shelf-card border border-shelf-border rounded-lg shadow-xl py-1 z-50">
-                            {% for tab in nav_tabs %}
-                            {% if not tab.menu %}
-                            <a href="{{ tab.path }}" data-nav-menu-tab="{{ tab.key }}" class="block px-4 py-2 text-sm font-medium {% if request.url.path == tab.path %}bg-shelf-hover text-white{% else %}text-shelf-muted hover:text-white hover:bg-shelf-hover{% endif %} transition-colors">
-                                {{ tab.label }}
-                            </a>
-                            {% endif %}
+                        <div x-show="open" x-cloak data-testid="nav-menu-panel" role="menu"
+                             class="absolute left-0 top-full mt-2 w-56 bg-shelf-card border border-shelf-border rounded-xl shadow-xl py-1 z-50 overflow-hidden">
+                            {% for tab in primary_tabs %}
+                            <a href="{{ tab.path }}" data-nav-menu-tab="{{ tab.key }}" role="menuitem"
+                               class="block px-4 py-2.5 text-sm font-medium {% if request.url.path == tab.path %}bg-shelf-hover text-white{% else %}text-shelf-muted hover:text-white hover:bg-shelf-hover{% endif %} transition-colors">{{ tab.label }}</a>
                             {% endfor %}
+                            {% if add_tabs %}
+                            <div class="border-t border-shelf-border py-1">
+                                <p class="px-4 pt-2 pb-1 text-[10px] uppercase tracking-wider text-shelf-muted">Add</p>
+                                {% for tab in add_tabs %}
+                                <a href="{{ tab.path }}" data-nav-menu-tab="{{ tab.key }}" role="menuitem"
+                                   class="block px-4 py-2.5 text-sm font-medium {% if request.url.path == tab.path %}bg-shelf-hover text-white{% else %}text-shelf-muted hover:text-white hover:bg-shelf-hover{% endif %} transition-colors">{{ tab.label }}</a>
+                                {% endfor %}
+                            </div>
+                            {% endif %}
+                            {% if more_tabs %}
+                            <div class="border-t border-shelf-border py-1">
+                                <p class="px-4 pt-2 pb-1 text-[10px] uppercase tracking-wider text-shelf-muted">More</p>
+                                {% for tab in more_tabs %}
+                                <a href="{{ tab.path }}" data-nav-menu-tab="{{ tab.key }}" role="menuitem"
+                                   class="block px-4 py-2.5 text-sm font-medium {% if request.url.path == tab.path %}bg-shelf-hover text-white{% else %}text-shelf-muted hover:text-white hover:bg-shelf-hover{% endif %} transition-colors">{{ tab.label }}</a>
+                                {% endfor %}
+                            </div>
+                            {% endif %}
                         </div>
                     </div>
 
+                    <!-- Desktop navigation keeps the main destinations exposed. -->
                     <div class="hidden lg:flex items-center gap-1">
-                        {% for tab in nav_tabs %}
-                        {% if not tab.menu %}
-                        <a href="{{ tab.path }}" data-nav-tab="{{ tab.key }}" class="px-3 py-2 rounded-md text-sm font-medium {% if request.url.path == tab.path %}bg-shelf-hover text-white{% else %}text-shelf-muted hover:text-white hover:bg-shelf-hover{% endif %} transition-colors">
-                            {{ tab.label }}
-                        </a>
-                        {% endif %}
+                        {% for tab in primary_tabs %}
+                        <a href="{{ tab.path }}" data-nav-tab="{{ tab.key }}" class="px-3 py-2 rounded-md text-sm font-medium {% if request.url.path == tab.path %}bg-shelf-hover text-white{% else %}text-shelf-muted hover:text-white hover:bg-shelf-hover{% endif %} transition-colors">{{ tab.label }}</a>
                         {% endfor %}
+
+                        {% if add_tabs %}
+                        <div class="relative" x-data="navMenu" @click.outside="close()" @keydown.escape.window="close()">
+                            <button type="button" @click="toggle()" data-testid="nav-add-button" aria-haspopup="menu" :aria-expanded="open"
+                                    class="flex items-center gap-1 px-3 py-2 rounded-md text-sm font-medium text-shelf-muted hover:text-white hover:bg-shelf-hover transition-colors">
+                                <span>Add</span>
+                                <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/></svg>
+                            </button>
+                            <div x-show="open" x-cloak data-testid="nav-add-panel" role="menu" class="absolute left-0 top-full mt-2 w-48 bg-shelf-card border border-shelf-border rounded-xl shadow-xl py-1 z-50 overflow-hidden">
+                                {% for tab in add_tabs %}
+                                <a href="{{ tab.path }}" data-nav-tab="{{ tab.key }}" role="menuitem" class="block px-4 py-2.5 text-sm font-medium {% if request.url.path == tab.path %}bg-shelf-hover text-white{% else %}text-shelf-muted hover:text-white hover:bg-shelf-hover{% endif %} transition-colors">{{ tab.label }}</a>
+                                {% endfor %}
+                            </div>
+                        </div>
+                        {% endif %}
+
+                        {% if more_tabs %}
+                        <div class="relative" x-data="navMenu" @click.outside="close()" @keydown.escape.window="close()">
+                            <button type="button" @click="toggle()" data-testid="nav-more-button" aria-haspopup="menu" :aria-expanded="open"
+                                    class="flex items-center gap-1 px-3 py-2 rounded-md text-sm font-medium text-shelf-muted hover:text-white hover:bg-shelf-hover transition-colors">
+                                <span>More</span>
+                                <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/></svg>
+                            </button>
+                            <div x-show="open" x-cloak data-testid="nav-more-panel" role="menu" class="absolute left-0 top-full mt-2 w-52 bg-shelf-card border border-shelf-border rounded-xl shadow-xl py-1 z-50 overflow-hidden">
+                                {% for tab in more_tabs %}
+                                <a href="{{ tab.path }}" data-nav-tab="{{ tab.key }}" role="menuitem" class="block px-4 py-2.5 text-sm font-medium {% if request.url.path == tab.path %}bg-shelf-hover text-white{% else %}text-shelf-muted hover:text-white hover:bg-shelf-hover{% endif %} transition-colors">{{ tab.label }}</a>
+                                {% endfor %}
+                            </div>
+                        </div>
+                        {% endif %}
                     </div>
                 </div>
                 {% if user %}
@@ -98,18 +142,14 @@
     <!-- Toast container -->
     <div id="toast-container" class="fixed bottom-4 right-4 z-50 space-y-2"></div>
 
-    <!-- Keyboard shortcut help button -->
-    <button onclick="document.getElementById('shortcut-modal').classList.toggle('hidden')"
-            class="no-print fixed bottom-4 left-4 z-40 w-8 h-8 bg-shelf-card border border-shelf-border rounded-full text-shelf-muted hover:text-shelf-accent2 hover:border-shelf-accent/50 transition-colors flex items-center justify-center text-sm font-bold shadow-lg"
-            title="Keyboard shortcuts (?)">?</button>
-
-    <!-- Keyboard shortcuts help modal -->
-    <div id="shortcut-modal" class="fixed inset-0 bg-black/60 z-[200] hidden items-center justify-center" onclick="if(event.target===this)this.classList.add('hidden')">
+    <!-- Keyboard shortcuts help modal. The visible trigger lives in the account menu. -->
+    <div id="shortcut-modal" role="dialog" aria-modal="true" aria-labelledby="shortcut-modal-title"
+         class="fixed inset-0 bg-black/60 z-[200] hidden items-center justify-center">
         <div class="bg-shelf-card border border-shelf-border rounded-xl p-6 max-w-md w-full mx-4 shadow-2xl">
             <div class="flex items-center justify-between mb-4">
-                <h3 class="text-lg font-bold">Keyboard Shortcuts</h3>
-                <button onclick="this.closest('#shortcut-modal').classList.add('hidden')" class="text-shelf-muted hover:text-white">
-                    <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg>
+                <h3 id="shortcut-modal-title" class="text-lg font-bold">Keyboard Shortcuts</h3>
+                <button type="button" data-shortcut-close aria-label="Close keyboard shortcuts" class="text-shelf-muted hover:text-white">
+                    <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg>
                 </button>
             </div>
             <div class="space-y-4 text-sm">
