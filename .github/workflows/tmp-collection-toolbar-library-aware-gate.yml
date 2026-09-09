@@ -1,0 +1,61 @@
+name: Library-aware Collection toolbar
+
+on:
+  push:
+    branches:
+      - tmp/collection-toolbar-library-aware-gate
+
+jobs:
+  focused:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+          cache: pip
+      - run: pip install -r requirements.txt -r requirements-dev.txt
+      - run: pytest -q tests/test_collection_toolbar_permissions_037.py tests/test_collections_assignment_037.py tests/test_browse_toolbar_037.py tests/test_browse_filters.py
+      - run: make check-alpine
+
+  unit-and-checks:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+          cache: pip
+      - run: pip install -r requirements.txt -r requirements-dev.txt
+      - run: make test
+      - run: make checks-fast
+
+  generated-assets:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+          cache: pip
+      - run: pip install -r requirements.txt -r requirements-dev.txt
+      - run: npm ci
+      - run: make css
+      - run: make badges
+      - run: git diff --exit-code --stat README.md static/css/app.css static/sw.js
+
+  e2e:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+          cache: pip
+      - run: pip install -r requirements.txt -r requirements-dev.txt
+      - run: playwright install --with-deps chromium
+      - run: make test-e2e
