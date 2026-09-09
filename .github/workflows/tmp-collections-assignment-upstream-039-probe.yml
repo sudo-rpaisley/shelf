@@ -1,0 +1,38 @@
+name: Probe Collections assignment slice on current upstream
+
+on:
+  push:
+    branches:
+      - tmp/collections-assignment-upstream-039-probe
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: tmp/upstream-current-039
+          fetch-depth: 0
+      - name: Fetch histories and build prerequisites
+        shell: bash
+        run: |
+          set -euo pipefail
+          git fetch origin '+refs/heads/*:refs/remotes/origin/*'
+          git show origin/tmp/library-permissions-upstream-039-builder:scripts/tmp_build_library_permissions_039.py > /tmp/build_library.py
+          git show origin/tmp/collections-foundation-upstream-039-builder:scripts/tmp_build_collections_foundation_039.py > /tmp/build_collections.py
+          git config user.name "Robert J Paisley"
+          git config user.email "56076332+sudo-rpaisley@users.noreply.github.com"
+          python /tmp/build_library.py
+          git add app/database.py app/services/libraries.py tests/test_library_permissions.py
+          git commit -m 'probe: library prerequisite'
+          python /tmp/build_collections.py
+      - name: Probe assignment and Browse slice
+        shell: bash
+        run: |
+          set -u
+          if ! git cherry-pick d25b41bc6e28d72a31c0ff38b7640e27c885b2bd; then
+            echo COLLECTIONS_ASSIGNMENT_CONFLICTS
+            git diff --name-only --diff-filter=U
+            exit 10
+          fi
+          echo COLLECTIONS_ASSIGNMENT_APPLIED_CLEANLY
