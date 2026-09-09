@@ -1,0 +1,47 @@
+name: Probe library-aware Browse scope on current upstream
+
+on:
+  push:
+    branches:
+      - tmp/library-access-scope-upstream-039-probe
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: tmp/upstream-current-039
+          fetch-depth: 0
+      - name: Fetch fork histories and build clean foundation
+        shell: bash
+        run: |
+          set -euo pipefail
+          git fetch origin '+refs/heads/*:refs/remotes/origin/*'
+          git show origin/tmp/library-permissions-upstream-039-builder:scripts/tmp_build_library_permissions_039.py > /tmp/build_library_permissions.py
+          python /tmp/build_library_permissions.py
+          git config user.name "Robert J Paisley"
+          git config user.email "56076332+sudo-rpaisley@users.noreply.github.com"
+          git add app/database.py app/services/libraries.py tests/test_library_permissions.py
+          git commit -m 'probe: clean library foundation'
+      - name: Probe recovered Browse-scope commits
+        shell: bash
+        run: |
+          set -u
+          for sha in \
+            9d96ad5fc6e5f6ea515e38680a508b520dbb5b88 \
+            21a70164ac4ebc7420e5f5a2e6b97da22b667b26 \
+            410d4ad6484b200b827caccfc4a1614a238665c8 \
+            18186486b876c9257e8306b69cfa7cd8b76f2e1b \
+            72beda7ebda5145a6866ae155555a2bf04ee7319 \
+            50a15170dd2975b33902317855f94724f8bb0109
+          do
+            echo "=== $sha ==="
+            if ! git cherry-pick "$sha"; then
+              echo "CONFLICTS_AT=$sha"
+              git diff --name-only --diff-filter=U
+              exit 10
+            fi
+          done
+          echo ALL_ACCESS_SCOPE_COMMITS_APPLIED
+          git --no-pager diff HEAD~6..HEAD --stat
