@@ -1,0 +1,127 @@
+name: Repair and validate item detail refresh 0.37
+
+on:
+  push:
+    branches:
+      - tmp/item-detail-refresh-037-fix
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: rebuild/item-detail-refresh-037
+          fetch-depth: 0
+      - name: Restore pinned linked-format label
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          p = Path('app/templates/item_detail.html')
+          text = p.read_text()
+          old = '>Also available as</p>'
+          new = '>Also available as:</p>'
+          if text.count(old) != 1:
+              raise SystemExit(f'linked-format label anchor changed: {text.count(old)}')
+          p.write_text(text.replace(old, new, 1))
+          PY
+          git diff --check
+      - name: Commit compatibility repair
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add app/templates/item_detail.html
+          git commit -m "UI: preserve linked-format detail label contract"
+          git push origin HEAD:rebuild/item-detail-refresh-037
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+          cache: pip
+      - run: pip install -r requirements.txt -r requirements-dev.txt
+      - name: Focused item-detail regressions
+        run: |
+          pytest -q \
+            tests/test_item_detail_refresh_037.py \
+            tests/test_item_detail.py \
+            tests/test_back_nav.py \
+            tests/test_abs_links.py \
+            tests/test_personal_state_routes_037.py \
+            tests/test_library_item_access_037.py
+          make check-alpine
+      - name: Focused Chromium journeys
+        run: |
+          playwright install --with-deps chromium
+          pytest -q -m e2e \
+            tests/e2e/test_item_detail_refresh_037.py \
+            tests/e2e/test_item_crud.py::test_item_detail_page_loads \
+            tests/e2e/test_item_crud.py::test_item_edit_save \
+            tests/e2e/test_item_crud.py::test_item_delete \
+            tests/e2e/test_item_crud.py::test_reading_history_survives_status_toggle
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+      - name: Rebuild generated assets
+        run: |
+          npm ci
+          make css
+          make badges
+      - name: Commit generated assets
+        run: |
+          git add static/css/app.css static/sw.js README.md
+          if ! git diff --cached --quiet; then
+            git diff --cached --check
+            git commit -m "UI: rebuild item-detail assets and badges"
+            git push origin HEAD:rebuild/item-detail-refresh-037
+          fi
+
+  test:
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: rebuild/item-detail-refresh-037
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+          cache: pip
+      - run: pip install -r requirements.txt -r requirements-dev.txt
+      - run: make test
+      - run: make checks-fast
+
+  css:
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: rebuild/item-detail-refresh-037
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+      - run: npm ci
+      - run: make css
+      - run: git diff --exit-code --stat static/css/app.css static/sw.js
+
+  e2e:
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: rebuild/item-detail-refresh-037
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+          cache: pip
+      - run: pip install -r requirements.txt -r requirements-dev.txt
+      - run: playwright install --with-deps chromium
+      - run: make test-e2e
