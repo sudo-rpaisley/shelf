@@ -1,0 +1,84 @@
+name: Restack Collections foundation on Browse scope
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build-test-publish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: tmp/collections-foundation-on-browse-039-builder
+          fetch-depth: 0
+      - name: Preserve builder and reset to published Browse scope
+        shell: bash
+        run: |
+          set -euo pipefail
+          cp scripts/tmp_build_collections_foundation_039.py /tmp/build_collections.py
+          git fetch origin '+refs/heads/*:refs/remotes/origin/*'
+          git reset --hard origin/upstream/library-browse-scope-039
+          echo "PARENT_SHA=$(git rev-parse HEAD)" >> "$GITHUB_ENV"
+          git config user.name "Robert J Paisley"
+          git config user.email "56076332+sudo-rpaisley@users.noreply.github.com"
+      - name: Rebuild Collections foundation
+        run: python /tmp/build_collections.py
+      - name: Keep Collection ACL fixtures explicit
+        shell: bash
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          p = Path("tests/test_collections.py")
+          s = p.read_text()
+          a = 'def test_viewer_sees_only_collections_in_accessible_libraries(viewer_client, viewer_user, db):\n'
+          if a in s and a + '    libraries.set_membership' not in s:
+              s = s.replace(a, a + '    libraries.set_membership(db, 1, viewer_user["id"], "viewer")\n', 1)
+          a = 'def test_editor_can_create_only_in_an_editable_library(editor_client, editor_user, db):\n'
+          if a in s and a + '    libraries.set_membership' not in s:
+              s = s.replace(a, a + '    libraries.set_membership(db, 1, editor_user["id"], "editor")\n', 1)
+          p.write_text(s)
+          PY
+          git diff --check
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.13'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - run: pip install -r requirements.txt -r requirements-dev.txt
+      - run: npm ci
+      - name: Regenerate committed outputs
+        run: |
+          make css
+          make badges
+          python scripts/stamp_sw_version.py
+          git diff --check
+      - name: Focused Collections checks
+        run: |
+          pytest -q tests/test_library_permissions.py tests/test_library_browse_access.py tests/test_collections.py tests/test_nav.py
+          make check-alpine
+          make check-csrf
+      - name: Full unit and static checks
+        run: |
+          make test
+          make checks-fast
+      - name: Full Chromium E2E
+        shell: bash
+        run: |
+          sudo rm -f /etc/apt/sources.list.d/google-chrome.list
+          playwright install --with-deps chromium
+          make test-e2e
+      - name: Publish one-commit dependent PR branch
+        shell: bash
+        run: |
+          set -euo pipefail
+          git add -A
+          git reset --soft "$PARENT_SHA"
+          git commit -m "COLLECTIONS: add library-scoped foundation"
+          git fetch origin refs/heads/upstream/collections-foundation-039:refs/remotes/origin/upstream/collections-foundation-039 || true
+          expected=$(git rev-parse refs/remotes/origin/upstream/collections-foundation-039)
+          git push origin HEAD:upstream/collections-foundation-039 \
+            --force-with-lease=refs/heads/upstream/collections-foundation-039:$expected
