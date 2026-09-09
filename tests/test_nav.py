@@ -37,9 +37,9 @@ VIEWER = {"id": 3, "username": "viewer", "role": "viewer"}
 
 # --- Registry shape ---------------------------------------------------------
 
-def test_registry_covers_the_twelve_tabs():
+def test_registry_covers_the_registered_tabs():
     assert [t["key"] for t in NAV_TABS] == [
-        "browse", "scan", "intake", "shelf-fill", "store", "series",
+        "browse", "collections", "scan", "intake", "shelf-fill", "store", "series",
         "music", "periodicals", "discover", "stats", "settings", "logs",
     ]
     for tab in NAV_TABS:
