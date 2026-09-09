@@ -1480,10 +1480,19 @@ class TestLanguageFilter:
         assert m, "Office option missing"
         assert m.group(1) == "1", html[m.start()-200:m.end()+100]
 
-    def test_reading_status_counts_respect_language(self, viewer_client, db):
-        """R3: rs_conds_clean is rebuilt from scratch — it must include the
-        language condition."""
+    def test_reading_status_counts_respect_language(self, viewer_client, viewer_user, db):
+        """R3: personal reading-status counts still respect language."""
         self._seed(db)
+        rows = db.execute(
+            "SELECT id FROM items WHERE title IN ('German Novel', 'English Novel') ORDER BY id"
+        ).fetchall()
+        for row in rows:
+            db.execute(
+                "INSERT INTO user_item_state (user_id, item_id, reading_status) "
+                "VALUES (?, ?, 'read')",
+                (viewer_user["id"], row["id"]),
+            )
+        db.commit()
         resp = viewer_client.get("/api/search", params={
             "language": "de", "reading_status": "read",
         })
@@ -1491,7 +1500,7 @@ class TestLanguageFilter:
         import re
         m = re.search(r'<option value="read"[^>]*>Read(?: \((\d+)\))?</option>', html)
         assert m, "Read option missing"
-        # 2 items are 'read' overall but only 1 is German.
+        # The viewer has 2 personal read items overall but only 1 is German.
         assert m.group(1) == "1", m.group(0)
 
     def test_browse_renders_select_only_when_languages_exist(self, viewer_client, db):

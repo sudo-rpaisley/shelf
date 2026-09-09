@@ -164,19 +164,33 @@ def verify_password(plain: str, hashed: str) -> bool:
     return bcrypt.checkpw(plain.encode(), hashed.encode())
 
 
-def create_token(user_id: int, username: str, role: str, display_name: str | None = None, token_version: int = 1) -> str:
+def create_token(
+    user_id: int,
+    username: str,
+    role: str,
+    display_name: str | None = None,
+    token_version: int = 1,
+    *,
+    auth_method: str = "local",
+    reauth_at: int | None = None,
+) -> str:
+    """Create Shelf's session JWT with an optional fixed reauth ceiling."""
     now = datetime.now(timezone.utc)
+    normal_exp = int(now.timestamp()) + JWT_EXPIRY_SECONDS
+    exp = min(normal_exp, int(reauth_at)) if reauth_at is not None else normal_exp
     payload = {
         "sub": str(user_id),
         "username": username,
         "role": role,
         "display_name": display_name or username,
         "tv": token_version,
+        "authn": auth_method,
         "iat": now,
-        "exp": now + timedelta(seconds=JWT_EXPIRY_SECONDS),
+        "exp": exp,
     }
+    if reauth_at is not None:
+        payload["reauth"] = int(reauth_at)
     return jwt.encode(payload, get_secret_key(), algorithm=JWT_ALGORITHM)
-
 
 def decode_token(token: str) -> dict | None:
     try:
@@ -189,7 +203,13 @@ def decode_token(token: str) -> dict | None:
         return None
 
 
-def set_auth_cookie(response: Response, token: str, csrf_token: str | None = None) -> None:
+def set_auth_cookie(
+    response: Response,
+    token: str,
+    csrf_token: str | None = None,
+    *,
+    max_age: int = JWT_EXPIRY_SECONDS,
+) -> None:
     secure = not os.environ.get("SHELF_DEV_INSECURE_COOKIES")
     if os.environ.get("SHELF_DEV_INSECURE_COOKIES"):
         logger.warning(
@@ -202,10 +222,9 @@ def set_auth_cookie(response: Response, token: str, csrf_token: str | None = Non
         httponly=True,
         secure=secure,
         samesite="strict",
-        max_age=JWT_EXPIRY_SECONDS,
+        max_age=max_age,
         path="/",
     )
-    # Set a paired CSRF token cookie (readable by JS for double-submit)
     if csrf_token is None:
         csrf_token = secrets.token_hex(32)
     response.set_cookie(
@@ -214,10 +233,9 @@ def set_auth_cookie(response: Response, token: str, csrf_token: str | None = Non
         httponly=False,
         secure=secure,
         samesite="strict",
-        max_age=JWT_EXPIRY_SECONDS,
+        max_age=max_age,
         path="/",
     )
-
 
 def clear_auth_cookie(response: Response) -> None:
     response.delete_cookie(key="access_token", path="/")
@@ -225,7 +243,7 @@ def clear_auth_cookie(response: Response) -> None:
 
 
 def get_current_user(request: Request) -> dict | None:
-    """Read user from JWT cookie. Returns dict with id, username, role, display_name or None."""
+    """Read the user from the session JWT and verify local invalidation."""
     token = request.cookies.get("access_token")
     if not token:
         return None
@@ -233,14 +251,13 @@ def get_current_user(request: Request) -> dict | None:
     if not payload:
         return None
 
-    # Check token version against DB to detect invalidated tokens
     token_tv = payload.get("tv", 1)
     user_id = int(payload["sub"])
     with get_db() as db:
-        row = db.execute("SELECT token_version FROM users WHERE id = ?", (user_id,)).fetchone()
-        if not row:
-            return None
-        if row["token_version"] != token_tv:
+        row = db.execute(
+            "SELECT token_version FROM users WHERE id = ?", (user_id,)
+        ).fetchone()
+        if not row or row["token_version"] != token_tv:
             return None
 
     return {
@@ -248,16 +265,19 @@ def get_current_user(request: Request) -> dict | None:
         "username": payload["username"],
         "role": payload["role"],
         "display_name": payload.get("display_name", payload["username"]),
+        "auth_method": payload.get("authn", "local"),
+        "reauth_at": payload.get("reauth"),
     }
 
-
 def should_refresh_token(request: Request) -> str | None:
-    """If token is past half-life, return a fresh token. Otherwise None."""
+    """Refresh local sessions at half-life; OIDC sessions never slide."""
     token = request.cookies.get("access_token")
     if not token:
         return None
     payload = decode_token(token)
     if not payload:
+        return None
+    if payload.get("authn") == "oidc":
         return None
     exp = payload.get("exp", 0)
     iat = payload.get("iat", 0)
@@ -265,11 +285,15 @@ def should_refresh_token(request: Request) -> str | None:
     half_life = (exp - iat) / 2
     if now > iat + half_life:
         return create_token(
-            int(payload["sub"]), payload["username"], payload["role"],
-            payload.get("display_name"), payload.get("tv", 1),
+            int(payload["sub"]),
+            payload["username"],
+            payload["role"],
+            payload.get("display_name"),
+            payload.get("tv", 1),
+            auth_method=payload.get("authn", "local"),
+            reauth_at=payload.get("reauth"),
         )
     return None
-
 
 def get_user_count() -> int:
     with get_db() as db:
@@ -290,6 +314,63 @@ def require_role(minimum_role: str):
         return user
 
     return _dependency
+
+
+def require_item_role(minimum_role: str):
+    """FastAPI dependency for one item governed by its Shelf library.
+
+    Authentication remains app-wide. For non-admins, the item's library
+    membership is authoritative for item-local viewer/editor rights. A denied
+    or unmapped item is treated as missing so guessed IDs do not reveal which
+    private catalogue rows exist.
+    """
+    if minimum_role not in ("viewer", "editor"):
+        raise ValueError("Item role must be viewer or editor")
+
+    async def _dependency(request: Request):
+        user = getattr(request.state, "user", None)
+        if not user:
+            _raise_auth_required(request)
+
+        raw_item_id = request.path_params.get("item_id")
+        try:
+            item_id = int(raw_item_id)
+        except (TypeError, ValueError):
+            _raise_item_not_found(request)
+
+        from app.services import libraries
+        with get_db() as db:
+            actor = dict(user)
+            exists = db.execute(
+                "SELECT 1 FROM items WHERE id = ?", (item_id,)
+            ).fetchone() is not None
+            allowed = exists and libraries.has_item_role(
+                db, actor, item_id, minimum_role
+            )
+            visible = allowed or (
+                exists and libraries.has_item_role(db, actor, item_id, "viewer")
+            )
+        if not exists:
+            # Let the route keep its established missing-item response shape.
+            # The item does not exist, so there is no private identity to hide.
+            return user
+        if not allowed:
+            # An item the actor may already see is not secret; preserve Shelf's
+            # normal 403 surface when they simply lack edit rights. Only an
+            # existing inaccessible/unmapped item is hidden as a 404.
+            if minimum_role == "editor" and visible:
+                _raise_insufficient_role(request)
+            _raise_item_not_found(request)
+        return user
+
+    return _dependency
+
+
+def _raise_item_not_found(request: Request):
+    """Hide private or unmapped catalogue IDs behind the missing-item surface."""
+    if request.headers.get("HX-Request") or request.url.path.startswith("/api/"):
+        raise _ResponseException(HTMLResponse("Not found", status_code=404))
+    raise _ResponseException(RedirectResponse(url="/browse", status_code=303))
 
 
 def _raise_auth_required(request: Request):

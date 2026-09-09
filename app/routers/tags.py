@@ -7,7 +7,7 @@ import re
 from fastapi import APIRouter, Depends, Request, Form
 from fastapi.responses import HTMLResponse
 
-from app.auth import require_role
+from app.auth import require_item_role, require_role
 from app.database import get_db
 
 logger = logging.getLogger(__name__)
@@ -51,7 +51,7 @@ def _render_fragment(request: Request, db, item_id: int):
 
 @router.post("/items/{item_id}/tags")
 async def add_tag(request: Request, item_id: int, name: str = Form(...),
-                  _=Depends(require_role("editor"))):
+                  _=Depends(require_item_role("editor"))):
     tag_name = normalize_tag(name)
     if not tag_name:
         return HTMLResponse("Tag name required", status_code=400)
@@ -71,7 +71,7 @@ async def add_tag(request: Request, item_id: int, name: str = Form(...),
 
 @router.delete("/items/{item_id}/tags/{tag_id}")
 async def remove_tag(request: Request, item_id: int, tag_id: int,
-                     _=Depends(require_role("editor"))):
+                     _=Depends(require_item_role("editor"))):
     with get_db() as db:
         item = db.execute("SELECT id FROM items WHERE id = ?", (item_id,)).fetchone()
         if not item:
