@@ -1,0 +1,161 @@
+name: Build and validate integration E2E repairs
+
+on:
+  push:
+    branches:
+      - tmp/integration-e2e-fixes-037-build
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: rebuild/integration-e2e-fixes-037
+          fetch-depth: 0
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+          cache: pip
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt -r requirements-dev.txt
+
+      - name: Apply narrow integration repairs
+        shell: bash
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          def replace_once(path: str, old: str, new: str) -> None:
+              p = Path(path)
+              text = p.read_text()
+              if text.count(old) != 1:
+                  raise SystemExit(f"{path}: expected one exact patch target, found {text.count(old)}")
+              p.write_text(text.replace(old, new, 1))
+
+          replace_once(
+              "app/routers/auth_routes.py",
+              "from app.services import oidc_login, oidc_accounts\n",
+              "from app.services import oidc_login, oidc_accounts, libraries\n",
+          )
+          replace_once(
+              "app/routers/auth_routes.py",
+              '''    try:\n        with get_db() as db:\n            db.execute(\n                "INSERT INTO users (username, password, display_name, role) VALUES (?, ?, ?, ?)",\n                (username, hash_password(password), display_name, role),\n            )\n    except sqlite3.IntegrityError:\n''',
+              '''    try:\n        with get_db() as db:\n            cursor = db.execute(\n                "INSERT INTO users (username, password, display_name, role) VALUES (?, ?, ?, ?)",\n                (username, hash_password(password), display_name, role),\n            )\n            # Preserve the familiar single-library behaviour for accounts\n            # created through Shelf's existing Users panel. Per-library\n            # permissions remain authoritative, but until an administrator\n            # explicitly changes them a new Viewer/Editor can actually use\n            # the default Main Library. Site admins need no membership row.\n            if role in ("viewer", "editor"):\n                libraries.set_membership(\n                    db,\n                    libraries.DEFAULT_LIBRARY_ID,\n                    int(cursor.lastrowid),\n                    role,\n                )\n    except sqlite3.IntegrityError:\n''',
+          )
+
+          replace_once(
+              "tests/e2e/conftest.py",
+              '''def insert_item(data_dir: Path, **kwargs) -> int:\n    """Insert a test item directly into the E2E SQLite DB; return its id."""\n    db_path = data_dir / "shelf.db"\n    fields = {\n        "title": "Test Book",\n        "media_type": "book",\n        "source": "test",\n        **kwargs,\n    }\n    cols = ", ".join(fields.keys())\n    placeholders = ", ".join("?" for _ in fields)\n    conn = sqlite3.connect(str(db_path))\n    conn.row_factory = sqlite3.Row\n    try:\n        cur = conn.execute(f"INSERT INTO items ({cols}) VALUES ({placeholders})", list(fields.values()))\n        conn.commit()\n        return cur.lastrowid\n    finally:\n        conn.close()\n''',
+              '''def insert_item(data_dir: Path, *, _library_id=1, **kwargs) -> int:\n    """Insert a test item directly into the E2E DB and map it by default.\n\n    The general E2E suite models an upgraded single-library installation, just\n    like ``tests.conftest._insert_item``. Pass ``_library_id=None`` only when an\n    ACL-specific browser test intentionally needs an unmapped catalogue row.\n    """\n    db_path = data_dir / "shelf.db"\n    fields = {\n        "title": "Test Book",\n        "media_type": "book",\n        "source": "test",\n        **kwargs,\n    }\n    cols = ", ".join(fields.keys())\n    placeholders = ", ".join("?" for _ in fields)\n    conn = sqlite3.connect(str(db_path))\n    conn.row_factory = sqlite3.Row\n    try:\n        cur = conn.execute(f"INSERT INTO items ({cols}) VALUES ({placeholders})", list(fields.values()))\n        item_id = int(cur.lastrowid)\n        if _library_id is not None:\n            library_exists = conn.execute(\n                "SELECT 1 FROM libraries WHERE id = ?", (int(_library_id),)\n            ).fetchone()\n            if library_exists:\n                conn.execute(\n                    "INSERT INTO library_items (item_id, library_id) VALUES (?, ?) "\n                    "ON CONFLICT(item_id) DO UPDATE SET library_id = excluded.library_id",\n                    (item_id, int(_library_id)),\n                )\n        conn.commit()\n        return item_id\n    finally:\n        conn.close()\n''',
+          )
+
+          replace_once(
+              "tests/e2e/test_stats.py",
+              '''        reading_status="read",\n        date_finished=f"{current_year}-03-15",\n''',
+              '''''',
+          )
+          replace_once(
+              "tests/e2e/test_stats.py",
+              '''    insert_item(\n        server["data_dir"],\n        title="Smoke Wishlist Disc",\n''',
+              '''    wishlist_item_id = insert_item(\n        server["data_dir"],\n        title="Smoke Wishlist Disc",\n''',
+          )
+          replace_once(
+              "tests/e2e/test_stats.py",
+              '''    conn = sqlite3.connect(str(db_path))\n    try:\n        conn.execute(\n            "INSERT INTO valuation_history (total_value, priced_count, created_at) "\n            "VALUES (50, 2, '2026-01-01 12:00:00')"\n        )\n''',
+              '''    conn = sqlite3.connect(str(db_path))\n    try:\n        admin_id = conn.execute(\n            "SELECT id FROM users WHERE username = ?",\n            (credentials["username"],),\n        ).fetchone()[0]\n        # Reading and acquisition intent are personal state in the rebuilt\n        # model; seed them for the signed-in admin instead of legacy item\n        # columns so the dashboard exercises the real 0.37 behaviour.\n        conn.execute(\n            "INSERT INTO user_item_state "\n            "(user_id, item_id, reading_status, date_finished, wishlist) "\n            "VALUES (?, ?, 'read', ?, 0)",\n            (admin_id, read_item_id, f"{current_year}-03-15"),\n        )\n        conn.execute(\n            "INSERT INTO user_item_state (user_id, item_id, wishlist) VALUES (?, ?, 1)",\n            (admin_id, wishlist_item_id),\n        )\n        conn.execute(\n            "INSERT INTO valuation_history (total_value, priced_count, created_at) "\n            "VALUES (50, 2, '2026-01-01 12:00:00')"\n        )\n''',
+          )
+
+          p = Path("tests/test_library_permissions_037.py")
+          text = p.read_text()
+          marker = '''def test_library_role_is_independent_of_legacy_global_viewer_role(db):\n'''
+          if text.count(marker) != 1:
+              raise SystemExit("library permission test insertion marker changed")
+          regression = '''def test_admin_created_non_admins_get_default_main_library_access(admin_client, db):\n    """The existing Users panel must not create accounts with an empty catalogue."""\n    for username, role in (("new-viewer", "viewer"), ("new-editor", "editor")):\n        response = admin_client.post(\n            "/api/users",\n            data={\n                "username": username,\n                "display_name": username.title(),\n                "password": "password123",\n                "role": role,\n            },\n        )\n        assert response.status_code == 200\n        assert response.json()["ok"] is True\n        user = db.execute(\n            "SELECT id, username, role FROM users WHERE username = ?", (username,)\n        ).fetchone()\n        assert user is not None\n        assert libraries.membership_role(\n            db, dict(user), libraries.DEFAULT_LIBRARY_ID\n        ) == role\n\n\n'''
+          p.write_text(text.replace(marker, regression + marker, 1))
+          PY
+
+          git diff --check
+          git diff --stat
+
+      - name: Focused library regression
+        run: pytest -q tests/test_library_permissions_037.py
+
+      - name: Install Chromium for focused browser regressions
+        run: playwright install --with-deps chromium
+
+      - name: Re-run the two previously failing browser journeys
+        run: |
+          pytest -q -m e2e \
+            tests/e2e/test_lending.py::test_viewer_sees_read_only_product_ui_without_editor_mutations \
+            tests/e2e/test_stats.py::test_stats_dashboard_reflects_real_collection_and_links_back_to_item
+
+      - name: Refresh test badges
+        run: make badges
+
+      - name: Commit validated repair branch
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add app/routers/auth_routes.py tests/e2e/conftest.py tests/e2e/test_stats.py tests/test_library_permissions_037.py README.md
+          git diff --cached --check
+          git commit -m "LIBRARIES: repair default user access and E2E personal state"
+          git push origin HEAD:rebuild/integration-e2e-fixes-037
+
+  test:
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: rebuild/integration-e2e-fixes-037
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+          cache: pip
+      - run: pip install -r requirements.txt -r requirements-dev.txt
+      - name: Full unit and integration suite
+        run: make test
+      - name: Architecture and safety checks
+        run: make checks-fast
+
+  css:
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: rebuild/integration-e2e-fixes-037
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+      - run: npm ci
+      - name: Rebuild frontend assets
+        run: make css
+      - name: Generated assets remain reproducible
+        run: git diff --exit-code --stat static/css/app.css static/sw.js
+
+  e2e:
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: rebuild/integration-e2e-fixes-037
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+          cache: pip
+      - run: pip install -r requirements.txt -r requirements-dev.txt
+      - run: playwright install --with-deps chromium
+      - name: Full Chromium suite
+        run: make test-e2e
