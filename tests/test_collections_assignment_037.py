@@ -165,3 +165,21 @@ def test_merge_reparents_collection_membership_and_collapses_duplicate(admin_use
         (collection_id,),
     ).fetchall()
     assert [row["item_id"] for row in rows] == [keep_id]
+
+def test_moving_item_to_another_library_drops_old_collection_membership(admin_user, db):
+    item_id = _item(db, "Moving Pick", "9780000081117")
+    collection_id = _new_collection(db, 1, "Old Library Picks")
+    db.execute(
+        "INSERT INTO collection_items (collection_id, item_id) VALUES (?, ?)",
+        (collection_id, item_id),
+    )
+    other_library = libraries.create_library(db, "Destination Library")["id"]
+
+    libraries.assign_item(db, item_id, other_library)
+
+    assert libraries.item_library_id(db, item_id) == other_library
+    assert db.execute(
+        "SELECT 1 FROM collection_items WHERE collection_id = ? AND item_id = ?",
+        (collection_id, item_id),
+    ).fetchone() is None
+
