@@ -1,0 +1,49 @@
+name: Prepare browse toolbar 0.37 v2
+
+on:
+  push:
+    branches:
+      - tmp/browse-toolbar-037-v2-gate
+
+permissions:
+  contents: write
+
+jobs:
+  focused:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+          cache: pip
+      - run: pip install -r requirements.txt -r requirements-dev.txt
+      - run: playwright install --with-deps chromium
+      - run: pytest -q tests/test_browse_toolbar_037.py tests/test_browse_filters.py tests/e2e/test_browse_toolbar_037.py
+      - run: make check-alpine
+
+  generated:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+          cache: pip
+      - run: pip install -r requirements.txt -r requirements-dev.txt
+      - run: npm ci
+      - run: make css
+      - run: make badges
+      - name: Commit generated files when needed
+        run: |
+          if ! git diff --quiet -- README.md static/css/app.css static/sw.js; then
+            git config user.name 'github-actions[bot]'
+            git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+            git add README.md static/css/app.css static/sw.js
+            git commit -m 'Build: refresh Browse generated files and badges'
+            git push origin HEAD:tmp/browse-toolbar-037-v2-gate
+          fi
