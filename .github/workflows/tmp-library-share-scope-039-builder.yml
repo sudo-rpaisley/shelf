@@ -21,6 +21,7 @@ jobs:
         run: |
           set -euo pipefail
           cp scripts/tmp_build_library_share_scope_039.py /tmp/build_share_scope.py
+          cp scripts/tmp_patch_library_share_migration_self_heal_039.py /tmp/patch_share_migration.py
           git fetch origin '+refs/heads/*:refs/remotes/origin/*'
           git reset --hard origin/upstream/collections-foundation-039
           echo "PARENT_SHA=$(git rev-parse HEAD)" >> "$GITHUB_ENV"
@@ -29,6 +30,7 @@ jobs:
       - name: Build library-scoped sharing
         run: |
           python /tmp/build_share_scope.py
+          python /tmp/patch_share_migration.py
           python - <<'PY'
           from pathlib import Path
           p = Path("tests/test_share_links.py")
