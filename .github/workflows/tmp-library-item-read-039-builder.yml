@@ -39,7 +39,15 @@ jobs:
         run: make badges
       - name: Focused direct-read ACL checks
         run: |
-          pytest -q tests/test_library_permissions.py tests/test_library_browse_access.py tests/test_library_item_reads.py
+          pytest -q \
+            tests/test_library_permissions.py \
+            tests/test_library_browse_access.py \
+            tests/test_library_item_reads.py \
+            tests/test_static_caching.py \
+            tests/test_cover_review.py \
+            tests/test_music_catalog.py \
+            tests/test_komga_full_integration.py \
+            tests/test_romm_full_integration.py
           make check-alpine
       - name: Full unit and static checks
         run: |
@@ -55,7 +63,17 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          git add app/routers/pages.py tests/test_library_item_reads.py README.md
+          git add \
+            app/main.py \
+            app/routers/pages.py \
+            app/routers/items_covers.py \
+            app/routers/music.py \
+            app/routers/komga.py \
+            app/routers/romm.py \
+            tests/test_library_item_reads.py \
+            tests/test_static_caching.py \
+            tests/test_cover_review.py \
+            README.md
           git reset --soft "$PARENT_SHA"
           git commit -m "LIBRARIES: enforce direct item-read visibility"
           git fetch origin refs/heads/upstream/library-item-read-039:refs/remotes/origin/upstream/library-item-read-039 || true
