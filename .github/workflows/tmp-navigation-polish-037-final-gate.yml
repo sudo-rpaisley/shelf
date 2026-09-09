@@ -1,0 +1,59 @@
+name: Final validate navigation polish 0.37
+
+on:
+  push:
+    branches:
+      - tmp/navigation-polish-037-final-gate
+
+jobs:
+  focused:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+          cache: pip
+      - run: pip install -r requirements.txt -r requirements-dev.txt
+      - run: playwright install --with-deps chromium
+      - run: pytest -q tests/test_navigation_polish_037.py tests/test_account_menu_037.py tests/e2e/test_navigation_polish_037.py tests/e2e/test_account_menu_037.py tests/e2e/test_nav.py tests/e2e/test_lending.py::test_viewer_sees_read_only_product_ui_without_editor_mutations tests/e2e/test_scan.py::test_a_typed_duplicate_scan_raises_exactly_one_warning_toast tests/e2e/test_setup_login.py::test_logout
+      - run: make check-alpine
+
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+          cache: pip
+      - run: pip install -r requirements.txt -r requirements-dev.txt
+      - run: make test
+      - run: make checks-fast
+
+  css:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+      - run: npm ci
+      - run: make css
+      - run: git diff --exit-code --stat static/css/app.css static/sw.js
+
+  e2e:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+          cache: pip
+      - run: pip install -r requirements.txt -r requirements-dev.txt
+      - run: playwright install --with-deps chromium
+      - run: make test-e2e
