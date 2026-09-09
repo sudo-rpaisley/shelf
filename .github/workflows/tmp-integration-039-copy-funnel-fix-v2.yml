@@ -1,0 +1,190 @@
+name: Fix 0.39 legacy copy write funnel v2
+
+on:
+  push:
+    branches:
+      - tmp/integration-039-copy-funnel-fix-v2
+
+permissions:
+  contents: write
+
+jobs:
+  fix-and-test:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out integration target
+        uses: actions/checkout@v7
+        with:
+          ref: rebuild/integration-039
+          fetch-depth: 0
+
+      - name: Route legacy copy writes through item_copies.insert_copy
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          from pathlib import Path
+
+          p = Path('app/services/item_copies.py')
+          s = p.read_text()
+          old = '''def insert_copy(db, fields: Mapping[str, Any]) -> int:
+          '''
+          new = '''def insert_copy(
+              db, fields: Mapping[str, Any], *, preserve_id: int | None = None,
+          ) -> int:
+          '''
+          if old not in s:
+              raise SystemExit('insert_copy signature anchor not found')
+          s = s.replace(old, new, 1)
+
+          old = '''    values: dict[str, Any] = dict(fields)
+
+              _validated_names(db, values, _MANAGED, "insert_copy")
+              for required in ("item_id", "copy_number"):
+          '''
+          new = '''    values: dict[str, Any] = dict(fields)
+
+              _validated_names(db, values, _MANAGED, "insert_copy")
+              if preserve_id is not None:
+                  if not isinstance(preserve_id, int) or preserve_id <= 0:
+                      raise ValueError(
+                          "insert_copy() preserve_id must be a positive integer"
+                      )
+                  # Migration bridges occasionally need to preserve row identity.
+                  # Keep the managed id outside caller-supplied fields, then add it
+                  # here inside the single item_copies INSERT funnel.
+                  values = {"id": preserve_id, **values}
+              for required in ("item_id", "copy_number"):
+          '''
+          if old not in s:
+              raise SystemExit('insert_copy values anchor not found')
+          s = s.replace(old, new, 1)
+          p.write_text(s)
+
+          p = Path('app/services/fork_upgrade.py')
+          s = p.read_text()
+
+          old = '''        db.execute(
+                  """INSERT INTO item_copies (
+                      id, item_id, copy_number, location_id, condition, notes,
+                      acquired_date, acquisition_source, acquisition_price, provenance,
+                      copy_barcode, is_primary, created_at, updated_at, position_order
+                  ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                  (
+                      row["id"],
+                      row["item_id"],
+                      row["copy_number"],
+                      new_location,
+                      row.get("condition"),
+                      row.get("notes"),
+                      row.get("acquired_date"),
+                      row.get("acquisition_source"),
+                      row.get("acquisition_price"),
+                      row.get("provenance"),
+                      row.get("copy_barcode"),
+                      row.get("is_primary", 0),
+                      row.get("created_at"),
+                      row.get("updated_at"),
+                      row.get("position_order"),
+                  ),
+              )
+          '''
+          new = '''        from app.services import item_copies
+
+              item_copies.insert_copy(
+                  db,
+                  {
+                      "item_id": row["item_id"],
+                      "copy_number": row["copy_number"],
+                      "location_id": new_location,
+                      "condition": row.get("condition"),
+                      "notes": row.get("notes"),
+                      "acquired_date": row.get("acquired_date"),
+                      "acquisition_source": row.get("acquisition_source"),
+                      "acquisition_price": row.get("acquisition_price"),
+                      "provenance": row.get("provenance"),
+                      "copy_barcode": row.get("copy_barcode"),
+                      "is_primary": row.get("is_primary", 0),
+                      "created_at": row.get("created_at"),
+                      "updated_at": row.get("updated_at"),
+                      "position_order": row.get("position_order"),
+                  },
+                  preserve_id=int(row["id"]),
+              )
+          '''
+          if old not in s:
+              raise SystemExit('legacy copy rebuild SQL anchor not found')
+          s = s.replace(old, new, 1)
+
+          old = '''    # Reproduce upstream migration 26 for catalogue rows that never passed
+              # through the fork's holdings projection.
+              db.execute(
+                  """INSERT INTO item_copies (item_id, copy_number, location_id, is_primary)
+                     SELECT i.id, 1, i.location_id, 1 FROM items i
+                     WHERE i.owned = 1 AND i.location_id IS NOT NULL
+                       AND NOT EXISTS (SELECT 1 FROM item_copies c WHERE c.item_id = i.id)"""
+              )
+              _sync_catalogue_locations_from_primary_copies(db)
+          '''
+          new = '''    # Reproduce upstream migration 26 for catalogue rows that never passed
+              # through the fork's holdings projection, but use the current copy
+              # write funnel rather than carrying a second raw INSERT path.
+              from app.services import item_copies
+
+              missing = db.execute(
+                  """SELECT i.id, i.location_id FROM items i
+                     WHERE i.owned = 1 AND i.location_id IS NOT NULL
+                       AND NOT EXISTS (SELECT 1 FROM item_copies c WHERE c.item_id = i.id)
+                     ORDER BY i.id"""
+              ).fetchall()
+              for row in missing:
+                  item_copies.insert_copy(
+                      db,
+                      {
+                          "item_id": int(row["id"]),
+                          "copy_number": 1,
+                          "location_id": row["location_id"],
+                          "is_primary": 1,
+                      },
+                  )
+              _sync_catalogue_locations_from_primary_copies(db)
+          '''
+          if old not in s:
+              raise SystemExit('legacy primary-copy backfill SQL anchor not found')
+          s = s.replace(old, new, 1)
+          p.write_text(s)
+          PY
+
+          python -m compileall -q app
+          git diff --check
+          if grep -n "INSERT INTO item_copies" app/services/fork_upgrade.py; then
+            echo "fork_upgrade still contains a raw item_copies INSERT" >&2
+            exit 1
+          fi
+          git diff --stat
+
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install -r requirements-dev.txt
+
+      - name: Focused copy and upgrade regression tests
+        run: |
+          pytest -q tests/test_item_write.py tests/test_fork_upgrade_037.py
+          make checks-fast
+
+      - name: Commit fix to integration branch
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "Robert J Paisley"
+          git config user.email "56076332+sudo-rpaisley@users.noreply.github.com"
+          git add app/services/item_copies.py app/services/fork_upgrade.py
+          git commit -m "Fix: route legacy copy upgrades through the copy write funnel"
+          git push origin HEAD:rebuild/integration-039
