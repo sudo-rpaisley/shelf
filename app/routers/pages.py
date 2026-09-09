@@ -12,7 +12,7 @@ from app.routers import items_common
 from app.routers.items_common import SORT_OPTIONS
 from app.routers.series import find_gaps
 from app.services.home_dashboard import dashboard_summary
-from app.services import libraries
+from app.services import libraries, item_copies
 
 router = APIRouter()
 
@@ -265,6 +265,9 @@ async def item_detail(
 
         game_platforms = get_game_platforms(db)
 
+        # Every physical copy, not just the compatibility primary location.
+        copies = item_copies.copies_for_item(db, item_id)
+
         from app.routers.tags import get_item_tags
         item_tags = get_item_tags(db, item_id)
         all_tags = db.execute(
@@ -318,6 +321,7 @@ async def item_detail(
             "item": item,
             "item_id": item_id,
             "back": back,
+            "copies": copies,
             "item_tags": item_tags,
             "all_tags": all_tags,
             "item_collections": item_collections,
@@ -603,7 +607,7 @@ async def settings(request: Request, _=Depends(require_role("admin"))):
         ).fetchall()
         item_count = db.execute("SELECT COUNT(*) as c FROM items").fetchone()["c"]
         missing_covers = db.execute(
-            "SELECT COUNT(*) AS c FROM items WHERE cover_path IS NULL"
+            "SELECT COUNT(*) AS c FROM items WHERE cover_path IS NULL AND cover_review_dismissed = 0"
         ).fetchone()["c"]
         cover_queue_stats = cover_queue.stats()
         # Carries each borrower's *returned* loan count for the delete

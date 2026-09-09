@@ -333,6 +333,10 @@ MIGRATIONS: Sequence[tuple[int, str, str]] = (
      "CREATE INDEX IF NOT EXISTS idx_collection_items_item ON collection_items(item_id)"),
     (54, "Index collections by library",
      "CREATE INDEX IF NOT EXISTS idx_collections_library ON collections(library_id, name COLLATE NOCASE)"),
+    # Upstream Shelf 0.39.0 calls this migration 32. The recovered fork already
+    # owns 32-54, so the schema change is preserved here at the next free id.
+    (55, "Add durable cover-review dismissal",
+     "ALTER TABLE items ADD COLUMN cover_review_dismissed INTEGER NOT NULL DEFAULT 0"),
 )
 
 MIGRATION_TABLES = """
