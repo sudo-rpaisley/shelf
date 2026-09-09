@@ -26,6 +26,11 @@ jobs:
       - name: Build Browse scope
         run: |
           python /tmp/build_scope.py
+          python - <<'PY'
+          from pathlib import Path
+          p = Path("app/services/libraries.py")
+          p.write_text(p.read_text().rstrip() + "\n")
+          PY
           git diff --check
           python -m compileall -q app
       - uses: actions/setup-python@v6
