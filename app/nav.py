@@ -22,6 +22,7 @@ logger = logging.getLogger(__name__)
 # places, which is one place too many the moment a second tab moves.
 NAV_TABS = [
     {"key": "browse", "label": "Browse", "path": "/browse", "group": "primary"},
+    {"key": "collections", "label": "Collections", "path": "/collections", "group": "primary", "roles": ("admin", "editor", "viewer")},
     {"key": "my-list", "label": "My List", "path": "/my-list", "group": "primary", "roles": ("admin", "editor", "viewer")},
     {"key": "scan", "label": "Scan", "path": "/scan", "group": "add", "roles": ("admin", "editor")},
     {"key": "intake", "label": "Intake", "path": "/intake", "group": "add", "roles": ("admin", "editor"),
