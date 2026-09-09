@@ -9,6 +9,7 @@ contract used by presentation-neutral unit tests and migrations.
 
 from __future__ import annotations
 
+from app import media_families
 from app.services import libraries
 
 
@@ -57,6 +58,7 @@ def _legacy_summary(db, recent_limit: int) -> dict:
         "lent_out_count": lent_out,
         "missing_cover_count": missing_cover,
         "media_types": [dict(row) for row in type_rows],
+        "families": media_families.cards(type_rows),
         "recent_items": recent,
     }
 
@@ -136,5 +138,6 @@ def dashboard_summary(db, *, recent_limit: int = 8, user: dict | None = None) ->
         "lent_out_count": lent_out,
         "missing_cover_count": missing_cover,
         "media_types": [dict(row) for row in type_rows],
+        "families": media_families.cards(type_rows),
         "recent_items": recent,
     }
