@@ -26,7 +26,7 @@ def test_family_selector_matches_shared_family_registry():
     block = re.search(
         r'<select id="family-filter".*?</select>', source, flags=re.S
     ).group(0)
-    option_values = re.findall(r'<option value="([^"]+)"', block)
+    option_values = re.findall(r'<option value="([^"]*)"', block)
     assert option_values == ["", *media_families.MEDIA_FAMILIES.keys()]
     assert 'name="media_family_filter"' in block
     assert "filter_includes('media_family_filter')" in block
