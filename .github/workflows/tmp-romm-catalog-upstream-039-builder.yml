@@ -93,7 +93,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          git add app/main.py app/routers/romm_catalog.py app/services/romm_catalog.py app/templates/romm_library.html app/templates/fragments/romm_library_grid.html app/templates/fragments/settings/romm.html static/js/romm-catalog.js tests/test_romm_catalog_main.py tests/e2e/test_romm_catalog_main.py tests/test_nav.py README.md static/css/app.css static/sw.js docs/romm-catalog.md
+          git add -A
           git reset --soft 78a946d199489da70b5b5a5215097ce12e287b38
           git commit -m "ROMM: add browsable synced-library catalogue"
           git push origin HEAD:upstream/romm-catalog-039 --force-with-lease
