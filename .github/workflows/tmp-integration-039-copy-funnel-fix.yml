@@ -1,0 +1,107 @@
+name: Fix 0.39 legacy copy write funnel
+
+on:
+  push:
+    branches:
+      - tmp/integration-039-copy-funnel-fix
+
+permissions:
+  contents: write
+
+jobs:
+  fix-and-test:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out integration target
+        uses: actions/checkout@v7
+        with:
+          ref: rebuild/integration-039
+          fetch-depth: 0
+
+      - name: Route legacy copy writes through item_copies.insert_copy
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          from pathlib import Path
+          import re
+
+          # Extend the one copy insertion funnel with an explicit migration-only
+          # identity preservation hook. Normal callers still cannot set id in
+          # their fields mapping; old-fork bridge code can preserve a legacy row
+          # id without owning another INSERT statement.
+          p = Path('app/services/item_copies.py')
+          s = p.read_text()
+          old_sig = 'def insert_copy(db, fields: Mapping[str, Any]) -> int:\n'
+          new_sig = 'def insert_copy(\n    db, fields: Mapping[str, Any], *, preserve_id: int | None = None\n) -> int:\n'
+          if old_sig not in s and new_sig not in s:
+              raise SystemExit('insert_copy signature anchor not found')
+          s = s.replace(old_sig, new_sig, 1)
+
+          old_doc = '''    Raises `ValueError` on an unknown or database-managed field name, and on a\n    missing `item_id` or `copy_number` (both are NOT NULL and neither has a\n    default that could stand in). `sqlite3.IntegrityError` still reaches the\n    caller — a `UNIQUE(item_id, copy_number)` or `copy_barcode` collision is\n    the caller's to handle.\n'''
+          new_doc = '''    `preserve_id` is reserved for schema/data migration bridges that must rebuild\n    the same row identity. It deliberately sits outside `fields`, so ordinary\n    callers still cannot set the database-managed `id` column.\n\n    Raises `ValueError` on an unknown or database-managed field name, and on a\n    missing `item_id` or `copy_number` (both are NOT NULL and neither has a\n    default that could stand in). `sqlite3.IntegrityError` still reaches the\n    caller — a `UNIQUE(item_id, copy_number)` or `copy_barcode` collision is\n    the caller's to handle.\n'''
+          if old_doc in s:
+              s = s.replace(old_doc, new_doc, 1)
+
+          old_values = '''    values: dict[str, Any] = dict(fields)\n\n    _validated_names(db, values, _MANAGED, "insert_copy")\n'''
+          new_values = '''    values: dict[str, Any] = dict(fields)\n\n    _validated_names(db, values, _MANAGED, "insert_copy")\n    if preserve_id is not None:\n        if not isinstance(preserve_id, int) or preserve_id <= 0:\n            raise ValueError("insert_copy() preserve_id must be a positive integer")\n        # Keep the managed id out of the caller-supplied field validation, then\n        # add it here inside the one module allowed to own the INSERT.\n        values = {"id": preserve_id, **values}\n'''
+          if old_values not in s and new_values not in s:
+              raise SystemExit('insert_copy values anchor not found')
+          s = s.replace(old_values, new_values, 1)
+          p.write_text(s)
+
+          p = Path('app/services/fork_upgrade.py')
+          s = p.read_text()
+
+          # Rebuild preserved legacy copy rows through the funnel. The old schema
+          # may carry explicit id/timestamps, and its location id has already been
+          # translated into the current hierarchical location id here.
+          pattern1 = re.compile(r'''        db\.execute\(\n            """\n            INSERT INTO item_copies \(\n                id, item_id, copy_number, location_id, condition, notes,\n                acquired_date, acquisition_source, acquisition_price, provenance,\n                copy_barcode, is_primary, created_at, updated_at, position_order\n            \)\n            VALUES \(\?, \?, \?, \?, \?, \?, \?, \?, \?, \?, \?, \?, \?, \?, \?\)\n            """,\n            \(\n                data\["id"\],\n                data\["item_id"\],\n                data\.get\("copy_number", 1\),\n                mapped_location,\n                data\.get\("condition"\),\n                data\.get\("notes"\),\n                data\.get\("acquired_date"\),\n                data\.get\("acquisition_source"\),\n                data\.get\("acquisition_price"\),\n                data\.get\("provenance"\),\n                data\.get\("copy_barcode"\),\n                data\.get\("is_primary", 0\),\n                data\.get\("created_at", _utcnow\(\)\),\n                data\.get\("updated_at", _utcnow\(\)\),\n                data\.get\("position_order"\) if "position_order" in old_copy_cols else None,\n            \),\n        \)''')
+          replacement1 = '''        from app.services import item_copies\n\n        created_at = data.get("created_at") or _utcnow()\n        item_copies.insert_copy(\n            db,\n            {\n                "item_id": data["item_id"],\n                "copy_number": data.get("copy_number", 1),\n                "location_id": mapped_location,\n                "condition": data.get("condition"),\n                "notes": data.get("notes"),\n                "acquired_date": data.get("acquired_date"),\n                "acquisition_source": data.get("acquisition_source"),\n                "acquisition_price": data.get("acquisition_price"),\n                "provenance": data.get("provenance"),\n                "copy_barcode": data.get("copy_barcode"),\n                "is_primary": data.get("is_primary", 0),\n                "created_at": created_at,\n                "updated_at": data.get("updated_at") or created_at,\n                "position_order": (\n                    data.get("position_order")\n                    if "position_order" in old_copy_cols else None\n                ),\n            },\n            preserve_id=int(data["id"]),\n        )'''
+          s, n1 = pattern1.subn(replacement1, s, count=1)
+          if n1 != 1:
+              raise SystemExit(f'legacy copy rebuild replacement count={n1}')
+
+          pattern2 = re.compile(r'''        db\.execute\(\n            """\n            INSERT INTO item_copies \(\n                item_id, copy_number, location_id, is_primary, created_at, updated_at, position_order\n            \)\n            VALUES \(\?, 1, \?, 1, \?, \?, NULL\)\n            """,\n            \(item_id, row\[1\], now, now\),\n        \)''')
+          replacement2 = '''        from app.services import item_copies\n\n        item_copies.insert_copy(\n            db,\n            {\n                "item_id": item_id,\n                "copy_number": 1,\n                "location_id": row[1],\n                "is_primary": 1,\n                "created_at": now,\n                "updated_at": now,\n                "position_order": None,\n            },\n        )'''
+          s, n2 = pattern2.subn(replacement2, s, count=1)
+          if n2 != 1:
+              raise SystemExit(f'primary copy backfill replacement count={n2}')
+
+          p.write_text(s)
+          PY
+
+          python -m compileall -q app
+          git diff --check
+          grep -n "INSERT INTO item_copies" app/services/fork_upgrade.py && exit 1 || true
+          git diff --stat
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.13'
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt -r requirements-dev.txt
+
+      - name: Focused copy and upgrade regression tests
+        shell: bash
+        run: |
+          set -euo pipefail
+          pytest -q \
+            tests/test_item_write.py \
+            tests/test_fork_upgrade_037.py \
+            tests/test_fork_upgrade_startup_037.py \
+            tests/test_item_copies.py \
+            tests/test_archive.py \
+            tests/test_collections_assignment_037.py
+          make check-alpine
+
+      - name: Commit fix to integration branch
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "Robert J Paisley"
+          git config user.email "56076332+sudo-rpaisley@users.noreply.github.com"
+          git add app/services/item_copies.py app/services/fork_upgrade.py
+          git commit -m "Integration: route legacy copy rebuilds through the 0.38 write funnel"
+          git push origin HEAD:rebuild/integration-039
