@@ -1,0 +1,36 @@
+name: Probe Collections foundation on current upstream
+
+on:
+  push:
+    branches:
+      - tmp/collections-foundation-upstream-039-probe
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: tmp/upstream-current-039
+          fetch-depth: 0
+      - name: Build clean library prerequisite
+        shell: bash
+        run: |
+          set -euo pipefail
+          git fetch origin '+refs/heads/*:refs/remotes/origin/*'
+          git show origin/tmp/library-permissions-upstream-039-builder:scripts/tmp_build_library_permissions_039.py > /tmp/build_library_permissions.py
+          python /tmp/build_library_permissions.py
+          git config user.name "Robert J Paisley"
+          git config user.email "56076332+sudo-rpaisley@users.noreply.github.com"
+          git add app/database.py app/services/libraries.py tests/test_library_permissions.py
+          git commit -m 'probe: library permissions prerequisite'
+      - name: Probe recovered Collections foundation
+        shell: bash
+        run: |
+          set -u
+          if ! git cherry-pick 5b5a3535b0b2d16650d4957ccefd366e74964dcd; then
+            echo COLLECTIONS_FOUNDATION_CONFLICTS
+            git diff --name-only --diff-filter=U
+            exit 10
+          fi
+          echo COLLECTIONS_FOUNDATION_APPLIED_CLEANLY
