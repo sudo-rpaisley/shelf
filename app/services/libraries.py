@@ -131,6 +131,15 @@ def assign_item(db, item_id: int, library_id: int) -> None:
            ON CONFLICT(item_id) DO UPDATE SET library_id = excluded.library_id""",
         (item_id, library_id),
     )
+    # Collections are library-scoped. If this is a move rather than an
+    # initial assignment, memberships belonging to the old library must not
+    # survive as hidden cross-library rows. Memberships in the destination
+    # library are retained, making reassigning to the same library idempotent.
+    db.execute(
+        "DELETE FROM collection_items WHERE item_id = ? "
+        "AND collection_id IN (SELECT id FROM collections WHERE library_id != ?)",
+        (item_id, library_id),
+    )
 
 
 def item_library_id(db, item_id: int) -> int | None:

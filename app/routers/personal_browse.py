@@ -18,6 +18,7 @@ from app.database import get_db
 from app.routers import items, pages
 from app.routers.items_common import SORT_OPTIONS
 from app.services import libraries, user_state_browse
+from app.services import collections as collection_service
 
 
 def _remove_route(router, path: str, method: str) -> None:
@@ -127,6 +128,7 @@ async def personal_browse(request: Request, _=Depends(require_role("viewer"))):
             f"SELECT COUNT(*) as c FROM items i {where}", params
         ).fetchone()["c"]
         series_names, all_tags, item_languages, lent_out_count = _scoped_filter_options(db, user)
+        browse_collections = collection_service.accessible_options(db, user)
         counts = user_state_browse.filter_counts(
             db,
             values,
@@ -140,6 +142,7 @@ async def personal_browse(request: Request, _=Depends(require_role("viewer"))):
     ctx = {
         "items": result_items,
         "media_types": MEDIA_TYPES,
+        "browse_collections": browse_collections,
         "series_names": series_names,
         "all_tags": all_tags,
         "lent_out_count": lent_out_count,
