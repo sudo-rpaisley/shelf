@@ -16,12 +16,14 @@ jobs:
         with:
           ref: tmp/collections-foundation-upstream-039-builder
           fetch-depth: 0
-      - name: Preserve builder and reset to green library foundation
+      - name: Preserve builder and reset to published library foundation
         shell: bash
         run: |
+          set -euo pipefail
           cp scripts/tmp_build_collections_foundation_039.py /tmp/build_collections.py
           git fetch origin '+refs/heads/*:refs/remotes/origin/*'
-          git reset --hard 52065a5a59c5971bdbc24022660583e1318159dc
+          git reset --hard origin/upstream/library-permissions-039
+          echo "PARENT_SHA=$(git rev-parse HEAD)" >> "$GITHUB_ENV"
           git config user.name "Robert J Paisley"
           git config user.email "56076332+sudo-rpaisley@users.noreply.github.com"
       - name: Rebuild Collections foundation
@@ -77,6 +79,6 @@ jobs:
         run: |
           set -euo pipefail
           git add -A
-          git reset --soft 52065a5a59c5971bdbc24022660583e1318159dc
+          git reset --soft "$PARENT_SHA"
           git commit -m "COLLECTIONS: add library-scoped foundation"
           git push origin HEAD:upstream/collections-foundation-039 --force-with-lease
