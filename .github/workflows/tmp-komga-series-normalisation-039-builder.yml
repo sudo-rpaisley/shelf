@@ -1,0 +1,64 @@
+name: Build upstream-ready Komga series normalisation
+
+on:
+  push:
+    branches:
+      - tmp/komga-series-normalisation-039-builder
+
+permissions:
+  contents: write
+
+jobs:
+  build-test-publish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: tmp/komga-series-normalisation-039-builder
+          fetch-depth: 0
+      - name: Rebuild fix on live upstream
+        shell: bash
+        run: |
+          set -euo pipefail
+          cp scripts/tmp_build_komga_series_normalisation_039.py /tmp/build_komga_series.py
+          git fetch origin '+refs/heads/*:refs/remotes/origin/*'
+          git reset --hard 78a946d199489da70b5b5a5215097ce12e287b38
+          python /tmp/build_komga_series.py
+          git diff --check
+          python -m compileall -q app
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.13'
+      - run: pip install -r requirements.txt -r requirements-dev.txt
+      - name: Regenerate test badge
+        run: make badges
+      - name: Focused Komga checks
+        run: |
+          pytest -q tests/test_komga_books.py tests/test_komga_records.py tests/test_komga_full_integration.py
+          make check-alpine
+      - name: Full unit and static checks
+        run: |
+          make test
+          make checks-fast
+      - name: Full Chromium E2E
+        shell: bash
+        run: |
+          sudo rm -f /etc/apt/sources.list.d/google-chrome.list
+          playwright install --with-deps chromium
+          make test-e2e
+      - name: Publish one-commit PR branch
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "Robert J Paisley"
+          git config user.email "56076332+sudo-rpaisley@users.noreply.github.com"
+          git add app/services/komga_books.py tests/test_komga_books.py tests/test_komga_records.py README.md
+          git commit -m "KOMGA: normalise volume-suffixed series names"
+          git fetch origin refs/heads/upstream/komga-series-normalisation-039:refs/remotes/origin/upstream/komga-series-normalisation-039 || true
+          if git show-ref --verify --quiet refs/remotes/origin/upstream/komga-series-normalisation-039; then
+            expected=$(git rev-parse refs/remotes/origin/upstream/komga-series-normalisation-039)
+            git push origin HEAD:upstream/komga-series-normalisation-039 \
+              --force-with-lease=refs/heads/upstream/komga-series-normalisation-039:$expected
+          else
+            git push origin HEAD:upstream/komga-series-normalisation-039
+          fi
