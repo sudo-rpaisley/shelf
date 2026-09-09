@@ -171,3 +171,38 @@ def remove_item(db, user: dict, collection_id: int, item_id: int) -> None:
     )
     if result.rowcount != 1:
         raise LookupError("Collection membership not found")
+
+
+def accessible_options(db, user: dict) -> list[dict]:
+    """Collections the user may see, labelled with their library."""
+    library_ids = _visible_library_ids(db, user)
+    if not library_ids:
+        return []
+    marks = ",".join("?" for _ in library_ids)
+    rows = db.execute(
+        "SELECT c.id, c.library_id, c.name, l.name AS library_name "
+        "FROM collections c JOIN libraries l ON l.id = c.library_id "
+        f"WHERE c.library_id IN ({marks}) "
+        "ORDER BY l.name COLLATE NOCASE, c.name COLLATE NOCASE",
+        library_ids,
+    ).fetchall()
+    return [dict(row) for row in rows]
+
+
+def item_options(db, user: dict, item_id: int) -> tuple[list[dict], bool]:
+    """Same-library Collections for one visible item plus edit capability."""
+    if not libraries.has_item_role(db, user, item_id, "viewer"):
+        return [], False
+    library_id = libraries.item_library_id(db, item_id)
+    if library_id is None:
+        return [], False
+    rows = db.execute(
+        "SELECT c.id, c.library_id, c.name, l.name AS library_name, "
+        "EXISTS(SELECT 1 FROM collection_items ci "
+        "       WHERE ci.collection_id = c.id AND ci.item_id = ?) AS selected "
+        "FROM collections c JOIN libraries l ON l.id = c.library_id "
+        "WHERE c.library_id = ? ORDER BY c.name COLLATE NOCASE",
+        (item_id, library_id),
+    ).fetchall()
+    can_edit = libraries.has_item_role(db, user, item_id, "editor")
+    return [dict(row) for row in rows], can_edit

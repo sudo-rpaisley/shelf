@@ -275,6 +275,13 @@ async def item_detail(
             access_params,
         ).fetchall()
 
+        from app.services import collections as collection_service
+        collection_options, can_edit_collections = collection_service.item_options(
+            db, user, item_id
+        )
+        item_collections = [c for c in collection_options if c["selected"]]
+        available_collections = [c for c in collection_options if not c["selected"]]
+
         reading_history = get_reading_history(db, item_id)
 
         # Series progress from two labelled sources: local siblings and the
@@ -313,6 +320,9 @@ async def item_detail(
             "back": back,
             "item_tags": item_tags,
             "all_tags": all_tags,
+            "item_collections": item_collections,
+            "available_collections": available_collections,
+            "can_edit_collections": can_edit_collections,
             "media_types": MEDIA_TYPES,
             "book_media_types": BOOK_MEDIA_TYPES,
             "game_platforms": game_platforms,

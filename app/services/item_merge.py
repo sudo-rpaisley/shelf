@@ -1,15 +1,16 @@
 """Re-point a merged row's child records before the row is deleted (#86).
 
-``items`` has five child tables declared ``ON DELETE CASCADE``. Deleting the
-merged row therefore destroys its loan history, tags, cross-format links and
-physical copies unless each one is re-pointed at the kept row first. Only
-``scan_log`` and ``reading_log`` ever were, so a merge looked like it worked
-and silently took the rest with it.
+``items`` has six child tables declared ``ON DELETE CASCADE``. Deleting the
+merged row therefore destroys its loan history, tags, cross-format links,
+physical copies and curated collection memberships unless each one is
+re-pointed at the kept row first. Only ``scan_log`` and ``reading_log`` ever
+were, so a merge looked like it worked and silently took the rest with it.
 
 ``item_copies`` became a casualty after the issue was written: first-class
 physical copies shipped in 0.36.0, and that table carries acquisition price,
 provenance, condition and copy barcode — the least reconstructible data in
-Shelf.
+Shelf. Collections add another identity-bound child: membership should follow
+the kept catalogue record rather than vanish with a duplicate row.
 
 Re-pointing is not a plain UPDATE for most of them. Each child table has its
 own conflict rule, and getting one wrong raises ``IntegrityError`` mid-merge:
@@ -22,6 +23,8 @@ own conflict rule, and getting one wrong raises ``IntegrityError`` mid-merge:
 - ``item_copies`` is unique on (item_id, copy_number) and has a partial unique
   index allowing one primary copy per item, so copies must be renumbered and
   at most one primary may survive.
+- ``collection_items`` is keyed on (collection_id, item_id), so duplicate
+  membership in the same collection must collapse to one kept membership.
 - ``checkouts`` has no uniqueness constraint and is the only plain UPDATE.
 """
 
@@ -107,6 +110,15 @@ def _reparent_copies(db, keep_id: int, other_id: int) -> None:
         )
 
 
+def _reparent_collections(db, keep_id: int, other_id: int) -> None:
+    db.execute(
+        "INSERT OR IGNORE INTO collection_items (collection_id, item_id, created_at) "
+        "SELECT collection_id, ?, created_at FROM collection_items WHERE item_id = ?",
+        (keep_id, other_id),
+    )
+    db.execute("DELETE FROM collection_items WHERE item_id = ?", (other_id,))
+
+
 def reparent_children(db, keep_id: int, other_id: int) -> None:
     """Move every child record of ``other_id`` onto ``keep_id``.
 
@@ -119,3 +131,4 @@ def reparent_children(db, keep_id: int, other_id: int) -> None:
     _reparent_tags(db, keep_id, other_id)
     _reparent_links(db, keep_id, other_id)
     _reparent_copies(db, keep_id, other_id)
+    _reparent_collections(db, keep_id, other_id)

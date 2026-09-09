@@ -87,3 +87,37 @@ async def delete_collection(
     except (PermissionError, ValueError, LookupError) as exc:
         return _error(exc)
     return HTMLResponse("")
+
+
+@router.post("/api/items/{item_id}/collections")
+async def add_item_to_collection(
+    request: Request,
+    item_id: int,
+    collection_id: int = Form(...),
+    _=Depends(require_role("viewer")),
+):
+    try:
+        with get_db() as db:
+            collection_service.add_item(
+                db, dict(request.state.user), collection_id, item_id
+            )
+    except (PermissionError, ValueError, LookupError) as exc:
+        return _error(exc)
+    return RedirectResponse(url=f"/item/{item_id}", status_code=303)
+
+
+@router.delete("/api/items/{item_id}/collections/{collection_id}")
+async def remove_item_from_collection(
+    request: Request,
+    item_id: int,
+    collection_id: int,
+    _=Depends(require_role("viewer")),
+):
+    try:
+        with get_db() as db:
+            collection_service.remove_item(
+                db, dict(request.state.user), collection_id, item_id
+            )
+    except (PermissionError, ValueError, LookupError) as exc:
+        return _error(exc)
+    return HTMLResponse("")
