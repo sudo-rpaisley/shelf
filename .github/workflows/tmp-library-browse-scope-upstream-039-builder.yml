@@ -1,5 +1,6 @@
 name: Build library Browse scope on current upstream
 
+# Final library-permissions parent validated at f62c4d372fc9627913c59a89e8637b8cb4ef2403.
 on:
   push:
     branches:
@@ -74,4 +75,11 @@ jobs:
           git add -A
           git reset --soft "$PARENT_SHA"
           git commit -m "LIBRARIES: scope Browse and search visibility"
-          git push origin HEAD:upstream/library-browse-scope-039 --force-with-lease
+          git fetch origin refs/heads/upstream/library-browse-scope-039:refs/remotes/origin/upstream/library-browse-scope-039 || true
+          if git show-ref --verify --quiet refs/remotes/origin/upstream/library-browse-scope-039; then
+            expected=$(git rev-parse refs/remotes/origin/upstream/library-browse-scope-039)
+            git push origin HEAD:upstream/library-browse-scope-039 \
+              --force-with-lease=refs/heads/upstream/library-browse-scope-039:$expected
+          else
+            git push origin HEAD:upstream/library-browse-scope-039
+          fi
