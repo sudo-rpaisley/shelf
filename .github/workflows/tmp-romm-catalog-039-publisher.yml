@@ -1,0 +1,70 @@
+name: Publish tested RomM catalogue candidate
+
+on:
+  push:
+    branches:
+      - tmp/romm-catalog-039-publisher
+
+permissions:
+  contents: write
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out target branch
+        uses: actions/checkout@v7
+        with:
+          ref: rebuild/main-039-with-romm-catalog
+          fetch-depth: 0
+
+      - name: Load the already-tested replay script
+        shell: bash
+        run: |
+          set -euo pipefail
+          git fetch origin tmp/romm-catalog-039-builder:refs/remotes/origin/tmp/romm-catalog-039-builder
+          python -m pip install pyyaml
+          git show origin/tmp/romm-catalog-039-builder:.github/workflows/tmp-romm-catalog-039-builder.yml > /tmp/builder.yml
+          python - <<'PY'
+          import yaml
+          data = yaml.safe_load(open('/tmp/builder.yml'))
+          for step in data['jobs']['build-test-publish']['steps']:
+              if step.get('name') == 'Replay RomM catalogue on the current holding model':
+                  open('/tmp/replay.sh', 'w').write(step['run'])
+                  break
+          else:
+              raise SystemExit('Replay step not found')
+          PY
+          bash /tmp/replay.sh
+          python -m compileall -q app
+          git diff --check
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.13'
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt -r requirements-dev.txt
+
+      - name: Reconfirm focused tests before publish
+        run: |
+          pytest -q tests/test_romm_catalog_main.py tests/test_romm*.py tests/test_library*.py
+          make check-alpine
+
+      - name: Commit and publish candidate
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "Robert J Paisley"
+          git config user.email "56076332+sudo-rpaisley@users.noreply.github.com"
+          git add \
+            app/main.py \
+            app/routers/romm_catalog.py \
+            app/services/romm_catalog.py \
+            app/templates/fragments/settings/romm.html \
+            app/templates/romm_library.html \
+            docs/romm-catalog.md \
+            tests/test_romm_catalog_main.py \
+            tests/e2e/test_romm_catalog_main.py
+          git commit -m "ROMM: restore synced-library catalogue on Shelf 0.39"
+          git push origin HEAD:rebuild/main-039-with-romm-catalog
