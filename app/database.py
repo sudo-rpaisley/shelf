@@ -312,6 +312,27 @@ MIGRATIONS: Sequence[tuple[int, str, str]] = (
     (50, "Index external user identities by user",
      "CREATE INDEX IF NOT EXISTS idx_user_identities_user "
      "ON user_identities(user_id)"),
+    (51, "Add library-scoped collections",
+     """CREATE TABLE IF NOT EXISTS collections (
+            id          INTEGER PRIMARY KEY AUTOINCREMENT,
+            library_id  INTEGER NOT NULL REFERENCES libraries(id) ON DELETE CASCADE,
+            name        TEXT NOT NULL COLLATE NOCASE,
+            description TEXT,
+            created_at  TEXT NOT NULL DEFAULT (datetime('now')),
+            updated_at  TEXT NOT NULL DEFAULT (datetime('now')),
+            UNIQUE(library_id, name)
+        )"""),
+    (52, "Add collection item memberships",
+     """CREATE TABLE IF NOT EXISTS collection_items (
+            collection_id INTEGER NOT NULL REFERENCES collections(id) ON DELETE CASCADE,
+            item_id       INTEGER NOT NULL REFERENCES items(id) ON DELETE CASCADE,
+            created_at    TEXT NOT NULL DEFAULT (datetime('now')),
+            PRIMARY KEY (collection_id, item_id)
+        )"""),
+    (53, "Index collection memberships by item",
+     "CREATE INDEX IF NOT EXISTS idx_collection_items_item ON collection_items(item_id)"),
+    (54, "Index collections by library",
+     "CREATE INDEX IF NOT EXISTS idx_collections_library ON collections(library_id, name COLLATE NOCASE)"),
 )
 
 MIGRATION_TABLES = """
