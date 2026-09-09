@@ -1,0 +1,19 @@
+name: Collection toolbar permission E2E prep
+
+on:
+  push:
+    branches:
+      - tmp/collection-toolbar-e2e-prep
+
+jobs:
+  e2e:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+          cache: pip
+      - run: pip install -r requirements.txt -r requirements-dev.txt
+      - run: playwright install --with-deps chromium
+      - run: pytest -q -m e2e tests/e2e/test_collection_toolbar_permissions_037.py
