@@ -18,17 +18,20 @@
                     <div class="flex-1 min-w-0">
                         <span class="font-medium text-shelf-text" x-text="u.display_name || u.username"></span>
                         <span class="text-shelf-muted text-sm ml-1" x-text="'@' + u.username"></span>
+                        <span class="text-xs text-shelf-muted ml-2" x-text="u.auth_provider"></span>
+                        <span x-show="u.role_managed" class="text-xs text-shelf-accent2 ml-2">role synced</span>
+                        <span x-show="u.break_glass" class="text-xs text-shelf-warning ml-2">recovery</span>
                     </div>
-                    <select :value="u.role" @change="updateRole(u.id, $event.target.value)"
+                    <select :value="u.role" @change="updateRole(u.id, $event.target.value)" :disabled="u.role_managed || u.break_glass"
                         class="bg-shelf-card border border-shelf-border rounded px-2 py-1 text-sm text-shelf-text">
                         <option value="admin">Admin</option>
                         <option value="editor">Editor</option>
                         <option value="viewer">Viewer</option>
                     </select>
-                    <button @click="resetPassword(u.id)" class="text-shelf-muted hover:text-shelf-text text-sm transition-colors" title="Reset password">
+                    <button x-show="u.auth_provider === 'Local'" @click="resetPassword(u.id)" class="text-shelf-muted hover:text-shelf-text text-sm transition-colors" title="Reset password">
                         Reset PW
                     </button>
-                    <button @click="deleteUser(u.id, u.display_name || u.username)" class="text-shelf-error/60 hover:text-shelf-error text-sm transition-colors" title="Delete user">
+                    <button @click="deleteUser(u.id, u.display_name || u.username)" :disabled="u.break_glass" class="text-shelf-error/60 hover:text-shelf-error text-sm transition-colors" title="Delete user">
                         Delete
                     </button>
                 </div>

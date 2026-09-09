@@ -56,7 +56,7 @@
                           class="ml-1 align-middle inline-block whitespace-nowrap px-2 py-0.5 rounded-full text-xs font-medium bg-shelf-warning/20 text-shelf-warning"></span>
                 </h2>
                 <p class="text-xs text-shelf-muted mt-0.5">
-                    {{ s.owned_count }} owned{% if s['items']|length != s.owned_count %} · {{ s['items']|length - s.owned_count }} wishlisted{% endif %}
+                    {{ s.owned_count }} owned{% if s.wishlist_count %} · {{ s.wishlist_count }} on your wishlist{% endif %}
                     {% if s.gaps %}
                     · <span class="text-shelf-warning">possibly missing
                         {%- for g in s.gaps[:8] %} #{{ g }}{% if not loop.last %},{% endif %}{% endfor %}
@@ -199,7 +199,7 @@
                     {% if item.series_position is not none %}
                     <span class="absolute top-1 left-1 bg-black/70 text-white text-[10px] px-1 rounded">#{{ item.series_position|int if item.series_position == item.series_position|int else item.series_position }}</span>
                     {% endif %}
-                    {% if not item.owned %}
+                    {% if item.wishlist %}
                     <span class="absolute bottom-1 left-1 bg-shelf-warning/90 text-black text-[9px] px-1 rounded font-medium">Wishlist</span>
                     {% endif %}
                 </div>

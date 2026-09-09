@@ -8,6 +8,7 @@ function browsePage() {
         bulkTypeVal: '',
         bulkStatusVal: '',
         bulkSeriesVal: '',
+        bulkCollectionVal: '',
         filterPills: [],
         viewMode: localStorage.getItem('shelf-view') || 'grid',
         // viewMode is the only thing that decides whether the list view
@@ -401,8 +402,8 @@ function browsePage() {
         // mode, otherwise navigates to the item detail page. Ctrl/cmd-click
         // opens a new tab instead (middle-click is handled natively by the
         // anchor markup, which never reaches this handler).
-        openOrToggle(id, url, event) {
-            if (this.selectMode) { this.toggleItem(id); return; }
+        openOrToggle(id, url, event, canEdit) {
+            if (this.selectMode) { if (canEdit) this.toggleItem(id); return; }
             if (event && (event.ctrlKey || event.metaKey)) window.open(url, '_blank');
             else window.location = url;
         },
@@ -415,7 +416,7 @@ function browsePage() {
 
         selectAll() {
             var self = this;
-            document.querySelectorAll('[data-item-id]').forEach(function(el) {
+            document.querySelectorAll('[data-item-id][data-can-edit="1"]').forEach(function(el) {
                 var id = parseInt(el.dataset.itemId);
                 if (self.selectedIds.indexOf(id) < 0) self.selectedIds.push(id);
             });
@@ -450,6 +451,27 @@ function browsePage() {
                 }
             } catch (e) {
                 showToast('Update failed: ' + e.message, 'error');
+            }
+        },
+
+        async bulkCollection(action) {
+            if (!this.selectedIds.length || !this.bulkCollectionVal) return;
+            try {
+                var resp = await fetch('/api/collections/' + this.bulkCollectionVal + '/items/bulk', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json', 'X-CSRF-Token': window.csrfToken()},
+                    body: JSON.stringify({item_ids: this.selectedIds, action: action})
+                });
+                var data = await resp.json();
+                if (data.ok) {
+                    showToast((action === 'add' ? 'Added ' : 'Removed ') + data.changed + ' collection memberships', 'success');
+                    this.selectedIds = [];
+                    location.reload();
+                } else {
+                    showToast(data.message || 'Collection update failed', 'error');
+                }
+            } catch (e) {
+                showToast('Collection update failed: ' + e.message, 'error');
             }
         },
 

@@ -119,8 +119,44 @@ fixtures (CSRF pre-seeded, rate limiting off) and `db` for direct SQL. See
 E2E tests fail on a **dirty browser**: every Playwright page is watched for
 uncaught errors, and a test that leaves one behind fails at teardown even when
 its own assertions passed. The failure quotes Alpine's expression text, which
-usually names the culprit outright. There is no opt-out — a test that must
-provoke an error needs an explicit suppression contract designed first.
+usually names the culprit outright — and, when there is something to say, the
+failed requests, non-2xx `.js` responses and component-registration state that
+explain *why* the page broke. On a healthy page that block is absent and the
+message is unchanged.
+
+There is still no general opt-out, but there is now **one sanctioned
+suppression contract**, and `tests/e2e/test_component_load_guard.py` is both
+its definition and its only user. It applies to a test whose *subject is the
+error* — one that deliberately breaks a script load to prove the app reports
+it. The sequence is fixed: build the page inline with
+`attach_page_guard(ctx.new_page())`, assert the expected error signature
+yourself, clear the recorder lists on the Page, then call `assert_page_clean`
+before the context closes. Clearing is not evasion — the errors are what the
+test just asserted, and the trailing check still proves nothing *unexpected*
+rode along. Any other test that wants to provoke an error needs its own
+contract designed first; do not copy this one to silence an inconvenient
+failure.
+
+**Never wait with `wait_for_load_state("networkidle")` after a click.** It does
+not wait for what you mean: Playwright resolves it immediately when the page has
+already reached the state, and right after a click it usually has, because the
+request the click starts may not have been issued yet. So the wait returns at
+once and the assertion races whatever the click began. Arm the waiter **before**
+the click, and pick it by **what the following assertion reads** — not by what
+the click fires:
+
+| the assertion reads | the waiter |
+|---|---|
+| nothing in flight (the click makes no request) | delete the wait; `expect(...)` auto-retries |
+| the new document | `with page.expect_navigation(): click()` |
+| the response, or the DB behind it | `with page.expect_response(<predicate>): click()` |
+| a swapped HTMX fragment | `with page.expect_response(lambda r: "/api/search" in r.url): click()` |
+
+`make check-tests` enforces this with an allowance of zero. `wait_for_load_state`
+after a `goto()` is the documented use and stays legal — only the adjacency to a
+click or a press is not. **G83** in `GOTCHAS.md` carries the reasoning, including
+why `wait_for_url` is not the fix for a handler that redirects back to the URL
+it posted from.
 
 ## Rules that bite
 
@@ -134,6 +170,13 @@ provoke an error needs an explicit suppression contract designed first.
   check-alpine` enforces both, though it only sees the statically obvious guard
   shapes — a plain identifier dereferenced two levels deep or called as a
   method.
+- **The script load order in `<head>` is load-bearing**, and `make
+  check-alpine` enforces it too. A script under `static/js/` that calls
+  `Alpine.data()` is a **classic** script — never `defer`, never `async`;
+  `component-load-guard.js` comes **first**, ahead of every registering script;
+  and Alpine's own tag is the only deferred one and comes **last**. Disturb any
+  of the three and the affected page throws `Undefined variable` once per
+  binding, with the guard installed too late to say which file was lost.
 - **Raw `fetch()` must send `X-CSRF-Token`.** `make check-csrf` enforces;
   HTMX is configured globally in `base.html`.
 - **`MIGRATIONS` in `app/database.py` is append-only.** Never edit or
@@ -187,7 +230,7 @@ app/
   templates/       Jinja2 pages + fragments/ for HTMX swaps
 static/            vendored JS/CSS, Alpine components, service worker, Tailwind output
 tests/             unit/integration; tests/e2e/ Playwright
-scripts/           lint scripts (CSRF, Alpine CSP), intake eval
+scripts/           lint scripts (CSRF, Alpine CSP, test conventions), intake eval
 Makefile, Dockerfile, entrypoint.sh, docker-compose.yml (dev defaults)
 ```
 

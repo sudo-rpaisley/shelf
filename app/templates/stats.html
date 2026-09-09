@@ -48,6 +48,8 @@
         <h2 class="text-lg font-semibold mb-3">Collection Value Over Time</h2>
         {% if chart_valuation %}
         {{ chart_valuation|safe }}
+        {% elif valuation_history_restricted %}
+        <p class="text-sm text-shelf-muted py-8 text-center">Value-history snapshots cover the whole catalogue, so this chart is available to administrators only.</p>
         {% else %}
         <p class="text-sm text-shelf-muted py-8 text-center">Run batch valuations (Settings &rarr; Integrations &rarr; ISBNdb) at least twice to see value history.</p>
         {% endif %}

@@ -28,4 +28,22 @@
         {% endif %}
     </div>
     {% endif %}
+
+    {# Personal state is deliberately lazy-loaded. Catalogue pages remain
+       shared/cacheable, while this panel is resolved from the signed-in user
+       and viewers may edit only their own state. Keeping the loader inside
+       #item-tags also means a tag mutation replaces one complete extension
+       region instead of leaving duplicate panels behind. #}
+    {% if user %}
+    <div hx-get="/api/items/{{ item_id }}/personal-state" hx-trigger="load" hx-swap="outerHTML">
+        <div class="mt-4 text-xs text-shelf-muted">Loading my activity…</div>
+    </div>
+    {% endif %}
+
+    {# Keep the loader inside #item-tags. Tag mutations replace this whole
+       fragment, so the previous panel is removed before a fresh one loads
+       instead of accumulating duplicate Related Media panels. #}
+    <div hx-get="/api/related-media/items/{{ item_id }}/panel" hx-trigger="load" hx-swap="outerHTML">
+        <div class="mt-4 text-xs text-shelf-muted">Loading related media…</div>
+    </div>
 </div>
