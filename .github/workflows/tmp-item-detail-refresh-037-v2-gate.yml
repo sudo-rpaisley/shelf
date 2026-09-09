@@ -16,7 +16,9 @@ jobs:
           cache: pip
       - run: pip install -r requirements.txt -r requirements-dev.txt
       - run: playwright install --with-deps chromium
-      - run: pytest -q tests/test_item_detail_refresh_037.py tests/e2e/test_item_detail_refresh_037.py tests/test_related_media_ui.py tests/test_romm_full_integration.py tests/test_komga_full_integration.py tests/test_library_item_access_037.py tests/test_settings_redesign_037.py tests/e2e/test_settings_redesign_037.py
+      - run: pytest -q tests/test_item_detail_refresh_037.py tests/e2e/test_item_detail_refresh_037.py tests/test_related_media_ui.py tests/test_library_item_access_037.py tests/test_settings_redesign_037.py tests/e2e/test_settings_redesign_037.py
+      - run: pytest -q tests/test_romm_full_integration.py
+      - run: pytest -q tests/test_komga_full_integration.py
       - run: make check-alpine
 
   test:
