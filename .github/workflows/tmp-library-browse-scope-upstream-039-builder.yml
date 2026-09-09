@@ -16,16 +16,21 @@ jobs:
         with:
           ref: tmp/library-browse-scope-upstream-039-builder
           fetch-depth: 0
-      - name: Preserve helper and reset to library permission foundation
+      - name: Preserve helpers and reset to published library permission foundation
         shell: bash
         run: |
+          set -euo pipefail
           cp scripts/tmp_build_library_browse_scope_039.py /tmp/build_scope.py
-          git reset --hard 52065a5a59c5971bdbc24022660583e1318159dc
+          cp scripts/tmp_patch_library_browse_size_039.py /tmp/patch_scope_size.py
+          git fetch origin '+refs/heads/*:refs/remotes/origin/*'
+          git reset --hard origin/upstream/library-permissions-039
+          echo "PARENT_SHA=$(git rev-parse HEAD)" >> "$GITHUB_ENV"
           git config user.name "Robert J Paisley"
           git config user.email "56076332+sudo-rpaisley@users.noreply.github.com"
       - name: Build Browse scope
         run: |
           python /tmp/build_scope.py
+          python /tmp/patch_scope_size.py
           python - <<'PY'
           from pathlib import Path
           p = Path("app/services/libraries.py")
@@ -67,6 +72,6 @@ jobs:
         run: |
           set -euo pipefail
           git add -A
-          git reset --soft 52065a5a59c5971bdbc24022660583e1318159dc
+          git reset --soft "$PARENT_SHA"
           git commit -m "LIBRARIES: scope Browse and search visibility"
           git push origin HEAD:upstream/library-browse-scope-039 --force-with-lease
