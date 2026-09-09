@@ -2,55 +2,53 @@
 {% block title %}Browse — Shelf{% endblock %}
 {% block content %}
 {% set f = initial_filters or {} %}
+{% set can_select = can_select if can_select is defined else false %}
+{% set can_bulk_edit = can_bulk_edit if can_bulk_edit is defined else false %}
 <div x-data="browsePage" data-initial-query="{{ initial_query or '' }}">
     <!-- Bulk Action Bar -->
+    {% if can_select %}
     <div x-show="selectMode && selectedIds.length > 0" x-transition
          class="fixed bottom-0 inset-x-0 z-40 bg-shelf-card border-t border-shelf-border py-3 px-4 shadow-lg">
         <div class="max-w-7xl mx-auto flex items-center gap-3 flex-wrap">
             <span class="text-sm text-shelf-muted" x-text="selectedIds.length + ' selected'"></span>
+            {% if can_bulk_edit %}
             <select x-model="bulkLocationVal" class="bg-shelf-bg border border-shelf-border rounded-lg px-2 py-1 text-sm text-shelf-text">
                 <option value="">Move to location...</option>
-                {% for loc in locations %}
-                <option value="{{ loc.id }}">{{ loc.name }}</option>
-                {% endfor %}
+                {% for loc in locations %}<option value="{{ loc.id }}">{{ loc.name }}</option>{% endfor %}
             </select>
-            <button @click="bulkUpdate({location_id: parseInt(bulkLocationVal) || null})" x-show="bulkLocationVal"
-                    class="px-3 py-1 bg-shelf-accent text-white rounded-lg text-xs">Apply</button>
-            <select x-model="bulkTypeVal" class="bg-shelf-bg border border-shelf-border rounded-lg px-2 py-1 text-sm text-shelf-text">
+            <button @click="bulkUpdate({location_id: parseInt(bulkLocationVal) || null})" x-show="bulkLocationVal" class="px-3 py-1 bg-shelf-accent text-white rounded-lg text-xs">Apply</button>
+            <select x-model="bulkTypeVal" data-testid="bulk-type-control" class="bg-shelf-bg border border-shelf-border rounded-lg px-2 py-1 text-sm text-shelf-text">
                 <option value="">Change type...</option>
-                {% for key, label in media_types.items() %}
-                <option value="{{ key }}">{{ label }}</option>
-                {% endfor %}
+                {% for key, label in media_types.items() %}<option value="{{ key }}">{{ label }}</option>{% endfor %}
             </select>
-            <button @click="bulkUpdate({media_type: bulkTypeVal})" x-show="bulkTypeVal"
-                    class="px-3 py-1 bg-shelf-accent text-white rounded-lg text-xs">Apply</button>
+            <button @click="bulkUpdate({media_type: bulkTypeVal})" x-show="bulkTypeVal" class="px-3 py-1 bg-shelf-accent text-white rounded-lg text-xs">Apply</button>
             <select x-model="bulkStatusVal" class="bg-shelf-bg border border-shelf-border rounded-lg px-2 py-1 text-sm text-shelf-text">
-                <option value="">Set status...</option>
-                <option value="want_to_read">Want to Read</option>
-                <option value="reading">Reading</option>
-                <option value="read">Read</option>
-                <option value="__clear__">Clear Status</option>
+                <option value="">Set status...</option><option value="want_to_read">Want to Read</option><option value="reading">Reading</option><option value="read">Read</option><option value="__clear__">Clear Status</option>
             </select>
-            <button @click="bulkUpdate({reading_status: bulkStatusVal === '__clear__' ? '' : bulkStatusVal})" x-show="bulkStatusVal"
-                    class="px-3 py-1 bg-shelf-accent text-white rounded-lg text-xs">Apply</button>
+            <button @click="bulkUpdate({reading_status: bulkStatusVal === '__clear__' ? '' : bulkStatusVal})" x-show="bulkStatusVal" class="px-3 py-1 bg-shelf-accent text-white rounded-lg text-xs">Apply</button>
             <div class="flex items-center gap-1.5 pl-3 border-l border-shelf-border">
                 <label for="bulk-series" class="text-sm text-shelf-muted shrink-0">Series</label>
-                <input type="text" id="bulk-series" x-model="bulkSeriesVal" list="bulk-series-options"
-                       placeholder="Type or pick a series..."
-                       class="bg-shelf-bg border border-shelf-border rounded-lg px-2 py-1 text-sm text-shelf-text w-52">
-                <datalist id="bulk-series-options">
-                    {% for name in series_names %}
-                    <option value="{{ name }}"></option>
-                    {% endfor %}
-                </datalist>
-                <button @click="bulkUpdate({series_name: bulkSeriesVal})" :disabled="!bulkSeriesVal"
-                        class="px-3 py-1 bg-shelf-accent text-white rounded-lg text-xs disabled:opacity-40 disabled:cursor-not-allowed">Apply</button>
-                <button @click="bulkUpdate({series_name: '__clear__'})"
-                        class="px-3 py-1 bg-shelf-bg border border-shelf-border text-shelf-muted rounded-lg text-xs hover:text-shelf-text">Clear</button>
+                <input type="text" id="bulk-series" x-model="bulkSeriesVal" list="bulk-series-options" placeholder="Type or pick a series..." class="bg-shelf-bg border border-shelf-border rounded-lg px-2 py-1 text-sm text-shelf-text w-52">
+                <datalist id="bulk-series-options">{% for name in series_names %}<option value="{{ name }}"></option>{% endfor %}</datalist>
+                <button @click="bulkUpdate({series_name: bulkSeriesVal})" :disabled="!bulkSeriesVal" class="px-3 py-1 bg-shelf-accent text-white rounded-lg text-xs disabled:opacity-40 disabled:cursor-not-allowed">Apply</button>
+                <button @click="bulkUpdate({series_name: '__clear__'})" class="px-3 py-1 bg-shelf-bg border border-shelf-border text-shelf-muted rounded-lg text-xs hover:text-shelf-text">Clear</button>
             </div>
+            {% endif %}
+            {% if bulk_collections %}
+            <div class="flex items-center gap-1.5 pl-3 border-l border-shelf-border">
+                <label for="bulk-collection" class="text-sm text-shelf-muted shrink-0">Collection</label>
+                <select id="bulk-collection" x-model="bulkCollectionVal" data-testid="bulk-collection-select" class="bg-shelf-bg border border-shelf-border rounded-lg px-2 py-1 text-sm text-shelf-text">
+                    <option value="">Choose...</option>
+                    {% for collection in bulk_collections %}<option value="{{ collection.id }}">{{ collection.name }} — {{ collection.library_name }}</option>{% endfor %}
+                </select>
+                <button @click="bulkCollection('add')" :disabled="!bulkCollectionVal" data-testid="bulk-collection-add" class="px-3 py-1 bg-shelf-accent text-white rounded-lg text-xs disabled:opacity-40">Add</button>
+                <button @click="bulkCollection('remove')" :disabled="!bulkCollectionVal" data-testid="bulk-collection-remove" class="px-3 py-1 bg-shelf-bg border border-shelf-border text-shelf-muted rounded-lg text-xs disabled:opacity-40">Remove</button>
+            </div>
+            {% endif %}
             <button @click="bulkDelete()" class="px-3 py-1 bg-shelf-error/20 text-shelf-error rounded-lg text-xs ml-auto">Delete Selected</button>
         </div>
     </div>
+    {% endif %}
 
     <!-- Collection heading -->
     <div class="flex flex-wrap items-end justify-between gap-3 mb-4">
@@ -58,10 +56,12 @@
             <p class="text-xs uppercase tracking-wider text-shelf-muted mb-1">Library</p>
             <h1 class="text-2xl font-bold whitespace-nowrap">Collection <span id="collection-count" class="text-shelf-muted text-lg font-normal">({{ filtered_total }})</span></h1>
         </div>
+        {% if can_select %}
         <div x-show="selectMode" x-cloak class="flex items-center gap-1">
             <button @click="selectAll()" data-testid="select-all" class="px-2 py-1 rounded text-xs text-shelf-muted hover:text-shelf-accent2 transition-colors">Select All</button>
             <button @click="deselectAll()" x-show="selectedIds.length > 0" class="px-2 py-1 rounded text-xs text-shelf-muted hover:text-shelf-accent2 transition-colors">Deselect All</button>
         </div>
+        {% endif %}
     </div>
 
     <!-- Primary collection controls -->
@@ -110,6 +110,7 @@
                 </button>
             </div>
 
+            {% if can_select %}
             <div class="relative shrink-0">
                 <button @click="toggleSelectMode()" @mouseenter="maybeShowSelectTip()" @mouseleave="showSelectTip = false"
                         :class="selectMode ? 'bg-shelf-accent/20 text-shelf-accent2' : 'bg-shelf-bg text-shelf-muted'"
@@ -122,6 +123,7 @@
                     Tap items to select them for bulk move, type change, status update, or delete.
                 </div>
             </div>
+            {% endif %}
 
             <div class="relative shrink-0" x-show="viewMode === 'list'">
                 <button @click="columnsOpen = !columnsOpen" :aria-expanded="columnsOpen"

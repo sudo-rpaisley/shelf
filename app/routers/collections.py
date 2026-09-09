@@ -1,7 +1,7 @@
 """Curated Collections pages and management endpoints."""
 
 from fastapi import APIRouter, Depends, Form, Request
-from fastapi.responses import HTMLResponse, RedirectResponse
+from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 
 from app.auth import require_role
 from app.database import get_db
@@ -121,3 +121,27 @@ async def remove_item_from_collection(
     except (PermissionError, ValueError, LookupError) as exc:
         return _error(exc)
     return HTMLResponse("")
+
+@router.post("/api/collections/{collection_id}/items/bulk")
+async def bulk_collection_items(
+    request: Request, collection_id: int, _=Depends(require_role("viewer"))
+):
+    try:
+        data = await request.json()
+        item_ids = [int(value) for value in data.get("item_ids", [])]
+        action = str(data.get("action", ""))
+    except (TypeError, ValueError):
+        return JSONResponse({"ok": False, "message": "Invalid item IDs"}, status_code=400)
+    try:
+        with get_db() as db:
+            changed = collection_service.bulk_change_items(
+                db, dict(request.state.user), collection_id, item_ids, action
+            )
+    except PermissionError as exc:
+        return JSONResponse({"ok": False, "message": str(exc)}, status_code=403)
+    except LookupError as exc:
+        return JSONResponse({"ok": False, "message": str(exc)}, status_code=404)
+    except ValueError as exc:
+        return JSONResponse({"ok": False, "message": str(exc)}, status_code=400)
+    return JSONResponse({"ok": True, "changed": changed, "action": action})
+

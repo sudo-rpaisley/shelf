@@ -64,6 +64,37 @@ def _browse_rows(db, where: str, params: list, order_clause: str, *, limit: int,
     return [dict(row) for row in rows]
 
 
+def _mark_editability(db, user: dict, items: list[dict]) -> None:
+    """Annotate visible Browse rows without per-item permission queries."""
+    if not items:
+        return
+    if user.get("role") == "admin":
+        for item in items:
+            item["can_edit"] = True
+        return
+    ids = [int(item["id"]) for item in items]
+    marks = ",".join("?" for _ in ids)
+    rows = db.execute(
+        "SELECT li.item_id FROM library_items li "
+        "JOIN library_memberships lm ON lm.library_id = li.library_id "
+        f"WHERE lm.user_id = ? AND lm.role = 'editor' AND li.item_id IN ({marks})",
+        [int(user["id"]), *ids],
+    ).fetchall()
+    editable = {int(row["item_id"]) for row in rows}
+    for item in items:
+        item["can_edit"] = int(item["id"]) in editable
+
+
+def _can_select_any(db, user: dict) -> bool:
+    if user.get("role") == "admin":
+        return True
+    return db.execute(
+        "SELECT 1 FROM library_memberships lm JOIN libraries l ON l.id = lm.library_id "
+        "WHERE lm.user_id = ? AND lm.role = 'editor' AND l.is_archived = 0 LIMIT 1",
+        (int(user["id"]),),
+    ).fetchone() is not None
+
+
 def _scoped_filter_options(db, user: dict) -> tuple[list[str], list, list[str], int]:
     """Catalogue-derived Browse options/counts for only this access set."""
     access_sql, access_params = libraries.item_access_condition(user)
@@ -124,6 +155,9 @@ async def personal_browse(request: Request, _=Depends(require_role("viewer"))):
         _, order_clause = SORT_OPTIONS.get(values["sort"], SORT_OPTIONS["newest"])
         result_items = _browse_rows(db, where, params, order_clause, limit=DEFAULT_PAGE_SIZE)
         user_state_browse.overlay_items(db, uid, result_items)
+        _mark_editability(db, user, result_items)
+        can_select = _can_select_any(db, user)
+        bulk_collections = collection_service.editable_options(db, user)
         total_filtered = db.execute(
             f"SELECT COUNT(*) as c FROM items i {where}", params
         ).fetchone()["c"]
@@ -143,6 +177,9 @@ async def personal_browse(request: Request, _=Depends(require_role("viewer"))):
         "items": result_items,
         "media_types": MEDIA_TYPES,
         "browse_collections": browse_collections,
+        "bulk_collections": bulk_collections,
+        "can_select": can_select,
+        "can_bulk_edit": user.get("role") == "admin",
         "series_names": series_names,
         "all_tags": all_tags,
         "lent_out_count": lent_out_count,
@@ -182,6 +219,7 @@ async def personal_search_items(
         total = db.execute(f"SELECT COUNT(*) as c FROM items i {where}", params).fetchone()["c"]
         result_items = _browse_rows(db, where, params, order_clause, limit=per_page, offset=offset)
         user_state_browse.overlay_items(db, uid, result_items)
+        _mark_editability(db, user, result_items)
         counts = (
             user_state_browse.filter_counts(db, values, total, uid, user=user)
             if page <= 1

@@ -1,5 +1,6 @@
 {% set on_wishlist = item.personal_wishlist if item.personal_wishlist is defined else false %}
-<a href="/item/{{ item.id }}" class="group relative" data-item-id="{{ item.id }}" @click.prevent="openOrToggle({{ item.id }}, '/item/{{ item.id }}', $event)">
+{% set can_edit = item.can_edit if item.can_edit is defined else false %}
+<a href="/item/{{ item.id }}" class="group relative" data-item-id="{{ item.id }}" data-can-edit="{{ 1 if can_edit else 0 }}" @click.prevent="openOrToggle({{ item.id }}, '/item/{{ item.id }}', $event, {{ 'true' if can_edit else 'false' }})">
     <div class="cover-card bg-shelf-card rounded-lg overflow-hidden border border-shelf-border group-hover:border-shelf-accent/50 transition-colors shadow-lg"
          :class="selectedIds.includes({{ item.id }}) ? 'ring-2 ring-shelf-accent' : ''">
         {% if on_wishlist %}
@@ -20,12 +21,14 @@
         <div class="absolute top-2 {% if on_wishlist or item.lent_to or item.reading_status %}right-2 top-8{% else %}right-2{% endif %} z-10 px-1.5 py-0.5 rounded text-[10px] font-medium bg-shelf-accent/80 text-white shadow">New</div>
         {% endif %}
         <!-- Select checkbox -->
+        {% if can_edit %}
         <div x-show="selectMode" class="absolute top-2 left-2 z-10">
             <div class="w-5 h-5 rounded border-2 flex items-center justify-center text-xs"
                  :class="selectedIds.includes({{ item.id }}) ? 'bg-shelf-accent border-shelf-accent text-white' : 'border-shelf-border bg-black/40'">
                 <span x-show="selectedIds.includes({{ item.id }})">&#10003;</span>
             </div>
         </div>
+        {% endif %}
         {% if item.cover_path %}
         <img src="/{{ item.cover_path }}" alt="{{ item.title }}" loading="lazy">
         {% else %}
