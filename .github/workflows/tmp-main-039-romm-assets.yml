@@ -1,0 +1,46 @@
+name: Materialise 0.39 plus RomM generated assets
+
+on:
+  push:
+    branches:
+      - tmp/main-039-romm-assets
+
+permissions:
+  contents: write
+
+jobs:
+  generate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: rebuild/main-039-with-romm-catalog
+          fetch-depth: 0
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.13'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - run: pip install -r requirements.txt -r requirements-dev.txt
+      - run: npm ci
+      - name: Regenerate CSS badges and service-worker stamp
+        run: |
+          make css
+          make badges
+          python scripts/stamp_sw_version.py
+          git diff --check
+          git diff --stat README.md static/css/app.css static/sw.js
+      - name: Publish exact generated output
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "Robert J Paisley"
+          git config user.email "56076332+sudo-rpaisley@users.noreply.github.com"
+          if git diff --quiet -- README.md static/css/app.css static/sw.js; then
+            echo "Generated outputs already exact"
+            exit 0
+          fi
+          git add README.md static/css/app.css static/sw.js
+          git commit -m "Chore: regenerate assets for Shelf 0.39 RomM catalogue"
+          git push origin HEAD:rebuild/main-039-with-romm-catalog
