@@ -1,0 +1,58 @@
+name: Build upstream 0.39 integration merge
+
+on:
+  push:
+    branches:
+      - tmp/integration-039-merge-builder
+
+permissions:
+  contents: write
+
+jobs:
+  merge:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out integration target
+        uses: actions/checkout@v7
+        with:
+          ref: rebuild/integration-039
+          fetch-depth: 0
+
+      - name: Merge upstream v0.39.0 and hold only true conflicts on fork versions
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "Robert J Paisley"
+          git config user.email "56076332+sudo-rpaisley@users.noreply.github.com"
+          git remote add upstream https://github.com/dgahagan/shelf.git || true
+          git fetch upstream refs/tags/v0.39.0:refs/tags/upstream-v0.39.0
+
+          set +e
+          git merge --no-commit --no-ff upstream-v0.39.0
+          merge_rc=$?
+          set -e
+
+          git diff --name-only --diff-filter=U | tee /tmp/integration-039-conflicts.txt
+          echo "Merge exit code: ${merge_rc}"
+          echo "Conflict count: $(wc -l < /tmp/integration-039-conflicts.txt)"
+
+          while IFS= read -r path; do
+            [ -n "$path" ] || continue
+            echo "Holding fork version for conflicted file: $path"
+            git checkout --ours -- "$path"
+            git add "$path"
+          done < /tmp/integration-039-conflicts.txt
+
+          if git diff --name-only --diff-filter=U | grep -q .; then
+            echo "Unresolved conflicts remain"
+            git diff --name-only --diff-filter=U
+            exit 1
+          fi
+
+          git commit -m "Integration: merge upstream v0.39.0 with conflicts held for reconciliation"
+          git push origin HEAD:rebuild/integration-039 --force-with-lease
+
+      - name: Show resulting integration head
+        run: |
+          git log -1 --oneline
+          git status --short
