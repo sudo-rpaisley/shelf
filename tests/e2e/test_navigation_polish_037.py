@@ -3,10 +3,13 @@
 import pytest
 from playwright.sync_api import expect
 
+from tests.e2e.test_nav import _reset_nav_baseline
+
 pytestmark = pytest.mark.e2e
 
 
 def test_add_and_more_menus_expose_current_destinations(live_server, authed_page):
+    _reset_nav_baseline(live_server, authed_page)
     authed_page.goto(f"{live_server['url']}/browse")
     authed_page.wait_for_load_state("networkidle")
 

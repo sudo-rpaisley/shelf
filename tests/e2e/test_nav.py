@@ -17,7 +17,10 @@ pytestmark = pytest.mark.e2e
 
 # Mirrors app.nav.HIDEABLE_KEYS — kept literal here so a change to that set
 # is a visible diff in this test rather than a silent behavior change.
-HIDEABLE_KEYS = ("scan", "intake", "store", "series", "discover", "stats", "logs")
+HIDEABLE_KEYS = (
+    "my-list", "scan", "intake", "shelf-fill", "store", "series", "music",
+    "periodicals", "discover", "stats", "attention", "logs",
+)
 ALL_NAV_KEYS = ("browse", "scan", "intake", "store", "series", "discover", "stats", "settings", "logs")
 
 
@@ -67,8 +70,14 @@ def test_unconfigured_instance_hides_intake_and_discover(live_server, nav_page):
     nav_page.goto(f"{live_server['url']}/browse")
     nav_page.wait_for_load_state("networkidle")
 
-    for key in ("browse", "store", "series", "stats"):
+    for key in ("browse", "series"):
         expect(nav_page.locator(f'[data-nav-tab="{key}"]')).to_be_visible()
+    nav_page.get_by_test_id("nav-more-button").click()
+    more = nav_page.get_by_test_id("nav-more-panel")
+    expect(more).to_be_visible()
+    for key in ("store", "stats"):
+        expect(more.locator(f'[data-nav-tab="{key}"]')).to_be_visible()
+    nav_page.keyboard.press("Escape")
     for key in ("intake", "discover"):
         expect(nav_page.locator(f'[data-nav-tab="{key}"]')).to_have_count(0)
 

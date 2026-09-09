@@ -1162,7 +1162,7 @@ def _open_scan_in_mode(pg, live_server, mode_label: str):
     """
     pg.goto(f"{live_server['url']}/scan")
     pg.wait_for_load_state("networkidle")
-    button = pg.get_by_role("button", name=mode_label, exact=True)
+    button = pg.get_by_role("main").get_by_role("button", name=mode_label, exact=True)
     expect(button).to_be_visible(timeout=5_000)
     with pg.expect_response(lambda r: "/api/recent-scans" in r.url and r.ok):
         button.click()
