@@ -43,8 +43,7 @@ jobs:
             tests/test_library_permissions.py \
             tests/test_library_browse_access.py \
             tests/test_library_home_stats_039.py \
-            tests/test_home_dashboard.py \
-            tests/test_stats.py
+            tests/test_home_dashboard.py
           make check-alpine
       - name: Full unit and static checks
         run: |
