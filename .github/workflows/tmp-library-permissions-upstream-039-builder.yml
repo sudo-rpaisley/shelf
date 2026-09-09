@@ -32,7 +32,7 @@ jobs:
         run: make badges
       - name: Focused foundation tests
         run: |
-          pytest -q tests/test_library_permissions.py tests/test_database.py
+          pytest -q tests/test_library_permissions.py
           make check-alpine
       - name: Full unit and static checks
         run: |
