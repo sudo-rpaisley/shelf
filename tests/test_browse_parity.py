@@ -158,12 +158,12 @@ def test_result_set_parity_location_filter(admin_client, seeded_library):
 
 
 def test_q_truncation(admin_client, db, monkeypatch):
-    # `q` truncation is enforced before the search hits the DB. The 0.37
-    # Collection first-paint route owns its page size; lower it so this test
-    # also exercises the generated load-more URL.
-    from app.routers import pages as pages_module
+    # `q` truncation is enforced before the search hits the DB. The active
+    # per-user Browse adapter owns the first-paint page size; lower it so this
+    # test also proves the truncated value is carried into pagination.
+    from app.routers import personal_browse as personal_browse_module
 
-    monkeypatch.setattr(pages_module, "DEFAULT_PAGE_SIZE", 2)
+    monkeypatch.setattr(personal_browse_module, "DEFAULT_PAGE_SIZE", 2)
 
     run = "y" * 250
     truncated = "y" * 200
@@ -183,7 +183,7 @@ def test_q_truncation(admin_client, db, monkeypatch):
     assert search.group(1) == truncated
     assert html.count('data-testid="search-input"') == 1
 
-    # The load-more URL's q= must also be truncated.
+    # The load-more URL must carry the same truncated query.
     load_more_urls = re.findall(r'hx-get="(/api/search\?[^"]*)"', html)
     q_bearing = [u for u in load_more_urls if "q=" in u]
     assert q_bearing, (load_more_urls, html)
