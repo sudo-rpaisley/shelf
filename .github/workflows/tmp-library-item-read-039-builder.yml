@@ -14,14 +14,14 @@ jobs:
         with:
           ref: tmp/library-item-read-039-prep
           fetch-depth: 0
-      - name: Preserve helpers and reset to published Browse scope
+      - name: Preserve helpers and reset to published scoped sharing
         shell: bash
         run: |
           set -euo pipefail
           cp scripts/tmp_build_library_item_read_039.py /tmp/build_item_reads.py
           cp scripts/tmp_patch_library_item_read_tests_039.py /tmp/patch_item_read_tests.py
           git fetch origin '+refs/heads/*:refs/remotes/origin/*'
-          git reset --hard origin/upstream/library-browse-scope-039
+          git reset --hard origin/upstream/library-share-scope-039
           echo "PARENT_SHA=$(git rev-parse HEAD)" >> "$GITHUB_ENV"
           git config user.name "Robert J Paisley"
           git config user.email "56076332+sudo-rpaisley@users.noreply.github.com"
@@ -42,6 +42,7 @@ jobs:
           pytest -q \
             tests/test_library_permissions.py \
             tests/test_library_browse_access.py \
+            tests/test_share_links.py \
             tests/test_library_item_reads.py \
             tests/test_static_caching.py \
             tests/test_cover_review.py \
@@ -63,17 +64,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          git add \
-            app/main.py \
-            app/routers/pages.py \
-            app/routers/items_covers.py \
-            app/routers/music.py \
-            app/routers/komga.py \
-            app/routers/romm.py \
-            tests/test_library_item_reads.py \
-            tests/test_static_caching.py \
-            tests/test_cover_review.py \
-            README.md
+          git add -A
           git reset --soft "$PARENT_SHA"
           git commit -m "LIBRARIES: enforce direct item-read visibility"
           git fetch origin refs/heads/upstream/library-item-read-039:refs/remotes/origin/upstream/library-item-read-039 || true
