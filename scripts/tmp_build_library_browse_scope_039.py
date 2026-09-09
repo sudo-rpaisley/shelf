@@ -259,6 +259,31 @@ replace_once(
     "counts = items_common.filter_counts(db, values, total, user=user) if page <= 1 else None",
 )
 
+# Once library ACLs become authoritative, generic viewer/editor fixtures must
+# retain the historical default of seeing the Main Library. Production user
+# creation already does this in the foundation PR; mirror that contract here
+# for tests that intentionally exercise unrelated route/filter behaviour.
+replace_once(
+    "tests/conftest.py",
+    """        row = conn.execute(
+            "SELECT id, username, role, display_name FROM users WHERE username = ?",
+            (username,),
+        ).fetchone()
+        return dict(row)
+""",
+    """        row = conn.execute(
+            "SELECT id, username, role, display_name FROM users WHERE username = ?",
+            (username,),
+        ).fetchone()
+        if role in ("viewer", "editor"):
+            from app.services import libraries
+            libraries.set_membership(
+                conn, libraries.DEFAULT_LIBRARY_ID, int(row["id"]), role
+            )
+        return dict(row)
+""",
+)
+
 # Current-upstream tests: explicit assignments/memberships make the security
 # contract independent of legacy recovery fixtures.
 test = Path("tests/test_library_browse_access.py")
