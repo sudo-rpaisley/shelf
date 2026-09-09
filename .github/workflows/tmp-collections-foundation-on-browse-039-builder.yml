@@ -1,7 +1,9 @@
 name: Restack Collections foundation on Browse scope
 
 on:
-  workflow_dispatch:
+  push:
+    branches:
+      - tmp/collections-foundation-on-browse-039-builder
 
 permissions:
   contents: write
