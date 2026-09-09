@@ -1,5 +1,7 @@
 """Browser coverage for Home media-family entry points."""
 
+import re
+
 import pytest
 from playwright.sync_api import expect
 
@@ -25,6 +27,7 @@ def test_home_family_card_opens_filtered_collection(live_server, authed_page):
 
     families.locator('[data-media-family="comics"]').click()
     authed_page.wait_for_url("**/browse?media_family_filter=comics")
-    expect(authed_page.get_by_text(manga_title, exact=True)).to_be_visible()
-    expect(authed_page.get_by_text(book_title, exact=True)).to_have_count(0)
-    expect(authed_page.get_by_text(music_title, exact=True)).to_have_count(0)
+    grid = authed_page.locator("#item-grid")
+    expect(grid.get_by_role("link", name=re.compile(manga_title)).first).to_be_visible()
+    expect(grid.get_by_text(book_title, exact=True)).to_have_count(0)
+    expect(grid.get_by_text(music_title, exact=True)).to_have_count(0)
