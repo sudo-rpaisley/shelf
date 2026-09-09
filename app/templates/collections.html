@@ -77,7 +77,7 @@
         {% endfor %}
     </section>
     {% else %}
-    <section class="bg-shelf-card border border-shelf-border rounded-xl p-8 text-center"><h2 class="text-lg font-semibold">No collections yet</h2><p class="text-sm text-shelf-muted mt-2">{% if editable_libraries %}Create one above. Item assignment will be added in the next focused slice.{% else %}Collections shared with your libraries will appear here.{% endif %}</p></section>
+    <section class="bg-shelf-card border border-shelf-border rounded-xl p-8 text-center"><h2 class="text-lg font-semibold">No collections yet</h2><p class="text-sm text-shelf-muted mt-2">{% if editable_libraries %}Create one above, then add items from an item page or with Browse Select mode.{% else %}Collections shared with your libraries will appear here.{% endif %}</p></section>
     {% endif %}
 </div>
 {% endblock %}
