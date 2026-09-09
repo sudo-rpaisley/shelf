@@ -158,12 +158,12 @@ def test_result_set_parity_location_filter(admin_client, seeded_library):
 
 
 def test_q_truncation(admin_client, db, monkeypatch):
-    # `q` truncation is enforced *before* the search hits the DB. The personal
-    # Browse rebuild owns the active route adapter, so lower the page size on
-    # that module rather than the superseded route functions it replaces.
-    from app.routers import personal_browse as personal_browse_module
+    # `q` truncation is enforced before the search hits the DB. The 0.37
+    # Collection first-paint route owns its page size; lower it so this test
+    # also exercises the generated load-more URL.
+    from app.routers import pages as pages_module
 
-    monkeypatch.setattr(personal_browse_module, "DEFAULT_PAGE_SIZE", 2)
+    monkeypatch.setattr(pages_module, "DEFAULT_PAGE_SIZE", 2)
 
     run = "y" * 250
     truncated = "y" * 200
@@ -175,14 +175,13 @@ def test_q_truncation(admin_client, db, monkeypatch):
     resp = admin_client.get(f"/browse?q={long_q}")
     html = resp.text
 
-    # Both the desktop and the mobile search input must carry the truncated
-    # value.
-    values = re.findall(
-        r'<input type="search" name="q"[^>]*value="([^"]*)"', html
+    # The compact Collection toolbar deliberately renders one search control.
+    search = re.search(
+        r'<input[^>]*data-testid="search-input"[^>]*value="([^"]*)"', html
     )
-    assert len(values) == 2, values
-    for v in values:
-        assert v == truncated, v
+    assert search, html[:1200]
+    assert search.group(1) == truncated
+    assert html.count('data-testid="search-input"') == 1
 
     # The load-more URL's q= must also be truncated.
     load_more_urls = re.findall(r'hx-get="(/api/search\?[^"]*)"', html)
