@@ -1,0 +1,55 @@
+name: Prepare 0.39 integration generated outputs
+
+on:
+  push:
+    branches:
+      - tmp/integration-039-generated-prep
+
+permissions:
+  contents: write
+
+jobs:
+  generate:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out integration target
+        uses: actions/checkout@v7
+        with:
+          ref: rebuild/integration-039
+          fetch-depth: 0
+
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: '3.13'
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Install dependencies
+        run: |
+          pip install -r requirements.txt -r requirements-dev.txt
+          npm ci
+
+      - name: Regenerate deterministic outputs
+        run: |
+          make css
+          make badges
+          git diff --check
+          git diff --stat README.md static/css/app.css static/sw.js
+
+      - name: Commit generated outputs
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "Robert J Paisley"
+          git config user.email "56076332+sudo-rpaisley@users.noreply.github.com"
+          git add README.md static/css/app.css static/sw.js
+          if git diff --cached --quiet; then
+            echo "Generated outputs already current"
+            exit 0
+          fi
+          git commit -m "Build: refresh generated outputs for Shelf 0.39 integration"
+          git push origin HEAD:rebuild/integration-039
