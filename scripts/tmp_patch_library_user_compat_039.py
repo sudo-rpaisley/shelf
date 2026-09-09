@@ -31,8 +31,37 @@ replace_once(
     '''        db.execute(\n            "UPDATE users SET role = ?, token_version = token_version + 1, updated_at = datetime('now') WHERE id = ?",\n            (role, user_id),\n        )\n        if role == "admin":\n            # Admin is the explicit global bypass; it needs no membership row.\n            libraries.remove_membership(db, libraries.DEFAULT_LIBRARY_ID, user_id)\n        else:\n            # Preserve the existing user-management contract for Main Library.\n            # Memberships in every other library remain independent.\n            libraries.set_membership(\n                db, libraries.DEFAULT_LIBRARY_ID, user_id, role\n            )\n''',
 )
 
-# Product-level regressions: these use the real admin API rather than fixture
-# helpers so a future refactor cannot create unusable non-admin accounts again.
+# All normal catalogue creation already funnels through item_write.insert_item.
+# Until a caller explicitly reassigns an item to another library, retain
+# Shelf's historical single-library behaviour by placing it in Main Library.
+replace_once(
+    "app/services/item_write.py",
+    "from app.services import item_copies\n",
+    "from app.services import item_copies, libraries\n",
+)
+replace_once(
+    "app/services/item_write.py",
+    '''    item_id = cursor.lastrowid\n    if "location_id" in values:\n''',
+    '''    item_id = cursor.lastrowid\n    libraries.assign_item(db, item_id, libraries.DEFAULT_LIBRARY_ID)\n    if "location_id" in values:\n''',
+)
+
+# The general unit suite models an upgraded single-library installation. Its
+# raw helper intentionally bypasses item_write, so mirror the production
+# default there. Permission tests can pass _library_id=None when they need an
+# intentionally unmapped row.
+replace_once(
+    "tests/conftest.py",
+    '''def _insert_item(db, title="Test Book", isbn="9780000000026", media_type="book", **kwargs):\n    """Insert a test item and return its ID."""\n''',
+    '''def _insert_item(\n    db,\n    title="Test Book",\n    isbn="9780000000026",\n    media_type="book",\n    _library_id=1,\n    **kwargs,\n):\n    """Insert a test item, defaulting to Main Library when libraries exist."""\n''',
+)
+replace_once(
+    "tests/conftest.py",
+    '''    cursor = db.execute(f"INSERT INTO items ({cols}) VALUES ({placeholders})", list(fields.values()))\n    return cursor.lastrowid\n''',
+    '''    cursor = db.execute(f"INSERT INTO items ({cols}) VALUES ({placeholders})", list(fields.values()))\n    item_id = cursor.lastrowid\n    if _library_id is not None:\n        try:\n            exists = db.execute(\n                "SELECT 1 FROM libraries WHERE id = ?", (int(_library_id),)\n            ).fetchone()\n        except sqlite3.OperationalError:\n            exists = None\n        if exists:\n            from app.services import libraries\n            libraries.assign_item(db, item_id, int(_library_id))\n    return item_id\n''',
+)
+
+# Product-level regressions: use real public funnels rather than only fixture
+# helpers so future refactors cannot create unusable users or invisible items.
 p = Path("tests/test_library_permissions.py")
 test = p.read_text()
 test += r'''
@@ -84,7 +113,6 @@ def test_global_role_change_keeps_main_membership_compatible(admin_client, db):
         db, {"id": user_id, "role": "editor"}, libraries.DEFAULT_LIBRARY_ID
     ) == "editor"
 
-    # A non-default membership remains independent of the legacy global role.
     other = libraries.create_library(db, "Role-independent Library")
     libraries.set_membership(db, other["id"], user_id, "viewer")
     db.commit()
@@ -113,5 +141,28 @@ def test_global_role_change_keeps_main_membership_compatible(admin_client, db):
         "SELECT role FROM library_memberships WHERE library_id = ? AND user_id = ?",
         (other["id"], user_id),
     ).fetchone()["role"] == "viewer"
+
+
+def test_normal_item_write_assigns_new_item_to_main_library(db):
+    from app.services import item_write
+
+    item_id = item_write.insert_item(
+        db,
+        title="Default library item",
+        isbn="9780000007990",
+        media_type="book",
+        source="test",
+    )
+    assert libraries.item_library_id(db, item_id) == libraries.DEFAULT_LIBRARY_ID
+
+
+def test_fixture_can_still_create_explicitly_unmapped_item(db):
+    item_id = _insert_item(
+        db,
+        title="Deliberately unmapped",
+        isbn="9780000007983",
+        _library_id=None,
+    )
+    assert libraries.item_library_id(db, item_id) is None
 '''
 p.write_text(test.rstrip() + "\n")
