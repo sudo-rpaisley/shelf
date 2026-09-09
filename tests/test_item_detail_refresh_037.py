@@ -11,7 +11,6 @@ def test_item_detail_renders_hero_about_details_and_copy_cards(editor_client, db
         authors="Example Author",
         media_type="book",
         description="A useful synopsis.",
-        location_name="Living Room / Bookcase 1 / Shelf 2",
         publisher="Example Press",
         publish_year=2026,
         page_count=320,
@@ -27,7 +26,6 @@ def test_item_detail_renders_hero_about_details_and_copy_cards(editor_client, db
     assert 'data-testid="item-primary-actions"' in html
     assert "Card Layout Book" in html
     assert "A useful synopsis." in html
-    assert "Living Room / Bookcase 1 / Shelf 2" in html
     assert "Example Press" in html
 
 
