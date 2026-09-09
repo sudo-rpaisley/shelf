@@ -55,6 +55,7 @@ def test_browse_media_type_filter(live_server, authed_page):
     insert_item(live_server["data_dir"], title="Filter Test", media_type="book", isbn="9780004445557")
     authed_page.goto(f"{live_server['url']}/browse")
     authed_page.wait_for_load_state("networkidle")
+    authed_page.get_by_test_id("filters-toggle").click()
 
     # The media type filter is a <select> dropdown
     filter_el = authed_page.locator("select#type-filter")
@@ -88,6 +89,7 @@ def test_browse_filters_restored_on_return(live_server, authed_page):
 
     authed_page.goto(f"{live_server['url']}/browse")
     authed_page.wait_for_load_state("networkidle")
+    authed_page.get_by_test_id("filters-toggle").click()
     authed_page.locator("select#type-filter").select_option("dvd")
     expect(authed_page.locator("#item-grid")).not_to_contain_text("Restorable Novel")
     # The URL gaining the filter is the observable signal that updateUrl() ran
@@ -116,6 +118,7 @@ def test_browse_clear_all_filters_drops_restore(live_server, authed_page):
 
     authed_page.goto(f"{live_server['url']}/browse")
     authed_page.wait_for_load_state("networkidle")
+    authed_page.get_by_test_id("filters-toggle").click()
     authed_page.locator("select#type-filter").select_option("dvd")
     expect(authed_page).to_have_url(re.compile(r"media_type_filter=dvd"))
     authed_page.get_by_role("button", name="Clear all", exact=True).click()
@@ -615,6 +618,7 @@ def test_browse_language_filter_narrows_and_composes(live_server, authed_page):
                 media_type="book", isbn="9780000777003", language="en")
     authed_page.goto(f"{live_server['url']}/browse")
     authed_page.wait_for_load_state("networkidle")
+    authed_page.get_by_test_id("filters-toggle").click()
 
     # Select renders (library now contains languages) and narrows to German
     lang_el = authed_page.locator("select#language-filter")
