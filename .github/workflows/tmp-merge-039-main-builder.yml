@@ -1,0 +1,57 @@
+name: Build 0.39 recovery merge onto main
+
+on:
+  push:
+    branches:
+      - tmp/merge-039-main-builder
+
+permissions:
+  contents: write
+
+jobs:
+  merge:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out current main
+        uses: actions/checkout@v7
+        with:
+          ref: main
+          fetch-depth: 0
+
+      - name: Merge frozen 0.39 recovery and hold only true conflicts on main versions
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "Robert J Paisley"
+          git config user.email "56076332+sudo-rpaisley@users.noreply.github.com"
+          git fetch origin rebuild/ui-recovery-039-final:refs/remotes/origin/rebuild/ui-recovery-039-final
+
+          set +e
+          git merge --no-commit --no-ff origin/rebuild/ui-recovery-039-final
+          merge_rc=$?
+          set -e
+
+          git diff --name-only --diff-filter=U | tee /tmp/main-039-conflicts.txt
+          echo "Merge exit code: ${merge_rc}"
+          echo "Conflict count: $(wc -l < /tmp/main-039-conflicts.txt)"
+
+          while IFS= read -r path; do
+            [ -n "$path" ] || continue
+            echo "Holding current main version for conflicted file: $path"
+            git checkout --ours -- "$path"
+            git add "$path"
+          done < /tmp/main-039-conflicts.txt
+
+          if git diff --name-only --diff-filter=U | grep -q .; then
+            echo "Unresolved conflicts remain"
+            git diff --name-only --diff-filter=U
+            exit 1
+          fi
+
+          git commit -m "Merge: combine current fork main with validated Shelf 0.39 recovery"
+          git push origin HEAD:merge/integration-039-to-main --force
+
+      - name: Show resulting merge head
+        run: |
+          git log -1 --oneline
+          git status --short
