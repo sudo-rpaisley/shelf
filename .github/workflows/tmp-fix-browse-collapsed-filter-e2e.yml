@@ -1,0 +1,101 @@
+name: Fix Browse collapsed-filter E2E
+
+on:
+  push:
+    branches:
+      - tmp/fix-browse-collapsed-filter-e2e
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+      - name: Apply clean E2E compatibility fix
+        shell: bash
+        run: |
+          set -euo pipefail
+          git reset --hard 698e2f832144658f2a27d332ba6cab72a0edce3c
+          python - <<'PY'
+          from pathlib import Path
+
+          path = Path('tests/e2e/test_browse.py')
+          text = path.read_text()
+
+          replacements = [
+              (
+                  'def test_browse_media_type_filter(live_server, authed_page):\n'
+                  '    """Selecting a media-type filter triggers an HTMX reload."""\n',
+                  'def test_browse_media_type_filter(live_server, authed_page):\n'
+                  '    """Selecting a media-type filter triggers an HTMX reload."""\n'
+              ),
+          ]
+
+          anchors = [
+              (
+                  '    authed_page.goto(f"{live_server[\'url\']}/browse")\n'
+                  '    authed_page.wait_for_load_state("networkidle")\n\n'
+                  '    # The media type filter is a <select> dropdown\n'
+                  '    filter_el = authed_page.locator("select#type-filter")\n',
+                  '    authed_page.goto(f"{live_server[\'url\']}/browse")\n'
+                  '    authed_page.wait_for_load_state("networkidle")\n'
+                  '    authed_page.get_by_test_id("filters-toggle").click()\n\n'
+                  '    # The media type filter is a <select> dropdown\n'
+                  '    filter_el = authed_page.locator("select#type-filter")\n',
+                  1,
+              ),
+              (
+                  '    authed_page.goto(f"{live_server[\'url\']}/browse")\n'
+                  '    authed_page.wait_for_load_state("networkidle")\n'
+                  '    authed_page.locator("select#type-filter").select_option("dvd")\n'
+                  '    expect(authed_page.locator("#item-grid")).not_to_contain_text("Restorable Novel")\n',
+                  '    authed_page.goto(f"{live_server[\'url\']}/browse")\n'
+                  '    authed_page.wait_for_load_state("networkidle")\n'
+                  '    authed_page.get_by_test_id("filters-toggle").click()\n'
+                  '    authed_page.locator("select#type-filter").select_option("dvd")\n'
+                  '    expect(authed_page.locator("#item-grid")).not_to_contain_text("Restorable Novel")\n',
+                  1,
+              ),
+              (
+                  '    authed_page.goto(f"{live_server[\'url\']}/browse")\n'
+                  '    authed_page.wait_for_load_state("networkidle")\n'
+                  '    authed_page.locator("select#type-filter").select_option("dvd")\n'
+                  '    expect(authed_page).to_have_url(re.compile(r"media_type_filter=dvd"))\n',
+                  '    authed_page.goto(f"{live_server[\'url\']}/browse")\n'
+                  '    authed_page.wait_for_load_state("networkidle")\n'
+                  '    authed_page.get_by_test_id("filters-toggle").click()\n'
+                  '    authed_page.locator("select#type-filter").select_option("dvd")\n'
+                  '    expect(authed_page).to_have_url(re.compile(r"media_type_filter=dvd"))\n',
+                  1,
+              ),
+              (
+                  '    authed_page.goto(f"{live_server[\'url\']}/browse")\n'
+                  '    authed_page.wait_for_load_state("networkidle")\n\n'
+                  '    # Select renders (library now contains languages) and narrows to German\n'
+                  '    lang_el = authed_page.locator("select#language-filter")\n',
+                  '    authed_page.goto(f"{live_server[\'url\']}/browse")\n'
+                  '    authed_page.wait_for_load_state("networkidle")\n'
+                  '    authed_page.get_by_test_id("filters-toggle").click()\n\n'
+                  '    # Select renders (library now contains languages) and narrows to German\n'
+                  '    lang_el = authed_page.locator("select#language-filter")\n',
+                  1,
+              ),
+          ]
+
+          for old, new, expected in anchors:
+              found = text.count(old)
+              if found != expected:
+                  raise SystemExit(f'Expected {expected} occurrence of patch anchor, found {found}: {old[:80]!r}')
+              text = text.replace(old, new, expected)
+
+          path.write_text(text)
+          PY
+          git config user.name "Robert J Paisley"
+          git config user.email "56076332+sudo-rpaisley@users.noreply.github.com"
+          git add tests/e2e/test_browse.py
+          git commit -m "Test: open compact Browse filters before interaction"
+          git push origin HEAD:rebuild/browse-toolbar-037-v2
