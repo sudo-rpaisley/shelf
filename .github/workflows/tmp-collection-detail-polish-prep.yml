@@ -1,0 +1,37 @@
+name: Collection detail polish prep
+
+on:
+  push:
+    branches:
+      - tmp/collection-detail-polish-prep
+
+jobs:
+  focused:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+          cache: pip
+      - run: pip install -r requirements.txt -r requirements-dev.txt
+      - run: pytest -q tests/test_collection_detail_polish_037.py tests/test_collections_037.py tests/test_collections_assignment_037.py tests/test_collection_toolbar_permissions_037.py
+      - run: make check-alpine
+
+  generated-assets:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+          cache: pip
+      - run: pip install -r requirements.txt -r requirements-dev.txt
+      - run: npm ci
+      - run: make css
+      - run: make badges
+      - run: git diff --stat README.md static/css/app.css static/sw.js
