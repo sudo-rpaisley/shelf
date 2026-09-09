@@ -1,0 +1,83 @@
+name: Build upstream-ready RomM catalogue PR
+
+on:
+  push:
+    branches:
+      - tmp/romm-catalog-upstream-039-builder
+
+permissions:
+  contents: write
+
+jobs:
+  build-test-publish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: tmp/upstream-current-039
+          fetch-depth: 0
+      - name: Fetch fork feature history
+        run: git fetch origin '+refs/heads/*:refs/remotes/origin/*'
+      - name: Rebuild catalogue on live upstream
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "Robert J Paisley"
+          git config user.email "56076332+sudo-rpaisley@users.noreply.github.com"
+
+          if git cherry-pick c040132d29bcd9c25f756bc05489290a466f8593; then
+            :
+          else
+            test "$(git diff --name-only --diff-filter=U)" = "app/main.py"
+            git checkout --ours app/main.py
+            sed -i 's/, romm, komga/, romm, romm_catalog, komga/' app/main.py
+            sed -i '/app.include_router(romm.router)/a app.include_router(romm_catalog.router)' app/main.py
+            git add app/main.py
+            git cherry-pick --continue
+          fi
+
+          python -c 'from pathlib import Path; p=Path("app/routers/romm_catalog.py"); s=p.read_text(); s=s.replace("from app.services import libraries, romm_catalog", "from app.services import romm_catalog"); s=s.replace("        access_sql, access_params = libraries.item_access_condition(\n            user, item_alias=\"i\", minimum_role=\"viewer\"\n        )\n", ""); s=s.replace("            access_sql=access_sql,\n            access_params=access_params,\n", ""); p.write_text(s)'
+
+          python -c 'from pathlib import Path; p=Path("tests/test_nav.py"); s=p.read_text(); needle="        ),\n    }\n\n    nav_paths = {t[\"path\"] for t in NAV_TABS}"; repl="        ),\n        \"/romm\": \"provider shortcut reached from Settings -> RomM\",\n        \"/romm/library\": \"provider catalogue reached from Settings -> RomM\",\n    }\n\n    nav_paths = {t[\"path\"] for t in NAV_TABS}"; assert needle in s; p.write_text(s.replace(needle,repl,1))'
+
+          printf '\n\ndef test_romm_settings_links_to_synced_library():\n    from pathlib import Path\n\n    html = Path("app/templates/fragments/settings/romm.html").read_text()\n    assert '\''href="/romm/library"'\'' in html\n    assert "Browse synced library" in html\n' >> tests/test_romm_catalog_main.py
+
+          git diff --check
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.13'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - run: pip install -r requirements.txt -r requirements-dev.txt
+      - run: npm ci
+      - name: Regenerate committed outputs
+        run: |
+          make css
+          make badges
+          python scripts/stamp_sw_version.py
+          git diff --check
+      - name: Focused catalogue checks
+        run: |
+          pytest -q tests/test_romm_catalog_main.py tests/test_nav.py tests/test_romm_records.py tests/test_romm_full_integration.py
+          make check-alpine
+          make check-csrf
+      - name: Full unit and static checks
+        run: |
+          make test
+          make checks-fast
+      - name: Install Chromium dependencies
+        shell: bash
+        run: |
+          sudo rm -f /etc/apt/sources.list.d/google-chrome.list
+          playwright install --with-deps chromium
+      - name: Full Chromium E2E
+        run: make test-e2e
+      - name: Publish one-commit PR branch
+        shell: bash
+        run: |
+          set -euo pipefail
+          git add app/main.py app/routers/romm_catalog.py app/services/romm_catalog.py app/templates/romm_library.html app/templates/fragments/romm_library_grid.html app/templates/fragments/settings/romm.html static/js/romm-catalog.js tests/test_romm_catalog_main.py tests/e2e/test_romm_catalog.py tests/test_nav.py README.md static/css/app.css static/sw.js
+          git reset --soft 78a946d199489da70b5b5a5215097ce12e287b38
+          git commit -m "ROMM: add browsable synced-library catalogue"
+          git push origin HEAD:upstream/romm-catalog-039 --force-with-lease
