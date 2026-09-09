@@ -313,6 +313,38 @@
             </section>
             {% endif %}
 
+            {% if item_collections or available_collections %}
+            <section class="bg-shelf-card rounded-2xl border border-shelf-border p-5" data-testid="item-collections-card">
+                <div class="flex items-center justify-between gap-3 mb-3">
+                    <h2 class="text-lg font-semibold">Collections</h2>
+                    <a href="/collections" class="text-xs text-shelf-accent2 hover:text-shelf-accent">View all</a>
+                </div>
+                {% if item_collections %}
+                <div class="space-y-2" data-testid="item-collection-memberships">
+                    {% for collection in item_collections %}
+                    <div id="item-collection-{{ collection.id }}" class="flex items-center justify-between gap-2 bg-shelf-bg border border-shelf-border rounded-lg px-3 py-2">
+                        <a href="/collections/{{ collection.id }}" class="text-sm text-shelf-accent2 hover:text-shelf-accent truncate">{{ collection.name }}</a>
+                        {% if can_edit_collections %}
+                        <button type="button" hx-delete="/api/items/{{ item.id }}/collections/{{ collection.id }}" hx-target="#item-collection-{{ collection.id }}" hx-swap="outerHTML" hx-confirm="Remove this item from '{{ collection.name }}'?" class="text-xs text-shelf-muted hover:text-shelf-error" aria-label="Remove from {{ collection.name }}">Remove</button>
+                        {% endif %}
+                    </div>
+                    {% endfor %}
+                </div>
+                {% else %}
+                <p class="text-sm text-shelf-muted">Not in a collection yet.</p>
+                {% endif %}
+
+                {% if can_edit_collections and available_collections %}
+                <form action="/api/items/{{ item.id }}/collections" method="post" class="flex gap-2 mt-3" data-testid="add-to-collection-form">
+                    <select name="collection_id" required class="min-w-0 flex-1 bg-shelf-bg border border-shelf-border rounded-lg px-2 py-1.5 text-sm text-shelf-text">
+                        {% for collection in available_collections %}<option value="{{ collection.id }}">{{ collection.name }}</option>{% endfor %}
+                    </select>
+                    <button type="submit" class="px-3 py-1.5 bg-shelf-accent text-white rounded-lg text-xs">Add</button>
+                </form>
+                {% endif %}
+            </section>
+            {% endif %}
+
             <section class="bg-shelf-card rounded-2xl border border-shelf-border p-5" data-testid="item-record-card">
                 <p class="text-xs uppercase tracking-wider text-shelf-muted mb-2">Record</p>
                 <p class="text-xs text-shelf-muted leading-relaxed" data-testid="record-footer">
