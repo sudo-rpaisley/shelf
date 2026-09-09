@@ -1,0 +1,82 @@
+name: Final Shelf 0.39 plus RomM main convergence gate
+
+on:
+  push:
+    branches:
+      - tmp/main-039-romm-final-gate
+
+jobs:
+  focused:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: rebuild/main-039-with-romm-catalog
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.13'
+      - run: pip install -r requirements.txt -r requirements-dev.txt
+      - name: Focused RomM catalogue plus recovered-feature tests
+        run: |
+          pytest -q \
+            tests/test_romm_catalog_main.py \
+            tests/test_romm*.py \
+            tests/test_library*.py \
+            tests/test_collections_037.py \
+            tests/test_collections_assignment_037.py \
+            tests/test_collection_toolbar_permissions_037.py \
+            tests/test_collection_detail_polish_037.py
+          make check-alpine
+
+  unit-and-checks:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: rebuild/main-039-with-romm-catalog
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.13'
+      - run: pip install -r requirements.txt -r requirements-dev.txt
+      - run: make test
+      - run: make checks-fast
+
+  generated-assets:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: rebuild/main-039-with-romm-catalog
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.13'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - run: pip install -r requirements.txt -r requirements-dev.txt
+      - run: npm ci
+      - run: |
+          make css
+          make badges
+          python scripts/stamp_sw_version.py
+          git diff --exit-code --stat README.md static/css/app.css static/sw.js
+
+  e2e:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: rebuild/main-039-with-romm-catalog
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.13'
+      - run: pip install -r requirements.txt -r requirements-dev.txt
+      - name: Remove unrelated broken Google Chrome apt source
+        run: |
+          sudo rm -f \
+            /etc/apt/sources.list.d/google-chrome.list \
+            /etc/apt/sources.list.d/google-chrome.sources \
+            /etc/apt/sources.list.d/google-chrome-stable.list
+          sudo rm -rf /var/lib/apt/lists/*
+      - run: playwright install --with-deps chromium
+      - run: make test-e2e
