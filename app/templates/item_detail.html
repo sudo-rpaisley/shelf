@@ -173,7 +173,7 @@
 
                 {% if linked_items %}
                 <div class="mt-5 pt-5 border-t border-shelf-border" data-testid="linked-formats">
-                    <p class="text-xs uppercase tracking-wider text-shelf-muted mb-2">Also available as</p>
+                    <p class="text-xs uppercase tracking-wider text-shelf-muted mb-2">Also available as:</p>
                     <div class="flex flex-wrap gap-2">
                         {% for li in linked_items %}
                         <a href="/item/{{ li.id }}{% if back.key %}?from={{ back.key }}{% endif %}"
