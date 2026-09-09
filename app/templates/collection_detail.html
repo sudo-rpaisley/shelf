@@ -1,0 +1,27 @@
+{% extends "base.html" %}
+{% block title %}{{ collection.name }} — Collections — Shelf{% endblock %}
+{% block content %}
+<div class="space-y-6" data-testid="collection-detail">
+    <a href="/collections" class="inline-flex items-center gap-1 text-sm text-shelf-muted hover:text-shelf-text">&larr; Back to Collections</a>
+    <header>
+        <p class="text-xs uppercase tracking-wider text-shelf-muted mb-1">{{ collection.library_name }} · Collection</p>
+        <h1 class="text-3xl font-bold">{{ collection.name }}</h1>
+        {% if collection.description %}<p class="text-shelf-muted mt-2 max-w-2xl">{{ collection.description }}</p>{% endif %}
+    </header>
+    {% if items %}
+    <section class="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-4">
+        {% for item in items %}
+        <a href="/item/{{ item.id }}" class="bg-shelf-card border border-shelf-border rounded-xl p-3 hover:border-shelf-accent/50 transition-colors">
+            <div class="aspect-[2/3] bg-shelf-hover rounded-lg overflow-hidden flex items-center justify-center mb-3">
+                {% if item.cover_path %}<img src="/{{ item.cover_path }}" alt="{{ item.title }}" class="w-full h-full object-contain">{% else %}<span class="text-xs text-shelf-muted text-center px-2">No cover</span>{% endif %}
+            </div>
+            <h2 class="font-medium text-sm leading-snug">{{ item.title }}</h2>
+            {% if item.authors %}<p class="text-xs text-shelf-muted mt-1">{{ item.authors }}</p>{% endif %}
+        </a>
+        {% endfor %}
+    </section>
+    {% else %}
+    <section class="bg-shelf-card border border-shelf-border rounded-xl p-8 text-center"><p class="text-shelf-muted">This collection is empty.</p></section>
+    {% endif %}
+</div>
+{% endblock %}
