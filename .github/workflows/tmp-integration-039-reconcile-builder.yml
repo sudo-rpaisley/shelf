@@ -1,0 +1,152 @@
+name: Reconcile upstream 0.39 integration conflicts
+
+on:
+  push:
+    branches:
+      - tmp/integration-039-reconcile-builder
+
+permissions:
+  contents: write
+
+jobs:
+  reconcile:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out integration target
+        uses: actions/checkout@v7
+        with:
+          ref: rebuild/integration-039
+          fetch-depth: 0
+
+      - name: Fetch upstream v0.39.0
+        run: |
+          git remote add upstream https://github.com/dgahagan/shelf.git || true
+          git fetch upstream refs/tags/v0.39.0:refs/tags/upstream-v0.39.0
+
+      - name: Reconcile source conflicts
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          from pathlib import Path
+          import re
+          import subprocess
+
+          # database.py — upstream's migration 32 collides with the fork's
+          # per-user-state migration 32. Preserve 1..54 and append the same
+          # schema change as migration 55.
+          p = Path('app/database.py')
+          s = p.read_text()
+          needle = '''    (54, "Index collections by library",\n     "CREATE INDEX IF NOT EXISTS idx_collections_library ON collections(library_id, name COLLATE NOCASE)"),\n)'''
+          replacement = '''    (54, "Index collections by library",\n     "CREATE INDEX IF NOT EXISTS idx_collections_library ON collections(library_id, name COLLATE NOCASE)"),\n    # Upstream Shelf 0.39.0 calls this migration 32. The recovered fork already\n    # owns 32-54, so the schema change is preserved here at the next free id.\n    (55, "Add durable cover-review dismissal",\n     "ALTER TABLE items ADD COLUMN cover_review_dismissed INTEGER NOT NULL DEFAULT 0"),\n)'''
+          if needle not in s:
+              raise SystemExit('database migration anchor not found')
+          p.write_text(s.replace(needle, replacement, 1))
+
+          # main.py — preserve all fork routers and add the two new 0.39 cover
+          # review routers beside the existing item-cover router.
+          p = Path('app/main.py')
+          s = p.read_text()
+          if 'cover_review' not in s.split('\n', 70)[-1]:
+              pass
+          line_old = 'pages, items, items_covers, items_csv'
+          line_new = 'pages, items, items_covers, cover_review, cover_review_actions, items_csv'
+          if line_old not in s and line_new not in s:
+              raise SystemExit('main router import anchor not found')
+          s = s.replace(line_old, line_new, 1)
+          include_old = 'app.include_router(items_covers.router)\n'
+          include_new = include_old + 'app.include_router(cover_review.router)\napp.include_router(cover_review_actions.router)\n'
+          if 'app.include_router(cover_review.router)' not in s:
+              if include_old not in s:
+                  raise SystemExit('main include anchor not found')
+              s = s.replace(include_old, include_new, 1)
+          p.write_text(s)
+
+          # pages.py — preserve library ACLs/Collections and layer in upstream's
+          # copies reader plus 0.39 missing-cover semantics.
+          p = Path('app/routers/pages.py')
+          s = p.read_text()
+          s = s.replace('from app.services import libraries\n',
+                        'from app.services import libraries, item_copies\n', 1)
+          copies_anchor = '        game_platforms = get_game_platforms(db)\n\n        from app.routers.tags import get_item_tags\n'
+          if 'copies = item_copies.copies_for_item(db, item_id)' not in s:
+              if copies_anchor not in s:
+                  raise SystemExit('pages copies anchor not found')
+              s = s.replace(copies_anchor,
+                  '        game_platforms = get_game_platforms(db)\n\n'
+                  '        # Every physical copy, not just the compatibility primary location.\n'
+                  '        copies = item_copies.copies_for_item(db, item_id)\n\n'
+                  '        from app.routers.tags import get_item_tags\n', 1)
+          context_anchor = '            "back": back,\n'
+          if '            "copies": copies,\n' not in s:
+              s = s.replace(context_anchor, context_anchor + '            "copies": copies,\n', 1)
+          old_count = '"SELECT COUNT(*) AS c FROM items WHERE cover_path IS NULL"'
+          new_count = '"SELECT COUNT(*) AS c FROM items WHERE cover_path IS NULL AND cover_review_dismissed = 0"'
+          if old_count not in s and new_count not in s:
+              raise SystemExit('settings missing-cover query anchor not found')
+          s = s.replace(old_count, new_count, 1)
+          p.write_text(s)
+
+          # item_detail.html — keep the recovered card layout, but use upstream's
+          # first-class copy fragment where the old single-location line lived.
+          p = Path('app/templates/item_detail.html')
+          s = p.read_text()
+          old_block = '''                {% if item.location_name %}\n                <div class="mb-5">\n                    <p class="text-xs uppercase tracking-wider text-shelf-muted mb-1">Location</p>\n                    <p class="text-sm">{{ item.location_name }}</p>\n                </div>\n                {% endif %}\n'''
+          if '{% include "fragments/item_copies.html" %}' not in s:
+              if old_block not in s:
+                  raise SystemExit('item detail location block not found')
+              s = s.replace(old_block, '                {% include "fragments/item_copies.html" %}\n', 1)
+          p.write_text(s)
+
+          # items_scan_modes.py — take upstream's tested multi-copy Inventory and
+          # Lookup implementation, then restore the fork's per-user Quick Rate.
+          upstream = subprocess.check_output(
+              ['git', 'show', 'upstream-v0.39.0:app/routers/items_scan_modes.py'],
+              text=True,
+          )
+          upstream = upstream.replace(
+              'from app.services import item_copies\n',
+              'from app.services import item_copies, user_state\n', 1,
+          )
+          quick = '''def _scan_mode_quick_rate(\n    request, templates, item: dict, raw: str, *, user_id: int\n):\n    """Mark this item read for the acting user only."""\n    with get_db() as db:\n        user_state.set_reading_status(db, user_id, item["id"], "read")\n\n    items_common._log_scan(raw, item.get("media_type", ""), "marked_read", item["id"], "quick_rate")\n    resp = templates.TemplateResponse(\n        request, "fragments/scan_result.html",\n        {"status": "marked_read", "isbn": raw, "title": item["title"],\n         "item_id": item["id"], "cover_path": item.get("cover_path"),\n         "authors": item.get("authors"), "message": "Marked as read"},\n    )\n    return resp\n'''
+          upstream, n = re.subn(r'def _scan_mode_quick_rate\([\s\S]*\Z', quick, upstream, count=1)
+          if n != 1:
+              raise SystemExit('quick-rate function not found in upstream scan modes')
+          Path('app/routers/items_scan_modes.py').write_text(upstream)
+          PY
+
+          python -m compileall -q app
+          git diff --check
+          git diff --stat
+
+      - name: Install Python dependencies
+        run: pip install -r requirements.txt -r requirements-dev.txt
+
+      - name: Focused integration tests
+        shell: bash
+        run: |
+          set -euo pipefail
+          tests=(
+            tests/test_scan_modes.py
+            tests/test_archive.py
+            tests/test_item_copies.py
+            tests/test_home_dashboard.py
+            tests/test_collections_037.py
+            tests/test_collections_assignment_037.py
+            tests/test_collection_toolbar_permissions_037.py
+            tests/test_collection_detail_polish_037.py
+          )
+          existing=()
+          for t in "${tests[@]}"; do [ -f "$t" ] && existing+=("$t"); done
+          pytest -q "${existing[@]}"
+          make check-alpine
+
+      - name: Commit reconciled source files
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "Robert J Paisley"
+          git config user.email "56076332+sudo-rpaisley@users.noreply.github.com"
+          git add app/database.py app/main.py app/routers/pages.py app/routers/items_scan_modes.py app/templates/item_detail.html
+          git commit -m "Integration: reconcile Shelf 0.39 source conflicts"
+          git push origin HEAD:rebuild/integration-039
