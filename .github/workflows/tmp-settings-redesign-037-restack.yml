@@ -1,0 +1,50 @@
+name: Restack Settings redesign 0.37
+
+on:
+  push:
+    branches:
+      - tmp/settings-redesign-037-restack
+
+permissions:
+  contents: write
+
+jobs:
+  restack:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: rebuild/settings-redesign-037-v2
+          fetch-depth: 0
+      - name: Replay Settings-only history
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git fetch origin 8bcc704ced319494f0213e1a3c5327c20480278c 9a75064c4354bfc8723027c44b99d6128fd4f209
+          git cherry-pick 8bcc704ced319494f0213e1a3c5327c20480278c..9a75064c4354bfc8723027c44b99d6128fd4f209
+          git diff --check HEAD~8..HEAD
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+          cache: pip
+      - run: pip install -r requirements.txt -r requirements-dev.txt
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+      - run: npm ci
+      - name: Rebuild generated assets and badges
+        run: |
+          make css
+          make badges
+      - name: Focused Settings checks
+        run: |
+          pytest -q tests/test_settings_redesign_037.py
+          make check-alpine
+      - name: Commit regenerated artifacts if needed
+        run: |
+          git add README.md static/css/app.css static/sw.js
+          if ! git diff --cached --quiet; then
+            git commit -m "UI: regenerate Settings assets after navigation restack"
+          fi
+          git push --force-with-lease origin HEAD:rebuild/settings-redesign-037-v2
