@@ -149,7 +149,7 @@ def test_normal_item_write_assigns_new_item_to_main_library(db):
     item_id = item_write.insert_item(
         db,
         title="Default library item",
-        isbn="9780000007990",
+        isbn="9780000000170",
         media_type="book",
         source="test",
     )
@@ -160,7 +160,7 @@ def test_fixture_can_still_create_explicitly_unmapped_item(db):
     item_id = _insert_item(
         db,
         title="Deliberately unmapped",
-        isbn="9780000007983",
+        isbn="9780000000194",
         _library_id=None,
     )
     assert libraries.item_library_id(db, item_id) is None
