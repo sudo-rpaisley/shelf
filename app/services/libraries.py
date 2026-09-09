@@ -6,6 +6,8 @@ query/policy-only so permission checks never execute DDL on request paths.
 
 from __future__ import annotations
 
+import re
+
 
 LIBRARY_ROLE_LEVELS = {"viewer": 1, "editor": 2, "admin": 3}
 DEFAULT_LIBRARY_ID = 1
@@ -148,3 +150,76 @@ def has_item_role(db, user: dict, item_id: int, minimum_role: str = "viewer") ->
     if library_id is None:
         return False
     return has_library_role(db, user, library_id, minimum_role)
+
+_SQL_ALIAS = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
+
+
+def item_access_condition(
+    user: dict,
+    *,
+    item_alias: str = "i",
+    minimum_role: str = "viewer",
+) -> tuple[str, list]:
+    """Return a bound SQL predicate for catalogue rows visible to ``user``.
+
+    Admins retain global recovery access.  Non-admins must have a membership
+    for the item's non-archived library.  The item alias is validated because
+    SQL identifiers cannot be passed as SQLite bound parameters.
+    """
+    if minimum_role not in LIBRARY_ROLE_LEVELS:
+        raise ValueError("Unknown library role")
+    if not _SQL_ALIAS.fullmatch(item_alias):
+        raise ValueError("Invalid SQL item alias")
+    if user.get("role") == "admin":
+        return "1 = 1", []
+    if minimum_role == "admin":
+        return "1 = 0", []
+
+    roles = "('editor')" if minimum_role == "editor" else "('viewer','editor')"
+    return (
+        "EXISTS (SELECT 1 FROM library_items li "
+        "JOIN libraries l ON l.id = li.library_id "
+        "JOIN library_memberships lm ON lm.library_id = li.library_id "
+        f"WHERE li.item_id = {item_alias}.id "
+        "AND l.is_archived = 0 AND lm.user_id = ? "
+        f"AND lm.role IN {roles})",
+        [int(user["id"])],
+    )
+
+
+def scope_where(
+    where: str,
+    params: list,
+    user: dict,
+    *,
+    item_alias: str = "i",
+    minimum_role: str = "viewer",
+) -> tuple[str, list]:
+    """AND library visibility onto a Browse/search WHERE clause."""
+    access_sql, access_params = item_access_condition(
+        user, item_alias=item_alias, minimum_role=minimum_role
+    )
+    if where:
+        return f"{where} AND {access_sql}", [*params, *access_params]
+    return f"WHERE {access_sql}", [*access_params]
+
+
+def visible_locations(db, user: dict | None):
+    """Locations represented by items visible to ``user``.
+
+    ``None`` is retained for callers that are intentionally outside an
+    authenticated request and therefore expect the historical global list.
+    Admins likewise retain global recovery visibility.
+    """
+    if user is None or user.get("role") == "admin":
+        return db.execute(
+            "SELECT * FROM locations ORDER BY sort_order, name"
+        ).fetchall()
+
+    access_sql, access_params = item_access_condition(user)
+    return db.execute(
+        "SELECT DISTINCT l.* FROM locations l "
+        "JOIN items i ON i.location_id = l.id "
+        f"WHERE {access_sql} ORDER BY l.sort_order, l.name",
+        access_params,
+    ).fetchall()

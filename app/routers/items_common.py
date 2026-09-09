@@ -30,6 +30,7 @@ from app.config import HTTP_TIMEOUT, MEDIA_TYPES
 from app.database import get_db, get_setting
 from app.services import covers, detect, googlebooks, hardcover, national, openlibrary, provider_result
 from app.services import cover_queue
+from app.services import libraries
 from app.services import authors as authors_svc
 from app.services import igdb, scan_outcome, title_lookup, tmdb, upcitemdb
 from app.services import upc as upc_svc
@@ -49,7 +50,7 @@ SORT_OPTIONS = {
 }
 
 
-def filter_counts(db, values: dict, total: int) -> dict:
+def filter_counts(db, values: dict, total: int, *, user: dict | None = None) -> dict:
     """Cross-filter dropdown counts: each group is build_where minus its own filter.
 
     `values` is the dict `browse_filters.values_from` produced; `total` is the
@@ -58,7 +59,10 @@ def filter_counts(db, values: dict, total: int) -> dict:
     so the numbers cannot disagree between the first paint and the first swap.
     """
     def _count_where(exclude):
-        return browse_filters.build_where(values, exclude=exclude)
+        where, params = browse_filters.build_where(values, exclude=exclude)
+        if user is not None:
+            where, params = libraries.scope_where(where, params, user)
+        return where, params
 
     type_where, type_params = _count_where("media_type_filter")
     type_counts = {
@@ -108,9 +112,7 @@ def filter_counts(db, values: dict, total: int) -> dict:
         ).fetchall()
     }
 
-    locations = db.execute(
-        "SELECT * FROM locations ORDER BY sort_order, name"
-    ).fetchall()
+    locations = libraries.visible_locations(db, user)
 
     return {
         "type_counts": type_counts,

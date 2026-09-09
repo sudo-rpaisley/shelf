@@ -21,6 +21,7 @@ from app.routers import items_common
 from app.routers import items_scan_modes
 from app.routers.items_common import SORT_OPTIONS  # re-exported for pages.py
 from app.services import isbn as isbn_svc
+from app.services import libraries
 from app.services.item_write import (ItemValueError, insert_item, update_item_fields,
                                      update_items_fields, validate_item_fields,
                                      validated_location_id)
@@ -789,6 +790,7 @@ async def search_items(
     `owned` is tri-state).
     """
     templates = request.app.state.templates
+    user = dict(request.state.user)
 
     values = browse_filters.values_from(request.query_params)
     # Truncate search query to prevent slow LIKE scans
@@ -797,6 +799,7 @@ async def search_items(
     view = values["view"]
 
     where, params = browse_filters.build_where(values)
+    where, params = libraries.scope_where(where, params, user)
     _, order_clause = SORT_OPTIONS.get(sort, SORT_OPTIONS["newest"])
     offset = (max(page, 1) - 1) * per_page
 
@@ -821,7 +824,7 @@ async def search_items(
         # same where-clause with its own filter excluded, so the number beside
         # an option says what selecting it would yield. Shared with /browse so
         # the two routes cannot disagree.
-        counts = items_common.filter_counts(db, values, total) if page <= 1 else None
+        counts = items_common.filter_counts(db, values, total, user=user) if page <= 1 else None
 
     has_more = (offset + per_page) < total
 

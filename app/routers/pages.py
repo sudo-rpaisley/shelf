@@ -11,7 +11,7 @@ from app.database import get_db, get_setting, get_game_platforms, get_reading_hi
 from app.routers import items_common
 from app.routers.items_common import SORT_OPTIONS
 from app.routers.series import find_gaps
-from app.services import item_copies
+from app.services import item_copies, libraries
 from app.services.home_dashboard import dashboard_summary
 
 router = APIRouter()
@@ -49,10 +49,12 @@ async def browse(
     counts come from the same `items_common.filter_counts` helper `/api/search`
     uses, so the first paint and the first OOB swap cannot disagree.
     """
+    user = dict(request.state.user)
     values = browse_filters.values_from(request.query_params)
     # Truncate search query to prevent slow LIKE scans (parity with /api/search)
     values["q"] = values["q"][:200]
     where, params = browse_filters.build_where(values)
+    where, params = libraries.scope_where(where, params, user)
 
     with get_db() as db:
         _, order_clause = SORT_OPTIONS.get(values["sort"], SORT_OPTIONS["newest"])
@@ -73,36 +75,47 @@ async def browse(
             f"SELECT COUNT(*) as c FROM items i {where}", params
         ).fetchone()["c"]
 
+        access_sql, access_params = libraries.item_access_condition(user)
         series_names = [
             row["series_name"]
             for row in db.execute(
-                "SELECT DISTINCT series_name FROM items "
-                "WHERE series_name IS NOT NULL AND TRIM(series_name) != '' "
-                "ORDER BY series_name COLLATE NOCASE"
+                "SELECT DISTINCT i.series_name FROM items i "
+                "WHERE i.series_name IS NOT NULL AND TRIM(i.series_name) != '' "
+                f"AND {access_sql} ORDER BY i.series_name COLLATE NOCASE",
+                access_params,
             ).fetchall()
         ]
 
         # Cross-filter dropdown counts — `locations`, `type_counts`,
         # `location_counts`, `reading_status_counts`, `owned_count`,
         # `wishlist_count` and `filtered_total` all come from here.
-        counts = items_common.filter_counts(db, values, total_filtered)
+        counts = items_common.filter_counts(db, values, total_filtered, user=user)
 
         # Deliberately still global (design §5): none of these appears in
         # `fragments/filter_counts_oob.html`, so none can diverge.
         lent_out_count = db.execute(
-            "SELECT COUNT(DISTINCT item_id) as c FROM checkouts WHERE checked_in IS NULL"
+            "SELECT COUNT(DISTINCT c.item_id) as c "
+            "FROM checkouts c JOIN items i ON i.id = c.item_id "
+            f"WHERE c.checked_in IS NULL AND {access_sql}",
+            access_params,
         ).fetchone()["c"]
 
-        from app.routers.tags import get_all_tags
-        all_tags = get_all_tags(db)
+        all_tags = db.execute(
+            "SELECT t.id, t.name, COUNT(it.item_id) AS count "
+            "FROM tags t JOIN item_tags it ON it.tag_id = t.id "
+            "JOIN items i ON i.id = it.item_id "
+            f"WHERE {access_sql} GROUP BY t.id ORDER BY t.name COLLATE NOCASE",
+            access_params,
+        ).fetchall()
 
-        # Languages present in the library — the filter only renders/offers
-        # what actually exists.
+        # Languages present in the visible libraries only.
         item_languages = [
             row["language"]
             for row in db.execute(
-                "SELECT DISTINCT language FROM items "
-                "WHERE language IS NOT NULL AND language != '' ORDER BY language"
+                "SELECT DISTINCT i.language FROM items i "
+                "WHERE i.language IS NOT NULL AND i.language != '' "
+                f"AND {access_sql} ORDER BY i.language",
+                access_params,
             ).fetchall()
         ]
 

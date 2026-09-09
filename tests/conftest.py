@@ -158,6 +158,11 @@ def _create_user(username, password, display_name, role):
             "SELECT id, username, role, display_name FROM users WHERE username = ?",
             (username,),
         ).fetchone()
+        if role in ("viewer", "editor"):
+            from app.services import libraries
+            libraries.set_membership(
+                conn, libraries.DEFAULT_LIBRARY_ID, int(row["id"]), role
+            )
         return dict(row)
 
 
