@@ -219,6 +219,27 @@ MIGRATIONS: Sequence[tuple[int, str, str]] = (
      "CREATE INDEX IF NOT EXISTS idx_library_memberships_user ON library_memberships(user_id)"),
     (40, "Index catalogue items by library",
      "CREATE INDEX IF NOT EXISTS idx_library_items_library ON library_items(library_id)"),
+    (41, "Add library-scoped collections",
+     """CREATE TABLE IF NOT EXISTS collections (
+            id          INTEGER PRIMARY KEY AUTOINCREMENT,
+            library_id  INTEGER NOT NULL REFERENCES libraries(id) ON DELETE CASCADE,
+            name        TEXT NOT NULL COLLATE NOCASE,
+            description TEXT,
+            created_at  TEXT NOT NULL DEFAULT (datetime('now')),
+            updated_at  TEXT NOT NULL DEFAULT (datetime('now')),
+            UNIQUE(library_id, name)
+        )"""),
+    (42, "Add collection item memberships",
+     """CREATE TABLE IF NOT EXISTS collection_items (
+            collection_id INTEGER NOT NULL REFERENCES collections(id) ON DELETE CASCADE,
+            item_id       INTEGER NOT NULL REFERENCES items(id) ON DELETE CASCADE,
+            created_at    TEXT NOT NULL DEFAULT (datetime('now')),
+            PRIMARY KEY (collection_id, item_id)
+        )"""),
+    (43, "Index collection memberships by item",
+     "CREATE INDEX IF NOT EXISTS idx_collection_items_item ON collection_items(item_id)"),
+    (44, "Index collections by library",
+     "CREATE INDEX IF NOT EXISTS idx_collections_library ON collections(library_id, name COLLATE NOCASE)"),
 )
 
 MIGRATION_TABLES = """
@@ -357,6 +378,27 @@ CREATE TABLE IF NOT EXISTS library_items (
 );
 CREATE INDEX IF NOT EXISTS idx_library_items_library
     ON library_items(library_id);
+
+CREATE TABLE IF NOT EXISTS collections (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    library_id  INTEGER NOT NULL REFERENCES libraries(id) ON DELETE CASCADE,
+    name        TEXT NOT NULL COLLATE NOCASE,
+    description TEXT,
+    created_at  TEXT NOT NULL DEFAULT (datetime('now')),
+    updated_at  TEXT NOT NULL DEFAULT (datetime('now')),
+    UNIQUE(library_id, name)
+);
+
+CREATE TABLE IF NOT EXISTS collection_items (
+    collection_id INTEGER NOT NULL REFERENCES collections(id) ON DELETE CASCADE,
+    item_id       INTEGER NOT NULL REFERENCES items(id) ON DELETE CASCADE,
+    created_at    TEXT NOT NULL DEFAULT (datetime('now')),
+    PRIMARY KEY (collection_id, item_id)
+);
+CREATE INDEX IF NOT EXISTS idx_collection_items_item
+    ON collection_items(item_id);
+CREATE INDEX IF NOT EXISTS idx_collections_library
+    ON collections(library_id, name COLLATE NOCASE);
 
 CREATE TABLE IF NOT EXISTS game_platforms (
     id         INTEGER PRIMARY KEY AUTOINCREMENT,
