@@ -1,0 +1,67 @@
+name: Build library Browse scope on current upstream
+
+on:
+  push:
+    branches:
+      - tmp/library-browse-scope-upstream-039-builder
+
+permissions:
+  contents: write
+
+jobs:
+  build-test-publish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: tmp/library-browse-scope-upstream-039-builder
+          fetch-depth: 0
+      - name: Preserve helper and reset to library permission foundation
+        shell: bash
+        run: |
+          cp scripts/tmp_build_library_browse_scope_039.py /tmp/build_scope.py
+          git reset --hard 52065a5a59c5971bdbc24022660583e1318159dc
+          git config user.name "Robert J Paisley"
+          git config user.email "56076332+sudo-rpaisley@users.noreply.github.com"
+      - name: Build Browse scope
+        run: |
+          python /tmp/build_scope.py
+          git diff --check
+          python -m compileall -q app
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.13'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - run: pip install -r requirements.txt -r requirements-dev.txt
+      - run: npm ci
+      - name: Regenerate committed outputs
+        run: |
+          make css
+          make badges
+          python scripts/stamp_sw_version.py
+          git diff --check
+      - name: Focused library Browse checks
+        run: |
+          pytest -q tests/test_library_permissions.py tests/test_library_browse_access.py tests/test_browse_filter_registry.py tests/test_browse_filters_integration.py
+          make check-alpine
+          make check-csrf
+      - name: Full unit and static checks
+        run: |
+          make test
+          make checks-fast
+      - name: Full Chromium E2E
+        shell: bash
+        run: |
+          sudo rm -f /etc/apt/sources.list.d/google-chrome.list
+          playwright install --with-deps chromium
+          make test-e2e
+      - name: Publish one-commit dependent PR branch
+        shell: bash
+        run: |
+          set -euo pipefail
+          git add -A
+          git reset --soft 52065a5a59c5971bdbc24022660583e1318159dc
+          git commit -m "LIBRARIES: scope Browse and search visibility"
+          git push origin HEAD:upstream/library-browse-scope-039 --force-with-lease
