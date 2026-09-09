@@ -45,3 +45,26 @@ def test_account_menu_shortcut_action_is_registered_in_csp_component():
     assert "Alpine.data('accountMenu'" in source
     assert "openShortcuts()" in source
     assert "document.getElementById('shortcut-modal')" in source
+
+
+def test_oidc_account_modal_is_read_only(client, admin_user, db):
+    from app.auth import create_token
+
+    db.execute(
+        "INSERT INTO user_identities (user_id, provider, issuer, subject, email) "
+        "VALUES (?, 'oidc', ?, ?, ?)",
+        (admin_user["id"], "https://idp.example.test", "subject-123", "admin@example.test"),
+    )
+    token = create_token(
+        admin_user["id"], admin_user["username"], admin_user["role"],
+        admin_user["display_name"], auth_method="oidc",
+    )
+    client.cookies.set("access_token", token)
+
+    html = client.get("/browse").text
+    assert 'data-testid="oidc-account-managed"' in html
+    assert "Managed by your identity provider" in html
+    assert "OIDC" in html
+    assert 'x-model="current"' not in html
+    assert 'x-model="newPw"' not in html
+    assert '@click="saveName()"' not in html

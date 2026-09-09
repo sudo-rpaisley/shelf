@@ -25,7 +25,7 @@
                 <svg class="w-4 h-4 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5.121 17.804A9.969 9.969 0 0112 15c2.61 0 4.986 1.002 6.765 2.643M15 11a3 3 0 11-6 0 3 3 0 016 0zM12 21a9 9 0 100-18 9 9 0 000 18z"/></svg>
                 <span>
                     <span class="block font-medium text-shelf-text">Account</span>
-                    <span class="block text-xs text-shelf-muted">Profile and password</span>
+                    <span class="block text-xs text-shelf-muted">{% if user.auth_method == 'oidc' %}Managed by identity provider{% else %}Profile and password{% endif %}</span>
                 </span>
             </button>
         </div>
@@ -77,13 +77,39 @@
             <div class="flex items-center justify-between mb-5">
                 <div>
                     <h3 class="text-lg font-bold">Account</h3>
-                    <p class="text-xs text-shelf-muted mt-0.5">Manage your profile and sign-in details</p>
+                    <p class="text-xs text-shelf-muted mt-0.5">{% if user.auth_method == 'oidc' %}Your sign-in details are managed externally{% else %}Manage your profile and sign-in details{% endif %}</p>
                 </div>
                 <button type="button" @click="closeAccount()" aria-label="Close account dialog" class="text-shelf-muted hover:text-white">
                     <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg>
                 </button>
             </div>
 
+            {% if user.auth_method == 'oidc' %}
+            <div data-testid="oidc-account-managed" class="space-y-4">
+                <div class="rounded-lg border border-shelf-border bg-shelf-bg px-4 py-3">
+                    <p class="text-sm font-medium text-shelf-text">Managed by your identity provider</p>
+                    <p class="text-xs text-shelf-muted mt-1">Profile details and password changes are handled by your configured OIDC provider.</p>
+                </div>
+                <dl class="grid grid-cols-1 gap-3 text-sm">
+                    <div>
+                        <dt class="text-xs uppercase tracking-wider text-shelf-muted">Username</dt>
+                        <dd class="mt-1 text-shelf-text">{{ user.username }}</dd>
+                    </div>
+                    <div>
+                        <dt class="text-xs uppercase tracking-wider text-shelf-muted">Display name</dt>
+                        <dd class="mt-1 text-shelf-text">{{ user.display_name or user.username }}</dd>
+                    </div>
+                    <div>
+                        <dt class="text-xs uppercase tracking-wider text-shelf-muted">Shelf role</dt>
+                        <dd class="mt-1 text-shelf-text">{{ user.role|capitalize }}</dd>
+                    </div>
+                    <div>
+                        <dt class="text-xs uppercase tracking-wider text-shelf-muted">Sign-in</dt>
+                        <dd class="mt-1 text-shelf-text">OIDC</dd>
+                    </div>
+                </dl>
+            </div>
+            {% else %}
             <div class="flex gap-1 mb-5 border-b border-shelf-border">
                 <button type="button" @click="tab = 'profile'" :class="tab === 'profile' ? 'text-white border-shelf-accent' : 'text-shelf-muted border-transparent hover:text-white'"
                         class="px-3 py-2 text-sm font-medium border-b-2 -mb-px transition-colors">Profile</button>
@@ -143,6 +169,7 @@
                     Change Password
                 </button>
             </div>
+            {% endif %}
         </div>
     </div>
 </div>
