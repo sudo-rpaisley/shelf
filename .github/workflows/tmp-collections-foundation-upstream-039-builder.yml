@@ -1,5 +1,6 @@
 name: Build Collections foundation on current upstream
 
+# Final library-permissions parent validated at f62c4d372fc9627913c59a89e8637b8cb4ef2403.
 on:
   push:
     branches:
@@ -81,4 +82,11 @@ jobs:
           git add -A
           git reset --soft "$PARENT_SHA"
           git commit -m "COLLECTIONS: add library-scoped foundation"
-          git push origin HEAD:upstream/collections-foundation-039 --force-with-lease
+          git fetch origin refs/heads/upstream/collections-foundation-039:refs/remotes/origin/upstream/collections-foundation-039 || true
+          if git show-ref --verify --quiet refs/remotes/origin/upstream/collections-foundation-039; then
+            expected=$(git rev-parse refs/remotes/origin/upstream/collections-foundation-039)
+            git push origin HEAD:upstream/collections-foundation-039 \
+              --force-with-lease=refs/heads/upstream/collections-foundation-039:$expected
+          else
+            git push origin HEAD:upstream/collections-foundation-039
+          fi
