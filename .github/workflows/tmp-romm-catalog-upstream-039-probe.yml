@@ -1,0 +1,29 @@
+name: Probe RomM catalogue on current upstream
+
+on:
+  push:
+    branches:
+      - tmp/romm-catalog-upstream-039-probe
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: tmp/upstream-current-039
+          fetch-depth: 0
+      - run: git fetch origin '+refs/heads/*:refs/remotes/origin/*'
+      - name: Probe clean catalogue commit
+        shell: bash
+        run: |
+          set -u
+          git config user.name "Robert J Paisley"
+          git config user.email "56076332+sudo-rpaisley@users.noreply.github.com"
+          if ! git cherry-pick c040132d29bcd9c25f756bc05489290a466f8593; then
+            echo 'ROMM_CATALOG_CONFLICTS'
+            git diff --name-only --diff-filter=U
+            exit 10
+          fi
+          echo 'ROMM_CATALOG_APPLIED_CLEANLY'
+          git --no-pager show --stat --oneline HEAD
