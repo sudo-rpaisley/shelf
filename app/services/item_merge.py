@@ -107,6 +107,15 @@ def _reparent_copies(db, keep_id: int, other_id: int) -> None:
         )
 
 
+def _reparent_collections(db, keep_id: int, other_id: int) -> None:
+    db.execute(
+        "INSERT OR IGNORE INTO collection_items (collection_id, item_id, created_at) "
+        "SELECT collection_id, ?, created_at FROM collection_items WHERE item_id = ?",
+        (keep_id, other_id),
+    )
+    db.execute("DELETE FROM collection_items WHERE item_id = ?", (other_id,))
+
+
 def reparent_children(db, keep_id: int, other_id: int) -> None:
     """Move every child record of ``other_id`` onto ``keep_id``.
 
@@ -119,3 +128,4 @@ def reparent_children(db, keep_id: int, other_id: int) -> None:
     _reparent_tags(db, keep_id, other_id)
     _reparent_links(db, keep_id, other_id)
     _reparent_copies(db, keep_id, other_id)
+    _reparent_collections(db, keep_id, other_id)

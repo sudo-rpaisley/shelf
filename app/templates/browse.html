@@ -163,6 +163,17 @@
                     <option value="audiobooks" {{ 'selected' if f.media_family_filter == 'audiobooks' else '' }}>Audiobooks</option>
                 </select>
 
+                <label for="collection-filter" class="sr-only">Collection</label>
+                <select id="collection-filter" name="collection" data-testid="collection-filter"
+                        hx-get="/api/search" hx-trigger="change" hx-target="#item-grid"
+                        hx-include="{{ filter_includes('collection') }}"
+                        class="bg-shelf-bg border border-shelf-border rounded-lg px-3 py-2 text-sm text-shelf-text focus:ring-2 focus:ring-shelf-accent outline-none">
+                    <option value="" {{ 'selected' if not f.collection else '' }}>All Collections</option>
+                    {% for collection in browse_collections %}
+                    <option value="{{ collection.id }}" {{ 'selected' if f.collection == collection.id|string else '' }}>{{ collection.name }} — {{ collection.library_name }}</option>
+                    {% endfor %}
+                </select>
+
                 <label for="type-filter" class="sr-only">Media type</label>
                 <select id="type-filter" name="media_type_filter"
                         hx-get="/api/search" hx-trigger="change" hx-target="#item-grid"

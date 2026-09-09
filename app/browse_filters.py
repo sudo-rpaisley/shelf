@@ -93,6 +93,20 @@ def _media_family(value):
     return media_families.sql_condition(value)
 
 
+def _collection(value):
+    try:
+        collection_id = int(value)
+    except (TypeError, ValueError):
+        return _NEVER
+    if not (_SQLITE_INT_MIN <= collection_id <= _SQLITE_INT_MAX):
+        return _NEVER
+    return (
+        "i.id IN (SELECT ci.item_id FROM collection_items ci "
+        "WHERE ci.collection_id = ?)",
+        [collection_id],
+    )
+
+
 def _owned(value):
     # Tri-state: "" (either), "1" (owned), "0" (wishlist). In user-aware
     # Browse requests, the wishlist branch is replaced below with the acting
@@ -197,6 +211,7 @@ class BrowseFilter:
 FILTERS: tuple[BrowseFilter, ...] = (
     BrowseFilter("q", prefix="Search", condition=_search),
     BrowseFilter("media_family_filter", prefix="Family", condition=_media_family),
+    BrowseFilter("collection", prefix="Collection", condition=_collection),
     BrowseFilter("media_type_filter", prefix="Type", condition=_column("i.media_type")),
     BrowseFilter("location_filter", prefix="Location", condition=_column("i.location_id", cast=int)),
     BrowseFilter("sort", prefix="Sort", default="newest", clear_to="newest"),
