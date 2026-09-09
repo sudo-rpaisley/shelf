@@ -1,7 +1,9 @@
 name: Build Home and Stats library scope
 
 on:
-  workflow_dispatch:
+  push:
+    branches:
+      - tmp/library-home-stats-039-prep
 
 permissions:
   contents: write
