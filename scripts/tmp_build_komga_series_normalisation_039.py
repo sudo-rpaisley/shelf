@@ -53,7 +53,7 @@ def test_normalise_book_strips_komga_volume_suffix_but_keeps_year_runs():
     assert series_name("Batman (2016)") == "Batman (2016)"
     assert series_name("Watchmen") == "Watchmen"
 '''
-p.write_text(s + "\n")
+p.write_text(s.rstrip() + "\n")
 
 p = Path("tests/test_komga_records.py")
 s = p.read_text()
@@ -99,4 +99,4 @@ def test_resync_repairs_old_volume_suffix_series_name(db):
     assert second["item_id"] == first["item_id"]
     assert row["series_name"] == "One Piece"
 '''
-p.write_text(s + "\n")
+p.write_text(s.rstrip() + "\n")
