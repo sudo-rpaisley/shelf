@@ -1,5 +1,6 @@
 name: Final Shelf 0.39 integration gate
 
+# Rerun after legacy copy write-funnel integration fix.
 on:
   push:
     branches:
