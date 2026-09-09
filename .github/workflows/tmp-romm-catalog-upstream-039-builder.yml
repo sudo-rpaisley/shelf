@@ -42,6 +42,22 @@ jobs:
 
           printf '\n\ndef test_romm_settings_links_to_synced_library():\n    from pathlib import Path\n\n    html = Path("app/templates/fragments/settings/romm.html").read_text()\n    assert '\''href="/romm/library"'\'' in html\n    assert "Browse synced library" in html\n' >> tests/test_romm_catalog_main.py
 
+          python - <<'PY'
+          from pathlib import Path
+          p = Path("tests/e2e/test_romm_catalog_main.py")
+          s = p.read_text()
+          for item in ("snes_item", "gba_item"):
+              block = (
+                  '        conn.execute(\n'
+                  '            "INSERT OR IGNORE INTO library_items (item_id, library_id) VALUES (?, 1)",\n'
+                  f'            ({item},),\n'
+                  '        )\n'
+              )
+              assert block in s
+              s = s.replace(block, "")
+          p.write_text(s)
+          PY
+
           git diff --check
       - uses: actions/setup-python@v6
         with:
@@ -77,7 +93,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          git add app/main.py app/routers/romm_catalog.py app/services/romm_catalog.py app/templates/romm_library.html app/templates/fragments/romm_library_grid.html app/templates/fragments/settings/romm.html static/js/romm-catalog.js tests/test_romm_catalog_main.py tests/e2e/test_romm_catalog.py tests/test_nav.py README.md static/css/app.css static/sw.js
+          git add app/main.py app/routers/romm_catalog.py app/services/romm_catalog.py app/templates/romm_library.html app/templates/fragments/romm_library_grid.html app/templates/fragments/settings/romm.html static/js/romm-catalog.js tests/test_romm_catalog_main.py tests/e2e/test_romm_catalog_main.py tests/test_nav.py README.md static/css/app.css static/sw.js docs/romm-catalog.md
           git reset --soft 78a946d199489da70b5b5a5215097ce12e287b38
           git commit -m "ROMM: add browsable synced-library catalogue"
           git push origin HEAD:upstream/romm-catalog-039 --force-with-lease
