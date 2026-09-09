@@ -25,34 +25,34 @@ jobs:
 
           p = Path('tests/test_nav.py')
           s = p.read_text()
-          anchor = '''        "/cover-review": (
-            "reached from Settings -> Data -> Maintenance, not the nav: a "
-            "maintenance chore does not earn permanent nav real estate "
-            "(cover-attention-queue design, section 3). The link's existence is "
-            "pinned by test_settings.py's cover-review-link tests, so this "
-            "exemption is a claim with a test behind it rather than a hole."
-        ),
-'''
-          replacement = anchor + '''        "/romm": (
-            "provider-specific shortcut that redirects to /romm/library; the "
-            "catalogue is reached from Settings -> RomM rather than consuming "
-            "permanent primary-nav space. The Settings affordance is pinned by "
-            "test_romm_catalog_main.py."
-        ),
-        "/romm/library": (
-            "provider-specific secondary catalogue reached from Settings -> RomM, "
-            "with its Settings affordance pinned by test_romm_catalog_main.py."
-        ),
-'''
-          if anchor not in s:
-              raise SystemExit('nav exemption anchor not found')
-          p.write_text(s.replace(anchor, replacement, 1))
+          marker = '    }\n\n    nav_paths = {t["path"] for t in NAV_TABS}'
+          insert = (
+              '        "/romm": (\n'
+              '            "provider-specific shortcut that redirects to /romm/library; the "\n'
+              '            "catalogue is reached from Settings -> RomM rather than consuming "\n'
+              '            "permanent primary-nav space. The Settings affordance is pinned by "\n'
+              '            "test_romm_catalog_main.py."\n'
+              '        ),\n'
+              '        "/romm/library": (\n'
+              '            "provider-specific secondary catalogue reached from Settings -> RomM, "\n'
+              '            "with its Settings affordance pinned by test_romm_catalog_main.py."\n'
+              '        ),\n'
+          )
+          if marker not in s:
+              raise SystemExit('nav EXEMPT end marker not found')
+          p.write_text(s.replace(marker, insert + marker, 1))
 
           p = Path('tests/test_romm_catalog_main.py')
           s = p.read_text()
-          addition = '''\n\ndef test_romm_settings_links_to_synced_library():\n    from pathlib import Path\n\n    html = Path("app/templates/fragments/settings/romm.html").read_text()\n    assert 'href="/romm/library"' in html\n    assert "Browse synced library" in html\n'''
           if 'def test_romm_settings_links_to_synced_library' not in s:
-              p.write_text(s.rstrip() + addition + '\n')
+              s += (
+                  '\n\ndef test_romm_settings_links_to_synced_library():\n'
+                  '    from pathlib import Path\n\n'
+                  '    html = Path("app/templates/fragments/settings/romm.html").read_text()\n'
+                  '    assert \'href="/romm/library"\' in html\n'
+                  '    assert "Browse synced library" in html\n'
+              )
+              p.write_text(s)
           PY
           git diff --check
           git diff --stat
