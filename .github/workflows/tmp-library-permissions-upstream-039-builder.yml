@@ -1,0 +1,56 @@
+name: Build upstream-ready library permissions foundation
+
+on:
+  push:
+    branches:
+      - tmp/library-permissions-upstream-039-builder
+
+permissions:
+  contents: write
+
+jobs:
+  build-test-publish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: tmp/library-permissions-upstream-039-builder
+          fetch-depth: 0
+      - name: Preserve rebuild helper and reset to live upstream
+        shell: bash
+        run: |
+          cp scripts/tmp_build_library_permissions_039.py /tmp/build_library_permissions.py
+          git fetch origin '+refs/heads/*:refs/remotes/origin/*'
+          git reset --hard 78a946d199489da70b5b5a5215097ce12e287b38
+          python /tmp/build_library_permissions.py
+          git diff --check
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.13'
+      - run: pip install -r requirements.txt -r requirements-dev.txt
+      - name: Regenerate test badge
+        run: make badges
+      - name: Focused foundation tests
+        run: |
+          pytest -q tests/test_library_permissions.py tests/test_database.py
+          make check-alpine
+      - name: Full unit and static checks
+        run: |
+          make test
+          make checks-fast
+      - name: Install Chromium dependencies
+        shell: bash
+        run: |
+          sudo rm -f /etc/apt/sources.list.d/google-chrome.list
+          playwright install --with-deps chromium
+      - name: Full Chromium E2E
+        run: make test-e2e
+      - name: Publish one-commit PR branch
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "Robert J Paisley"
+          git config user.email "56076332+sudo-rpaisley@users.noreply.github.com"
+          git add app/database.py app/services/libraries.py tests/test_library_permissions.py README.md
+          git commit -m "LIBRARIES: add per-library permission foundation"
+          git push origin HEAD:upstream/library-permissions-039 --force-with-lease
