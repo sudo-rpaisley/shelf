@@ -20,6 +20,7 @@ jobs:
           set -euo pipefail
           cp scripts/tmp_build_library_item_read_039.py /tmp/build_item_reads.py
           cp scripts/tmp_patch_library_item_read_tests_039.py /tmp/patch_item_read_tests.py
+          cp scripts/tmp_patch_library_item_read_copy_from_039.py /tmp/patch_copy_from_reads.py
           git fetch origin '+refs/heads/*:refs/remotes/origin/*'
           git reset --hard origin/upstream/library-share-scope-039
           echo "PARENT_SHA=$(git rev-parse HEAD)" >> "$GITHUB_ENV"
@@ -29,6 +30,7 @@ jobs:
         run: |
           python /tmp/build_item_reads.py
           python /tmp/patch_item_read_tests.py
+          python /tmp/patch_copy_from_reads.py
           git diff --check
           python -m compileall -q app
       - uses: actions/setup-python@v6
@@ -46,6 +48,7 @@ jobs:
             tests/test_library_item_reads.py \
             tests/test_static_caching.py \
             tests/test_cover_review.py \
+            tests/test_items.py \
             tests/test_music_catalog.py \
             tests/test_komga_full_integration.py \
             tests/test_romm_full_integration.py
