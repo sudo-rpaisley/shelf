@@ -1,0 +1,205 @@
+name: Rebuild navigation polish 0.37
+
+on:
+  push:
+    branches:
+      - tmp/navigation-polish-037-build
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: rebuild/navigation-polish-037
+          fetch-depth: 0
+
+      - name: Apply navigation grouping and shortcut polish
+        shell: bash
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          # --- app/nav.py: add presentation groups without changing permissions. ---
+          p = Path('app/nav.py')
+          text = p.read_text()
+          replacements = {
+              '{"key": "browse", "label": "Browse", "path": "/browse"},':
+                  '{"key": "browse", "label": "Browse", "path": "/browse", "group": "primary"},',
+              '{"key": "my-list", "label": "My List", "path": "/my-list", "roles": ("admin", "editor", "viewer")},':
+                  '{"key": "my-list", "label": "My List", "path": "/my-list", "group": "primary", "roles": ("admin", "editor", "viewer")},',
+              '{"key": "scan", "label": "Scan", "path": "/scan", "roles": ("admin", "editor")},':
+                  '{"key": "scan", "label": "Scan", "path": "/scan", "group": "add", "roles": ("admin", "editor")},',
+              '{"key": "intake", "label": "Intake", "path": "/intake", "roles": ("admin", "editor"),':
+                  '{"key": "intake", "label": "Intake", "path": "/intake", "group": "add", "roles": ("admin", "editor"),',
+              '{"key": "shelf-fill", "label": "Shelf Fill", "path": "/shelf-fill",':
+                  '{"key": "shelf-fill", "label": "Shelf Fill", "path": "/shelf-fill", "group": "add",',
+              '{"key": "store", "label": "Store", "path": "/store"},':
+                  '{"key": "store", "label": "Store", "path": "/store", "group": "more"},',
+              '{"key": "series", "label": "Series", "path": "/series"},':
+                  '{"key": "series", "label": "Series", "path": "/series", "group": "primary"},',
+              '{"key": "music", "label": "Music", "path": "/music"},':
+                  '{"key": "music", "label": "Music", "path": "/music", "group": "more"},',
+              '{"key": "periodicals", "label": "Periodicals", "path": "/periodicals"},':
+                  '{"key": "periodicals", "label": "Periodicals", "path": "/periodicals", "group": "more"},',
+              '{"key": "discover", "label": "Discover", "path": "/discover", "requires": "hardcover"},':
+                  '{"key": "discover", "label": "Discover", "path": "/discover", "group": "primary", "requires": "hardcover"},',
+              '{"key": "stats", "label": "Stats", "path": "/stats"},':
+                  '{"key": "stats", "label": "Stats", "path": "/stats", "group": "more"},',
+              '{"key": "attention", "label": "Needs Attention", "path": "/attention",':
+                  '{"key": "attention", "label": "Needs Attention", "path": "/attention", "group": "more",',
+              '{"key": "settings", "label": "Settings", "path": "/settings", "roles": ("admin",),':
+                  '{"key": "settings", "label": "Settings", "path": "/settings", "group": "account", "roles": ("admin",),',
+              '{"key": "logs", "label": "Logs", "path": "/logs", "roles": ("admin",),':
+                  '{"key": "logs", "label": "Logs", "path": "/logs", "group": "account", "roles": ("admin",),',
+          }
+          for old, new in replacements.items():
+              if text.count(old) != 1:
+                  raise SystemExit(f'nav anchor changed: {old!r} -> {text.count(old)}')
+              text = text.replace(old, new, 1)
+          old = '            "menu": tab.get("menu", ""),\n'
+          new = '            "menu": tab.get("menu", ""),\n            "group": tab.get("group", "primary"),\n'
+          if text.count(old) != 1:
+              raise SystemExit('visible_tabs projection anchor changed')
+          text = text.replace(old, new, 1)
+          p.write_text(text)
+
+          # --- base.html: grouped responsive nav + account-owned shortcut help. ---
+          p = Path('app/templates/base.html')
+          text = p.read_text()
+          start = text.index('                    <!-- Disclosure menu:')
+          end = text.index('                </div>\n                {% if user %}', start)
+          grouped = '''                    {% set primary_tabs = nav_tabs | selectattr('group', 'equalto', 'primary') | list %}\n                    {% set add_tabs = nav_tabs | selectattr('group', 'equalto', 'add') | list %}\n                    {% set more_tabs = nav_tabs | selectattr('group', 'equalto', 'more') | list %}\n\n                    <!-- Compact disclosure menu on smaller screens. -->\n                    <div class="relative lg:hidden" x-data="navMenu"\n                         @click.outside="close()" @keydown.escape.window="close()">\n                        <button type="button" @click="toggle()" data-testid="nav-menu-button"\n                                aria-label="Main menu" aria-haspopup="menu" :aria-expanded="open"\n                                class="px-2 py-2 rounded-md text-shelf-muted hover:text-white hover:bg-shelf-hover transition-colors">\n                            <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 12h16M4 18h16"/></svg>\n                        </button>\n                        <div x-show="open" x-cloak data-testid="nav-menu-panel" role="menu"\n                             class="absolute left-0 top-full mt-2 w-56 bg-shelf-card border border-shelf-border rounded-xl shadow-xl py-1 z-50 overflow-hidden">\n                            {% for tab in primary_tabs %}\n                            <a href="{{ tab.path }}" data-nav-menu-tab="{{ tab.key }}" role="menuitem"\n                               class="block px-4 py-2.5 text-sm font-medium {% if request.url.path == tab.path %}bg-shelf-hover text-white{% else %}text-shelf-muted hover:text-white hover:bg-shelf-hover{% endif %} transition-colors">{{ tab.label }}</a>\n                            {% endfor %}\n                            {% if add_tabs %}\n                            <div class="border-t border-shelf-border py-1">\n                                <p class="px-4 pt-2 pb-1 text-[10px] uppercase tracking-wider text-shelf-muted">Add</p>\n                                {% for tab in add_tabs %}\n                                <a href="{{ tab.path }}" data-nav-menu-tab="{{ tab.key }}" role="menuitem"\n                                   class="block px-4 py-2.5 text-sm font-medium {% if request.url.path == tab.path %}bg-shelf-hover text-white{% else %}text-shelf-muted hover:text-white hover:bg-shelf-hover{% endif %} transition-colors">{{ tab.label }}</a>\n                                {% endfor %}\n                            </div>\n                            {% endif %}\n                            {% if more_tabs %}\n                            <div class="border-t border-shelf-border py-1">\n                                <p class="px-4 pt-2 pb-1 text-[10px] uppercase tracking-wider text-shelf-muted">More</p>\n                                {% for tab in more_tabs %}\n                                <a href="{{ tab.path }}" data-nav-menu-tab="{{ tab.key }}" role="menuitem"\n                                   class="block px-4 py-2.5 text-sm font-medium {% if request.url.path == tab.path %}bg-shelf-hover text-white{% else %}text-shelf-muted hover:text-white hover:bg-shelf-hover{% endif %} transition-colors">{{ tab.label }}</a>\n                                {% endfor %}\n                            </div>\n                            {% endif %}\n                        </div>\n                    </div>\n\n                    <!-- Desktop navigation keeps the main destinations exposed. -->\n                    <div class="hidden lg:flex items-center gap-1">\n                        {% for tab in primary_tabs %}\n                        <a href="{{ tab.path }}" data-nav-tab="{{ tab.key }}" class="px-3 py-2 rounded-md text-sm font-medium {% if request.url.path == tab.path %}bg-shelf-hover text-white{% else %}text-shelf-muted hover:text-white hover:bg-shelf-hover{% endif %} transition-colors">{{ tab.label }}</a>\n                        {% endfor %}\n\n                        {% if add_tabs %}\n                        <div class="relative" x-data="navMenu" @click.outside="close()" @keydown.escape.window="close()">\n                            <button type="button" @click="toggle()" data-testid="nav-add-button" aria-haspopup="menu" :aria-expanded="open"\n                                    class="flex items-center gap-1 px-3 py-2 rounded-md text-sm font-medium text-shelf-muted hover:text-white hover:bg-shelf-hover transition-colors">\n                                <span>Add</span>\n                                <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/></svg>\n                            </button>\n                            <div x-show="open" x-cloak data-testid="nav-add-panel" role="menu" class="absolute left-0 top-full mt-2 w-48 bg-shelf-card border border-shelf-border rounded-xl shadow-xl py-1 z-50 overflow-hidden">\n                                {% for tab in add_tabs %}\n                                <a href="{{ tab.path }}" data-nav-tab="{{ tab.key }}" role="menuitem" class="block px-4 py-2.5 text-sm font-medium {% if request.url.path == tab.path %}bg-shelf-hover text-white{% else %}text-shelf-muted hover:text-white hover:bg-shelf-hover{% endif %} transition-colors">{{ tab.label }}</a>\n                                {% endfor %}\n                            </div>\n                        </div>\n                        {% endif %}\n\n                        {% if more_tabs %}\n                        <div class="relative" x-data="navMenu" @click.outside="close()" @keydown.escape.window="close()">\n                            <button type="button" @click="toggle()" data-testid="nav-more-button" aria-haspopup="menu" :aria-expanded="open"\n                                    class="flex items-center gap-1 px-3 py-2 rounded-md text-sm font-medium text-shelf-muted hover:text-white hover:bg-shelf-hover transition-colors">\n                                <span>More</span>\n                                <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/></svg>\n                            </button>\n                            <div x-show="open" x-cloak data-testid="nav-more-panel" role="menu" class="absolute left-0 top-full mt-2 w-52 bg-shelf-card border border-shelf-border rounded-xl shadow-xl py-1 z-50 overflow-hidden">\n                                {% for tab in more_tabs %}\n                                <a href="{{ tab.path }}" data-nav-tab="{{ tab.key }}" role="menuitem" class="block px-4 py-2.5 text-sm font-medium {% if request.url.path == tab.path %}bg-shelf-hover text-white{% else %}text-shelf-muted hover:text-white hover:bg-shelf-hover{% endif %} transition-colors">{{ tab.label }}</a>\n                                {% endfor %}\n                            </div>\n                        </div>\n                        {% endif %}\n                    </div>\n'''
+          text = text[:start] + grouped + text[end:]
+
+          shortcut_start = text.index('    <!-- Keyboard shortcut help button -->')
+          shortcut_end = text.index('    <script src="/static/js/app.js"></script>', shortcut_start)
+          modal = '''    <!-- Keyboard shortcuts help modal. The visible trigger lives in the account menu. -->\n    <div id="shortcut-modal" role="dialog" aria-modal="true" aria-labelledby="shortcut-modal-title"\n         class="fixed inset-0 bg-black/60 z-[200] hidden items-center justify-center">\n        <div class="bg-shelf-card border border-shelf-border rounded-xl p-6 max-w-md w-full mx-4 shadow-2xl">\n            <div class="flex items-center justify-between mb-4">\n                <h3 id="shortcut-modal-title" class="text-lg font-bold">Keyboard Shortcuts</h3>\n                <button type="button" data-shortcut-close aria-label="Close keyboard shortcuts" class="text-shelf-muted hover:text-white">\n                    <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg>\n                </button>\n            </div>\n            <div class="space-y-4 text-sm">\n                <div>\n                    <h4 class="text-shelf-accent2 font-medium mb-2 text-xs uppercase tracking-wider">Global</h4>\n                    <div class="space-y-1.5">\n                        <div class="flex justify-between"><span class="text-shelf-muted">Focus search</span><kbd class="bg-shelf-hover px-2 py-0.5 rounded text-shelf-text font-mono">/</kbd></div>\n                        <div class="flex justify-between"><span class="text-shelf-muted">Go to Scan</span><kbd class="bg-shelf-hover px-2 py-0.5 rounded text-shelf-text font-mono">s</kbd></div>\n                        <div class="flex justify-between"><span class="text-shelf-muted">Go to Browse</span><kbd class="bg-shelf-hover px-2 py-0.5 rounded text-shelf-text font-mono">b</kbd></div>\n                        <div class="flex justify-between"><span class="text-shelf-muted">Show shortcuts</span><kbd class="bg-shelf-hover px-2 py-0.5 rounded text-shelf-text font-mono">?</kbd></div>\n                    </div>\n                </div>\n                <div>\n                    <h4 class="text-shelf-accent2 font-medium mb-2 text-xs uppercase tracking-wider">Browse Page</h4>\n                    <div class="space-y-1.5">\n                        <div class="flex justify-between"><span class="text-shelf-muted">Toggle grid / list view</span><kbd class="bg-shelf-hover px-2 py-0.5 rounded text-shelf-text font-mono">g</kbd></div>\n                        <div class="flex justify-between"><span class="text-shelf-muted">Toggle select mode</span><kbd class="bg-shelf-hover px-2 py-0.5 rounded text-shelf-text font-mono">e</kbd></div>\n                        <div class="flex justify-between"><span class="text-shelf-muted">Toggle filters (mobile)</span><kbd class="bg-shelf-hover px-2 py-0.5 rounded text-shelf-text font-mono">f</kbd></div>\n                        <div class="flex justify-between"><span class="text-shelf-muted">Clear all filters</span><kbd class="bg-shelf-hover px-2 py-0.5 rounded text-shelf-text font-mono">x</kbd></div>\n                        <div class="flex justify-between"><span class="text-shelf-muted">Exit select / blur search</span><kbd class="bg-shelf-hover px-2 py-0.5 rounded text-shelf-text font-mono">Esc</kbd></div>\n                    </div>\n                </div>\n            </div>\n            <div class="mt-4 pt-3 border-t border-shelf-border text-center">\n                <span class="text-xs text-shelf-muted">Shortcuts are disabled when typing in inputs</span>\n            </div>\n        </div>\n    </div>\n\n'''
+          text = text[:shortcut_start] + modal + text[shortcut_end:]
+          p.write_text(text)
+
+          # --- app.js: no-inline-CSP shortcut controls with account-menu trigger. ---
+          p = Path('static/js/app.js')
+          text = p.read_text()
+          text = text.replace(
+              "            shortcutModal.classList.add('hidden');\n            return;",
+              "            shortcutModal.classList.add('hidden');\n            shortcutModal.classList.remove('flex');\n            return;",
+              1,
+          )
+          old = "    else if (e.key === '?') { document.getElementById('shortcut-modal').classList.toggle('hidden'); }"
+          new = """    else if (e.key === '?') {\n        var modal = document.getElementById('shortcut-modal');\n        if (modal) {\n            var opening = modal.classList.contains('hidden');\n            modal.classList.toggle('hidden');\n            modal.classList.toggle('flex', opening);\n        }\n    }"""
+          if text.count(old) != 1:
+              raise SystemExit('keyboard shortcut toggle anchor changed')
+          text = text.replace(old, new, 1)
+          start = text.index('// The visible shortcut-help controls used inline onclick handlers.')
+          end = text.index('// --- Search-result form sync ---', start)
+          binder = '''// Keyboard-shortcut dialog controls live in this external script so they work\n// under Shelf's no-inline CSP. The old floating trigger is optional; current\n// navigation opens the same dialog from the account menu.\n(function() {\n    var modal = document.getElementById('shortcut-modal');\n    if (!modal) return;\n\n    function closeShortcutModal() {\n        modal.classList.add('hidden');\n        modal.classList.remove('flex');\n    }\n\n    var trigger = document.querySelector('[title="Keyboard shortcuts (?)"]');\n    if (trigger) {\n        trigger.removeAttribute('onclick');\n        trigger.addEventListener('click', function() {\n            var opening = modal.classList.contains('hidden');\n            modal.classList.toggle('hidden');\n            modal.classList.toggle('flex', opening);\n        });\n    }\n\n    modal.addEventListener('click', function(e) {\n        if (e.target === modal) closeShortcutModal();\n    });\n\n    var close = modal.querySelector('[data-shortcut-close]');\n    if (close) close.addEventListener('click', closeShortcutModal);\n})();\n\n'''
+          text = text[:start] + binder + text[end:]
+          p.write_text(text)
+
+          # --- Existing browser tests: use the account menu shortcut action. ---
+          p = Path('tests/e2e/test_bulk_actions.py')
+          text = p.read_text()
+          start = text.index('def test_shortcut_help_button_opens_and_modal_controls_close')
+          new_test = '''def test_shortcut_help_button_opens_and_modal_controls_close(live_server, authed_page):\n    """The account shortcut action and modal close surfaces work under strict CSP."""\n    authed_page.goto(f"{live_server['url']}/browse")\n    authed_page.wait_for_load_state("networkidle")\n\n    modal = authed_page.locator("#shortcut-modal")\n    expect(modal).to_be_hidden()\n\n    def open_shortcuts():\n        authed_page.get_by_test_id("account-menu-button").click()\n        panel = authed_page.get_by_test_id("account-menu-panel")\n        expect(panel).to_be_visible()\n        panel.get_by_test_id("account-menu-shortcuts").click()\n\n    open_shortcuts()\n    expect(modal).to_be_visible()\n\n    authed_page.get_by_role("button", name="Close keyboard shortcuts").click()\n    expect(modal).to_be_hidden()\n\n    open_shortcuts()\n    expect(modal).to_be_visible()\n    modal.click(position={"x": 5, "y": 5})\n    expect(modal).to_be_hidden()\n'''
+          text = text[:start] + new_test
+          p.write_text(text)
+
+          p = Path('tests/e2e/test_csp.py')
+          text = p.read_text()
+          start = text.index('def test_shortcut_help_interacts_without_inline_script_violation')
+          new_test = '''def test_shortcut_help_interacts_without_inline_script_violation(\n    live_server, browser, setup_admin\n):\n    """The account-menu keyboard help works without inline CSP violations."""\n    ctx = browser.new_context()\n    try:\n        page = attach_page_guard(ctx.new_page())\n        page.add_init_script(_VIOLATION_PROBE)\n        page.goto(f"{live_server['url']}/login")\n        page.fill("input[name=username]", setup_admin["username"])\n        page.fill("input[name=password]", setup_admin["password"])\n        page.click("button[type=submit]")\n        page.wait_for_url(f"{live_server['url']}/", timeout=10_000)\n\n        modal = page.locator("#shortcut-modal")\n        expect(modal).to_be_hidden()\n\n        def open_shortcuts():\n            page.get_by_test_id("account-menu-button").click()\n            panel = page.get_by_test_id("account-menu-panel")\n            expect(panel).to_be_visible()\n            panel.get_by_test_id("account-menu-shortcuts").click()\n\n        open_shortcuts()\n        expect(modal).to_be_visible()\n        expect(modal).to_contain_text("Keyboard Shortcuts")\n        assert page.evaluate("window.__cspViolations") == []\n\n        page.get_by_role("button", name="Close keyboard shortcuts").click()\n        expect(modal).to_be_hidden()\n\n        open_shortcuts()\n        expect(modal).to_be_visible()\n        page.keyboard.press("Escape")\n        expect(modal).to_be_hidden()\n        assert page.evaluate("window.__cspViolations") == []\n        assert_page_clean(page)\n    finally:\n        ctx.close()\n'''
+          text = text[:start] + new_test
+          p.write_text(text)
+
+          # --- Dedicated unit/browser coverage for grouped navigation. ---
+          Path('tests/test_navigation_polish_037.py').write_text('''"""Regression coverage for grouped Shelf navigation."""\n\nfrom app.nav import NAV_TABS, visible_tabs\n\n\nADMIN = {"id": 1, "username": "admin", "role": "admin"}\nVIEWER = {"id": 2, "username": "viewer", "role": "viewer"}\n\n\ndef test_registry_groups_current_destinations_without_changing_account_menu():\n    groups = {tab["key"]: tab.get("group", "primary") for tab in NAV_TABS}\n    assert [k for k, v in groups.items() if v == "primary"] == ["browse", "my-list", "series", "discover"]\n    assert [k for k, v in groups.items() if v == "add"] == ["scan", "intake", "shelf-fill"]\n    assert [k for k, v in groups.items() if v == "more"] == ["store", "music", "periodicals", "stats", "attention"]\n    assert [k for k, v in groups.items() if v == "account"] == ["settings", "logs"]\n    assert [tab["key"] for tab in NAV_TABS if tab.get("menu") == "account"] == ["settings", "logs"]\n\n\ndef test_visible_tabs_projects_group_for_templates(db):\n    by_key = {tab["key"]: tab for tab in visible_tabs(ADMIN)}\n    assert by_key["browse"]["group"] == "primary"\n    assert by_key["scan"]["group"] == "add"\n    assert by_key["stats"]["group"] == "more"\n    assert by_key["settings"]["group"] == "account"\n\n\ndef test_rendered_admin_navigation_uses_add_more_and_account_surfaces(admin_client):\n    html = admin_client.get("/browse").text\n    assert 'data-testid="nav-add-button"' in html\n    assert 'data-testid="nav-more-button"' in html\n    assert 'data-nav-tab="browse"' in html\n    assert 'data-nav-tab="series"' in html\n    assert 'data-nav-tab="scan"' in html\n    assert 'data-nav-tab="stats"' in html\n    assert 'data-testid="account-menu-settings"' in html\n    mobile = html.split('data-testid="nav-menu-panel"', 1)[1].split('<!-- Desktop navigation', 1)[0]\n    assert 'data-nav-menu-tab="settings"' not in mobile\n    assert 'data-nav-menu-tab="logs"' not in mobile\n\n\ndef test_viewer_has_no_empty_add_menu(viewer_client):\n    html = viewer_client.get("/browse").text\n    assert 'data-testid="nav-add-button"' not in html\n    assert 'data-testid="nav-more-button"' in html\n''')
+
+          Path('tests/e2e/test_navigation_polish_037.py').write_text('''"""Browser coverage for grouped desktop navigation."""\n\nimport pytest\nfrom playwright.sync_api import expect\n\npytestmark = pytest.mark.e2e\n\n\ndef test_add_and_more_menus_expose_current_destinations(live_server, authed_page):\n    authed_page.goto(f"{live_server['url']}/browse")\n    authed_page.wait_for_load_state("networkidle")\n\n    add = authed_page.get_by_test_id("nav-add-panel")\n    expect(add).to_be_hidden()\n    authed_page.get_by_test_id("nav-add-button").click()\n    expect(add).to_be_visible()\n    expect(add.locator('[data-nav-tab="scan"]')).to_be_visible()\n    expect(add.locator('[data-nav-tab="shelf-fill"]')).to_be_visible()\n\n    authed_page.keyboard.press("Escape")\n    expect(add).to_be_hidden()\n\n    more = authed_page.get_by_test_id("nav-more-panel")\n    authed_page.get_by_test_id("nav-more-button").click()\n    expect(more).to_be_visible()\n    expect(more.locator('[data-nav-tab="music"]')).to_be_visible()\n    expect(more.locator('[data-nav-tab="periodicals"]')).to_be_visible()\n    expect(more.locator('[data-nav-tab="stats"]')).to_be_visible()\n    expect(more.locator('[data-nav-tab="attention"]')).to_be_visible()\n\n\ndef test_shortcut_help_has_no_floating_button(live_server, authed_page):\n    authed_page.goto(f"{live_server['url']}/browse")\n    authed_page.wait_for_load_state("networkidle")\n    expect(authed_page.locator('button[title="Keyboard shortcuts (?)"]')).to_have_count(0)\n    authed_page.get_by_test_id("account-menu-button").click()\n    authed_page.get_by_test_id("account-menu-shortcuts").click()\n    expect(authed_page.locator("#shortcut-modal")).to_be_visible()\n''')
+          PY
+
+          git diff --check
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+          cache: pip
+      - run: pip install -r requirements.txt -r requirements-dev.txt
+      - name: Focused navigation regressions
+        run: |
+          pytest -q tests/test_nav.py tests/test_navigation_polish_037.py
+          make check-alpine
+      - name: Focused Chromium navigation regressions
+        run: |
+          playwright install --with-deps chromium
+          pytest -q -m e2e tests/e2e/test_navigation_polish_037.py tests/e2e/test_bulk_actions.py::test_shortcut_help_button_opens_and_modal_controls_close tests/e2e/test_csp.py::test_shortcut_help_interacts_without_inline_script_violation tests/e2e/test_setup_login.py::test_logout
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+      - name: Rebuild generated assets
+        run: |
+          npm ci
+          make css
+          make badges
+
+      - name: Commit validated navigation branch
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add app/nav.py app/templates/base.html static/js/app.js tests/e2e/test_bulk_actions.py tests/e2e/test_csp.py tests/test_navigation_polish_037.py tests/e2e/test_navigation_polish_037.py README.md static/css/app.css static/sw.js
+          git diff --cached --check
+          git commit -m "UI: group current navigation and consolidate shortcut help"
+          git push --force-with-lease origin HEAD:rebuild/navigation-polish-037
+
+  test:
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: rebuild/navigation-polish-037
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+          cache: pip
+      - run: pip install -r requirements.txt -r requirements-dev.txt
+      - run: make test
+      - run: make checks-fast
+
+  css:
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: rebuild/navigation-polish-037
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+      - run: npm ci
+      - run: make css
+      - run: git diff --exit-code --stat static/css/app.css static/sw.js
+
+  e2e:
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: rebuild/navigation-polish-037
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+          cache: pip
+      - run: pip install -r requirements.txt -r requirements-dev.txt
+      - run: playwright install --with-deps chromium
+      - run: make test-e2e
