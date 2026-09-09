@@ -29,6 +29,11 @@ jobs:
       - name: Build library-scoped sharing
         run: |
           python /tmp/build_share_scope.py
+          python - <<'PY'
+          from pathlib import Path
+          p = Path("tests/test_share_links.py")
+          p.write_text(p.read_text().rstrip() + "\n")
+          PY
           git diff --check
           python -m compileall -q app
       - uses: actions/setup-python@v6
