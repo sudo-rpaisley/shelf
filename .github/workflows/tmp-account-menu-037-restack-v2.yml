@@ -1,0 +1,148 @@
+name: Restack and validate account menu 0.37 v2
+
+on:
+  push:
+    branches:
+      - tmp/account-menu-037-restack
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: rebuild/account-menu-037-v2
+          fetch-depth: 0
+
+      - name: Replay clean account-menu source and tests
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git cherry-pick \
+            62895a9876e64c467a9392d4bc914e984109a247 \
+            4f83a821865c9187fc99707de2d936cad2f758a8 \
+            46af32e59eca114dcac5bd241f28658436abaac1 \
+            c8e8cd0dec99f5417341587a14f6fbccfd327d05
+
+      - name: Make the account surface OIDC-aware
+        shell: bash
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          p = Path("app/templates/fragments/account_menu.html")
+          text = p.read_text()
+
+          replacements = [
+              (
+                  '<span class="block text-xs text-shelf-muted">Profile and password</span>',
+                  '<span class="block text-xs text-shelf-muted">{% if user.auth_method == \'oidc\' %}Managed by identity provider{% else %}Profile and password{% endif %}</span>',
+              ),
+              (
+                  '<p class="text-xs text-shelf-muted mt-0.5">Manage your profile and sign-in details</p>',
+                  '<p class="text-xs text-shelf-muted mt-0.5">{% if user.auth_method == \'oidc\' %}Your sign-in details are managed externally{% else %}Manage your profile and sign-in details{% endif %}</p>',
+              ),
+          ]
+          for old, new in replacements:
+              if text.count(old) != 1:
+                  raise SystemExit(f"account template patch target changed: {old!r} => {text.count(old)}")
+              text = text.replace(old, new, 1)
+
+          marker = '            <div class="flex gap-1 mb-5 border-b border-shelf-border">\n'
+          if text.count(marker) != 1:
+              raise SystemExit(f"account tabs marker changed: {text.count(marker)}")
+          oidc = '''            {% if user.auth_method == 'oidc' %}\n            <div data-testid="oidc-account-managed" class="space-y-4">\n                <div class="rounded-lg border border-shelf-border bg-shelf-bg px-4 py-3">\n                    <p class="text-sm font-medium text-shelf-text">Managed by your identity provider</p>\n                    <p class="text-xs text-shelf-muted mt-1">Profile details and password changes are handled by your configured OIDC provider.</p>\n                </div>\n                <dl class="grid grid-cols-1 gap-3 text-sm">\n                    <div>\n                        <dt class="text-xs uppercase tracking-wider text-shelf-muted">Username</dt>\n                        <dd class="mt-1 text-shelf-text">{{ user.username }}</dd>\n                    </div>\n                    <div>\n                        <dt class="text-xs uppercase tracking-wider text-shelf-muted">Display name</dt>\n                        <dd class="mt-1 text-shelf-text">{{ user.display_name or user.username }}</dd>\n                    </div>\n                    <div>\n                        <dt class="text-xs uppercase tracking-wider text-shelf-muted">Shelf role</dt>\n                        <dd class="mt-1 text-shelf-text">{{ user.role|capitalize }}</dd>\n                    </div>\n                    <div>\n                        <dt class="text-xs uppercase tracking-wider text-shelf-muted">Sign-in</dt>\n                        <dd class="mt-1 text-shelf-text">OIDC</dd>\n                    </div>\n                </dl>\n            </div>\n            {% else %}\n'''
+          text = text.replace(marker, oidc + marker, 1)
+
+          modal_tail = '        </div>\n    </div>\n</div>'
+          pos = text.rfind(modal_tail)
+          if pos < 0:
+              raise SystemExit("account modal closing anchor changed")
+          text = text[:pos] + '            {% endif %}\n' + text[pos:]
+          p.write_text(text)
+
+          p = Path("tests/test_account_menu_037.py")
+          text = p.read_text()
+          text += '''\n\ndef test_oidc_account_modal_is_read_only(client, admin_user, db):\n    from app.auth import create_token\n\n    db.execute(\n        "INSERT INTO user_identities (user_id, provider, issuer, subject, email) "\n        "VALUES (?, 'oidc', ?, ?, ?)",\n        (admin_user["id"], "https://idp.example.test", "subject-123", "admin@example.test"),\n    )\n    token = create_token(\n        admin_user["id"], admin_user["username"], admin_user["role"],\n        admin_user["display_name"], auth_method="oidc",\n    )\n    client.cookies.set("access_token", token)\n\n    html = client.get("/browse").text\n    assert 'data-testid="oidc-account-managed"' in html\n    assert "Managed by your identity provider" in html\n    assert "OIDC" in html\n    assert 'x-model="current"' not in html\n    assert 'x-model="newPw"' not in html\n    assert '@click="saveName()"' not in html\n'''
+          p.write_text(text)
+          PY
+          git diff --check
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+          cache: pip
+      - run: pip install -r requirements.txt -r requirements-dev.txt
+
+      - name: Focused account and OIDC regressions
+        run: |
+          pytest -q tests/test_account_menu_037.py tests/test_oidc_account_management_037.py
+          make check-alpine
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+      - name: Rebuild generated assets
+        run: |
+          npm ci
+          make css
+          make badges
+
+      - name: Commit restacked branch
+        run: |
+          git add app/templates/fragments/account_menu.html static/js/components.js tests/test_account_menu_037.py tests/e2e/test_account_menu_037.py static/css/app.css static/sw.js README.md
+          git diff --cached --check
+          git commit -m "UI: restack rich OIDC-aware account menu on rebuilt Shelf"
+          git push --force-with-lease origin HEAD:rebuild/account-menu-037-v2
+
+  test:
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: rebuild/account-menu-037-v2
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+          cache: pip
+      - run: pip install -r requirements.txt -r requirements-dev.txt
+      - run: make test
+      - run: make checks-fast
+
+  css:
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: rebuild/account-menu-037-v2
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+      - run: npm ci
+      - run: make css
+      - run: git diff --exit-code --stat static/css/app.css static/sw.js
+
+  e2e:
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: rebuild/account-menu-037-v2
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+          cache: pip
+      - run: pip install -r requirements.txt -r requirements-dev.txt
+      - run: playwright install --with-deps chromium
+      - run: make test-e2e
