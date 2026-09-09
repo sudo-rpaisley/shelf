@@ -49,7 +49,7 @@ jobs:
           git diff --check
       - name: Focused library Browse checks
         run: |
-          pytest -q tests/test_library_permissions.py tests/test_library_browse_access.py tests/test_browse_filter_registry.py tests/test_browse_filters_integration.py
+          pytest -q tests/test_library_permissions.py tests/test_library_browse_access.py tests/test_browse_filters.py
           make check-alpine
           make check-csrf
       - name: Full unit and static checks
