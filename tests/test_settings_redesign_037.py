@@ -27,17 +27,21 @@ def test_settings_shell_keeps_current_feature_fragments(admin_client):
         assert label in html
     assert 'id="romm-panel"' in html
     assert 'id="komga-panel"' in html
+    assert 'data-testid="oidc-settings"' in html
 
 
-def test_connected_service_panels_remain_on_integrations_tab(admin_client):
+def test_connected_service_and_identity_panels_keep_their_existing_tabs(admin_client):
     html = admin_client.get("/settings").text
     for panel_id in ("romm-panel", "komga-panel"):
         start = html.index(f'id="{panel_id}"')
         opening = html[max(0, start - 120):start + 120]
         assert "tab === 'integrations'" in opening
-    # OIDC is also an integration surface even though it has a larger policy UI.
-    oidc_pos = html.index("OpenID Connect")
-    assert "tab === 'integrations'" in html[max(0, oidc_pos - 500):oidc_pos]
+
+    # Identity-provider configuration sits with account/access policy, not
+    # service synchronisation. The layout rebuild must preserve that decision.
+    oidc = html.index('data-testid="oidc-settings"')
+    opening = html[max(0, oidc - 120):oidc + 120]
+    assert "tab === 'users'" in opening
 
 
 def test_location_error_banner_contract_survives_layout_change(admin_client):
