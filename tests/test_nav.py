@@ -566,6 +566,11 @@ def test_every_top_level_page_is_reachable_from_the_nav():
             "pinned by test_settings.py's cover-review-link tests, so this "
             "exemption is a claim with a test behind it rather than a hole."
         ),
+        "/romm/library": (
+            "reached from Settings -> Integrations -> RomM -> Browse synced "
+            "library; provider-specific catalogues do not need permanent top-nav "
+            "space, and tests/test_romm_catalog.py pins the route and catalogue."
+        ),
     }
 
     nav_paths = {t["path"] for t in NAV_TABS}
