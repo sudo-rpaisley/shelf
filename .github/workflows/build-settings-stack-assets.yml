@@ -1,0 +1,36 @@
+name: Build Settings stack assets
+
+on:
+  pull_request:
+
+jobs:
+  build-assets:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out PR head
+        uses: actions/checkout@v7
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+
+      - name: Install Tailwind
+        run: npm ci
+
+      - name: Rebuild generated frontend assets
+        run: make css
+
+      - name: Upload generated assets
+        uses: actions/upload-artifact@v4
+        with:
+          name: settings-stack-assets
+          path: |
+            static/css/app.css
+            static/sw.js
