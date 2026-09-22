@@ -1,0 +1,54 @@
+name: Temporary Discogs architecture doc patch
+
+on:
+  push:
+    branches:
+      - tmp/discogs-architecture-doc-046
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: tmp/discogs-architecture-doc-046
+      - name: Patch architecture paragraph
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          path = Path("docs/architecture.md")
+          text = path.read_text()
+          old = '''- **Discogs** (`services/discogs.py`) searches for an exact pressing and fetches a
+            release by id, with the admin's personal access token (`discogs_token`, a
+            sensitive setting). **Nothing calls it yet** — it is groundwork for optional
+            exact-pressing enrichment of a Music item, and it is not meant to replace the
+            MusicBrainz release as a release's identity. `api.discogs.com` is paced at
+            1 req/s, the published rate for authenticated requests.'''
+          new = '''- **Discogs** (`services/discogs.py`) is optional exact-pressing enrichment on
+            an existing Music item. `routers/music.py` searches concrete releases and
+            validates a chosen release before `services/discogs_selection.py` stores only
+            its Release ID in `music_identifiers` as `discogs_release_id`. MusicBrainz
+            remains the canonical identity in `music_releases`; Discogs response metadata
+            is fetched fresh on demand rather than copied into Shelf, and Discogs artwork
+            or copy-level condition, acquisition and provenance data are not imported.
+            The admin's personal access token (`discogs_token`) remains a sensitive
+            setting, and `api.discogs.com` is paced at 1 req/s, the published rate for
+            authenticated requests.'''
+          if old not in text:
+              raise SystemExit("expected Discogs architecture paragraph was not found")
+          path.write_text(text.replace(old, new, 1))
+          PY
+      - name: Commit patched document
+        run: |
+          git config user.name "Robert J Paisley"
+          git config user.email "56076332+sudo-rpaisley@users.noreply.github.com"
+          git add docs/architecture.md
+          if git diff --cached --quiet; then
+            exit 0
+          fi
+          git commit -m "Document Discogs exact-pressing architecture"
+          git push origin HEAD:tmp/discogs-architecture-doc-046
