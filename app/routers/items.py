@@ -23,6 +23,7 @@ from app.routers.items_common import SORT_OPTIONS  # re-exported for pages.py
 from app.services import isbn as isbn_svc
 from app.services import browse_counts
 from app.services import lists
+from app.services import series_browse
 from app.services.item_write import (IdentifierInTrash, ItemValueError,
                                      insert_item, update_item_fields,
                                      update_items_fields, validate_item_fields,
@@ -879,57 +880,54 @@ async def search_items(
     per_page: int = DEFAULT_PAGE_SIZE,
     _=Depends(require_role("viewer")),
 ):
-    """Search/filter items. Returns HTMX fragment of item cards.
+    """Search/filter Browse units and return the HTMX result fragment.
 
-    Filter values are read from the query string via the registry rather than
-    declared as parameters here — a filter added to `app/browse_filters.py`
-    then needs no change in this signature. Everything is a plain string; the
-    registry owns the per-filter parsing (`location_filter` casts to int, and
-    `owned` is tri-state).
+    Filter semantics and dropdown counts remain item-based, exactly as
+    `/browse`'s first paint.  Presentation is series-aware: matching
+    items are collapsed into provider-neutral series units before
+    pagination, using the same service as `/browse`, so first paint and
+    live filtering cannot diverge.
     """
     templates = request.app.state.templates
 
     values = browse_filters.values_from(request.query_params)
-    # Truncate search query to prevent slow LIKE scans
     values["q"] = values["q"][:200]
     sort = values["sort"]
     view = values["view"]
-
     where, params = browse_filters.build_where(values)
-    _, order_clause = SORT_OPTIONS.get(sort, SORT_OPTIONS["newest"])
-    offset = (max(page, 1) - 1) * per_page
+
+    page = max(page, 1)
+    page_size = max(1, min(per_page, 200))
+    offset = (page - 1) * page_size
 
     with get_db() as db:
-        total = db.execute(
+        from app.routers.checkouts import get_overdue_days
+        items, browse_total = series_browse.fetch_units(
+            db,
+            where=where,
+            params=params,
+            sort=sort,
+            limit=page_size,
+            offset=offset,
+            overdue_days=get_overdue_days(db),
+        )
+
+        # Dropdown counts remain raw-item counts.  They answer how many
+        # items a filter would match; browse_total answers how many
+        # collapsed units are actually displayed and paginated.
+        total_filtered = db.execute(
             f"SELECT COUNT(*) as c FROM items_live i {where}", params
         ).fetchone()["c"]
+        counts = (
+            browse_counts.filter_counts(db, values, total_filtered)
+            if page <= 1 else None
+        )
 
-        from app.routers.checkouts import OVERDUE_CONDITION, get_overdue_days
-        items = db.execute(
-            f"SELECT i.*, l.name as location_name, "
-            f"(SELECT b.name FROM checkouts c JOIN borrowers b ON c.borrower_id = b.id "
-            f" WHERE c.item_id = i.id AND c.checked_in IS NULL LIMIT 1) AS lent_to, "
-            f"(SELECT 1 FROM checkouts c WHERE c.item_id = i.id AND {OVERDUE_CONDITION} LIMIT 1) AS lent_overdue, "
-            f"{lists.WISHLISTED_SQL} AS wishlisted "
-            f"FROM items_live i "
-            f"LEFT JOIN locations l ON i.location_id = l.id "
-            f"{where} ORDER BY {order_clause} LIMIT ? OFFSET ?",
-            [get_overdue_days(db)] + params + [per_page, offset],
-        ).fetchall()
-
-        # Cross-filter counts for dropdowns (page 1 only). Each group is the
-        # same where-clause with its own filter excluded, so the number beside
-        # an option says what selecting it would yield. Shared with /browse so
-        # the two routes cannot disagree.
-        counts = browse_counts.filter_counts(db, values, total) if page <= 1 else None
-
-    has_more = (offset + per_page) < total
-
+    has_more = (offset + page_size) < browse_total
     load_more_url = "/api/search?" + browse_filters.querystring(
         values, extra=[f"page={page + 1}"]
     )
 
-    # Page 1: full grid wrapper. Page 2+: just cards/rows (appended via outerHTML swap on load-more).
     if page <= 1:
         template = "fragments/item_grid.html"
     elif view == "list":
@@ -944,7 +942,8 @@ async def search_items(
         "has_more": has_more,
         "load_more_url": load_more_url,
         "page": page,
-        "total": total,
+        "browse_total": browse_total,
+        "total": browse_total,
         "has_filters": browse_filters.has_active_filters(values),
         "seven_days_ago": (datetime.now(tz=None) - timedelta(days=7)).strftime("%Y-%m-%d"),
     }
@@ -953,7 +952,6 @@ async def search_items(
         ctx["render_oob_counts"] = True
 
     return templates.TemplateResponse(request, template, ctx)
-
 
 @router.post("/items/bulk-update")
 async def bulk_update(request: Request, _=Depends(require_role("admin"))):

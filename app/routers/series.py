@@ -7,6 +7,7 @@ can be added to the wishlist via the existing add-to-shelf endpoint.
 import logging
 
 from fastapi import APIRouter, Depends, Form, Request
+from fastapi.responses import RedirectResponse
 
 from app.auth import require_role
 from app.config import BOOK_MEDIA_TYPES
@@ -130,6 +131,67 @@ async def series_page(request: Request, _=Depends(require_role("viewer"))):
             "unassigned_items": unassigned_items,
             "unassigned_total": unassigned_total,
         },
+    )
+
+
+@router.get("/series/{name:path}")
+async def series_detail(request: Request, name: str,
+                        _=Depends(require_role("viewer"))):
+    """Show one local series using Shelf's normal NOCASE identity.
+
+    This is a local-library drill-down, not a provider record. Manual,
+    Hardcover, Komga and future sources all meet here through
+    ``items_live.series_name``; provider integrations may enrich those
+    items but do not define the series URL or identity.
+    """
+    name = name.strip()
+    if not name:
+        return RedirectResponse(url="/series")
+
+    templates = request.app.state.templates
+    with get_db() as db:
+        rows = db.execute(
+            "SELECT i.id, i.title, i.authors, i.cover_path, i.series_name, "
+            "i.series_position, i.owned, i.reading_status, "
+            f"{lists.WISHLISTED_SQL} AS wishlisted "
+            "FROM items_live i WHERE i.series_name = ? COLLATE NOCASE "
+            "ORDER BY i.series_position IS NULL, i.series_position, "
+            "i.title COLLATE NOCASE, i.id",
+            (name,),
+        ).fetchall()
+        if not rows:
+            return RedirectResponse(url="/series")
+
+        meta = db.execute(
+            "SELECT description, complete, hc_total, hc_missing, hc_checked_at "
+            "FROM series_meta WHERE name = ? COLLATE NOCASE",
+            (name,),
+        ).fetchone()
+        has_hardcover = bool(get_setting(db, "hardcover_token"))
+
+    items = [dict(row) for row in rows]
+    spellings = {}
+    for item in items:
+        spelling = item["series_name"]
+        spellings[spelling] = spellings.get(spelling, 0) + 1
+    display_name = min(spellings.items(), key=lambda pair: (-pair[1], pair[0]))[0]
+
+    series = {
+        "name": display_name,
+        "items": items,
+        "owned_count": sum(1 for item in items if item["owned"]),
+        "wishlist_count": sum(1 for item in items if item["wishlisted"]),
+        "gaps": find_gaps([item["series_position"] for item in items]),
+        "description": meta["description"] if meta else None,
+        "complete": meta["complete"] if meta else None,
+        "hc_total": meta["hc_total"] if meta else None,
+        "hc_missing": meta["hc_missing"] if meta else None,
+        "hc_checked_at": meta["hc_checked_at"] if meta else None,
+    }
+    return templates.TemplateResponse(
+        request,
+        "series_detail.html",
+        {"series": series, "has_hardcover": has_hardcover},
     )
 
 
