@@ -165,7 +165,8 @@ def fetch_units(
     rows = db.execute(
         cte
         + f"""
-        SELECT id, unit_key, unit_label, is_series, member_count,
+        SELECT id, title, authors, cover_path, media_type, source, created_at,
+               unit_key, unit_label, is_series, member_count,
                member_ids_csv, series_name, series_position
         FROM units
         ORDER BY {order}
