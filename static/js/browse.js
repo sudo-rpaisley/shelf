@@ -406,6 +406,42 @@ function browsePage() {
             else window.location = url;
         },
 
+        // A grouped series still acts on ordinary item ids. Expanding its
+        // member set here keeps every existing bulk endpoint unchanged.
+        memberIds(value) {
+            return String(value || '').split(',')
+                .map(function(id) { return Number.parseInt(id, 10); })
+                .filter(function(id) { return Number.isInteger(id) && id > 0; });
+        },
+
+        seriesSelected(value) {
+            var ids = this.memberIds(value);
+            var self = this;
+            return ids.length > 0 && ids.every(function(id) {
+                return self.selectedIds.indexOf(id) >= 0;
+            });
+        },
+
+        toggleMembers(value) {
+            var ids = this.memberIds(value);
+            var allSelected = this.seriesSelected(value);
+            var self = this;
+            ids.forEach(function(id) {
+                var idx = self.selectedIds.indexOf(id);
+                if (allSelected) {
+                    if (idx >= 0) self.selectedIds.splice(idx, 1);
+                } else if (idx < 0) {
+                    self.selectedIds.push(id);
+                }
+            });
+        },
+
+        openSeriesOrToggle(value, url, event) {
+            if (this.selectMode) { this.toggleMembers(value); return; }
+            if (event && (event.ctrlKey || event.metaKey)) window.open(url, '_blank');
+            else window.location = url;
+        },
+
         toggleItem(id) {
             var idx = this.selectedIds.indexOf(id);
             if (idx >= 0) this.selectedIds.splice(idx, 1);
@@ -415,8 +451,15 @@ function browsePage() {
         selectAll() {
             var self = this;
             document.querySelectorAll('[data-item-id]').forEach(function(el) {
-                var id = parseInt(el.dataset.itemId);
-                if (self.selectedIds.indexOf(id) < 0) self.selectedIds.push(id);
+                var id = Number.parseInt(el.dataset.itemId, 10);
+                if (Number.isInteger(id) && id > 0 && self.selectedIds.indexOf(id) < 0) {
+                    self.selectedIds.push(id);
+                }
+            });
+            document.querySelectorAll('[data-series-member-ids]').forEach(function(el) {
+                self.memberIds(el.dataset.seriesMemberIds).forEach(function(id) {
+                    if (self.selectedIds.indexOf(id) < 0) self.selectedIds.push(id);
+                });
             });
         },
 
@@ -453,11 +496,11 @@ function browsePage() {
         },
 
         async bulkDelete() {
-            if (!confirm('Delete ' + this.selectedIds.length + ' items?')) return;
+            if (!confirm('Move ' + this.selectedIds.length + ' items to Trash?')) return;
             for (var id of this.selectedIds) {
                 await fetch('/api/items/' + id, {method: 'DELETE', headers: {'X-CSRF-Token': window.csrfToken()}});
             }
-            showToast('Deleted ' + this.selectedIds.length + ' items', 'success');
+            showToast('Moved ' + this.selectedIds.length + ' items to Trash', 'success');
             this.selectedIds = [];
             location.reload();
         }
