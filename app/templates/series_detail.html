@@ -1,0 +1,89 @@
+{% extends "base.html" %}
+{% block title %}{{ series.name }} — Shelf{% endblock %}
+{% block content %}
+<div class="mb-6">
+    <a href="/series" class="text-sm text-shelf-accent2 hover:text-shelf-text">← All series</a>
+    <div class="mt-3 flex items-start justify-between gap-4 flex-wrap">
+        <div>
+            <h1 class="text-2xl font-bold">{{ series.name }}</h1>
+            <p class="text-sm text-shelf-muted mt-1">
+                {{ series.items|length }} catalogued · {{ series.owned_count }} owned{% if series.wishlist_count %} · {{ series.wishlist_count }} wishlisted{% endif %}
+            </p>
+        </div>
+        <a href="/browse?group_series=0&q={{ series.name|urlencode }}"
+           class="px-3 py-1.5 bg-shelf-card border border-shelf-border rounded-lg text-xs text-shelf-muted hover:text-shelf-text">Browse matching items</a>
+    </div>
+</div>
+
+{% if series.description %}
+<div class="bg-shelf-card border border-shelf-border rounded-xl p-5 mb-6">
+    <h2 class="text-sm font-semibold mb-2">About this series</h2>
+    <p class="text-sm text-shelf-muted leading-relaxed whitespace-pre-line">{{ series.description }}</p>
+</div>
+{% endif %}
+
+<div class="grid grid-cols-1 lg:grid-cols-[1fr_16rem] gap-6">
+    <div>
+        <div class="flex items-center justify-between gap-3 mb-3">
+            <h2 class="text-lg font-semibold">Items</h2>
+            {% if series.gaps %}
+            <span class="text-xs text-shelf-warning">Possible gaps: {% for gap in series.gaps %}#{{ gap }}{% if not loop.last %}, {% endif %}{% endfor %}</span>
+            {% endif %}
+        </div>
+        <div class="cover-grid">
+            {% for item in series.items %}
+            <a href="/item/{{ item.id }}?from=series" class="group block">
+                <div class="cover-card bg-shelf-card rounded-lg overflow-hidden border border-shelf-border group-hover:border-shelf-accent/50 transition-colors shadow-lg">
+                    <div class="relative">
+                        {% if item.cover_path %}
+                        <img src="/{{ item.cover_path }}" alt="" class="w-full aspect-[2/3] object-cover" loading="lazy">
+                        {% else %}
+                        <div class="w-full aspect-[2/3] bg-shelf-hover flex items-center justify-center p-4">
+                            <span class="text-xs text-shelf-muted text-center">{{ item.title }}</span>
+                        </div>
+                        {% endif %}
+                        {% if item.series_position is not none %}
+                        <span class="absolute top-2 left-2 bg-black/70 text-white text-[10px] px-1.5 py-0.5 rounded">#{{ item.series_position|int if item.series_position == item.series_position|int else item.series_position }}</span>
+                        {% endif %}
+                        {% if item.wishlisted %}
+                        <span class="absolute bottom-2 left-2 bg-shelf-warning/90 text-black text-[10px] px-1.5 py-0.5 rounded font-medium">Wishlist</span>
+                        {% endif %}
+                    </div>
+                    <div class="p-3">
+                        <p class="font-medium text-sm truncate" title="{{ item.title }}">{{ item.title }}</p>
+                        <p class="text-xs text-shelf-muted truncate mt-0.5">{{ item.authors or media_types.get(item.media_type, item.media_type) }}</p>
+                    </div>
+                </div>
+            </a>
+            {% endfor %}
+        </div>
+    </div>
+
+    <aside class="space-y-3">
+        <div class="bg-shelf-card border border-shelf-border rounded-xl p-4">
+            <h2 class="text-sm font-semibold mb-2">Series status</h2>
+            {% if series.complete == 1 %}
+            <p class="text-sm text-shelf-success">✓ Marked complete</p>
+            {% elif series.hc_missing is not none %}
+            {% if series.hc_missing == 0 %}
+            <p class="text-sm text-shelf-success">Hardcover reports no missing volumes</p>
+            {% else %}
+            <p class="text-sm text-shelf-warning">Hardcover reports {{ series.hc_missing }} missing</p>
+            {% endif %}
+            {% elif series.gaps %}
+            <p class="text-sm text-shelf-warning">Local numbering suggests {{ series.gaps|length }} gap{{ '' if series.gaps|length == 1 else 's' }}</p>
+            {% else %}
+            <p class="text-sm text-shelf-muted">No known completeness result</p>
+            {% endif %}
+        </div>
+        <div class="bg-shelf-card border border-shelf-border rounded-xl p-4">
+            <h2 class="text-sm font-semibold mb-2">Sources</h2>
+            <div class="flex flex-wrap gap-1.5">
+                {% for source in series.sources %}
+                <span class="px-2 py-1 rounded bg-shelf-bg border border-shelf-border text-xs text-shelf-muted">{{ source_labels.get(source, source|replace('_', ' ')|title) }}</span>
+                {% endfor %}
+            </div>
+        </div>
+    </aside>
+</div>
+{% endblock %}
