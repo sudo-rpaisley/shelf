@@ -33,7 +33,10 @@ def upsert_publication(
 
     ISSN wins when present. Without an ISSN, case-insensitive title matching is
     the conservative fallback so scanning another issue does not create a new
-    publication every time.
+    publication every time. When an ISSN *is* present, title fallback may only
+    claim a publication that does not have an ISSN yet: two editions can share
+    a title while carrying different ISSNs, and one must never overwrite the
+    other's identity.
     """
     title = (title or "").strip()
     if not title:
@@ -47,11 +50,20 @@ def upsert_publication(
             (issn,),
         ).fetchone()
     if row is None:
-        row = db.execute(
-            "SELECT id FROM periodical_publications WHERE title = ? COLLATE NOCASE "
-            "ORDER BY id LIMIT 1",
-            (title,),
-        ).fetchone()
+        if issn:
+            row = db.execute(
+                "SELECT id FROM periodical_publications "
+                "WHERE title = ? COLLATE NOCASE "
+                "AND (issn IS NULL OR TRIM(issn) = '') "
+                "ORDER BY id LIMIT 1",
+                (title,),
+            ).fetchone()
+        else:
+            row = db.execute(
+                "SELECT id FROM periodical_publications WHERE title = ? COLLATE NOCASE "
+                "ORDER BY id LIMIT 1",
+                (title,),
+            ).fetchone()
 
     if row:
         publication_id = row["id"]
