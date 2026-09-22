@@ -1,5 +1,6 @@
 from types import SimpleNamespace
 
+from app.routers import settings as settings_router
 from app.services import discogs, discogs_selection, music_catalog
 
 
@@ -23,16 +24,19 @@ def _music_item(db, *, title="Kind of Blue", artist="Miles Davis", upc="12345678
             "media": [],
         },
     )
+    # Request handlers use their own database connection. Commit seeded rows
+    # before asking TestClient to read them.
+    db.commit()
     return item_id
 
 
-def _save_token(admin_client):
-    response = admin_client.post(
-        "/api/settings",
-        data={"discogs_token": "discogs-test-token"},
-        follow_redirects=False,
-    )
-    assert response.status_code == 303
+def _save_token(db):
+    # Use the same sensitive-setting writer as the Settings route without
+    # involving a second authenticated TestClient. admin_client/editor_client
+    # share the underlying client fixture, so using both in one test would make
+    # the last fixture to set access_token win.
+    settings_router._upsert_setting(db, "discogs_token", "discogs-test-token")
+    db.commit()
 
 
 def test_music_item_lazy_loads_discogs_panel(admin_client, db):
@@ -66,6 +70,7 @@ def test_viewer_can_see_saved_release_id_without_spending_provider_credential(
 ):
     item_id = _music_item(db)
     discogs_selection.set_selected_release_id(db, item_id, 123456)
+    db.commit()
 
     async def should_not_call(*args, **kwargs):
         raise AssertionError("Viewer rendering must not contact Discogs")
@@ -100,11 +105,9 @@ def test_viewer_cannot_trigger_discogs_search_or_mutation(viewer_client, db):
     assert clear.status_code == 403
 
 
-def test_editor_search_renders_candidates_and_attribution(
-    admin_client, editor_client, db, monkeypatch
-):
+def test_editor_search_renders_candidates_and_attribution(editor_client, db, monkeypatch):
     item_id = _music_item(db)
-    _save_token(admin_client)
+    _save_token(db)
     seen = {}
 
     async def fake_search(query, client, *, token, artist=None, barcode=None,
@@ -152,11 +155,11 @@ def test_editor_search_renders_candidates_and_attribution(
 
 
 def test_selection_validates_concrete_release_then_persists_only_its_id(
-    admin_client, editor_client, db, monkeypatch
+    editor_client, db, monkeypatch
 ):
     item_id = _music_item(db)
     music_catalog.add_identifier(db, item_id, "matrix_runout", "XSM47326-1A")
-    _save_token(admin_client)
+    _save_token(db)
 
     async def fake_lookup(release_id, client, *, token):
         assert str(release_id) == "123456"
@@ -194,12 +197,10 @@ def test_selection_validates_concrete_release_then_persists_only_its_id(
     ]
 
 
-def test_fresh_details_are_displayed_but_not_persisted(
-    admin_client, editor_client, db, monkeypatch
-):
+def test_fresh_details_are_displayed_but_not_persisted(editor_client, db, monkeypatch):
     item_id = _music_item(db)
     discogs_selection.set_selected_release_id(db, item_id, 123456)
-    _save_token(admin_client)
+    _save_token(db)
     before_release = dict(db.execute(
         "SELECT * FROM music_releases WHERE item_id = ?", (item_id,)
     ).fetchone())
@@ -249,6 +250,7 @@ def test_clear_removes_only_discogs_selection(editor_client, db):
     item_id = _music_item(db)
     music_catalog.add_identifier(db, item_id, "barcode", "123456789012")
     discogs_selection.set_selected_release_id(db, item_id, 123456)
+    db.commit()
 
     response = editor_client.post(
         f"/api/music/items/{item_id}/discogs/clear",
