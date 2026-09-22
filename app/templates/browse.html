@@ -69,7 +69,7 @@
              fitted. Wrapping makes the row count-independent instead of
              fitting only until the library grows. -->
         <div class="flex flex-wrap items-center gap-3">
-            <h1 class="text-2xl font-bold whitespace-nowrap">Collection <span id="collection-count" class="text-shelf-muted text-lg font-normal">({{ filtered_total }})</span></h1>
+            <h1 class="text-2xl font-bold whitespace-nowrap">Collection <span id="collection-count" class="text-shelf-muted text-lg font-normal">({{ display_total if display_total is defined else filtered_total }})</span></h1>
             <!-- View toggle -->
             <div class="flex items-center shrink-0 bg-shelf-card border border-shelf-border rounded-lg overflow-hidden" data-testid="view-toggle">
                 <button @click="setView('grid')" :class="viewMode === 'grid' ? 'bg-shelf-accent/20 text-shelf-accent2' : 'text-shelf-muted hover:text-shelf-text'"

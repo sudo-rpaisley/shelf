@@ -33,7 +33,7 @@ from app.services import detect
 from app.services import cover_queue
 from app.services import legacy_book
 from app.services import scan_outcome
-from app.services import item_merge
+from app.services import item_merge, series_browse
 from app.services import restore_report
 from app.services import item_template
 from app.services import upc as upc_svc, tmdb, igdb
@@ -904,18 +904,28 @@ async def search_items(
             f"SELECT COUNT(*) as c FROM items_live i {where}", params
         ).fetchone()["c"]
 
+        units, display_total = series_browse.fetch_units(
+            db, where, params, order_clause,
+            limit=per_page, offset=offset,
+        )
+
         from app.routers.checkouts import OVERDUE_CONDITION, get_overdue_days
-        items = db.execute(
-            f"SELECT i.*, l.name as location_name, "
-            f"(SELECT b.name FROM checkouts c JOIN borrowers b ON c.borrower_id = b.id "
-            f" WHERE c.item_id = i.id AND c.checked_in IS NULL LIMIT 1) AS lent_to, "
-            f"(SELECT 1 FROM checkouts c WHERE c.item_id = i.id AND {OVERDUE_CONDITION} LIMIT 1) AS lent_overdue, "
-            f"{lists.WISHLISTED_SQL} AS wishlisted "
-            f"FROM items_live i "
-            f"LEFT JOIN locations l ON i.location_id = l.id "
-            f"{where} ORDER BY {order_clause} LIMIT ? OFFSET ?",
-            [get_overdue_days(db)] + params + [per_page, offset],
-        ).fetchall()
+        unit_ids = [unit["id"] for unit in units]
+        if unit_ids:
+            placeholders = ",".join("?" for _ in unit_ids)
+            detail_rows = db.execute(
+                f"SELECT i.*, l.name as location_name, "
+                f"(SELECT b.name FROM checkouts c JOIN borrowers b ON c.borrower_id = b.id "
+                f" WHERE c.item_id = i.id AND c.checked_in IS NULL LIMIT 1) AS lent_to, "
+                f"(SELECT 1 FROM checkouts c WHERE c.item_id = i.id AND {OVERDUE_CONDITION} LIMIT 1) AS lent_overdue, "
+                f"{lists.WISHLISTED_SQL} AS wishlisted "
+                f"FROM items_live i LEFT JOIN locations l ON i.location_id = l.id "
+                f"WHERE i.id IN ({placeholders})",
+                [get_overdue_days(db)] + unit_ids,
+            ).fetchall()
+            items = series_browse.merge_item_details(units, detail_rows)
+        else:
+            items = []
 
         # Cross-filter counts for dropdowns (page 1 only). Each group is the
         # same where-clause with its own filter excluded, so the number beside
@@ -923,7 +933,7 @@ async def search_items(
         # the two routes cannot disagree.
         counts = browse_counts.filter_counts(db, values, total) if page <= 1 else None
 
-    has_more = (offset + per_page) < total
+    has_more = (offset + per_page) < display_total
 
     load_more_url = "/api/search?" + browse_filters.querystring(
         values, extra=[f"page={page + 1}"]
@@ -944,7 +954,8 @@ async def search_items(
         "has_more": has_more,
         "load_more_url": load_more_url,
         "page": page,
-        "total": total,
+        "total": display_total,
+        "display_total": display_total,
         "has_filters": browse_filters.has_active_filters(values),
         "seven_days_ago": (datetime.now(tz=None) - timedelta(days=7)).strftime("%Y-%m-%d"),
     }

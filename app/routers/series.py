@@ -7,11 +7,12 @@ can be added to the wishlist via the existing add-to-shelf endpoint.
 import logging
 
 from fastapi import APIRouter, Depends, Form, Request
+from fastapi.responses import RedirectResponse
 
 from app.auth import require_role
 from app.config import BOOK_MEDIA_TYPES
 from app.database import gc_orphaned_series_meta, get_db, get_setting
-from app.services import lists
+from app.services import lists, series_browse
 from app.services import hardcover
 
 logger = logging.getLogger(__name__)
@@ -30,23 +31,7 @@ UNASSIGNED_MEDIA_TYPES = tuple(sorted(BOOK_MEDIA_TYPES))
 UNASSIGNED_STRIP_CAP = 12
 
 
-def find_gaps(positions: list) -> list[int]:
-    """Missing integer positions between 1 and the highest whole-numbered
-    position. Fractional positions (novellas: 2.5) are ignored for gap math."""
-    ints = set()
-    for p in positions:
-        if p is None:
-            continue
-        try:
-            f = float(p)
-        except (TypeError, ValueError):
-            continue
-        if f.is_integer() and f >= 1:
-            ints.add(int(f))
-    if not ints:
-        return []
-    return [n for n in range(1, max(ints) + 1) if n not in ints]
-
+find_gaps = series_browse.find_gaps
 
 @router.get("/series")
 async def series_page(request: Request, _=Depends(require_role("viewer"))):
@@ -130,6 +115,21 @@ async def series_page(request: Request, _=Depends(require_role("viewer"))):
             "unassigned_items": unassigned_items,
             "unassigned_total": unassigned_total,
         },
+    )
+
+
+@router.get("/series/{name:path}")
+async def series_detail_page(
+    request: Request,
+    name: str,
+    _=Depends(require_role("viewer")),
+):
+    with get_db() as db:
+        series = series_browse.series_detail(db, name)
+    if series is None:
+        return RedirectResponse(url="/series", status_code=302)
+    return request.app.state.templates.TemplateResponse(
+        request, "series_detail.html", {"series": series}
     )
 
 

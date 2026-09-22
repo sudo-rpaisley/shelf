@@ -406,6 +406,35 @@ function browsePage() {
             else window.location = url;
         },
 
+        groupIds(raw) {
+            return String(raw || '').split(',').map(function(value) {
+                return Number.parseInt(value, 10);
+            }).filter(function(value) { return Number.isInteger(value) && value > 0; });
+        },
+
+        groupSelected(raw) {
+            var ids = this.groupIds(raw);
+            return ids.length > 0 && ids.every((id) => this.selectedIds.includes(id));
+        },
+
+        toggleGroup(raw) {
+            var ids = this.groupIds(raw);
+            var allSelected = ids.length > 0 && ids.every((id) => this.selectedIds.includes(id));
+            if (allSelected) {
+                this.selectedIds = this.selectedIds.filter((id) => ids.indexOf(id) < 0);
+            } else {
+                ids.forEach((id) => {
+                    if (this.selectedIds.indexOf(id) < 0) this.selectedIds.push(id);
+                });
+            }
+        },
+
+        openSeriesOrToggle(raw, url, event) {
+            if (this.selectMode) { this.toggleGroup(raw); return; }
+            if (event && (event.ctrlKey || event.metaKey)) window.open(url, '_blank');
+            else window.location = url;
+        },
+
         toggleItem(id) {
             var idx = this.selectedIds.indexOf(id);
             if (idx >= 0) this.selectedIds.splice(idx, 1);
@@ -414,7 +443,13 @@ function browsePage() {
 
         selectAll() {
             var self = this;
-            document.querySelectorAll('[data-item-id]').forEach(function(el) {
+            document.querySelectorAll('[data-item-id], [data-item-ids]').forEach(function(el) {
+                if (el.dataset.itemIds) {
+                    self.groupIds(el.dataset.itemIds).forEach(function(id) {
+                        if (self.selectedIds.indexOf(id) < 0) self.selectedIds.push(id);
+                    });
+                    return;
+                }
                 var id = parseInt(el.dataset.itemId);
                 if (self.selectedIds.indexOf(id) < 0) self.selectedIds.push(id);
             });
