@@ -8,7 +8,7 @@ from app.auth import require_role
 from app.config import MEDIA_TYPES, DEFAULT_PAGE_SIZE, BOOK_MEDIA_TYPES
 from app.services.synopsis import SYNOPSIS_MEDIA_TYPES
 from app.currency import get_currency
-from app.services import browse_counts
+from app.services import browse_counts, series_browse
 from app.services import lists
 from app.services import isbn as isbn_svc
 from app.services import upc as upc_svc
@@ -60,24 +60,15 @@ async def browse(
     where, params = browse_filters.build_where(values)
 
     with get_db() as db:
-        _, order_clause = SORT_OPTIONS.get(values["sort"], SORT_OPTIONS["newest"])
-
-        from app.routers.checkouts import OVERDUE_CONDITION, get_overdue_days
-        items = db.execute(
-            f"SELECT i.*, l.name as location_name, "
-            f"(SELECT b.name FROM checkouts c JOIN borrowers b ON c.borrower_id = b.id "
-            f" WHERE c.item_id = i.id AND c.checked_in IS NULL LIMIT 1) AS lent_to, "
-            f"(SELECT 1 FROM checkouts c WHERE c.item_id = i.id AND {OVERDUE_CONDITION} LIMIT 1) AS lent_overdue, "
-            f"{lists.WISHLISTED_SQL} AS wishlisted "
-            f"FROM items_live i "
-            f"LEFT JOIN locations l ON i.location_id = l.id "
-            f"{where} ORDER BY {order_clause} LIMIT ?",
-            [get_overdue_days(db)] + params + [DEFAULT_PAGE_SIZE],
-        ).fetchall()
-
-        total_filtered = db.execute(
-            f"SELECT COUNT(*) as c FROM items_live i {where}", params
-        ).fetchone()["c"]
+        from app.routers.checkouts import get_overdue_days
+        items, total_filtered = series_browse.fetch_units(
+            db,
+            where=where,
+            params=params,
+            sort=values["sort"],
+            limit=DEFAULT_PAGE_SIZE,
+            overdue_days=get_overdue_days(db),
+        )
 
         series_names = [
             row["series_name"]
@@ -88,9 +79,9 @@ async def browse(
             ).fetchall()
         ]
 
-        # Cross-filter dropdown counts — `locations`, `type_counts`,
-        # `location_counts`, `reading_status_counts`, `owned_count`,
-        # `wishlist_count` and `filtered_total` all come from here.
+        # Cross-filter dropdown counts remain item-level — each option says how
+        # many matching catalogue items it would contain. The headline total is
+        # the grouped Browse-unit total so it agrees with the visible grid.
         counts = browse_counts.filter_counts(db, values, total_filtered)
 
         # Deliberately still global (design §5): none of these appears in
