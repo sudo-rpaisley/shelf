@@ -78,6 +78,25 @@ def test_series_identity_is_case_insensitive(db):
     assert units[0]["unit_key"] == "series:dune saga"
 
 
+def test_series_namespace_cannot_collide_with_standalone_item_key(db):
+    standalone_id = _item(db, "Standalone")
+    series_id = _item(
+        db,
+        "Oddly Named Series Member",
+        series_name=f"item:{standalone_id}",
+        series_position=1,
+    )
+
+    units, total = series_browse.fetch_units(db)
+
+    assert total == 2
+    assert {unit["id"] for unit in units} == {standalone_id, series_id}
+    assert {unit["unit_key"] for unit in units} == {
+        f"item:{standalone_id}",
+        f"series:item:{standalone_id}",
+    }
+
+
 def test_representative_prefers_earliest_numbered_member_with_artwork(db):
     volume_one = _item(
         db,
