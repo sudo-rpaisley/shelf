@@ -69,10 +69,9 @@ def _discogs_error(result) -> str | None:
     if result is None or result.found:
         return None
     return {
-        "no_credential": "Discogs is not configured.",
         "rate_limited": "Discogs is rate-limiting requests. Try again shortly.",
         "transport_failed": "Discogs could not be reached.",
-        "rejected": "Discogs rejected the configured token or request.",
+        "rejected": "Discogs rejected the request. Check the configured token.",
         "no_match": "No matching Discogs releases were found.",
     }.get(result.outcome, "Discogs lookup failed.")
 
@@ -304,6 +303,47 @@ async def music_item_page(
     )
 
 
+@router.post("/api/music/items/{item_id}/refresh")
+async def refresh_music_release(
+    item_id: int,
+    _=Depends(require_role("editor")),
+):
+    with get_db() as db:
+        item = db.execute(
+            "SELECT * FROM items_live WHERE id = ?", (item_id,)
+        ).fetchone()
+        release = music_catalog.get_release(db, item_id) if item else None
+    if not item or item["media_type"] not in MUSIC_MEDIA_TYPES or not release:
+        return HTMLResponse("Music release not found", status_code=404)
+
+    release_id = release.get("musicbrainz_release_id")
+    if not release_id:
+        return HTMLResponse("MusicBrainz release ID is missing", status_code=400)
+
+    async with httpx.AsyncClient(timeout=HTTP_TIMEOUT) as client:
+        result = await musicbrainz.lookup_release(release_id, client)
+    if not result.found:
+        return HTMLResponse(_provider_error(result) or "Release lookup failed", status_code=502)
+
+    refreshed = result.payload
+    with get_db() as db:
+        update_item_fields(
+            db,
+            item_id,
+            {
+                "title": refreshed["title"],
+                "authors": refreshed.get("artist_credit"),
+                "publisher": refreshed.get("label"),
+                "publish_year": _year(refreshed.get("release_date"))
+                or _year(refreshed.get("first_release_date")),
+            },
+        )
+        music_catalog.save_release(db, item_id, refreshed)
+
+    await _apply_release_artwork(item_id, release_id)
+    return RedirectResponse(f"/music/item/{item_id}", status_code=303)
+
+
 @router.get("/api/music/items/{item_id}/discogs")
 async def discogs_panel(
     request: Request,
@@ -329,7 +369,10 @@ async def discogs_panel(
         return HTMLResponse("Music release not found", status_code=404)
 
     user = getattr(request.state, "user", None)
-    can_edit = bool(user and user.role in ("admin", "editor"))
+    # AuthMiddleware stores the current user as the same dict shape returned by
+    # the authentication helpers. Keep role inspection consistent with the rest
+    # of Shelf rather than treating it like an object.
+    can_edit = bool(user and user.get("role") in ("admin", "editor"))
     if (search or details) and not can_edit:
         return HTMLResponse("Editor role required", status_code=403)
 
@@ -376,14 +419,13 @@ async def discogs_panel(
         {
             "item": item,
             "release": release,
-            "discogs_configured": bool(token),
-            "discogs_selected_id": selected_id,
-            "discogs_selected_release": selected_release,
-            "discogs_results": results,
-            "discogs_error": error,
-            "discogs_fields": fields,
-            "discogs_searched": bool(search),
-            "discogs_details_loaded": bool(details and selected_release),
+            "selected_id": selected_id,
+            "selected_release": selected_release,
+            "results": results,
+            "error": error,
+            "fields": fields,
+            "configured": bool(token),
+            "can_edit": can_edit,
         },
     )
 
@@ -394,10 +436,10 @@ async def select_discogs_release(
     release_id: str = Form(...),
     _=Depends(require_role("editor")),
 ):
-    """Validate and persist one concrete Discogs pressing for a music item."""
+    """Validate and remember one concrete Discogs release for a music item."""
     with get_db() as db:
         item = db.execute(
-            "SELECT id, media_type FROM items_live WHERE id = ?", (item_id,)
+            "SELECT * FROM items_live WHERE id = ?", (item_id,)
         ).fetchone()
         release = music_catalog.get_release(db, item_id) if item else None
         token = get_setting(db, "discogs_token")
@@ -406,18 +448,24 @@ async def select_discogs_release(
     if not token:
         return HTMLResponse("Discogs is not configured", status_code=400)
 
+    try:
+        candidate_id = int(release_id.strip())
+    except (TypeError, ValueError):
+        return HTMLResponse("Invalid Discogs release id", status_code=400)
+    if candidate_id <= 0:
+        return HTMLResponse("Invalid Discogs release id", status_code=400)
+
     async with httpx.AsyncClient(timeout=HTTP_TIMEOUT) as client:
-        result = await discogs.lookup_release(release_id, client, token=token)
+        result = await discogs.lookup_release(candidate_id, client, token=token)
     if not result.found:
         return HTMLResponse(_discogs_error(result) or "Discogs lookup failed", status_code=502)
 
-    exact_id = (result.payload or {}).get("discogs_release_id")
-    try:
-        with get_db() as db:
-            discogs_selection.set_selected_release_id(db, item_id, exact_id)
-    except ValueError as exc:
-        return HTMLResponse(str(exc), status_code=400)
+    concrete_id = (result.payload or {}).get("discogs_release_id")
+    if not concrete_id:
+        return HTMLResponse("Discogs did not return a concrete release", status_code=502)
 
+    with get_db() as db:
+        discogs_selection.set_selected_release_id(db, item_id, concrete_id)
     return RedirectResponse(f"/music/item/{item_id}", status_code=303)
 
 
@@ -434,45 +482,4 @@ async def clear_discogs_release(
         if not item or item["media_type"] not in MUSIC_MEDIA_TYPES:
             return HTMLResponse("Music release not found", status_code=404)
         discogs_selection.clear_selected_release_id(db, item_id)
-    return RedirectResponse(f"/music/item/{item_id}", status_code=303)
-
-
-@router.post("/api/music/items/{item_id}/refresh")
-async def refresh_music_release(
-    item_id: int,
-    _=Depends(require_role("editor")),
-):
-    with get_db() as db:
-        item = db.execute(
-            "SELECT * FROM items_live WHERE id = ?", (item_id,)
-        ).fetchone()
-        release = music_catalog.get_release(db, item_id) if item else None
-    if not item or item["media_type"] not in MUSIC_MEDIA_TYPES or not release:
-        return HTMLResponse("Music release not found", status_code=404)
-
-    release_id = release.get("musicbrainz_release_id")
-    if not release_id:
-        return HTMLResponse("MusicBrainz release ID is missing", status_code=400)
-
-    async with httpx.AsyncClient(timeout=HTTP_TIMEOUT) as client:
-        result = await musicbrainz.lookup_release(release_id, client)
-    if not result.found:
-        return HTMLResponse(_provider_error(result) or "Release lookup failed", status_code=502)
-
-    refreshed = result.payload
-    with get_db() as db:
-        update_item_fields(
-            db,
-            item_id,
-            {
-                "title": refreshed["title"],
-                "authors": refreshed.get("artist_credit"),
-                "publisher": refreshed.get("label"),
-                "publish_year": _year(refreshed.get("release_date"))
-                or _year(refreshed.get("first_release_date")),
-            },
-        )
-        music_catalog.save_release(db, item_id, refreshed)
-
-    await _apply_release_artwork(item_id, release_id)
     return RedirectResponse(f"/music/item/{item_id}", status_code=303)
