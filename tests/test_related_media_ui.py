@@ -16,6 +16,7 @@ def test_item_detail_loads_related_media_panel(admin_client, db):
 
     assert response.status_code == 200
     assert f'hx-get="/api/related-media/items/{item_id}/panel"' in response.text
+    assert 'id="also-available-as"' in response.text
 
 
 def test_panel_shows_full_transitive_group_and_directness(admin_client, db):
@@ -88,6 +89,28 @@ def test_editor_can_link_an_adaptation(admin_client, db):
     ).fetchone()
     assert edge["link_type"] == "adaptation"
     assert "Film" in response.text
+
+
+def test_format_link_mutations_refresh_also_available_as_oob(admin_client, db):
+    a = _item(db, "Novel")
+    b = _item(db, "Audiobook", "audiobook")
+    db.commit()
+
+    linked = admin_client.post(
+        f"/api/related-media/items/{a}/links",
+        data={"other_item_id": str(b), "link_type": "format"},
+    )
+
+    assert linked.status_code == 200
+    assert '<div id="also-available-as" hx-swap-oob="outerHTML">' in linked.text
+    assert "Also available as:" in linked.text
+    assert "Audiobook" in linked.text
+
+    unlinked = admin_client.delete(f"/api/related-media/items/{a}/links/{b}")
+
+    assert unlinked.status_code == 200
+    assert '<div id="also-available-as" hx-swap-oob="outerHTML">' in unlinked.text
+    assert "Also available as:" not in unlinked.text
 
 
 def test_unlinking_direct_edge_can_split_group(admin_client, db):
