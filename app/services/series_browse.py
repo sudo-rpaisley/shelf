@@ -73,8 +73,8 @@ WITH filtered AS (
         i.*,
         CASE
             WHEN i.series_name IS NOT NULL AND TRIM(i.series_name) != ''
-            THEN TRIM(i.series_name)
-            ELSE '__item__:' || CAST(i.id AS TEXT)
+            THEN 'series:' || TRIM(i.series_name)
+            ELSE 'item:' || CAST(i.id AS TEXT)
         END AS unit_group,
         CASE
             WHEN i.series_name IS NOT NULL AND TRIM(i.series_name) != ''
