@@ -1,5 +1,9 @@
 {% for item in items %}
+{% if item.is_series %}
+{% include "fragments/series_row.html" %}
+{% else %}
 {% include "fragments/item_row.html" %}
+{% endif %}
 {% endfor %}
 {% if has_more is defined and has_more %}
 <tr id="load-more"
