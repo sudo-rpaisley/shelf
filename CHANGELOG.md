@@ -6,6 +6,1191 @@ All notable changes to Shelf are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.46.0] - 2026-09-21
+
+Until now, deleting something in Shelf deleted it for good. A wrong click on
+**Delete** took the item and everything attached to it: its copies, tags, loans,
+reading history and related-media links. Nothing could bring any of it back
+except a database backup. Removing a copy was just as final.
+
+Shelf now has a **Trash**. Deleting an item or removing a copy moves it there
+with everything attached. **Restore** puts it back exactly as it was. Only an
+admin can delete something permanently, and nothing is ever deleted on a timer.
+The three releases before this one made that safe, one piece at a time. This is
+the one you can see.
+
+This release also carries three community contributions: a Dutch
+national-bibliography lookup from
+[@MartinZwolle](https://github.com/MartinZwolle), and the first two pieces of
+Discogs support from [@sudo-rpaisley](https://github.com/sudo-rpaisley).
+
+### Added
+
+- **A Trash page.** Open it from the account menu, under **Library**. Editors
+  and admins can see it. It lists deleted items. It also lists copies removed on
+  their own, grouped under their item. An item that was on loan when it was
+  deleted is marked **Loaned**, because the loan is still open and still counts
+  against its borrower.
+  - **Restore** (editor or admin) puts an item or a copy back as it was. You
+    cannot restore a copy whose item is also in Trash. Restore the item instead,
+    and its copies come back with it.
+  - **Delete permanently** (admin) removes one item or copy for good, with
+    everything attached to it. It cannot be undone.
+  - **Empty expired** (admin) permanently deletes everything that has been in
+    Trash longer than the retention window. **Show expired only** shows just
+    those rows.
+- **A retention window and a reminder, not a timer.** Settings → Library →
+  **Trash** sets how many days a deleted row waits before it counts as
+  *expired*. The default is 180 days, and **0** turns the reminder off. When rows
+  pass the window, every admin sees a banner at the top of each page with a link
+  to them. **Dismiss** hides it on every device until more rows expire. Nothing
+  is deleted until an admin says so.
+- **Scanning something in Trash tells you so.** In Lend, Return, Move,
+  Inventory, Lookup and Quick Rate, a scanned item that is in Trash is not lent,
+  moved, rated or marked. The card says *In Trash since* the date it was
+  deleted, with a **Restore** button. Scan again after restoring to carry on.
+  In Add mode, scanning it restores it (*Restored from Trash*) and does not add
+  a second record.
+- **Dutch books are looked up in the Dutch National Bibliography.** An ISBN in
+  the 978-90 or 978-94 group is now looked up in the KB's Nederlandse
+  Bibliografie Totaal first, before Open Library. This works the same way the
+  DNB lookup does for German ISBNs and the SBN lookup does for Italian ones.
+  Older records often carry only an ISBN-10, so the lookup asks for both forms.
+  An ISBN the KB does not hold falls through to Open Library as before.
+  Contributed by [@MartinZwolle](https://github.com/MartinZwolle) in
+  [#139](https://github.com/dgahagan/shelf/pull/139)
+- **A place to save a Discogs token.** Settings → Integrations has a new
+  **Discogs** section. It stores a personal access token encrypted, like every
+  other credential, and never shows it back to you. Nothing uses the token yet.
+  The Discogs lookup it enables will come in a later release, and MusicBrainz
+  stays the source of a music release's identity. Contributed by
+  [@sudo-rpaisley](https://github.com/sudo-rpaisley) in
+  [#141](https://github.com/dgahagan/shelf/pull/141)
+
+### Changed
+
+- **Delete now moves things to Trash.** This covers **Delete** on an item page,
+  **Delete Selected** in Browse, **Remove copy** on the item page, and the
+  Audiobookshelf **Move Excluded Items to Trash** cleanup (it was **Remove
+  Excluded Items from Shelf**). None of these deletes anything now. While an
+  item is in Trash it is gone from Browse, Home, Stats, Store Mode, the valuation
+  report and every count, the same as before.
+- **A sync does not bring back what you moved to Trash.** Audiobookshelf, Komga,
+  RomM and Hardcover skip an item that is in Trash and count it under **In
+  Trash** in their summary. If you exclude a library, clean up, and then include
+  it again, restore the items you want from Trash first, then sync.
+- **Editors delete to Trash; only admins delete for good.** Editors keep the
+  **Delete** button they had, and they can restore. Permanent deletion is
+  admin-only. Viewers cannot delete, so they do not see Trash.
+
+Deliberately left out, and worth knowing:
+
+- **Nothing you deleted before this upgrade comes back.** Those deletes were
+  permanent when you made them, so Trash starts empty.
+- **Merging two items still removes the merged record.** The merge can copy the
+  identifier of the record it removes onto the one you keep. A trashed record
+  would still hold that identifier and block the merge. Undoing a merge is not
+  something Trash does.
+- **Trash is not in the CSV export or the portable archive yet.** Both contain
+  only what is not in Trash. The database backup (Settings → Data) carries
+  everything, Trash included. A later release adds Trash to both exports.
+- **There is no undo button at the moment you delete.** Trash is the undo.
+
+### Internal
+
+- **Discogs provider foundation.** A service module that searches Discogs for
+  an exact release and looks it up by ID. Nothing calls it yet. Requests to
+  `api.discogs.com` are paced at 1 per second. Contributed by
+  [@sudo-rpaisley](https://github.com/sudo-rpaisley) in
+  [#137](https://github.com/dgahagan/shelf/pull/137)
+
+## [0.45.1] - 2026-09-21
+
+A Trash you can restore from has a problem that the Trash page does not show.
+A trashed item still owns its ISBN or UPC, because the database's uniqueness
+rules can still see the row. So when you scan that book again, or a sync finds
+it again, Shelf has to choose: bring the old row back, leave it alone, or refuse.
+Before this release nothing made that choice. The write went straight into the
+uniqueness rule and failed, or went past it and made a second copy of the book.
+Shelf has about twenty separate duplicate checks, and all of them would have
+needed the same fix.
+
+This release makes that choice in one place for each kind of write, before
+anything can be trashed. Nothing you can see changes. No part of Shelf puts an
+item in Trash yet, so every rule below exists and is tested, but you cannot
+reach it. The Trash itself follows in a later release.
+
+### Internal
+
+Not user-visible, but it is what the release is made of:
+
+- **Re-adding a trashed item brings it back.** Scanning it, adding it from a
+  catalogue search, Photo Intake, Store Mode, a manual add, a music, periodical
+  or Hardcover add, a CSV import and an archive import all restore the trashed
+  row and do not make a second one. The restored row keeps everything stored on
+  it: its cover, notes, copies and, for a CD, its release details. The only
+  change is to ownership, and only toward owned: re-adding a wishlisted book as
+  owned makes it owned. The scan and add screens say **restored**, not
+  **added**. A periodical re-add opens the restored issue and shows no message.
+- **A sync never brings back what you deleted.** Audiobookshelf, Komga, RomM and
+  Hardcover skip a trashed item and count it as **In Trash** in their summary.
+  They do not count it as an error, and they do not add it again. You deleted
+  it on purpose, and a background job should not undo that.
+- **An edit that would clash with a trashed item is refused.** For example,
+  changing an ISBN to one that a trashed item holds is refused. The message
+  names the trashed item and tells you the two ways out. A bulk edit checks
+  every selected item first, so a mixed selection is refused as a whole and
+  nothing is half-changed.
+- **Where two live rows could match, the live one wins.** A title match in a
+  CSV import is one example. A trashed row is restored only when no live row
+  matches. Otherwise, if you deleted one of two equal rows and imported again,
+  the deleted one would come back.
+- **Merging two items keeps the trashed copies of the item that goes away.**
+  They move to the item you keep, so you can still restore them. Before, they
+  were deleted with the merged item.
+- **Trashing a copy also removes its primary flag.** 0.42.5 listed this as a
+  known rough edge. Trashing an item's only primary copy and then adding another
+  copy no longer hits the one-primary-per-item rule. A restored copy comes back
+  as a secondary copy, or as the primary when the item has none.
+- **Tag counts and the lent-out badges ignore trashed items**, the same as the
+  rest of Browse already does.
+
+Deliberately unchanged, and worth knowing:
+
+- **Nothing is hidden from you, and nothing is recoverable yet.** Deleting an
+  item in 0.45.1 still deletes it permanently, exactly as before.
+- **A catalogue re-add of a video game or a DVD does not restore.** These
+  searches match on title, not on an identifier, so they cannot be sure which
+  row you mean. They add a new row. Whether they should restore is a decision
+  for the Trash release, made before you can reach it.
+
+## [0.45.0] - 2026-09-20
+
+A synced library and a hand-typed one look identical once they are in Shelf, and
+most of the time that is exactly right — an item is an item. But it leaves some
+questions with nowhere to go. Which of these games came from RomM? Did that CSV
+import actually land? What did Photo Intake add last night? Browse could not
+answer any of them, because nothing in it knew where a row had come from.
+
+Browse now has a **Source** filter, sitting in the filter bar beside the others
+and cross-filtered like the others, listing only the sources your library
+actually contains. RomM games get a little extra: a **RomM ↗** badge on the card
+that opens the game where it lives, without going through the item page first.
+
+The Source filter, the RomM badge, the Settings sidebar and the Komga series fix
+are all [@sudo-rpaisley](https://github.com/sudo-rpaisley)'s work.
+
+### Added
+
+- **A Source filter in Browse.** Narrow the catalog by how an item arrived — a
+  RomM, Komga or Audiobookshelf sync, a metadata provider, a CSV import, Photo
+  Intake, or by hand. The dropdown lists only the sources your library contains,
+  with cross-filtered counts like every other filter, and the choice is carried
+  in the URL and the filter chips. Contributed by [@sudo-rpaisley](https://github.com/sudo-rpaisley) in
+  [#131](https://github.com/dgahagan/shelf/pull/131).
+- **Open in RomM from a Browse card.** A RomM-backed game shows a small
+  **RomM ↗** badge that opens it in RomM, using the Browser URL when one is
+  configured. Nothing is looked up until it is clicked. Contributed by [@sudo-rpaisley](https://github.com/sudo-rpaisley) in
+  [#131](https://github.com/dgahagan/shelf/pull/131).
+
+### Changed
+
+- **Settings sections move to a sidebar.** The four launcher cards become a rail
+  beside the content on a wide screen and a compact row above it on a narrow
+  one. Sections, forms and stored values are unchanged. Contributed by [@sudo-rpaisley](https://github.com/sudo-rpaisley) in
+  [#129](https://github.com/dgahagan/shelf/pull/129).
+
+- **Generated build output is restamped by CI, not by hand.** Since 0.44.0 a
+  pull request leaves `static/css/app.css`, the `SW_VERSION` value in
+  `static/sw.js` and README's test-count badges out of its diff — but somebody
+  then had to remember to regenerate them on `main` after merging. A push to
+  `main` now does it itself, in one bot commit touching only the generated paths
+  that actually changed, and the test, CSS and E2E jobs run against that commit
+  rather than the one that arrived. Nothing about what a release contains
+  changes; this closes the window in which `main` could carry a stylesheet that
+  did not match its own templates.
+
+### Fixed
+
+- **A Komga series no longer splits into one series per volume.** When Komga
+  appends the volume to the series title, `One Piece (21)` is filed under
+  **One Piece**; a four-digit year such as `Batman (2016)` is kept, because it
+  names a distinct run. The next Komga sync repairs rows already split.
+  Contributed by [@sudo-rpaisley](https://github.com/sudo-rpaisley) in [#133](https://github.com/dgahagan/shelf/pull/133).
+
+## [0.44.0] - 2026-09-20
+
+A novel, its audiobook and the film made from it are three different things, and
+Shelf has always insisted on that — three records, three covers, three scan
+histories. It was right to. But it left you with no way to say they belong
+together, so the connection lived only in your head, and the item page gave no
+hint that the other two were even in the collection.
+
+Related Media is that connection, made explicit and made by hand. Link an item
+to another as a **Format**, a **Related** item or an **Adaptation**, and every
+item in the group shows the whole group — including the ones it reaches only
+through a third item. Shelf does not guess: nothing is linked because two titles
+look alike.
+
+Much of this release is [@sudo-rpaisley](https://github.com/sudo-rpaisley)'s
+work — both the Related Media item page and the account menu refresh below.
+
+### Added
+
+- **Related Media on the item page.** A panel below an item's tags shows every
+  item connected to it, with direct links distinguished from the ones reached
+  through the wider group. Editors and administrators can search the catalogue
+  and add a **Format** (another edition or format of substantially the same
+  work), **Related** (a deliberately broad "these belong together") or
+  **Adaptation** (a work carried into another medium) relationship; viewers see
+  the group read-only. Removing a direct link can split a group, and leaves the
+  other links intact. The search will not offer an item already in the group, so
+  you cannot add a redundant edge just to make a transitive member direct.
+  Relationships are manual only — Shelf infers nothing from similar titles.
+  Contributed by [@sudo-rpaisley](https://github.com/sudo-rpaisley) in
+  [#130](https://github.com/dgahagan/shelf/pull/130)
+
+### Changed
+
+- **A pull request no longer carries generated build output.** `static/css/app.css`,
+  the `SW_VERSION` value in `static/sw.js` and README's two test-count badges are
+  regenerated on `main` after merging, so contributors leave them out. Run `make css`
+  and `make badges` to see your work — just not in the commit. This removes a class of
+  merge conflict nobody wrote: both files are single lines, so any two pull requests
+  that touched a template used to collide on them regardless of what each one actually
+  changed. A new `generated-output` check refuses a pull request that includes them and
+  says how to back each one out; the staleness checks report instead of failing there,
+  and still fail on `main` and locally. E2E now rebuilds the stylesheet first, so a pull
+  request is tested against the CSS its own templates ask for.
+
+- **The account menu says who you are and groups what it holds.** The trigger
+  shows your name and role, the panel opens with both, and its entries fall into
+  three groups — Account (profile and password), Administration (Settings and
+  Logs, for admins only) and Sign out. The menu and its items now carry proper
+  menu roles and labels for a screen reader. Nothing about sign-in or who can
+  reach what has changed. Contributed by [@sudo-rpaisley](https://github.com/sudo-rpaisley) in
+  [#128](https://github.com/dgahagan/shelf/pull/128)
+
+## [0.43.0] - 2026-09-19
+
+Shelf has always had a separate media type for children's books. It never earned
+its keep: a kids book was filed, scanned, searched, edited and counted exactly
+like any other book, so the only thing the type really did was split your books
+into two piles and make you remember which pile a title was in. Worse, it was a
+one-way door — a book filed as a kids book could not be found by a filter for
+books, so a shelf of 200 books that quietly held 40 kids books reported 160.
+
+This release retires the type. On first boot every kids book becomes an ordinary
+book carrying a `Kids` tag, which is what the distinction always was: a label,
+not a kind. Nothing is lost — the books are all in one pile now, and the tag
+still tells you which ones are for the children. Two related pieces land with
+it, because a tag can only do that job if it survives a backup: tags now travel
+through the CSV export and the portable archive.
+
+**Read the upgrade note before you upgrade.** The conversion is one-way, and
+merging is part of it — a kids book that shares an ISBN or barcode with a book
+you already own is folded into that book rather than left beside it as a
+duplicate.
+
+### Changed
+
+- **Kids books are now books carrying a `Kids` tag.** `kids_book` was a media
+  type with no behaviour of its own — every place it appeared, it sat beside
+  `book` doing the same thing. On first boot every kids book is rewritten to a
+  `book` with the `Kids` tag, and one that shares an ISBN or barcode with a
+  book you already have is merged into it, keeping that book's own details and
+  moving across the tags, copies, history, loans, wishlist membership and
+  ownership. This is one-way: the way back is a backup taken before the
+  upgrade **and** the image you were running, since restoring through this
+  version converts the restored database again.
+- `kids_book` is still accepted on **input** — from a CSV, a portable archive,
+  or a device whose cached form still offers it — and is stored as `book`.
+  From a CSV or an archive it also adds the `Kids` tag, because a file that
+  says `kids_book` is making a statement about the book.
+
+### Added
+
+- **A `tags` column in the CSV export and import.** Tags are `; `-separated.
+  Import is additive: it adds tags and never removes one, so a file from an
+  older Shelf with no `tags` column imports exactly as before.
+- **Tags in the portable archive carry an optional media-type scope**, and
+  archives written before this release still import — their tags arrive
+  global, which is what they were. An existing tag keeps its own scope.
+- A nullable `media_type` scope on tags. It is advisory: nothing refuses or
+  strips an association because of it, and nothing sets it yet.
+
+### Fixed
+
+- **Merging two items no longer silently drops the merged-away row's wishlist
+  membership.** Every child table of an item cascades on delete, and list
+  membership was not being moved across first, so the want disappeared with no
+  error and no way to recover it. This affected every merge, not only the ones
+  this release performs.
+
+## [0.42.5] - 2026-09-18
+
+0.42.4 gave every read of an *item* a single filtered view to go through, so
+that a Trash you can restore from could be built without any of Shelf's 172
+item reads forgetting to skip the deleted ones. It left the physical copies of
+those items — the second paperback, the one at the cabin, the one you lent out —
+out of that arrangement, on the stated grounds that copies are read in few
+places and all of them flow through one function.
+
+That was not true, and it had not been true when it was written. Copies are read
+in 31 places, and only 10 of them go through that function. The other 21 are
+hand-written queries spread across seven files: your shelf totals, the arrange
+page, the inventory sheet, the cover review queue, merging two items, ordering a
+shelf, and the archive export. Worse, 0.42.4's build check could not see any of
+them — the pattern it matched stopped at the word `items` and never noticed
+`item_copies`, so the rule it enforces had a hole exactly the width of this
+release. Had the Trash landed next, it would have started marking copies deleted
+with twenty readers still counting them: a shelf reporting more copies than it
+holds, an inventory audit asking you to find a copy you had thrown away.
+
+This release closes that, the same way and with the same discipline. Nothing you
+can see changes, and nothing is deleted yet. The whole of the proof is that the
+existing suite passes untouched — 3480 unit tests and 255 end-to-end, plus a new
+set that hand-marks a copy deleted and checks each surface, because nothing in
+Shelf can produce that state yet. The Trash itself still follows in a later
+release.
+
+### Internal
+
+Not user-visible, but it is what the release is made of:
+
+- **Every read of a physical copy goes through one view, `copies_live`**,
+  created fresh on each database connection beside `items_live`. It hides a copy
+  two ways: the copy's own deleted mark, **and** its item's. That join is the
+  design decision — it means trashing an item will not have to write to its
+  copies at all, and the readers that never look at the item — per-location
+  shelf totals, shelf ordering, shelf position — stop counting a trashed item's
+  copies without needing a line of their own.
+- **Three reads deliberately stay on the real table**, and they are one class,
+  not three exceptions: each exists to predict a clash with a uniqueness rule,
+  and a deleted row still holds its slot. So a new copy is numbered from what
+  the constraint can see. Add a third copy after deleting the second and it
+  becomes copy 3 — the number of a deleted copy is never handed out again.
+- **The build check, `make check-deleted`, now covers both tables and matches
+  `JOIN` as well as `FROM`**, which is the hole that let this one through. It
+  counts how many reads each exemption is allowed to cover, so a new read cannot
+  quietly hide inside an existing one.
+- **The view is temporary, by connection**, so it never lands in a backup file.
+  A backup taken with deleted rows present was checked against the real file: no
+  views in it, and every row still there with its mark intact. A restore can
+  neither drop a row nor resurrect one.
+
+Deliberately unchanged, and worth knowing:
+
+- **Nothing is hidden from you, and nothing is recoverable yet.** No code marks
+  a copy or an item deleted. Removing a copy in 0.42.5 still removes it,
+  permanently, exactly as before.
+- **One rough edge is known and is the next release's to fix.** If a copy is
+  marked deleted while it is still flagged as the item's primary, adding
+  another copy to that item is refused cleanly — a plain error, nothing
+  half-written. Nothing in Shelf can reach that state today; the Trash release
+  demotes the flag in the same step that marks the copy, which is where the fix
+  belongs.
+
+## [0.42.4] - 2026-09-18
+
+Deleting something in Shelf is permanent and immediate. There is no undo, and
+nothing to look in when you remove the wrong item — the row is gone, and with a
+copy, so are its condition, acquisition date, price and provenance. The answer
+is a Trash you can restore from, and the hard part of that is not the Trash
+page. It is that Shelf reads an item in 172 places, across scanning, Browse,
+Series, Stats, sync, export and the share links, and every one of them would
+have to remember to skip the deleted ones. A single place that forgot would
+show you an item that is not there any more.
+
+This release does that half on its own, while nothing is actually being
+deleted. Every one of those reads now goes through a single filtered view, and
+a build check refuses any new read that bypasses it. Nothing you can see
+changes. The point is that if a read had been missed, the miss shows up in the
+test suite now rather than in your library later. The Trash itself follows in a
+later release.
+
+### Changed
+
+- **Two migrations run on first launch after upgrading.** They add a
+  `deleted_at` column to your items and to your copies, and leave it empty
+  everywhere. They need no action from you and are quick on a large library —
+  no row is rewritten. Nothing writes to the column and nothing filters on it,
+  so every item, copy, count, filter badge, export and share link shows exactly
+  what it showed before.
+
+### Internal
+
+Not user-visible, but it is what the release is made of:
+
+- **Every read of an item goes through one view, `items_live`**, created fresh
+  on each database connection and filtering out anything marked deleted — 172
+  read references across 41 files. Nine reads deliberately stay on the real
+  table, each annotated with the reason it must still find a deleted row:
+  scanning the barcode of something you already own, and the CSV importer's
+  duplicate check, are both places the Trash will want to offer you a restore
+  instead of a duplicate.
+- **A build check, `make check-deleted`, fails on any new direct read**, so the
+  rule holds for code nobody has written yet. It counts how many reads each
+  exemption is allowed to cover, which stops a new read from quietly hiding
+  inside an existing one.
+- **The view is temporary, by connection**, so it never lands in a backup file.
+  A backup downloaded from Settings still contains no views and still restores
+  into Shelf unchanged — checked against the real file, not just in tests.
+
+Deliberately unchanged, and worth knowing:
+
+- **Nothing is hidden from you.** The column exists; no code sets it. Deleting
+  an item in 0.42.4 still deletes it, permanently, exactly as before. If you
+  are waiting for undo, it is not here yet.
+- **Opening `data/shelf.db` yourself still works the way it always did.** The
+  view lives only inside Shelf's own connections, so a query you run against
+  the file with `sqlite3` sees the plain `items` table. Queries copied out of
+  Shelf's own source may name `items_live`, which will not exist there.
+
+## [0.42.3] - 2026-09-17
+
+Some older children's paperbacks were being catalogued as DVDs. Scholastic-era
+books from before the modern book barcode carry a shared price-point UPC with a
+separate five-digit block printed beside it, and it is that block — not the UPC
+— that says which title you are holding. Plenty of scanners read only the UPC
+and drop the five digits, and Shelf then sent the bare code down the ordinary
+retail path, where the product record for that shared code looks like a disc.
+A picture book went into your library as a DVD. Shelf now recognises the bare
+code, stops the scan, and asks you to type the five digits. Found in the
+[#88](https://github.com/dgahagan/shelf/pull/88) test drive by
+[@martialartistslife](https://github.com/martialartistslife) and filed as
+[#90](https://github.com/dgahagan/shelf/issues/90).
+
+### Fixed
+
+- **A legacy book UPC scanned without its five-digit supplement is no longer
+  filed as a DVD.** Instead of guessing, the scan stops on an amber *"Older book
+  barcode: five more digits needed"* card that explains what it is looking at
+  and asks for the digits printed to the right of the barcode. Nothing is saved
+  and no lookup is spent while it waits. You **type** the five digits rather
+  than rescanning — the whole point is that your scanner cannot read them.
+  Found in the [#88](https://github.com/dgahagan/shelf/pull/88) test drive by
+  [@martialartistslife](https://github.com/martialartistslife), filed as
+  [#90](https://github.com/dgahagan/shelf/issues/90)
+
+- **Shelf Fill catches the same barcode, and keeps your place.** Scanning one
+  of these codes while filling a shelf shows the same card without leaving the
+  page, and the book you resolve is filed into the shelf and position you were
+  working on — not dropped into the catalogue unplaced.
+
+- **An empty five-digit box is refused instead of quietly re-posting.**
+  Pressing *Look it up* with nothing typed used to send the form and return the
+  identical card with nothing to say about why.
+
+Deliberately unchanged, and worth knowing:
+
+- **Your answer is remembered under the full 17-digit barcode, never the bare
+  12 digits.** Scan the bare code again and Shelf asks again. It has to: the
+  price-point UPC is shared across roughly 100,000 titles, so an answer stored
+  against it would be handed to the next Scholastic book you scanned.
+- **A barcode whose publisher prefix is not one Shelf has confirmed still falls
+  through to the ordinary UPC path**, exactly as before. This change narrows a
+  known family of book barcodes; it does not reinterpret retail UPCs in general.
+- **The card's *Add it by hand* button appears on the Scan page and not in Shelf
+  Fill**, where that panel does not exist. Shelf Fill offers the same fallback
+  every card there offers — scan the printed ISBN on the copyright page.
+- **An incomplete scan is not written to your scan history.** It is a question
+  Shelf asked, not something that happened to your library.
+
+## [0.42.2] - 2026-09-17
+
+Some items could not be edited at all. If the ISBN stored on an item was one
+Shelf now refuses — most often an ASIN that an older Audiobookshelf sync had
+put in the ISBN field — then every save bounced, whatever you had actually
+changed. Fixing a typo in the title, moving the item to another shelf, marking
+it read: all refused, with a banner about the ISBN you never touched. The only
+way through was to correct or clear an identifier you may have had no way of
+knowing the right value for. This release leaves a stored identifier alone
+unless you change it yourself. Diagnosed by
+[@sudo-rpaisley](https://github.com/sudo-rpaisley) in
+[#79](https://github.com/dgahagan/shelf/pull/79), filed as
+[#87](https://github.com/dgahagan/shelf/issues/87).
+
+### Fixed
+
+- **An ISBN or UPC / EAN that fails validation no longer blocks other edits to
+  the item.** A stored identifier you do not change is left as it is and marked
+  on the form; only a value you actually change is validated. This fixes a case
+  where an item with a legacy ISBN (an ASIN stored by an earlier Audiobookshelf
+  sync) had to be corrected or cleared before the form would save, even when
+  editing an unrelated field like the title or reading status. Diagnosed by
+  [@sudo-rpaisley](https://github.com/sudo-rpaisley) in
+  [#79](https://github.com/dgahagan/shelf/pull/79)
+
+- **A stored identifier that fails its check digit is now marked on the edit
+  form.** A muted note under the ISBN or UPC / EAN field tells you the stored
+  value is not valid, that it is kept as-is unless you change it, and that
+  correcting or clearing it is checked as usual. Nothing is rewritten for you:
+  no check digit can be inferred, and guessing would be worse than saying
+  nothing.
+
+Deliberately unchanged: a value you *do* type is validated exactly as strictly
+as before, and a valid ISBN you leave alone still flows through the normal
+path — so the stored ISBN-10 it implies keeps being corrected on save, which is
+why the rule is "unchanged *and* invalid" rather than simply "unchanged".
+Nothing in your library is altered by upgrading; an invalid identifier stays
+where it is until you edit it.
+
+## [0.42.1] - 2026-09-17
+
+Scanning the barcode of a book with several authors kept only the first one.
+A book by Martin Fowler and Kent Beck was saved as "Martin Fowler", and Kent
+Beck was dropped without a word. Searching for the same book by title kept
+both, so the result depended on how you added it — and the barcode is how
+most books get in. This release keeps every author a lookup reports. It is the
+first half of multi-author support, reported by
+[@danielgratzl](https://github.com/danielgratzl) in
+[#117](https://github.com/dgahagan/shelf/issues/117).
+
+### Fixed
+
+- **A barcode scan keeps every author Open Library lists, up to five, in the
+  order Open Library gives them.** The first name is still the primary author:
+  sorting by author, the Stats page's **Top Authors** chart and the other
+  places that read "the author" all use it, exactly as before.
+
+### Changed
+
+- **Every metadata lookup now builds the author list the same way.** Open
+  Library, Hardcover and Google Books drop blank names and exact repeats, keep
+  the source's order, and save nothing (rather than an empty value) when no
+  author is known. Deliberately, two spellings of one name — "Stanisław Lem"
+  and "Stanislaw Lem" — are both kept: Shelf cannot tell a second spelling
+  from a second person, and guessing wrong would silently drop a co-author.
+- **Scanning a book with several authors can take up to about a second and a
+  half longer.** Open Library needs one request per author, and Shelf spaces
+  its requests to stay within that service's limits. A one-author book takes
+  no longer than before. The five-author cap keeps this bounded.
+- **A malformed author field from a lookup service is now treated as no
+  match** instead of being saved as a garbled author.
+
+Items already in your library are not changed. A book you scanned before this
+release keeps the single author it was saved with; edit the item to add the
+others, or delete and rescan it. Filtering to a single author and author pages
+are the second half of #117 and are not in this release.
+
+## [0.42.0] - 2026-09-16
+
+Until now every item in Shelf was either something you own or something on
+your wishlist. A book you read from the library, or borrowed and gave back,
+had to be one or the other — and a Goodreads import put every book you had
+read but did not own onto your wishlist. This release adds the third state:
+an item can be **neither owned nor wishlisted**, and stays in your catalogue
+with its reading status and dates. It finishes the work 0.41.1 started.
+Requested by [@Easily9992](https://github.com/Easily9992) in
+[#125](https://github.com/dgahagan/shelf/issues/125).
+
+### Added
+
+- **Separate "I own this item" and "On my wishlist" checkboxes on the edit
+  page.** Untick both for a book you read but don't own. The wishlist box is
+  greyed out while *I own this item* is ticked: an owned item is never on the
+  wishlist, and Shelf refuses a save that tries it.
+- **A fourth Owned filter in Browse: *Not owned or wishlisted*.** The four
+  counts (All, Owned, Wishlist, Not owned or wishlisted) now always add up.
+- **Add to or remove from the wishlist in bulk.** Browse's bulk bar has a new
+  **Wishlist** control. Removing an item from the wishlist does not delete it
+  or its reading history. A selection that mixes owned and wishlisted items
+  is refused as a whole when you try to wishlist it, and nothing is changed.
+- **Scanning a wishlisted item in Add mode marks it owned.** The scan card
+  says *Now owned — was on your wishlist*, and the item leaves the wishlist
+  instead of being added a second time. This works for ISBNs and for DVDs and
+  games scanned by UPC. Scanning it in Wishlist mode changes nothing.
+- **A way to clean up a wishlist a Goodreads import filled.** The Import and
+  Export guide has a new section, *Cleaning up a wishlist after a Goodreads
+  import*: filter Browse to Wishlist + Read, select all, and remove them from
+  the wishlist. Deliberately, Shelf does not do this for you — a book you read
+  and now want to buy belongs on the wishlist, so the choice is yours.
+
+### Changed
+
+- **Goodreads and StoryGraph imports no longer put books you don't own on
+  the wishlist.** A book you read or are reading but don't own now imports as
+  neither, keeping its status and dates. Only a *to-read* book you don't own
+  goes on the wishlist, and only with **Import "to read" books as wishlist**
+  on — with it off, that book also arrives as neither. Books you already
+  imported are not changed; see the clean-up section above.
+- **CSV import reads the `wishlisted` column.** An owned row is never put on
+  the wishlist (`owned=1, wishlisted=1` imports as owned, without an error);
+  otherwise the row's own `wishlisted` value decides. A file with no `owned`
+  column is read as an export from an earlier Shelf, where `wishlisted=1`
+  meant not owned. In **Update** mode, a file with no `owned` or `wishlisted`
+  column leaves that part of every matched item as it was. Export → import
+  now round-trips all three states.
+- **The valuation counts only what you own.** **Valuate all**, the
+  collection total, the Stats page's **Est. Value** and the insurance report
+  now leave out wishlist items and items you track without owning. **If your
+  wishlist items had values, your totals and reports will be lower after the
+  upgrade by that amount.** The value-over-time chart keeps its earlier
+  points as they were recorded. **Valuate** on a single item still works
+  whether you own it or not.
+- **The Stats page's Owned tile counts owned items directly**, so an item
+  that is neither is not counted as owned.
+- **Store Mode caches only what you own and what you want.** An item you
+  track but neither own nor want reads **Not in library**, and scanning it
+  queues it like any unknown barcode: on the next sync Shelf adds that
+  existing item to your wishlist instead of creating a new one.
+- **Series → Check completeness counts a neither volume as missing.** Its
+  **Add to wishlist** button puts that existing item on the wishlist rather
+  than adding a second copy. A series card reads, for example,
+  *1 owned · 1 wishlisted* instead of counting every unowned volume as
+  wishlisted.
+
+## [0.41.1] - 2026-09-16
+
+Shelf has always treated "I don't own this" and "this is on my wishlist" as the
+same fact — one flag doing two jobs. That works until you want to record a book
+you read at a library and returned, or one you borrowed and gave back: you own
+no copy, but you don't want one either, and Shelf had nowhere to put that. This
+release separates the two facts. Nothing changes on screen today; it is the
+groundwork a later release builds the third state on.
+
+### Changed
+
+- **Your wishlist is now its own list rather than a side effect of not owning
+  something.** Four migrations add two tables, seed a list named *Wishlist*,
+  and put every item you had marked as not owned onto it. **Nothing changes on
+  screen** — every badge, filter, count, share link and Store Mode verdict
+  shows exactly what it showed before, and no action is needed from you.
+  What changed is underneath: wanting a copy and lacking one are now recorded
+  separately, which is what lets a later release add the third state for a book
+  you have read but do not own.
+- **Marking something owned takes it off your wishlist**, everywhere that can
+  mark it — the item page, bulk edit, a Shelf Fill scan that places it, an
+  import. You do not wish for what you have. This was already true in effect;
+  it is now a rule the app enforces in one place rather than a habit each
+  screen kept on its own.
+- **Portable archives and CSV exports carry wishlist membership.** Each item in
+  an archive gains a `wishlisted` key, and the CSV export gains a `wishlisted`
+  column at the end — `1` for an item on your wishlist, `0` otherwise. An
+  archive or CSV written *before* this release imports unchanged: with no key
+  present, Shelf derives membership from the item's owned flag, which is
+  exactly what that file already meant. Deliberately, the new CSV column is
+  read on import but does not yet override the owned flag — that arrives with
+  the release that makes the two genuinely independent.
+
+## [0.41.0] - 2026-09-11
+
+Shelf has understood physical copies for several releases — Shelf Fill can scan
+one copy onto a shelf without moving the other, Arrange keeps duplicates
+distinct, and a copy has always had room for its condition, what you paid and
+where it came from. What it never had was a way for you to *make* one. The only
+thing that produced a second copy was merging two items, which is a side effect
+rather than a way to say "I own two of these", and the condition, acquisition
+and provenance fields had no way to be filled in at all. This release gives
+copies a place on the item page: add one, fill it in, and remove it when it
+goes.
+
+### Added
+
+- **Add, edit and remove physical copies from the item page.** **Add copy**
+  records a second or third of the same title — two copies of a novel on
+  different shelves, a reading copy and a signed one. Each row gets an **Edit**
+  panel holding its location, condition, acquired date, source, price,
+  provenance and its own copy barcode. Condition is free text with suggestions
+  (New, Fine, Good, Fair, Poor, Ex-library), so grade your own way if you
+  prefer. An item with one copy still shows the single Location line; a second
+  copy turns it into a numbered list.
+- **A copy barcode you set here is what Shelf Fill scans.** Give one copy its
+  own barcode and scanning it shelves that exact copy instead of the primary
+  one. Until now nothing could write that field, so the feature had no way to
+  be used.
+- **Editing a copy's location clears the shelf position it had on the old
+  shelf.** A position means nothing on a different shelf, so it is not carried
+  across. Arrange the new shelf to place it.
+
+### Changed
+
+- **Every location on an item page is now a link** into Browse, filtered to
+  that location. The filter matches that node and nothing nested inside it —
+  clicking a shelf shows what is on that shelf, and clicking a room shows only
+  what is filed on the room itself, not what sits on its shelves.
+- **Removing the copy marked primary promotes the next one**, and the item's
+  location follows it. Removal is permanent and is behind a confirmation that
+  names what is lost: that copy's condition, acquisition details and provenance
+  are deleted and cannot be restored. Removing the last copy leaves the item in
+  your catalogue with no location, which is a legitimate state and not an
+  error.
+- **Adding, editing and removing copies needs an editor or admin account.**
+  Viewers see the copies list and none of the controls.
+
+## [0.40.1] - 2026-09-11
+
+Nothing in this release changes what Shelf does. It exists because the checks
+that have to pass before a release can ship had come to depend on a free
+third-party lookup quota, and that quota ran out twice — once mid-development
+and once at the 0.40.0 release itself, which then waited seven hours for the
+allowance to reset before it could go out. The tests now answer that question
+locally, so a release is held up by Shelf's own code and nothing else.
+
+### Fixed
+
+- **Releases no longer wait on a third-party daily allowance.** One browser test
+  needed a live barcode lookup to succeed in order to check what Shelf says when
+  a product is found but no metadata source covers its format. The free tier
+  allows 100 lookups a day, a full test run spends several, and once the day's
+  allowance was gone the test failed for a reason that had nothing to do with
+  the code. That test now uses a recorded copy of the provider's response, and
+  no test that runs before a release calls out to the internet at all.
+
+### Added
+
+- **A separate check that the recorded copy is still faithful.** A recording can
+  drift from what a provider actually serves and nobody would notice. One test,
+  run by hand at each release rather than on every change, asks the live service
+  the same question and compares. It spends a single lookup, and if the day's
+  allowance is already gone it reports that it could not check rather than
+  failing the release.
+
+### Changed
+
+- **Scanning is unaffected.** The lookup endpoint is now read from configuration
+  instead of being fixed in the code, so the tests can point it at a local
+  stand-in. Left alone it resolves to exactly the same address as before, at the
+  same request pacing. The new `SHELF_UPC_LOOKUP_URL` setting is for the test
+  suite; leave it unset.
+
+## [0.40.0] - 2026-09-10
+
+Shelf could always store an item no database has heard of — a self-published
+book, a home-made compilation, a zine — but there was no way to *reach* the form
+that does it. Manual entry lived inside the barcode scanner's not-found card, so
+you first needed a valid barcode that failed to resolve before Shelf would offer
+to let you type. Typing a title into the scan box, which is what people actually
+did, returned an error and nothing else. This release gives manual entry its own
+way in, from five places.
+
+### Added
+
+- **Add by hand** — a standalone manual entry panel on the Scan page, needing
+  nothing but a title. Every media type including the music formats and
+  magazines, an optional ISBN or UPC that is filed into the right column on
+  its own, and wishlist mode. Five ways in: the Scan page itself, Home's quick
+  actions, an empty title search (carrying what you typed through as the
+  title), the error card you get when the scan box cannot read what you typed
+  — which is what happens when you type a title into it — and **Add another
+  like this** on any item's page, which prefills the author, publisher, year,
+  media type, platform, series and location from that item. The creator field
+  renames itself per media type: Author(s) for books, Developer for games,
+  Director for discs, Artist for music. Closes
+  [#120](https://github.com/dgahagan/shelf/issues/120).
+
+  Two things it deliberately does not do. A hand-typed record or magazine is
+  stored as a plain item, with no pressing or issue record behind it — no track
+  list, no catalogue number, and it does not appear in the Music page's release
+  browser. You catalogued what you own; you did not identify a particular
+  pressing, and the form does not pretend otherwise. And an item added with no
+  ISBN or UPC is not checked for duplicates: there is nothing reliable to match
+  on, and matching on title alone would refuse the second copy of a book you
+  own twice.
+
+### Fixed
+
+- Two documentation pages described an **Add a copy** control on the item page
+  that has never existed. The page now has a real control for prefilling a new
+  item from an existing one, named **Add another like this** so it does not
+  collide with physical copies, and the docs describe what actually ships.
+
+## [0.39.0] - 2026-09-09
+
+Shelf has always fetched cover art automatically, and **Retry missing covers**
+has always swept up what the first pass missed. Both only ever worked on books.
+That is deliberate — the automatic chain falls back to a book-catalogue title
+search, and turning it loose on a disc once wrote a novel's cover and ISBN onto
+a DVD — but it left every cover-less disc, game and record with no route at all
+except finding each item by hand. Worse, an item with no findable cover stayed
+on the missing-covers count forever, so the number never reached zero and
+stopped meaning anything. This release adds a queue that walks those items one
+at a time and lets you record that a cover genuinely does not exist.
+
+### Added
+
+- **Cover review queue.** Settings → Data → Maintenance → **Review covers
+  needing attention** walks every cover-less item one at a time, with the cover
+  picker inline: search, pick or upload, and each choice advances to the next
+  item without leaving the queue. Unlike **Retry missing covers** — which
+  sweeps only book-shaped rows, on purpose, because the automatic chain once
+  wrote a novel's cover and ISBN onto a DVD — the queue shows **everything**,
+  discs, games and music included, because a person is deciding rather than an
+  algorithm guessing. **Not available** marks an item as genuinely coverless
+  and is remembered, so the list converges on zero instead of showing the same
+  handful forever; removing a cover puts an item back and clears that verdict.
+  The verdict survives a restart and rides along in a portable archive.
+
+### Changed
+
+- The Settings **"N items without a cover"** figure and Home's **Missing
+  covers** tile now both exclude items marked **Not available**. They agree
+  with each other and with the queue's own count.
+- Removing a cover now clears any previous "not available" verdict, which is
+  what makes removal the way back from an accidental dismissal.
+- The startup cover requeue no longer hands a dismissed item back to the
+  automatic chain on every boot. **Retry missing covers** deliberately still
+  ignores the flag — with no un-dismiss control yet, it is the one route by
+  which an accidental dismissal returns on its own.
+
+## [0.38.0] - 2026-09-08
+
+Merging two owned records that were filed in different rooms has always kept
+both physical copies. Only the first room was ever visible. The item page named
+one location, the shelf audit called the second copy's room clean, the portable
+archive exported a single copy — and Scan's Inventory mode did something worse:
+scanning the second copy where it actually sat *moved the first one there*,
+quietly undoing the arrangement the merge had preserved. Every part of Shelf
+that answers "where is this item?" now counts copies
+([#116](https://github.com/dgahagan/shelf/issues/116)).
+
+### Added
+
+- **The item page lists every physical copy**, each with its location and its
+  position on that shelf. An item with a single copy is unchanged — it shows
+  the one `Location:` line it always did, including for older items that
+  pre-date copies entirely.
+- **The portable archive carries physical copies.** Export writes every copy
+  with its location, shelf position and acquisition details, and import
+  restores them exactly. Archives written before this release still import the
+  way they always have. Each item is now checked before any part of it is
+  written, so a damaged entry is reported by name and skipped whole instead of
+  leaving a half-written item, copy and location behind. The rest of the
+  archive imports as it always did.
+
+### Changed
+
+- **Scan's Inventory mode reports instead of moving when it cannot tell which
+  copy you scanned.** Auditing a shelf and scanning an item that has copies
+  elsewhere but none here now answers "Copies at Office and Loft; none here."
+  instead of relocating a copy onto the shelf in front of you. **A single-copy
+  item still relocates, exactly as before** — that is the common case and it is
+  untouched. Only multi-copy items behave differently, and for them the old
+  behaviour was destroying the record of where things are.
+- **The shelf audit expects an item wherever any of its copies is**, primary or
+  not, and shows a count when two copies share one shelf. A room holding a
+  non-primary copy used to report clean while that copy sat there unaccounted
+  for, so audit results for merged items will look different — and correct —
+  the first time you run one after upgrading.
+
+### Fixed
+
+- **Scan's Lookup mode names every room a copy is in**, rather than only one.
+- **Re-importing an archive no longer moves an item you already have.**
+  Importing over a matching existing item used to overwrite that item's
+  location from the archive; it now leaves the item's own copies alone. This
+  bug pre-dates copies and affected plain re-imports too.
+- **A location change can no longer leave a stale shelf position behind on a
+  moved copy.** Every write to a physical copy now goes through a single
+  funnel, the same way writes to catalogue items already did.
+
+**Copies are still only created by merging two records, or by importing an
+archive that contains them.** There is deliberately no "add a copy" button yet:
+until Shelf can tell you where each copy came from, a hand-made copy would be a
+row with no history, and the merge case is the one that was actively losing
+data.
+
+## [0.37.2] - 2026-09-08
+
+Shelf Fill has always numbered the items you scan onto a shelf, and never told
+you. The position was written to the database and shown only if you later opened
+that location's Arrange page, so the one thing separating Shelf Fill from the
+Scan tab's Move mode was invisible while you used it. It is on screen now.
+
+### Fixed
+
+- **Shelf Fill shows the position each scan takes.** Every filed item's card now
+  carries its place on the shelf — `#1`, `#2`, `#3` — assigned in the order you
+  scan. Positions belong to the shelf, so filling shelf 1 of one bookcase and
+  then shelf 2 of another numbers each from 1.
+- **The shelf you picked now says what is already on it.** Choosing a location
+  reports how many items are there and which position the next scan will take,
+  with a link straight to that shelf's Arrange page. Items that arrived without
+  a position — put there before ordering existed, or moved there by the Scan
+  tab — are counted separately, because they sort last on Arrange and saying
+  otherwise would misdescribe the shelf.
+- **The page explains the workflow.** The description said only that items are
+  placed; it now says that scans take consecutive positions, that a different
+  shelf starts its own numbering, and that any shelf can be reordered later.
+
+## [0.37.1] - 2026-09-08
+
+Four pages that 0.37.0 added could not be reached from anywhere in Shelf. Home,
+Music, Periodicals and Shelf Fill all worked if you typed the address, and
+nothing in the navigation linked to any of them — so the release notes described
+a Home overview that nobody opening Shelf would ever see. This release makes
+them reachable. No data is affected and there is no migration.
+
+### Fixed
+
+- **Shelf opens on Home.** Logging in, finishing setup, and clicking **Shelf**
+  in the menu bar all go to the Home overview now; before, all three went
+  straight to Browse and Home had no link anywhere. If you prefer landing on
+  Browse, it is the first tab.
+- **Music, Periodicals and Shelf Fill are in the navigation.** Each was a
+  working page with nothing linking to it. Shelf Fill appears for editors and
+  administrators, matching who is allowed to use it. As with every other tab,
+  you can hide the ones you do not want under **Settings → Library**.
+- **Home's Collection Mix and Lent out tiles now actually filter.** Clicking a
+  media type under Collection Mix — Book, eBook, Audiobook, Kids Book, any of
+  them — took you to Browse showing your *whole* collection rather than that
+  type, and the Lent out tile did the same. Both passed a filter name Browse
+  does not use, so it was dropped without any error. Every other link into
+  Browse in the app was checked and was already correct.
+
+### Changed
+
+- **Logs moved into the account menu**, beside Settings. Both are
+  administrator-only, Settings already lived there, and the tab row had grown
+  long enough that the two of them together were pushing it wide.
+
+## [0.37.0] - 2026-09-08
+
+Thirteen pull requests from [@sudo-rpaisley](https://github.com/sudo-rpaisley),
+merged together — far and away the largest release Shelf has had. Shelf has
+until now catalogued things you read and things you play. This batch adds the
+two families it could not describe — music, where the unit is a specific
+pressing rather than a title, and periodicals, where the unit is an issue of
+something ongoing — plus two integrations for the digital libraries people
+already run beside Shelf, and the screens for putting physical copies in a
+particular order on a particular shelf.
+
+It also closes a data-loss bug in item merging that could take your loan
+history, tags and physical copies with the row you merged away. If you have ever
+merged two items, read the **Fixed** entry below — the damage is not
+retroactively repairable, but it cannot happen again.
+
+### Added
+
+- **Music is a first-class part of the catalogue.** A new **Music** page
+  searches MusicBrainz by title, artist, barcode or catalogue number, and
+  catalogues the *release* rather than the title — so two pressings of the same
+  album keep their own country, date, label, catalogue number, packaging and
+  medium. Track lists and multi-disc releases are stored with their real side
+  and track numbering, so a vinyl A1/B1 stays A1/B1. Formats are **Vinyl**,
+  **Cassette**, **CD** and **Digital Music**, reusing Shelf's existing CD type
+  rather than inventing a second one. When MusicBrainz reports a medium Shelf
+  does not recognise, the add screen asks you to choose rather than guessing.
+  Releases sharing a MusicBrainz release group are linked automatically, so the
+  vinyl and the CD of one album find each other. Contributed by [@sudo-rpaisley](https://github.com/sudo-rpaisley) in
+  [#109](https://github.com/dgahagan/shelf/pull/109)
+- **Magazines are catalogued as a publication and its issues.** A **Periodicals**
+  page separates the thing you subscribe to from the individual issue on the
+  shelf, so a run of one magazine is one publication with many issues rather
+  than many unrelated rows. Scanning a 977 barcode resolves the publication from
+  its ISSN; the issue number and date stay yours to confirm, because the
+  supplement digits on a periodical barcode are not reliable enough to trust
+  unattended. The family is named separately from the magazine format, leaving
+  room for journals and newspapers later. Contributed by [@sudo-rpaisley](https://github.com/sudo-rpaisley) in
+  [#106](https://github.com/dgahagan/shelf/pull/106)
+- **RomM integration for digital games.** Connect a self-hosted RomM server in
+  Settings → Integrations and Shelf can discover and synchronise your digital
+  game library, keeping RomM's own record identity so a re-sync updates rather
+  than duplicates. A RomM game is deliberately *not* matched onto an existing
+  physical game by title and platform — that would silently turn a cartridge
+  into a service-backed item — so it gets its own record, and you can link the
+  two yourself. Contributed by [@sudo-rpaisley](https://github.com/sudo-rpaisley) in [#100](https://github.com/dgahagan/shelf/pull/100)
+- **Komga integration for digital comics and manga.** Connect a self-hosted
+  Komga server and Shelf can discover its libraries and synchronise books and
+  series, matching on ISBN where one exists. A library's Comic/Manga kind is
+  kept separate from Shelf's own media type, so changing one does not silently
+  reclassify a manually catalogued item — Shelf asks you to make that change
+  explicitly. Contributed by [@sudo-rpaisley](https://github.com/sudo-rpaisley) in [#101](https://github.com/dgahagan/shelf/pull/101)
+- **Manga is a media type of its own.** Previously manga had to be filed as a
+  comic. It now sits in the book family with its own type, so it carries an
+  ISBN, belongs to a series, and appears separately in Browse filters and
+  statistics. Contributed by [@sudo-rpaisley](https://github.com/sudo-rpaisley) in [#105](https://github.com/dgahagan/shelf/pull/105)
+- **Shelf Fill: put a lot of things on one shelf, quickly.** Choose a room,
+  bookcase or shelf and it stays selected while you scan item after item onto
+  it. Items already in the catalogue move without a fresh metadata lookup;
+  barcodes Shelf does not recognise fall through to the normal Add pipeline.
+  Copy-specific barcodes are supported, so two copies of the same book can be
+  placed independently. Contributed by [@sudo-rpaisley](https://github.com/sudo-rpaisley) in [#113](https://github.com/dgahagan/shelf/pull/113)
+- **Arrange the copies on a shelf into their real order.** Any location gets an
+  **Arrange** page where editors and administrators can drag physical copies
+  into the order they actually sit in, or order them automatically by Title,
+  Creator, Series, Release or Issue. Ordering belongs to the copy rather than
+  the catalogue item, so duplicate copies stay distinct and can sit beside one
+  another. Issue and release ordering use Periodicals and Music metadata when
+  those are present. Contributed by [@sudo-rpaisley](https://github.com/sudo-rpaisley) in [#115](https://github.com/dgahagan/shelf/pull/115)
+- **Related media groups.** Different forms of the same work — a novel, its
+  audiobook, its film adaptation — can be connected explicitly, as `format`,
+  `related` or `adaptation`. A group is the connected set of links rather than a
+  separate record, so linking A to B and B to C presents all three together, and
+  unlinking splits the group naturally. This release is the model foundation;
+  matching is manual by design, because a cross-media relationship guessed from
+  a title alone is usually wrong. Contributed by [@sudo-rpaisley](https://github.com/sudo-rpaisley) in [#114](https://github.com/dgahagan/shelf/pull/114)
+- **Scan or edit a retail UPC/EAN on the item edit page.** The Identifiers
+  section now takes retail barcodes as well as ISBNs, with the same camera
+  scanner used elsewhere. Scanning fills the field only — it does not save or
+  trigger a metadata lookup. UPC-A is canonicalised to EAN-13 for storage,
+  checksums are validated, and 978/979 Bookland codes are refused because they
+  belong in the ISBN field. Shelf's per-media-type duplicate protection applies,
+  so the same barcode may repeat across media types but not within one. Contributed by [@sudo-rpaisley](https://github.com/sudo-rpaisley) in
+  [#112](https://github.com/dgahagan/shelf/pull/112)
+- **Shelf opens on a Home overview.** Home answers "what is happening in my
+  library?" — catalogue, owned and wishlist totals, what is currently lent out,
+  missing covers, a media-type breakdown and recent additions — while Browse
+  stays the place for searching, filtering and bulk editing. Editors and
+  administrators also get a **Scan item** shortcut. Nothing new is stored; the
+  page is built from existing state each time it is opened. Contributed by [@sudo-rpaisley](https://github.com/sudo-rpaisley) in
+  [#108](https://github.com/dgahagan/shelf/pull/108)
+- **Settings is organised into four sections.** Library, Integrations, Data and
+  Users, with the section you were last in remembered in the browser. Navigation
+  and presentation only — every settings form, endpoint and stored value behaves
+  as before. Settings remains administrator-only; account and password controls
+  stay under **Account**. Contributed by [@sudo-rpaisley](https://github.com/sudo-rpaisley) in [#107](https://github.com/dgahagan/shelf/pull/107)
+- **Manual cover URLs are now available directly in Edit → Artwork.** Paste a
+  public HTTPS image URL and choose **Use URL** to apply it immediately through
+  Shelf's existing SSRF-safe manual-cover downloader. The action stays on the
+  edit page, so unsaved metadata is not discarded; normal file uploads and
+  other item edits still wait for **Save Changes**. Contributed by [@sudo-rpaisley](https://github.com/sudo-rpaisley) in
+  [#111](https://github.com/dgahagan/shelf/pull/111)
+
+### Fixed
+
+- **Merging two items no longer throws away everything attached to the merged
+  row.** The merge moved the scan and reading history across and then deleted
+  the row, which silently took its loan history, its tags, its links to other
+  formats and — since 0.36.0 — its physical copies, including what you paid,
+  where it came from and its condition. All of them now move to the row you
+  keep. Where both rows carry the same tag or the same link you get one, not a
+  duplicate; copies are renumbered onto the end of the kept row's own; and a
+  link between the two rows is dropped rather than becoming a link from the
+  item to itself. Merging an item into itself is refused instead of deleting
+  it, repeating an id in one request no longer merges it twice, an id that
+  matches no row is no longer counted as a success, and two items that are both
+  out on loan are refused with a message naming them — check one in first.
+  Original finding by [@sudo-rpaisley](https://github.com/sudo-rpaisley), via
+  [#79](https://github.com/dgahagan/shelf/pull/79).
+  ([#86](https://github.com/dgahagan/shelf/issues/86))
+
+## [0.36.0] - 2026-09-07
+
+Shelf's locations were one flat list. *Office*, *Bookcase 1* and *Shelf 3* sat
+side by side as unrelated names, with no way to say that the shelf is in the
+bookcase and the bookcase is in the office. The only way to be precise was to
+type the whole path into a single name and then keep every one of them
+consistent by hand. Separately, a catalogue entry *was* the object: one row,
+one location, so if you owned two copies of a book there was nowhere to say
+that the second one is the paperback in the spare room. This release pulls
+those apart — a location can now sit inside another location, and Shelf has
+somewhere to record an individual physical copy. It also puts the barcode
+scanner on the item edit page, where you are already standing when you notice
+an ISBN is wrong.
+
+Every user-visible change here is the work of
+[@sudo-rpaisley](https://github.com/sudo-rpaisley).
+
+### Added
+
+- **Locations can sit inside other locations.** Settings → Library → Locations
+  now has an **Inside** picker on both the create form and every existing row,
+  so you can build *Living Room / Bookcase / Shelf 1* instead of inventing one
+  long name for it. Nesting is as deep as you need and no level is compulsory —
+  there is no fixed room/bookcase/shelf shape to fill in. The same label can
+  appear under different parents, so *Shelf 1* in the living room is a
+  different place from *Shelf 1* in the bedroom. Renaming or moving a location
+  rewrites the full path of everything beneath it in one step, so items keep
+  pointing at the same place. Shelf refuses to put a location inside itself or
+  inside one of its own descendants, and refuses to delete a location that
+  still has children — move or delete the children first. Everywhere a
+  location is *displayed* — the item page, Browse, CSV export, the archive —
+  it shows the unambiguous full path. Your existing locations are unchanged
+  and become top-level entries. Contributed by
+  [@sudo-rpaisley](https://github.com/sudo-rpaisley) in
+  [#99](https://github.com/dgahagan/shelf/pull/99)
+  ([#98](https://github.com/dgahagan/shelf/issues/98))
+- **Shelf now distinguishes a catalogue entry from the physical copies of
+  it.** A new record holds what belongs to the object rather than to the
+  edition: condition, when and where you acquired it, what you paid,
+  provenance, a copy note, your own accession barcode, and its location. One
+  item can carry several. **This release is the storage layer only** — there
+  is no per-copy screen yet, and nothing in the interface looks different. It
+  is listed here because it changes what is in your database on upgrade, not
+  because there is a new button to press. The item's own **Location** field
+  keeps working exactly as it always has and now drives that item's primary
+  copy: set it and the primary copy moves with it, clear it and the primary
+  copy stays but loses its location. Additional copies are never moved by that
+  field. Contributed by
+  [@sudo-rpaisley](https://github.com/sudo-rpaisley) in
+  [#99](https://github.com/dgahagan/shelf/pull/99)
+  ([#97](https://github.com/dgahagan/shelf/issues/97))
+- **Scan an ISBN straight into the item edit form.** The **Identifiers**
+  section of an item's edit page has a **Scan ISBN** button that opens the
+  camera, the same scanner the Scan page uses, with the same fallback engine
+  when a browser cannot drive the first one. It accepts a 13-digit 978 or 979
+  barcode and says so plainly when you point it at something else — a DVD's
+  UPC will not be silently filed as an ISBN. A successful scan **fills the
+  field and selects it; it does not save.** You still press Save, and you can
+  still see and correct what it read. If the camera is unavailable Shelf says
+  which problem it is: permission denied, or a page not served over HTTPS.
+  Contributed by [@sudo-rpaisley](https://github.com/sudo-rpaisley) in
+  [#94](https://github.com/dgahagan/shelf/pull/94)
+  ([#92](https://github.com/dgahagan/shelf/issues/92))
+
+**On upgrade**, Shelf runs six migrations, and one of them writes rows: every
+item that is marked owned **and** already has a location gets one primary
+physical copy created for it. Items with no location get nothing. That
+restraint is deliberate — keying the backfill on *owned* alone, as the
+original suggestion had it, would have manufactured a phantom physical copy
+for every wishlist-shaped or unplaced row in the collection. On one test
+database of 1,092 items that would have been 1,012 copies that do not exist.
+Your existing flat locations are turned into top-level nodes of the new tree
+and are otherwise untouched. As always, back up `data/shelf.db` before
+upgrading.
+
+## [0.35.0] - 2026-09-06
+
+When a page's script fails to arrive — a flaky network, a stale cache, a proxy
+that drops one file — the page still renders, but nothing on it works. Buttons
+do nothing, filters do nothing, and Shelf said nothing at all: the only
+evidence was dozens of errors in a browser console nobody has open. This
+release makes that failure announce itself. It also adds a way to set a cover
+from a link you already have, and reorganises the item edit form, which had
+grown into one long undifferentiated column.
+
+Two of the three changes here are the work of
+[@sudo-rpaisley](https://github.com/sudo-rpaisley).
+
+### Added
+
+- **Shelf now tells you when a page didn't load fully.** If a page's script
+  fails to execute, a red notice appears — *"This page did not load fully —
+  reload it."* — instead of the page looking normal while quietly doing
+  nothing. The browser console gets one message naming the exact file that
+  went missing and what it failed to register, in place of the dozens of
+  separate errors the same fault used to produce. A reload almost always
+  fixes it, since the failure happens per page load. Shelf deliberately does
+  **not** retry the script for you: a silent retry would hide the very signal
+  worth seeing, and the reload you would do anyway is more reliable.
+- **Set a cover from an image URL.** *Find cover* now has a **Use image from
+  URL** field beside the upload control, for when you already have a link to
+  the right image. Shelf downloads it and keeps its own local copy — the page
+  never hot-links to someone else's server. Public HTTPS links only, to a
+  JPEG, PNG, GIF or WebP under 10 MB; links to private or internal addresses
+  are refused. This is a real fix for the covers the automatic sources cannot
+  find at all, such as a 979-12 ISBN or a DVD with no TMDb match. Contributed
+  by [@sudo-rpaisley](https://github.com/sudo-rpaisley) in
+  [#93](https://github.com/dgahagan/shelf/pull/93)
+
+### Changed
+
+- **The item edit form is now organised into sections.** Editing an item used
+  to mean scrolling one long column of every field Shelf has, whether or not
+  it applied. The form is now six labelled sections — General, Artwork,
+  Series, Identifiers, Location, Media Details — with a row of links at the
+  top to jump between them, and the heading shows the item's title and media
+  type rather than just "Edit Item". Sections that do not apply to the media
+  type are hidden: a video game no longer shows Series and ISBN fields, an
+  audiobook shows narrator and duration. **Nothing is hidden out of reach** —
+  if an item already has a value in a field its media type would normally
+  hide, that section stays visible so you can still see and edit it. No field
+  was removed or renamed, and saving works exactly as before. Contributed by
+  [@sudo-rpaisley](https://github.com/sudo-rpaisley) in
+  [#96](https://github.com/dgahagan/shelf/pull/96)
+
 ## [0.34.0] - 2026-09-05
 
 Shelf and your browser do not always reach Audiobookshelf at the same address.
@@ -2883,6 +4068,28 @@ First public release.
   protection, encrypted credential storage, optional passphrase-encrypted
   backups, HTTPS out of the box, non-root container
 
+[0.46.0]: https://github.com/dgahagan/shelf/releases/tag/v0.46.0
+[0.45.1]: https://github.com/dgahagan/shelf/releases/tag/v0.45.1
+[0.45.0]: https://github.com/dgahagan/shelf/releases/tag/v0.45.0
+[0.44.0]: https://github.com/dgahagan/shelf/releases/tag/v0.44.0
+[0.43.0]: https://github.com/dgahagan/shelf/releases/tag/v0.43.0
+[0.42.5]: https://github.com/dgahagan/shelf/releases/tag/v0.42.5
+[0.42.4]: https://github.com/dgahagan/shelf/releases/tag/v0.42.4
+[0.42.3]: https://github.com/dgahagan/shelf/releases/tag/v0.42.3
+[0.42.2]: https://github.com/dgahagan/shelf/releases/tag/v0.42.2
+[0.42.1]: https://github.com/dgahagan/shelf/releases/tag/v0.42.1
+[0.42.0]: https://github.com/dgahagan/shelf/releases/tag/v0.42.0
+[0.41.1]: https://github.com/dgahagan/shelf/releases/tag/v0.41.1
+[0.41.0]: https://github.com/dgahagan/shelf/releases/tag/v0.41.0
+[0.40.1]: https://github.com/dgahagan/shelf/releases/tag/v0.40.1
+[0.40.0]: https://github.com/dgahagan/shelf/releases/tag/v0.40.0
+[0.39.0]: https://github.com/dgahagan/shelf/releases/tag/v0.39.0
+[0.38.0]: https://github.com/dgahagan/shelf/releases/tag/v0.38.0
+[0.37.2]: https://github.com/dgahagan/shelf/releases/tag/v0.37.2
+[0.37.1]: https://github.com/dgahagan/shelf/releases/tag/v0.37.1
+[0.37.0]: https://github.com/dgahagan/shelf/releases/tag/v0.37.0
+[0.36.0]: https://github.com/dgahagan/shelf/releases/tag/v0.36.0
+[0.35.0]: https://github.com/dgahagan/shelf/releases/tag/v0.35.0
 [0.34.0]: https://github.com/dgahagan/shelf/releases/tag/v0.34.0
 [0.33.1]: https://github.com/dgahagan/shelf/releases/tag/v0.33.1
 [0.33.0]: https://github.com/dgahagan/shelf/releases/tag/v0.33.0

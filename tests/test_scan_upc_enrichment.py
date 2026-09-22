@@ -13,11 +13,11 @@ its call actually sees.
 import httpx
 import pytest
 
-from app.services import igdb, outbound, provider_result, tmdb, upcitemdb
+from app.services import igdb, lists, outbound, provider_result, tmdb, upcitemdb
 from app.services import upc as upc_svc
 from app.database import get_db
 from app.routers import items_common
-from tests.conftest import _insert_item
+from tests.conftest import _assert_ownership_partition, _insert_item
 
 
 DVD_UPC = "085391163121"
@@ -288,6 +288,7 @@ class TestGameScanHonoursWishlistMode:
         assert resp.status_code == 200
         row = db.execute("SELECT * FROM items WHERE media_type = 'video_game'").fetchone()
         assert row["owned"] == 0
+        _assert_ownership_partition(db)
         log_row = db.execute(
             "SELECT result FROM scan_log WHERE item_id = ?", (row["id"],)
         ).fetchone()
@@ -481,6 +482,100 @@ class TestARescanCostsNoOutboundCall:
         assert stub_calls == []
 
 
+class TestUpcScanPromotesTheWishlist:
+    """#125, triage codex-R2: the barcode-alone pre-check above is the
+    *primary* promotion site — most existing UPCs are caught here, before any
+    network call, not at the media_type-keyed race guards further down. Add
+    mode buying a wishlisted DVD or game must promote it at no outbound cost,
+    same as the ISBN path (`tests/test_scan_modes.py::TestAddModePromotesWishlisted`)."""
+
+    PARAMS = [("dvd", DVD_UPC), ("video_game", GAME_UPC)]
+
+    def _seed(self, db, media_type, upc):
+        return _insert_item(
+            db, title="Wished Disc", isbn=None, media_type=media_type,
+            upc=upc_svc.normalize_upc(upc), owned=0, wishlisted=True,
+        )
+
+    def _state(self, db, item_id):
+        owned = db.execute("SELECT owned FROM items WHERE id = ?", (item_id,)).fetchone()["owned"]
+        return owned, lists.is_member(db, lists.WISHLIST, item_id)
+
+    def _last_scan(self, db):
+        return db.execute(
+            "SELECT result, mode, item_id FROM scan_log ORDER BY id DESC LIMIT 1"
+        ).fetchone()
+
+    def _forbid_lookup(self, monkeypatch):
+        async def _no_call(code, client):
+            raise AssertionError("no provider call for a known barcode")
+        monkeypatch.setattr(upcitemdb, "lookup", _no_call)
+
+    @pytest.mark.parametrize("media_type, upc", PARAMS)
+    def test_add_mode_promotes_the_wishlisted_row(
+        self, editor_client, db, monkeypatch, media_type, upc
+    ):
+        item_id = self._seed(db, media_type, upc)
+        db.commit()
+        self._forbid_lookup(monkeypatch)
+
+        resp = editor_client.post("/api/scan", data={"isbn": upc, "media_type": media_type})
+
+        assert resp.status_code == 200
+        assert 'data-scan-status="promoted"' in resp.text
+        assert self._state(db, item_id) == (1, False)
+        log = self._last_scan(db)
+        assert (log["result"], log["item_id"]) == ("promoted", item_id)
+        _assert_ownership_partition(db)
+
+    @pytest.mark.parametrize("media_type, upc", PARAMS)
+    def test_wishlist_mode_leaves_it_a_duplicate(
+        self, editor_client, db, monkeypatch, media_type, upc
+    ):
+        item_id = self._seed(db, media_type, upc)
+        db.commit()
+        self._forbid_lookup(monkeypatch)
+
+        resp = editor_client.post(
+            "/api/scan", data={"isbn": upc, "media_type": media_type, "mode": "wishlist"}
+        )
+
+        assert resp.status_code == 200
+        assert 'data-scan-status="duplicate"' in resp.text
+        assert self._state(db, item_id) == (0, True)
+        assert self._last_scan(db)["result"] == "duplicate"
+        _assert_ownership_partition(db)
+
+    def test_the_guard_reads_under_the_write_lock(self, editor_client, db, monkeypatch):
+        """G18 — the part-1 barcode-alone guard specifically, not the
+        media_type-keyed one at part 2. The predicate's 3-column, no-`AND`
+        shape matches only this SELECT (`_find_upc_row`'s carries `AND
+        media_type = ?`)."""
+        from tests.test_intake import _install_lock_probe
+
+        item_id = self._seed(db, "dvd", DVD_UPC)
+        db.commit()
+        self._forbid_lookup(monkeypatch)
+        probe_results = []
+
+        def predicate(sql):
+            return "SELECT id, title, media_type FROM items_live WHERE upc = ?" in sql
+
+        _install_lock_probe(monkeypatch, items_common, predicate, probe_results)
+
+        resp = editor_client.post("/api/scan", data={"isbn": DVD_UPC, "media_type": "dvd"})
+
+        assert resp.status_code == 200
+        assert 'data-scan-status="promoted"' in resp.text
+        assert probe_results, "the guard query never ran — the probe did not fire"
+        assert probe_results[-1].startswith("locked"), (
+            f"a rival writer could take the write lock while _scan_upc's part-1 "
+            f"barcode guard was being read (got {probe_results[-1]!r}) — the "
+            "guard is missing its BEGIN IMMEDIATE, or takes it after the SELECT (G18)"
+        )
+        assert self._state(db, item_id) == (1, False)
+
+
 class TestScanIntegrityErrorGuard:
     """`G18` — a row committed during the lookup window is not a 500.
 
@@ -569,6 +664,82 @@ class TestScanIntegrityErrorGuard:
         assert "duplicate" in resp.text.lower()
         assert calls["n"] == 2  # guard missed, the catch re-looked
         assert self._one_row(db, upc) == 1
+
+
+class TestUpcRaceAlsoPromotesTheWishlist:
+    """#125 — a row that lands *during* the provider window (part 2, the
+    media_type-keyed guard under `BEGIN IMMEDIATE`) needs the same purchase
+    semantics as one already on the shelf when the scan started. Reuses
+    `TestScanIntegrityErrorGuard`'s race shape: the rival write happens from
+    inside the stubbed `upcitemdb.lookup`, on a separate connection."""
+
+    PARAMS = [("dvd", DVD_UPC, GOODFELLAS), ("video_game", GAME_UPC, MARIO)]
+
+    def _race_in(self, monkeypatch, media_type, upc, title, **seed_kwargs):
+        async def _lookup_then_race(code, client):
+            with get_db() as rival:
+                _insert_item(
+                    rival, title="Raced In", isbn=None, media_type=media_type,
+                    upc=upc_svc.normalize_upc(code), **seed_kwargs,
+                )
+            return provider_result.found("upcitemdb", _product(title))
+
+        async def _lookup_by_title(query, key, client):
+            return provider_result.no_match("tmdb")
+
+        async def _search_games(query, cid, secret, client, platform=None, limit=10):
+            return provider_result.no_match("igdb")
+
+        monkeypatch.setattr(upcitemdb, "lookup", _lookup_then_race)
+        monkeypatch.setattr(tmdb, "lookup_by_title", _lookup_by_title)
+        monkeypatch.setattr(igdb, "search_games", _search_games)
+        _set_tmdb_key(monkeypatch)
+        _set_igdb_creds(monkeypatch)
+
+    def _row(self, db, upc, media_type):
+        return db.execute(
+            "SELECT id, owned FROM items WHERE upc = ? AND media_type = ?",
+            (upc_svc.normalize_upc(upc), media_type),
+        ).fetchone()
+
+    def _last_scan(self, db):
+        return db.execute(
+            "SELECT result, mode, item_id FROM scan_log ORDER BY id DESC LIMIT 1"
+        ).fetchone()
+
+    @pytest.mark.parametrize("media_type, upc, title", PARAMS)
+    def test_a_wishlisted_row_raced_in_is_promoted(
+        self, editor_client, db, monkeypatch, media_type, upc, title
+    ):
+        self._race_in(monkeypatch, media_type, upc, title, owned=0, wishlisted=True)
+
+        resp = editor_client.post("/api/scan", data={"isbn": upc, "media_type": media_type})
+
+        assert resp.status_code == 200
+        row = self._row(db, upc, media_type)
+        assert row is not None
+        assert 'data-scan-status="promoted"' in resp.text
+        assert row["owned"] == 1
+        assert not lists.is_member(db, lists.WISHLIST, row["id"])
+        log = self._last_scan(db)
+        assert (log["result"], log["item_id"]) == ("promoted", row["id"])
+        _assert_ownership_partition(db)
+
+    @pytest.mark.parametrize("media_type, upc, title", PARAMS)
+    def test_an_owned_row_raced_in_stays_duplicate(
+        self, editor_client, db, monkeypatch, media_type, upc, title
+    ):
+        self._race_in(monkeypatch, media_type, upc, title, owned=1)
+
+        resp = editor_client.post("/api/scan", data={"isbn": upc, "media_type": media_type})
+
+        assert resp.status_code == 200
+        row = self._row(db, upc, media_type)
+        assert row is not None
+        assert 'data-scan-status="duplicate"' in resp.text
+        assert row["owned"] == 1
+        assert self._last_scan(db)["result"] == "duplicate"
+        _assert_ownership_partition(db)
 
 
 class TestTheProductRecordOutranksTheDropdown:

@@ -1,6 +1,7 @@
 """E2E tests: scan page loads and mode switching."""
 import base64
 import sqlite3
+import time
 from pathlib import Path
 
 import pytest
@@ -10,6 +11,7 @@ from tests.e2e.conftest import (
     assert_page_clean,
     attach_page_guard,
     insert_item,
+    template_env,
     wait_for_video_ready,
 )
 
@@ -102,8 +104,10 @@ def test_scan_mode_switching(live_server, authed_page):
     assert mode_buttons.count() >= 2, f"Expected >=2 mode buttons, got {mode_buttons.count()}"
 
     # Click the second mode button and verify the page didn't crash
-    mode_buttons.nth(1).click()
-    authed_page.wait_for_load_state("networkidle")
+    with authed_page.expect_response(
+        lambda r: "/api/recent-scans" in r.url and r.ok
+    ):
+        mode_buttons.nth(1).click()
     assert authed_page.locator("body").is_visible()
 
 
@@ -120,22 +124,16 @@ def test_manual_add_copy_from_picker(live_server, authed_page):
     pick() runs it from) instead of a closure-captured rootEl set once in
     init().
 
-    Reaching the not_found branch offline: the ISBN path (_lookup_metadata)
-    calls Open Library/Google Books directly, and a real network failure
-    there is caught as status="error" (not "not_found"), so it can't render
-    the manual-add form without live network. The UPC/DVD path used to be
-    simpler than it is now: `upcitemdb.lookup` wrapped its UPC Item DB
-    request in a bare except and returned None on any failure, so an
-    unresolvable UPC reached not_found regardless of network reachability.
-    T5 removed that bare except — `upcitemdb.lookup` now lets
-    `httpx.TimeoutException` and `httpx.NetworkError` propagate, and those
-    render a "Metadata lookup failed — check connectivity" card instead of
-    not_found. This test still reaches not_found deterministically, but for
-    a narrower reason: "999999999999" fails UPC Item DB's own format
-    validation and draws a real HTTP 400 — a non-200, which `lookup` still
-    normalises to None — so this is the non-200-independent route into the
-    form, not a network-independent one. There's no existing e2e pattern for
-    the ISBN not-found branch to follow instead.
+    Reaching the not_found branch: the ISBN path (_lookup_metadata) calls
+    Open Library/Google Books directly, and a real network failure there is
+    caught as status="error" (not "not_found"), so it can't render the
+    manual-add form. The UPC/DVD path can, and since #123 it does so with no
+    request leaving the machine: `upc_stub` (tests/e2e/conftest.py) answers
+    "999999999999" with the recorded `400 INVALID_UPC`, which is the same
+    route to not_found the live API takes. `upcitemdb.lookup` no longer
+    swallows transport failures — `transport_failed` renders a "Metadata
+    lookup failed — check connectivity" card instead of not_found — so the
+    400 matters: it is a real non-200 answer, not an unreachable host.
     """
     data_dir = live_server["data_dir"]
 
@@ -151,9 +149,9 @@ def test_manual_add_copy_from_picker(live_server, authed_page):
 
     authed_page.select_option("#media-type", "dvd")
     # "999999999999" fails UPC Item DB's own format validation (HTTP 400,
-    # not a catalog miss) — a stable, deterministic non-match. Plain
-    # all-zeros/all-repeated-digit codes are unreliable here because the
-    # trial API has real placeholder listings under some of them.
+    # not a catalog miss) — a stable, deterministic non-match. `upc_stub`
+    # serves that recorded 400, so the scan reaches not_found the same way it
+    # would live, with no request leaving the machine (#123).
     authed_page.fill("#isbn-input", "999999999999")
     authed_page.press("#isbn-input", "Enter")
 
@@ -182,8 +180,8 @@ def test_manual_add_copy_from_picker(live_server, authed_page):
 
     new_link = authed_page.locator("a", has_text="Copied Movie").first
     expect(new_link).to_be_visible(timeout=10_000)
-    new_link.click()
-    authed_page.wait_for_load_state("networkidle")
+    with authed_page.expect_navigation():
+        new_link.click()
 
     expect(authed_page.locator("body")).to_contain_text("Copied Movie")
     expect(authed_page.locator("body")).to_contain_text("Jane Doe")
@@ -201,11 +199,11 @@ def test_rescanning_a_manually_added_upc_reports_duplicate(live_server, authed_p
     and step 5 returned a 500 from an uncaught UNIQUE(isbn, media_type).
 
     "888888888888" has a bad UPC-A check digit, so UPC Item DB rejects it on
-    format (HTTP 400) rather than as a catalog miss — the same deterministic,
-    non-200-independent route to not_found that
-    test_manual_add_copy_from_picker documents. It must differ from that
-    test's code: live_server is session-scoped, so both tests share one
-    database.
+    format (HTTP 400) rather than as a catalog miss — the same deterministic
+    route to not_found that test_manual_add_copy_from_picker documents, and
+    since #123 it is served by `upc_stub` with no request leaving the machine.
+    It must still differ from that test's code: live_server is session-scoped,
+    so both tests share one database.
     """
     barcode = "888888888888"
 
@@ -269,7 +267,7 @@ def _login_page(live_server, ctx, setup_admin):
     pg.fill("input[name=username]", setup_admin["username"])
     pg.fill("input[name=password]", setup_admin["password"])
     pg.click("button[type=submit]")
-    pg.wait_for_url(f"{live_server['url']}/browse", timeout=10_000)
+    pg.wait_for_url(f"{live_server['url']}/", timeout=10_000)
     return pg
 
 
@@ -448,7 +446,6 @@ def test_scan_cover_poll_settles_after_two_attempts(live_server, authed_page):
 # fragments/scan_result.html would not fail a test that wrote the attribute
 # itself. Mutation-checked both ways.
 def _render_card(**overrides):
-    from jinja2 import Environment, FileSystemLoader
 
     from app.services.national import SEARCH_LANGS
 
@@ -466,16 +463,13 @@ def _render_card(**overrides):
         "detect_overrode": False,
         "detect_reason": "",
         "message": "",
-        # The not_found arm's language <select> reads this as a Jinja
-        # *global* in the real app (app/main.py sets it on templates.env);
-        # this standalone Environment has no such global, so a not_found
-        # render needs it supplied explicitly or `search_langs.items()`
-        # raises on an Undefined.
+        # Supplied explicitly, though template_env() now also carries it as
+        # a global: this pins the *value* the not_found arm's language
+        # <select> renders, independently of what the app registers.
         "search_langs": SEARCH_LANGS,
     }
     ctx.update(overrides)
-    env = Environment(loader=FileSystemLoader("app/templates"), autoescape=True)
-    return env.get_template("fragments/scan_result.html").render(**ctx)
+    return template_env().get_template("fragments/scan_result.html").render(**ctx)
 
 
 _OUTCOME = "(html) => { const d = document.createElement('div'); d.innerHTML = html; " \
@@ -618,7 +612,7 @@ def _scan_with_seeded_storage(browser, live_server, setup_admin, storage):
     pg.fill("input[name=username]", setup_admin["username"])
     pg.fill("input[name=password]", setup_admin["password"])
     pg.click("button[type=submit]")
-    pg.wait_for_url(f"{live_server['url']}/browse", timeout=10_000)
+    pg.wait_for_url(f"{live_server['url']}/", timeout=10_000)
     return ctx, pg
 
 
@@ -648,6 +642,29 @@ def test_a_stored_choice_is_never_migrated_to_auto(live_server, browser, setup_a
         pg.goto(f"{live_server['url']}/scan")
         pg.wait_for_load_state("networkidle")
         expect(pg.locator("#media-type")).to_have_value("book")
+        assert_page_clean(pg)
+    finally:
+        ctx.close()
+
+
+def test_a_stale_kids_book_hint_is_normalized_to_book(live_server, browser, setup_admin):
+    """`kids_book` left the live vocabulary (T6); a device whose cache still
+    holds it from before the retirement must land on `book`, not on a
+    now-nonexistent `<option>` that leaves the select showing nothing.
+
+    Pins both halves: the rendered picker *and* that the stored value was
+    corrected, not merely reinterpreted for this one load (contrast
+    `test_a_stored_choice_is_never_migrated_to_auto`, where `book` is left
+    alone because it is still a live, deliberate choice).
+    """
+    ctx, pg = _scan_with_seeded_storage(
+        browser, live_server, setup_admin, {"shelf_media_type": "kids_book"}
+    )
+    try:
+        pg.goto(f"{live_server['url']}/scan")
+        pg.wait_for_load_state("networkidle")
+        expect(pg.locator("#media-type")).to_have_value("book")
+        assert pg.evaluate("localStorage.getItem('shelf_media_type')") == "book"
         assert_page_clean(pg)
     finally:
         ctx.close()
@@ -999,7 +1016,7 @@ def _watch_csp_violations(pg):
 
 
 def test_a_cd_hinted_upc_scan_files_title_only_with_a_no_provider_notice(
-    live_server, authed_page
+    live_server, authed_page, upc_stub
 ):
     """#44, driven for real through `/api/scan` — not a rendered fixture.
 
@@ -1015,16 +1032,14 @@ def test_a_cd_hinted_upc_scan_files_title_only_with_a_no_provider_notice(
     is ever computed (items_common.py:596-610: `search_queries("")` is `[]`,
     and `if not queries` returns first). So unlike the not_found tests above,
     which deliberately pick a barcode UPC Item DB rejects on format, this one
-    needs UPC Item DB to actually resolve the barcode. "000000000000" does:
-    the trial API serves a stable placeholder listing for it — confirmed with
-    a direct `curl` against api.upcitemdb.com before writing this test:
-    title "ORGANIC BLUE CORN TORTILLA CHIPS", category Food/Snacks. (This is
-    the exact quirk `test_manual_add_copy_from_picker`'s docstring warns
-    other tests off of — "the trial API has real placeholder listings under
-    some of them" — used here on purpose instead of avoided.) That title
-    carries no video-game/DVD marker, so `detect_media_type`'s tier 4 keeps
-    the scanned "cd" hint exactly as sent (app/services/detect.py) — a CD has
-    no barcode-side detection signal of its own; the dropdown is the only
+    needs the product lookup to actually resolve the barcode. Since #123 it
+    does so **offline**: `upc_stub` (tests/e2e/conftest.py) answers
+    "000000000000" from the recorded placeholder record in
+    tests/fixtures/upcitemdb_lookup_000000000000.json — title "ORGANIC BLUE
+    CORN TORTILLA CHIPS", category Food/Snacks. That title carries no
+    video-game/DVD marker, so `detect_media_type`'s tier 4 keeps the scanned
+    "cd" hint exactly as sent (app/services/detect.py) — a CD has no
+    barcode-side detection signal of its own; the dropdown is the only
     evidence it will ever have.
 
     Still the deterministic half of the state machine: the *second* outbound
@@ -1032,14 +1047,9 @@ def test_a_cd_hinted_upc_scan_files_title_only_with_a_no_provider_notice(
     items_common.py:557's "no outbound request at all" is about that second
     call, not the UPC Item DB product lookup this test does depend on.
 
-    **If this test goes red, suspect the network before the code.** It rests
-    on a third party continuing to serve a placeholder listing for
-    "000000000000". Two failure modes read as an assertion error rather than
-    as what they are: the trial API dropping or changing that listing, and
-    the trial API rate-limiting the run (a 429 is a non-200, so `lookup`
-    normalises it to None and this falls to the not_found card). Check
-    `curl "https://api.upcitemdb.com/prod/trial/lookup?upc=000000000000"`
-    before assuming `no_provider` broke.
+    This test no longer reaches api.upcitemdb.com, and neither does any other
+    test on the gate; that the live endpoint still serves this record is
+    checked by `make test-contract`, which is off every gate (#123, G94).
     """
     csp_violations = _watch_csp_violations(authed_page)
 
@@ -1057,7 +1067,60 @@ def test_a_cd_hinted_upc_scan_files_title_only_with_a_no_provider_notice(
     expect(scan_result).to_contain_text("added")
     expect(scan_result).to_contain_text("CD")
 
+    # The product lookup really went out through the seam. Without this, a
+    # future short-circuit that answered `no_provider` without ever looking
+    # the product up would pass this test for the wrong reason.
+    assert ("/lookup", "000000000000") in upc_stub["requests"]
+
     assert csp_violations == [], csp_violations
+    assert_page_clean(authed_page)
+
+
+def test_a_rate_limited_upc_lookup_renders_the_quota_card_not_a_bare_miss(
+    live_server, authed_page, upc_stub
+):
+    """#123: a product lookup that 429s must render the quota notice
+    *distinctly* from a plain catalog miss and from `no_provider` — the "no
+    metadata source for this format" arm. Until #123 the `quota` arm on this
+    gate was reachable only when the live UPC Item DB trial quota happened to
+    be spent, so it was never actually exercised; the suite merely survived
+    it. The sibling test above stubs the *markup* for the ISBN version of
+    this because it cannot drive a real 429 out of Open Library or Google
+    Books. This one does not need to: `upc_stub` (tests/e2e/conftest.py)
+    serves a recorded 429 for barcode "000000000429", so this test drives a
+    real rate-limit response through the router, `provider_result.py`'s
+    `classify_response`, and the template — nothing here is hand-rendered.
+    """
+    authed_page.goto(f"{live_server['url']}/scan")
+    authed_page.wait_for_load_state("networkidle")
+
+    # `dvd`, not `cd`: under `cd` the same 429 also lands on the not_found
+    # card, because the product lookup sits above the media-type fork — that
+    # would only prove the 429 is visible somewhere. `dvd` is the type that
+    # *has* a provider (TMDb), so choosing it pins the more informative claim:
+    # a spent quota outranks "go ask TMDb", not just "no provider configured".
+    authed_page.select_option("#media-type", "dvd")
+    authed_page.fill("#isbn-input", "000000000429")
+    authed_page.press("#isbn-input", "Enter")
+
+    scan_result = authed_page.locator(".scan-result").first
+    expect(scan_result).to_have_attribute("data-scan-status", "not_found")
+    expect(scan_result).to_contain_text(
+        "A metadata source is rate-limiting us right now"
+    )
+    expect(scan_result).not_to_contain_text(
+        "Shelf has no metadata source for this format yet"
+    )
+    expect(scan_result).not_to_contain_text("rejected the configured key")
+
+    # Same form, same fields, same submit button — only the notice above it
+    # changed.
+    form = scan_result.locator("form")
+    expect(form).to_have_count(1)
+    expect(form.locator("input[name=title]")).to_be_visible()
+
+    assert ("/lookup", "000000000429") in upc_stub["requests"]
+
     assert_page_clean(authed_page)
 
 
@@ -1160,10 +1223,10 @@ def _open_scan_in_mode(pg, live_server, mode_label: str):
     """
     pg.goto(f"{live_server['url']}/scan")
     pg.wait_for_load_state("networkidle")
-    button = pg.get_by_role("main").get_by_role("button", name=mode_label, exact=True)
+    button = pg.get_by_role("button", name=mode_label, exact=True)
     expect(button).to_be_visible(timeout=5_000)
-    button.click()
-    pg.wait_for_load_state("networkidle")
+    with pg.expect_response(lambda r: "/api/recent-scans" in r.url and r.ok):
+        button.click()
 
 
 def test_a_typed_move_scan_raises_exactly_one_toast_naming_the_destination(
@@ -1245,6 +1308,39 @@ def test_a_typed_duplicate_scan_raises_exactly_one_warning_toast(
     assert_page_clean(authed_page)
 
 
+def test_a_wishlisted_isbn_scanned_in_add_mode_promotes_it(
+    live_server, authed_page
+):
+    """Issue #125 T11: Add mode scanning a wishlisted ISBN answers
+    `promoted`, the card shows the "Now owned" detail, and the row is owned
+    afterwards — the reporter's Add-mode scenario for the neither-state
+    plan."""
+    data_dir = live_server["data_dir"]
+    item_id = insert_item(
+        data_dir, title="Promote On Add Scan Subject", media_type="book",
+        isbn="9780000450098", owned=0, wishlisted=True,
+    )
+
+    _open_scan_in_mode(authed_page, live_server, "Add")
+    authed_page.fill("#isbn-input", "9780000450098")
+    with authed_page.expect_response(lambda r: "/api/scan" in r.url and r.ok):
+        authed_page.press("#isbn-input", "Enter")
+
+    card = authed_page.locator("#scan-results .scan-result").first
+    expect(card).to_have_attribute("data-scan-status", "promoted", timeout=10_000)
+    expect(card.locator("[data-scan-detail]")).to_contain_text("Now owned")
+
+    conn = sqlite3.connect(str(data_dir / "shelf.db"))
+    try:
+        row = conn.execute(
+            "SELECT owned FROM items WHERE id = ?", (item_id,)
+        ).fetchone()
+    finally:
+        conn.close()
+    assert row[0] == 1
+    assert_page_clean(authed_page)
+
+
 # --- T7: every status toasts something (issue #50) -------------------------
 #
 # T1+T2 replaced app.js's toast extractor with `scanCardToast()`, which reads
@@ -1255,7 +1351,7 @@ def test_a_typed_duplicate_scan_raises_exactly_one_warning_toast(
 # paragraph inside the not_found arm's manual-add form — a hidden element
 # that still yields a (blank) textContent (`G51`).
 #
-# This section pins the fix across the router's full 16-status vocabulary,
+# This section pins the fix across the router's full 21-status vocabulary,
 # not just the one status that shipped broken, so a future status — or a
 # regressed data-scan-* attribute on an existing one — fails here instead of
 # reaching a user as a blank toast.
@@ -1265,7 +1361,6 @@ def test_a_typed_duplicate_scan_raises_exactly_one_warning_toast(
 
 
 def _render_status_card(status, **overrides):
-    from jinja2 import Environment, FileSystemLoader
 
     from app.services.national import SEARCH_LANGS
 
@@ -1290,10 +1385,10 @@ def _render_status_card(status, **overrides):
         "preview_cover": None,
         "legacy_candidates": [],
         "mode": "add",
+        "supplement_rejected": False,
     }
     ctx.update(overrides)
-    env = Environment(loader=FileSystemLoader("app/templates"), autoescape=True)
-    return env.get_template("fragments/scan_result.html").render(**ctx)
+    return template_env().get_template("fragments/scan_result.html").render(**ctx)
 
 
 _TOAST = "(html) => { const d = document.createElement('div'); d.innerHTML = html; " \
@@ -1304,17 +1399,21 @@ _TOAST = "(html) => { const d = document.createElement('div'); d.innerHTML = htm
 # the design plan's own evidence for this table.
 _STATUS_CASES = {
     "added": dict(title="Dune", authors="Frank Herbert", item_id=7, source="openlibrary"),
+    "restored": dict(title="Dune", authors="Frank Herbert", item_id=7, source="openlibrary"),
     "wishlisted": dict(title="Dune", authors="Frank Herbert", item_id=7, source="openlibrary"),
     "duplicate": dict(title="Dune", item_id=7),
+    "promoted": dict(title="Dune", item_id=7),
     "checked_out": dict(title="Dune", item_id=7, message="Lent to Bea"),
     "returned": dict(title="Dune", item_id=7, message="Returned from Bea"),
     "moved": dict(title="Dune", item_id=7, message="Office Shelf → Loft Box"),
     "confirmed": dict(title="Dune", item_id=7, message="Confirmed at Office Shelf"),
     "relocated": dict(title="Dune", item_id=7, message="Was at Office Shelf, updated to Loft Box"),
+    "elsewhere": dict(title="Dune", item_id=7, message="Copies at Office Shelf and Loft Box; none here."),
     "found": dict(title="Dune", item_id=7, message="Location: Office Shelf"),
     "marked_read": dict(title="Dune", item_id=7, message="Marked as read"),
     "already_checked_out": dict(title="Dune", item_id=7, message="Already lent to Bea"),
     "not_checked_out": dict(title="Dune", item_id=7, message="Not currently checked out"),
+    "in_trash": dict(title="Dune", item_id=7, mode="lookup", deleted_at="2026-09-01 10:00:00"),
     "legacy_ambiguous": dict(
         legacy_candidates=[
             {"isbn13": "9780000000026", "isbn10": "0000000002", "title": "Dune", "authors": "Frank Herbert"}
@@ -1322,16 +1421,26 @@ _STATUS_CASES = {
         message="Older book barcode matches more than one book",
         mode="add",
     ),
+    "legacy_incomplete": dict(mode="add", supplement_rejected=False),
     "not_owned": dict(message="Not in your collection"),
     "not_found": dict(message="No metadata found for this barcode", media_type="book"),
     "error": dict(message="Invalid ISBN"),
 }
 
-# Per app.js's SCAN_OK_STATUSES — every other status toasts as a warning.
+# Per app.js's SCAN_OK_STATUSES.
 _OK_STATUSES = {
     "added", "wishlisted", "returned", "confirmed", "marked_read",
-    "checked_out", "moved", "found", "relocated",
+    "checked_out", "moved", "found", "relocated", "promoted", "restored",
 }
+
+# Per app.js's SCAN_INFO_STATUSES — the scan worked and the answer is a
+# report, so it is neither a success nor a warning. Kept as its own set
+# rather than folded into _OK_STATUSES because the point of the status is
+# that three other consumers used to classify it as an *error* (issue #116);
+# a two-way split here would not notice that coming back.
+_INFO_STATUSES = {"elsewhere"}
+
+# Everything else toasts as a warning.
 
 # What each status's toast must actually SAY — the field the card declares,
 # not merely "some text".
@@ -1347,27 +1456,33 @@ _OK_STATUSES = {
 # ship silently.
 _TOAST_MUST_CONTAIN = {
     "added": "Dune",
+    "restored": "Restored from Trash",
     "wishlisted": "Dune",
     "duplicate": "Dune",
+    "promoted": "Dune",
     "checked_out": "Lent to Bea",
     "returned": "Returned from Bea",
     "moved": "Office Shelf \u2192 Loft Box",
     "confirmed": "Confirmed at Office Shelf",
     "relocated": "Was at Office Shelf, updated to Loft Box",
+    "elsewhere": "Copies at Office Shelf and Loft Box; none here.",
     "found": "Location: Office Shelf",
     "marked_read": "Dune",
     "already_checked_out": "Already lent to Bea",
     "not_checked_out": "Not currently checked out",
+    "in_trash": "In Trash since 2026-09-01",
     "not_owned": "025192107801",
     "not_found": "025192107801",
     "error": "Invalid ISBN",
     "legacy_ambiguous": "Which book is this?",
+    "legacy_incomplete": "five more digits",
 }
 
-assert set(_STATUS_CASES) == _OK_STATUSES | {
-    "duplicate", "already_checked_out", "not_checked_out",
-    "not_owned", "not_found", "error", "legacy_ambiguous",
-}, "status table drifted from the 16-status vocabulary"
+assert set(_STATUS_CASES) == _OK_STATUSES | _INFO_STATUSES | {
+    "duplicate", "already_checked_out", "not_checked_out", "in_trash",
+    "not_owned", "not_found", "error", "legacy_ambiguous", "legacy_incomplete",
+}, "status table drifted from the 21-status vocabulary"
+assert not (_OK_STATUSES & _INFO_STATUSES), "a status is one class or the other"
 assert set(_TOAST_MUST_CONTAIN) == set(_STATUS_CASES), (
     "every status case needs the text its toast must carry"
 )
@@ -1377,7 +1492,7 @@ assert set(_TOAST_MUST_CONTAIN) == set(_STATUS_CASES), (
 def test_every_scan_status_toasts_non_empty_text(live_server, authed_page, status):
     """The pin: every status in the router's vocabulary toasts *something*.
 
-    Parametrised over the full 16-status table so a future status — or a
+    Parametrised over the full 21-status table so a future status — or a
     regressed data-scan-* attribute on an existing one — fails here instead
     of shipping a blank toast."""
     authed_page.goto(f"{live_server['url']}/scan")
@@ -1393,10 +1508,169 @@ def test_every_scan_status_toasts_non_empty_text(live_server, authed_page, statu
     assert must in toast["text"], (
         f"{status} toasted {toast['text']!r}, which does not carry {must!r}"
     )
-    expected_type = "success" if status in _OK_STATUSES else "warning"
+    if status in _OK_STATUSES:
+        expected_type = "success"
+    elif status in _INFO_STATUSES:
+        expected_type = "info"
+    else:
+        expected_type = "warning"
     assert toast["type"] == expected_type, (
         f"{status} toasted type {toast['type']!r}, expected {expected_type!r}"
     )
+    assert_page_clean(authed_page)
+
+
+def test_the_elsewhere_status_is_never_rendered_as_a_failure(
+    live_server, authed_page
+):
+    """Issue #116's own repro, in the three places the parametrised test above
+    cannot reach.
+
+    `elsewhere` reports that a scan succeeded and the copy lives somewhere
+    else. Four consumers classify a scan status and three of them treat an
+    unlisted one as an ERROR: app.js's outcome tables (covered above), the
+    camera overlay's `:class` ternary in scan.html, and the persisted history
+    row in fragments/recent_scans.html. A status added to the card alone would
+    show the user a successful scan in red, three ways, and the history row
+    would keep showing it in red forever.
+
+    The overlay and the history row are asserted against template source
+    rather than a live render: the overlay only exists while the camera is
+    open, and the history row needs a persisted scan_log write. Both are class
+    strings, which is what the acceptance is about — the classification, not
+    the word.
+    """
+    authed_page.goto(f"{live_server['url']}/scan")
+    authed_page.wait_for_load_state("networkidle")
+
+    # 1. app.js classifies it as info — neither ok nor warn.
+    card = _render_status_card("elsewhere", **_STATUS_CASES["elsewhere"])
+    outcome = authed_page.evaluate(
+        "(html) => { const d = document.createElement('div'); d.innerHTML = html; "
+        "return scanCardOutcome(d.querySelector('.scan-result')); }",
+        card,
+    )
+    assert outcome["info"] is True
+    assert outcome["ok"] is False and outcome["warn"] is False
+
+    # 2. The card itself wears the neutral badge, not a warning or an error.
+    assert "bg-blue-500/20 text-blue-400" in card
+    assert "bg-shelf-error" not in card
+    assert "bg-shelf-warning" not in card
+    assert "data-scan-error" not in card
+
+    # 3. The camera overlay has an info arm ahead of its red fallback.
+    overlay = (Path(__file__).resolve().parents[2]
+               / "app" / "templates" / "scan.html").read_text()
+    info_arm = overlay.index("scanResult.info")
+    error_arm = overlay.index("bg-shelf-error/30 text-shelf-error")
+    assert info_arm < error_arm, "the info arm must precede the red fallback"
+
+    # 4. The persisted history row is blue, not the {% else %} error colour.
+    history = (Path(__file__).resolve().parents[2] / "app" / "templates"
+               / "fragments" / "recent_scans.html").read_text()
+    blue_arm = [l for l in history.splitlines() if "bg-blue-500/20" in l]
+    assert len(blue_arm) == 1 and "'elsewhere'" in blue_arm[0]
+
+    assert_page_clean(authed_page)
+
+
+def test_the_legacy_incomplete_status_is_never_rendered_as_a_failure(
+    live_server, authed_page
+):
+    """Issue #90 T3: a sibling of `test_the_elsewhere_status_is_never_rendered_
+    as_a_failure` above, for the other status this task adds to app.js's
+    warn table. A bare legacy UPC without its five-digit supplement is a
+    warning asking for more input, not an error — `outcome.warn` must be
+    true and `outcome.ok`/`outcome.info` false, and the card itself must
+    wear the warning colour, never the error one."""
+    authed_page.goto(f"{live_server['url']}/scan")
+    authed_page.wait_for_load_state("networkidle")
+
+    card = _render_status_card("legacy_incomplete", **_STATUS_CASES["legacy_incomplete"])
+    outcome = authed_page.evaluate(_OUTCOME, card)
+
+    assert outcome["warn"] is True
+    assert outcome["ok"] is False and outcome["info"] is False
+
+    assert "bg-shelf-warning/20" in card
+    assert "bg-shelf-error" not in card
+    assert "data-scan-error" not in card
+
+    assert_page_clean(authed_page)
+
+
+def test_inventory_on_a_multi_copy_item_at_a_shelf_holding_none_reports_and_writes_nothing(
+    live_server, authed_page
+):
+    """#116 T10, driven for real through `/api/scan` rather than a rendered
+    fixture (unlike `test_the_elsewhere_status_is_never_rendered_as_a_failure`
+    above, which pins the card/overlay/history classification against
+    hand-supplied context). A two-copy item scanned at a shelf holding
+    neither copy must render the `elsewhere` card *and* leave both copies
+    exactly where they were — the destructive half of #116 that
+    `tests/test_scan_modes.py::test_a_multi_copy_item_reports_rather_than_moving`
+    pins at the database layer. This test proves the same thing from the
+    browser side: reload the item page and confirm both original locations
+    are still shown, rather than trusting the card's message alone.
+    """
+    data_dir = live_server["data_dir"]
+
+    office = _insert_location(data_dir, "Elsewhere Office")
+    loft = _insert_location(data_dir, "Elsewhere Loft")
+    hall = _insert_location(data_dir, "Elsewhere Hall")
+
+    item_id = insert_item(
+        data_dir, title="Elsewhere Copies Book", media_type="book",
+        isbn="9780000116017", location_id=office,
+    )
+
+    from app.services.item_copies import insert_copy
+    conn = sqlite3.connect(str(data_dir / "shelf.db"))
+    try:
+        insert_copy(conn, {"item_id": item_id, "copy_number": 1,
+                            "location_id": office, "is_primary": 1})
+        insert_copy(conn, {"item_id": item_id, "copy_number": 2,
+                            "location_id": loft, "is_primary": 0})
+        conn.commit()
+    finally:
+        conn.close()
+
+    _open_scan_in_mode(authed_page, live_server, "Inventory")
+    authed_page.select_option("#location", str(hall))
+    authed_page.fill("#isbn-input", "9780000116017")
+    authed_page.press("#isbn-input", "Enter")
+
+    scan_result = authed_page.locator(".scan-result").first
+    expect(scan_result).to_contain_text(
+        "Copies at Elsewhere Office and Elsewhere Loft; none here.",
+        timeout=10_000,
+    )
+    assert scan_result.get_attribute("data-scan-status") == "elsewhere"
+    assert scan_result.locator("[data-scan-detail]").count() == 1
+    assert scan_result.locator("[data-scan-error]").count() == 0
+    badge = scan_result.locator("[data-scan-badge]")
+    assert "bg-blue-500/20 text-blue-400" in (badge.get_attribute("class") or "")
+    expect(badge).to_contain_text("elsewhere")
+
+    # The point: reload the item page and confirm nothing moved. Reading
+    # only the card's message would not catch a write that happened anyway.
+    authed_page.goto(f"{live_server['url']}/item/{item_id}")
+    authed_page.wait_for_load_state("networkidle")
+    # Scoped to the copy rows' own location links, not the block's whole
+    # text. Since the copies surface landed, the block also renders an
+    # Add-copy <select> listing *every* location, so "Elsewhere Hall" appears
+    # inside it as an <option> whether or not anything moved there — a bare
+    # `not_to_contain_text` over the container is green only until a control
+    # inside it legitimately names the value the pin excludes.
+    copies_block = authed_page.locator("#item-copies")
+    linked = copies_block.locator("a").all_text_contents()
+    assert "Elsewhere Office" in linked
+    assert "Elsewhere Loft" in linked
+    assert "Elsewhere Hall" not in linked, (
+        "the scan must not have moved a copy to the audited shelf"
+    )
+
     assert_page_clean(authed_page)
 
 
@@ -1457,4 +1731,491 @@ def test_an_empty_toast_message_still_renders_text(live_server, authed_page):
     toast = authed_page.locator("#toast-container > div").first
     expect(toast).to_be_visible(timeout=5_000)
     assert (toast.text_content() or "").strip() != ""
+    assert_page_clean(authed_page)
+
+
+# ---------------------------------------------------------------------------
+# The manual entry panel (#120)
+# ---------------------------------------------------------------------------
+
+
+def _login_seeding_scan_mode(browser, live_server, setup_admin, mode, path):
+    """Log in through a fresh context with the scan mode seeded before first
+    paint, then land on `path`.
+
+    G52: `add_init_script` must run before the very first navigation, and
+    `authed_page` builds its context inside the fixture, so it cannot be used
+    — a fresh context has no session cookie and every authenticated page just
+    redirects to /login. Mirrors `authed_page`'s login sequence. The caller
+    owns closing the context.
+    """
+    import json as _json
+
+    ctx = browser.new_context()
+    ctx.add_init_script(
+        "localStorage.setItem('shelf_scan_mode', %s);" % _json.dumps(mode)
+    )
+    pg = attach_page_guard(ctx.new_page())
+    pg.goto(f"{live_server['url']}/login")
+    pg.fill("input[name=username]", setup_admin["username"])
+    pg.fill("input[name=password]", setup_admin["password"])
+    pg.click("button[type=submit]")
+    pg.wait_for_url(f"{live_server['url']}/", timeout=10_000)
+    pg.goto(f"{live_server['url']}{path}")
+    return ctx, pg
+
+
+def test_deep_link_opens_the_panel_even_from_a_lookup_mode(
+    browser, live_server, setup_admin
+):
+    """R1: `mode` is restored from localStorage, and six of the eight modes
+    hide the panel *and its only toggle*. Without the normalization in
+    scanPage.init, every returning user whose last mode was Lookup follows
+    Home's "Add by hand" link and sees nothing change.
+
+    The key is `shelf_scan_mode`, with underscores — hyphenated, this seeds
+    nothing and the test passes vacuously.
+    """
+    ctx, pg = _login_seeding_scan_mode(
+        browser, live_server, setup_admin, "lookup", "/scan?add=manual"
+    )
+    try:
+        expect(pg.locator('[data-manual-host="panel"]')).to_be_visible(timeout=10_000)
+        assert pg.evaluate("localStorage.getItem('shelf_scan_mode')") == "add"
+        assert_page_clean(pg)
+    finally:
+        ctx.close()
+
+
+def test_deep_link_preserves_a_seeded_wishlist_mode(browser, live_server, setup_admin):
+    """The normalization must not move someone off wishlist mode: wishlist
+    already shows the panel, and arriving by deep link is not a request to
+    start adding to the shelf instead."""
+    ctx, pg = _login_seeding_scan_mode(
+        browser, live_server, setup_admin, "wishlist", "/scan?add=manual"
+    )
+    try:
+        expect(pg.locator('[data-manual-host="panel"]')).to_be_visible(timeout=10_000)
+        assert pg.evaluate("localStorage.getItem('shelf_scan_mode')") == "wishlist"
+        assert_page_clean(pg)
+    finally:
+        ctx.close()
+
+
+def _panel_with_seeded_media_type(browser, live_server, setup_admin, stored):
+    """Log in through a fresh context with `shelf_media_type` seeded before
+    first paint, then open the manual panel.
+
+    G52 again: `add_init_script` has to be registered on the context before
+    the very first navigation, so `authed_page` cannot carry it. The caller
+    owns closing the context.
+    """
+    import json as _json
+
+    ctx = browser.new_context()
+    if stored is not None:
+        ctx.add_init_script(
+            "localStorage.setItem('shelf_media_type', %s);" % _json.dumps(stored)
+        )
+    pg = _login_page(live_server, ctx, setup_admin)
+    pg.goto(f"{live_server['url']}/scan?add=manual")
+    expect(pg.locator('[data-manual-host="panel"]')).to_be_visible(timeout=10_000)
+    return ctx, pg
+
+
+def test_the_panel_opens_on_the_pages_persisted_media_type(
+    browser, live_server, setup_admin
+):
+    """B2: the panel is a *nested* Alpine component, so it shadows the Scan
+    page's `mediaType` and inherits nothing from it. Reading only its own
+    <select> in init() recovers what the server marked selected, which
+    without `?from=` is the first option — Book. A user whose page has said
+    DVD for months opened Add by hand, saw Book, submitted without touching
+    it and stored a Book.
+
+    Asserts the *stored* type, not just the control: the visible default is
+    only a symptom, the wrong row is the defect.
+    """
+    ctx, pg = _panel_with_seeded_media_type(
+        browser, live_server, setup_admin, "dvd"
+    )
+    try:
+        expect(pg.locator("#media-type")).to_have_value("dvd")
+        expect(pg.locator("#manual-media-type")).to_have_value("dvd")
+
+        title = "Panel Seeded Type Nebula Atlas"
+        base = pg.locator("#scan-results .scan-result").count()
+        panel = pg.locator('[data-manual-host="panel"]')
+        panel.locator('input[name="title"]').fill(title)
+        with pg.expect_response(lambda r: "/api/items/manual" in r.url and r.ok):
+            panel.locator('button[type="submit"]').click()
+
+        expect(pg.locator("#scan-results .scan-result")).to_have_count(
+            base + 1, timeout=10_000
+        )
+        added_card = pg.locator("#scan-results .scan-result").first
+        expect(added_card).to_have_attribute("data-scan-status", "added")
+
+        with pg.expect_navigation():
+            added_card.locator("[data-scan-title] a").click()
+        type_row = pg.get_by_text("Type:", exact=True).locator("xpath=..")
+        expect(type_row).to_contain_text("DVD")
+        assert_page_clean(pg)
+    finally:
+        ctx.close()
+
+
+def test_the_panel_falls_back_to_book_when_the_page_is_on_auto(
+    browser, live_server, setup_admin
+):
+    """`auto` means "detect it from the barcode", and the panel has no
+    barcode to detect from — so it is not an answer the panel can take, and
+    the fallback stays Book. Pinned because the fix for B2 could just as
+    easily have copied `auto` across and offered a type the select does not
+    even carry."""
+    ctx, pg = _panel_with_seeded_media_type(
+        browser, live_server, setup_admin, "auto"
+    )
+    try:
+        expect(pg.locator("#media-type")).to_have_value("auto")
+        expect(pg.locator("#manual-media-type")).to_have_value("book")
+        assert_page_clean(pg)
+    finally:
+        ctx.close()
+
+
+def test_a_from_prefill_outranks_the_pages_persisted_media_type(
+    browser, live_server, setup_admin
+):
+    """Precedence, in one walk: the page says DVD, the panel opens on DVD,
+    the user files a video game, and re-opening the panel with `?from=` that
+    item shows *its* type rather than the page's. A server prefill is an
+    explicit answer about this item; the stored value is only a standing
+    preference."""
+    ctx, pg = _panel_with_seeded_media_type(
+        browser, live_server, setup_admin, "dvd"
+    )
+    try:
+        expect(pg.locator("#manual-media-type")).to_have_value("dvd")
+
+        title = "Panel From Prefill Nebula Atlas"
+        base = pg.locator("#scan-results .scan-result").count()
+        panel = pg.locator('[data-manual-host="panel"]')
+        panel.locator('input[name="title"]').fill(title)
+        pg.select_option("#manual-media-type", "video_game")
+        with pg.expect_response(lambda r: "/api/items/manual" in r.url and r.ok):
+            panel.locator('button[type="submit"]').click()
+
+        expect(pg.locator("#scan-results .scan-result")).to_have_count(
+            base + 1, timeout=10_000
+        )
+        added_card = pg.locator("#scan-results .scan-result").first
+        expect(added_card).to_have_attribute("data-scan-status", "added")
+        href = added_card.locator("[data-scan-title] a").get_attribute("href")
+        item_id = href.rstrip("/").rsplit("/", 1)[-1]
+
+        pg.goto(f"{live_server['url']}/scan?add=manual&from={item_id}")
+        expect(pg.locator('[data-manual-host="panel"]')).to_be_visible(timeout=10_000)
+        # localStorage still says DVD; the prefill still wins.
+        expect(pg.locator("#media-type")).to_have_value("dvd")
+        expect(pg.locator("#manual-media-type")).to_have_value("video_game")
+        assert_page_clean(pg)
+    finally:
+        ctx.close()
+
+
+def test_a_hidden_platform_select_is_not_submitted(authed_page, live_server):
+    """R2: x-show only sets display:none, and a hidden <select> is still a
+    successful control that posts its value. manual_add reads `platform`
+    unconditionally and item_write validates only that the key exists, never
+    that the media type is video_game — so without :disabled, choosing
+    PlayStation 5 and switching to DVD stores `ps5` on the DVD row."""
+    pg = authed_page
+    pg.goto(f"{live_server['url']}/scan?add=manual")
+    expect(pg.locator('[data-manual-host="panel"]')).to_be_visible(timeout=10_000)
+
+    pg.select_option("#manual-media-type", "video_game")
+    expect(pg.locator('[data-manual-host="panel"] select[name=platform]')).to_be_visible()
+    pg.select_option('[data-manual-host="panel"] select[name=platform]', "ps5")
+
+    pg.select_option("#manual-media-type", "dvd")
+    expect(
+        pg.locator('[data-manual-host="panel"] select[name=platform]')
+    ).to_be_hidden()
+    # The data half, not the visual one: a disabled control is not submitted.
+    assert pg.eval_on_selector(
+        '[data-manual-host="panel"] select[name=platform]', "el => el.disabled"
+    ) is True
+    assert_page_clean(pg)
+
+
+def test_the_panel_and_the_cards_do_not_reach_into_each_other(
+    authed_page, live_server
+):
+    """R3: manualAddForm is mounted by the panel *and* by every not_found
+    card, and several cards can sit on one page at once. Unguarded, the
+    panel's window listener would mutate every card's form and its dataset
+    read would throw inside each card's init(), killing every copy picker."""
+    pg = authed_page
+    pg.goto(f"{live_server['url']}/scan?add=manual")
+    expect(pg.locator('[data-manual-host="panel"]')).to_be_visible(timeout=10_000)
+
+    # #scan-results loads recent scans on page load, so count from a
+    # baseline rather than from zero.
+    pg.wait_for_load_state("networkidle")
+    base = pg.locator(".scan-result").count()
+
+    # Two not_found cards, from the same offline-deterministic non-match —
+    # 999999999120 is a `upc_stub` key answering the recorded 400 (#123).
+    # A barcode of this test's own: 999999999999 is *added* as "Goodfellas"
+    # by the camera-overlay test above, so reusing it makes this pass or fail
+    # on suite order — the second scan would return a duplicate card, which
+    # carries no manual form and no copy picker at all.
+    barcode = "999999999120"
+    pg.select_option("#media-type", "dvd")
+    for added in (1, 2):
+        pg.fill("#isbn-input", barcode)
+        pg.press("#isbn-input", "Enter")
+        expect(pg.locator(".scan-result")).to_have_count(base + added, timeout=20_000)
+
+    # Assert the shape rather than trusting it: a duplicate or error card
+    # would satisfy the count above and silently defeat the rest.
+    expect(pg.locator('.scan-result[data-scan-status="not_found"]')).to_have_count(2)
+
+    # Every card's copy picker initialised — an unguarded JSON.parse in init()
+    # would have thrown before this input was reachable. Only the two
+    # not_found cards carry one; the recent-scan rows are status cards.
+    pickers = pg.locator('.scan-result input[placeholder^="Copy from"]')
+    expect(pickers).to_have_count(2)
+
+    pg.evaluate(
+        "window.dispatchEvent(new CustomEvent('shelf:manual-add',"
+        " {detail: {title: 'Only The Panel', media_type: 'book'}}))"
+    )
+
+    panel_title = pg.locator('[data-manual-host="panel"] input[name=title]')
+    expect(panel_title).to_have_value("Only The Panel")
+    card_titles = pg.locator('.scan-result input[name="title"]')
+    assert card_titles.count() == 2
+    for i in range(card_titles.count()):
+        assert (card_titles.nth(i).input_value() or "") == ""
+
+    assert_page_clean(pg)
+
+
+@pytest.mark.parametrize(
+    "context_kwargs,label",
+    [
+        pytest.param(
+            {"viewport": {"width": 1280, "height": 800}}, "desktop", id="desktop"
+        ),
+        pytest.param(
+            {
+                "viewport": {"width": 390, "height": 844},
+                "is_mobile": True,
+                "has_touch": True,
+            },
+            "mobile",
+            id="mobile",
+        ),
+    ],
+)
+def test_a_typed_title_walks_manual_add_through_to_the_item_page(
+    browser, live_server, setup_admin, context_kwargs, label
+):
+    """#120's E2E contract: type a title that fails ISBN check-digit
+    validation, open the manual panel from the resulting error card's
+    "Add it by hand" button (data-manual-add), pick a media type, submit, and
+    land on an added card whose item page shows the type chosen.
+
+    Run at desktop (1280x800) and a real mobile context (390x844,
+    is_mobile + touch, per a real device rather than merely resizing
+    authed_page — the fallback `set_viewport_size` used at test_nav.py:236):
+    the mobile nav is a different component and the panel's two-column
+    grids wrap differently there, so both are real coverage, not a repeat.
+    """
+    ctx = browser.new_context(**context_kwargs)
+    try:
+        pg = _login_page(live_server, ctx, setup_admin)
+        title = f"Manual Add Walk Nebula Atlas ({label})"
+        pg.goto(f"{live_server['url']}/scan")
+        pg.wait_for_load_state("networkidle")
+
+        # #scan-results loads recent scans on page load, and other tests in
+        # this session have left rows in it — count from a baseline, never
+        # from zero (see test_the_panel_and_the_cards_do_not_reach_into_
+        # each_other above).
+        base = pg.locator("#scan-results .scan-result").count()
+
+        # A title fails the ISBN check digit and lands in the same "error"
+        # arm a mistyped barcode does (items.py's `pair is None` branch),
+        # which is what offers the manual-add button (#120).
+        pg.fill("#isbn-input", title)
+        with pg.expect_response(lambda r: "/api/scan" in r.url and r.ok):
+            pg.press("#isbn-input", "Enter")
+        expect(pg.locator("#scan-results .scan-result")).to_have_count(
+            base + 1, timeout=10_000
+        )
+
+        error_card = pg.locator("#scan-results .scan-result").first
+        expect(error_card).to_have_attribute("data-scan-status", "error")
+        manual_btn = error_card.locator("[data-manual-add]")
+        expect(manual_btn).to_have_attribute("data-manual-add-title", title)
+
+        # No request in flight from this click — it only flips Alpine state
+        # and dispatches shelf:manual-add.
+        manual_btn.click()
+
+        panel = pg.locator('[data-manual-host="panel"]')
+        expect(panel).to_be_visible(timeout=10_000)
+        panel_title = panel.locator('input[name="title"]')
+        expect(panel_title).to_have_value(title)
+
+        # No `auto` option on the panel's media type — it is the user's
+        # choice to make, not a detection to defer.
+        pg.select_option("#manual-media-type", "magazine")
+
+        submit_btn = panel.locator('button[type="submit"]')
+        with pg.expect_response(lambda r: "/api/items/manual" in r.url and r.ok):
+            submit_btn.click()
+
+        expect(pg.locator("#scan-results .scan-result")).to_have_count(
+            base + 2, timeout=10_000
+        )
+        added_card = pg.locator("#scan-results .scan-result").first
+        # Assert the card's own status, never a bare count — a duplicate or
+        # error card would satisfy the count above just as well.
+        expect(added_card).to_have_attribute("data-scan-status", "added")
+        expect(added_card).to_contain_text(title)
+
+        title_link = added_card.locator("[data-scan-title] a")
+        expect(title_link).to_be_visible()
+        with pg.expect_navigation():
+            title_link.click()
+
+        expect(pg.locator("h1")).to_contain_text(title)
+        # The row's own <div>, reached from its label rather than from a
+        # six-class Tailwind chain that any restyle would break.
+        type_row = pg.get_by_text("Type:", exact=True).locator("xpath=..")
+        expect(type_row).to_contain_text("Magazine")
+
+        assert_page_clean(pg)
+    finally:
+        ctx.close()
+
+
+# --- Issue #90 T3: client consumers of the new `legacy_incomplete` status --
+
+
+def test_a_typed_bare_legacy_upc_asks_for_the_five_digits(live_server, authed_page):
+    """Add mode, typed path: a bare legacy Scholastic UPC with no supplement
+    renders the `legacy_incomplete` card asking for the five digits, entirely
+    from the router's own logic — the check runs before any lookup, so
+    nothing leaves the machine and no stub is needed."""
+    _open_scan_in_mode(authed_page, live_server, "Add")
+
+    authed_page.fill("#isbn-input", "078073003501")
+    with authed_page.expect_response(lambda r: "/api/scan" in r.url and r.ok):
+        authed_page.press("#isbn-input", "Enter")
+
+    expect(
+        authed_page.locator(
+            '[data-scan-status="legacy_incomplete"] input[name="legacy_supplement"]'
+        )
+    ).to_be_visible()
+    assert_page_clean(authed_page)
+
+
+def test_camera_scan_of_a_bare_legacy_upc_stops_the_scanner_for_the_five_digits(
+    live_server, browser, setup_admin
+):
+    """Add mode, camera path: the same bare legacy UPC through a real
+    `onScan()` call must stop the scanner and drop the camera overlay so the
+    five-digit card underneath is the thing the user acts on next — the
+    `legacy_incomplete` half of the check T2 added for `legacy_ambiguous`.
+
+    `cameraActive`/`scanner` are read back with `page.evaluate` polled from
+    Python rather than `page.wait_for_function` (G21: that needs `eval()`,
+    which this app's CSP refuses).
+    """
+    ctx = browser.new_context()
+    try:
+        pg = _login_page(live_server, ctx, setup_admin)
+        _start_scan_camera(pg, live_server)
+        wait_for_video_ready(pg, "#camera-reader video")
+
+        pg.evaluate(
+            "async (code) => {"
+            " const el = document.querySelector('[x-data=\"scanPage\"]');"
+            " await Alpine.$data(el).onScan(code);"
+            " }",
+            "078073003501",
+        )
+
+        def _state():
+            return pg.evaluate(
+                "() => { const el = document.querySelector('[x-data=\"scanPage\"]');"
+                " const d = Alpine.$data(el);"
+                " return {cameraActive: d.cameraActive, scanner: !!d.scanner}; }"
+            )
+
+        deadline = time.monotonic() + 10
+        state = _state()
+        while (state["cameraActive"] or state["scanner"]) and time.monotonic() < deadline:
+            pg.wait_for_timeout(100)
+            state = _state()
+
+        assert state["cameraActive"] is False
+        assert state["scanner"] is False
+
+        expect(
+            pg.locator(
+                '#scan-results [data-scan-status="legacy_incomplete"] '
+                'input[name="legacy_supplement"]'
+            )
+        ).to_be_visible()
+
+        toast = pg.locator("#toast-container div")
+        expect(toast.first).to_be_visible()
+        expect(toast.first).to_contain_text("five digits")
+
+        _expect_no_camera_error(pg)
+        assert_page_clean(pg)
+    finally:
+        ctx.close()
+
+
+def test_look_it_up_refuses_an_empty_supplement_without_posting(
+    live_server, authed_page
+):
+    """diff-review codex B2: the five-digit field carries `required`.
+
+    `pattern="[0-9]{5}"` does not reject an *empty* value, so before this the
+    submit button posted an untouched field and the identical card came back
+    with nothing to say — a click that looks like a no-op. The browser must
+    refuse it instead, which means no second request leaves the page.
+    """
+    _open_scan_in_mode(authed_page, live_server, "Add")
+
+    authed_page.fill("#isbn-input", "078073003501")
+    with authed_page.expect_response(lambda r: "/api/scan" in r.url and r.ok):
+        authed_page.press("#isbn-input", "Enter")
+
+    card = authed_page.locator('[data-scan-status="legacy_incomplete"]')
+    expect(card.locator('input[name="legacy_supplement"]')).to_be_visible()
+
+    # G83: this click is supposed to fire nothing, so there is no waiter to
+    # arm — count requests instead and let the expect() calls auto-retry.
+    posts = []
+    authed_page.on("request", lambda r: posts.append(r.url) if "/api/scan" in r.url else None)
+
+    card.get_by_role("button", name="Look it up").click()
+    authed_page.wait_for_timeout(500)
+
+    assert posts == [], f"empty supplement still posted: {posts}"
+    expect(card.locator('input[name="legacy_supplement"]')).to_be_visible()
+    assert authed_page.evaluate(
+        "() => document.querySelector('input[name=\"legacy_supplement\"]')"
+        ".checkValidity()"
+    ) is False
     assert_page_clean(authed_page)

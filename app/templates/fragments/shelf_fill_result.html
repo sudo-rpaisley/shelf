@@ -5,17 +5,21 @@
     {% else %}
     <div class="w-12 h-16 bg-shelf-hover rounded flex items-center justify-center text-shelf-success text-lg">&check;</div>
     {% endif %}
-
     <div class="flex-1 min-w-0">
-        <p class="font-medium truncate" data-scan-title>
-            <a href="/item/{{ item_id }}" class="hover:text-shelf-accent2">{{ title }}</a>
-        </p>
+        <p class="font-medium truncate" data-scan-title><a href="/item/{{ item_id }}" class="hover:text-shelf-accent2">{{ title }}</a></p>
         {% if authors %}<p class="text-sm text-shelf-muted truncate" data-scan-authors>{{ authors }}</p>{% endif %}
         <p class="text-xs text-shelf-muted" data-scan-detail>
             {% if newly_added %}Added and shelved{% elif was_wishlist %}Moved from wishlist and shelved{% else %}Shelved{% endif %}
-            at {{ location_path }} · position {{ position_order }}{% if copy_number > 1 %} · copy {{ copy_number }}{% endif %}
+            at {{ location_name }}{% if copy_number and copy_number > 1 %} · copy {{ copy_number }}{% endif %}
         </p>
     </div>
-
+    {% if position_order %}
+    {# The position is what makes this Shelf Fill rather than Scan's Move mode:
+       it is per-location and assigned in scan order. It was written to the
+       database from the first release and shown only on the Arrange page. #}
+    <span class="text-xs px-2 py-1 rounded-full shrink-0 bg-shelf-hover text-shelf-muted font-mono"
+          data-testid="shelf-fill-position" title="Position on this shelf">#{{ position_order }}</span>
+    {% endif %}
     <span class="text-xs px-2 py-1 rounded-full shrink-0 bg-shelf-success/20 text-shelf-success" data-scan-badge>shelved</span>
 </div>
+{% include "fragments/shelf_fill_summary.html" %}

@@ -1,40 +1,25 @@
 """Persistence helpers for Shelf's music-specific relational model.
 
-The generic ``items`` row remains the owned/catalogued object.  These helpers
-store the exact release metadata beneath it and automatically link other owned
-formats that MusicBrainz says belong to the same release group.
+The generic ``items`` row remains Shelf's catalogue object. These helpers
+store exact MusicBrainz release metadata beneath it and automatically link
+other catalogued formats that belong to the same MusicBrainz Release Group.
+
+Physical-copy condition, acquisition and provenance are intentionally not
+stored here; those belong to the copy model proposed separately in #97.
 """
 
 from __future__ import annotations
 
-import json
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timezone
+
 
 
 def _now() -> str:
     return datetime.now(timezone.utc).replace(microsecond=0).isoformat()
 
 
-def _discogs_is_fresh(value: str | None) -> bool:
-    """Discogs API data older than six hours must not be displayed."""
-    if not value:
-        return False
-    try:
-        stamp = datetime.fromisoformat(value.replace("Z", "+00:00"))
-    except ValueError:
-        return False
-    if stamp.tzinfo is None:
-        stamp = stamp.replace(tzinfo=timezone.utc)
-    return datetime.now(timezone.utc) - stamp <= timedelta(hours=6)
-
-
 def save_release(db, item_id: int, release: dict) -> None:
-    """Upsert release metadata and replace its provider-owned media/track tree.
-
-    Collector-entered condition and edition-note columns are deliberately not
-    touched by the conflict update: re-enriching from MusicBrainz must never
-    erase information about the user's particular copy.
-    """
+    """Upsert release metadata and replace its provider-owned media/track tree."""
     db.execute(
         """
         INSERT INTO music_releases (
@@ -81,9 +66,8 @@ def save_release(db, item_id: int, release: dict) -> None:
         ),
     )
 
-    # The media/track hierarchy is provider-owned. Replacing it atomically is
-    # simpler and safer than trying to diff tracklists where provider edits can
-    # insert/reorder tracks. Foreign-key cascade clears music_tracks.
+    # MusicBrainz owns this hierarchy. Replacing it is safer than diffing a
+    # provider tracklist whose tracks may have been inserted or reordered.
     db.execute("DELETE FROM music_media WHERE item_id = ?", (item_id,))
     for medium_index, medium in enumerate(release.get("media") or [], start=1):
         cursor = db.execute(
@@ -122,89 +106,8 @@ def save_release(db, item_id: int, release: dict) -> None:
     _link_release_group_siblings(db, item_id, release.get("musicbrainz_release_group_id"))
 
 
-
-def save_discogs_enrichment(db, item_id: int, release: dict) -> bool:
-    """Cache one selected Discogs Release without changing MusicBrainz identity.
-
-    Discogs-sourced identifiers are replaceable provider cache. Manually entered
-    matrix/runout data is source='manual' and therefore survives every refresh.
-    """
-    try:
-        release_id = int(release.get("discogs_release_id"))
-    except (TypeError, ValueError):
-        raise ValueError("a Discogs release ID is required")
-    if release_id <= 0:
-        raise ValueError("a Discogs release ID is required")
-
-    cursor = db.execute(
-        """
-        UPDATE music_releases SET
-            discogs_release_id = ?, discogs_master_id = ?, discogs_label = ?,
-            discogs_catalog_number = ?, discogs_format_summary = ?,
-            discogs_genres = ?, discogs_styles = ?, discogs_notes = ?,
-            discogs_updated_at = ?
-        WHERE item_id = ?
-        """,
-        (
-            release_id,
-            release.get("discogs_master_id"),
-            release.get("label"),
-            release.get("catalog_number"),
-            release.get("format_summary"),
-            json.dumps(release.get("genres") or [], ensure_ascii=False),
-            json.dumps(release.get("styles") or [], ensure_ascii=False),
-            release.get("notes"),
-            _now(),
-            item_id,
-        ),
-    )
-    if cursor.rowcount == 0:
-        return False
-
-    db.execute(
-        "DELETE FROM music_identifiers WHERE item_id = ? AND source = 'discogs'",
-        (item_id,),
-    )
-    for identifier in release.get("identifiers") or []:
-        if not isinstance(identifier, dict):
-            continue
-        try:
-            add_identifier(
-                db,
-                item_id,
-                identifier.get("identifier_type") or "other",
-                identifier.get("value") or "",
-                identifier.get("description"),
-                source="discogs",
-            )
-        except ValueError:
-            continue
-    return True
-
-
-def clear_discogs_enrichment(db, item_id: int) -> bool:
-    """Remove the selected Discogs pressing and all provider-owned cache."""
-    cursor = db.execute(
-        """
-        UPDATE music_releases SET
-            discogs_release_id = NULL, discogs_master_id = NULL,
-            discogs_label = NULL, discogs_catalog_number = NULL,
-            discogs_format_summary = NULL, discogs_genres = NULL,
-            discogs_styles = NULL, discogs_notes = NULL,
-            discogs_updated_at = NULL
-        WHERE item_id = ?
-        """,
-        (item_id,),
-    )
-    db.execute(
-        "DELETE FROM music_identifiers WHERE item_id = ? AND source = 'discogs'",
-        (item_id,),
-    )
-    return cursor.rowcount > 0
-
-
 def _link_release_group_siblings(db, item_id: int, release_group_id: str | None) -> None:
-    """Use Shelf's existing format links for editions of the same album/work."""
+    """Use Shelf's existing format links for releases of the same work."""
     if not release_group_id:
         return
     siblings = db.execute(
@@ -245,15 +148,7 @@ def get_release(db, item_id: int) -> dict | None:
         ]
         media.append(medium)
     release["media"] = media
-    for field in ("discogs_genres", "discogs_styles"):
-        raw = release.get(field)
-        try:
-            release[field] = json.loads(raw) if raw else []
-        except (TypeError, ValueError, json.JSONDecodeError):
-            release[field] = []
-    release["discogs_fresh"] = _discogs_is_fresh(release.get("discogs_updated_at"))
-
-    identifiers = [
+    release["identifiers"] = [
         dict(identifier)
         for identifier in db.execute(
             "SELECT * FROM music_identifiers WHERE item_id = ? "
@@ -261,62 +156,20 @@ def get_release(db, item_id: int) -> dict | None:
             (item_id,),
         ).fetchall()
     ]
-    release["identifiers"] = [
-        identifier for identifier in identifiers if identifier.get("source") != "discogs"
-    ]
-    release["discogs_identifiers"] = (
-        [identifier for identifier in identifiers if identifier.get("source") == "discogs"]
-        if release["discogs_fresh"] else []
-    )
     return release
 
 
-def update_copy_details(
-    db,
-    item_id: int,
-    *,
-    edition_notes: str | None,
-    media_condition: str | None,
-    packaging_condition: str | None,
-    condition_notes: str | None,
-) -> bool:
-    """Update fields describing the user's copy, not provider metadata."""
-    cursor = db.execute(
-        """
-        UPDATE music_releases
-        SET edition_notes = ?, media_condition = ?, packaging_condition = ?,
-            condition_notes = ?
-        WHERE item_id = ?
-        """,
-        (
-            edition_notes or None,
-            media_condition or None,
-            packaging_condition or None,
-            condition_notes or None,
-            item_id,
-        ),
-    )
-    return cursor.rowcount > 0
-
-
 def add_identifier(
-    db,
-    item_id: int,
-    identifier_type: str,
-    value: str,
-    description: str | None = None,
-    *,
-    source: str = "manual",
+    db, item_id: int, identifier_type: str, value: str, description: str | None = None
 ) -> None:
     identifier_type = (identifier_type or "").strip()
     value = (value or "").strip()
-    source = (source or "manual").strip() or "manual"
     if not identifier_type or not value:
         raise ValueError("identifier type and value are required")
     db.execute(
         "INSERT OR IGNORE INTO music_identifiers "
-        "(item_id, identifier_type, value, description, source) VALUES (?, ?, ?, ?, ?)",
-        (item_id, identifier_type, value, (description or "").strip() or None, source),
+        "(item_id, identifier_type, value, description) VALUES (?, ?, ?, ?)",
+        (item_id, identifier_type, value, (description or "").strip() or None),
     )
 
 

@@ -39,57 +39,10 @@ async def test_lookup_reads_exact_issn_from_linked_open_data():
     assert result.payload["issn"] == "0953-6167"
     assert result.payload["series_name"] == "VW motoring"
 
-    assert fake_fetch.await_args.args[2] == (
-        "https://issn.org/resource/ISSN/0953-6167"
-    )
+    assert fake_fetch.await_args.args[2].endswith("/resource/ISSN/0953-6167")
     assert fake_fetch.await_args.kwargs["params"] == {"format": "json"}
     assert fake_fetch.await_args.kwargs["follow_redirects"] is True
     assert "application/ld+json" in fake_fetch.await_args.kwargs["headers"]["Accept"]
-    assert fake_fetch.await_count == 1
-
-
-@pytest.mark.asyncio
-async def test_lookup_falls_back_to_public_portal_when_canonical_host_misses():
-    fake_fetch = AsyncMock(
-        side_effect=[
-            httpx.Response(404),
-            httpx.Response(200, json=_payload()),
-        ]
-    )
-
-    with patch("app.services.issn_portal.outbound.fetch", new=fake_fetch):
-        result = await issn_portal.lookup("0953-6167", object())
-
-    assert result.found
-    assert result.payload["title"] == "VW motoring"
-    assert fake_fetch.await_count == 2
-    assert fake_fetch.await_args_list[0].args[2] == (
-        "https://issn.org/resource/ISSN/0953-6167"
-    )
-    assert fake_fetch.await_args_list[1].args[2] == (
-        "https://portal.issn.org/resource/ISSN/0953-6167"
-    )
-
-
-@pytest.mark.asyncio
-async def test_lookup_reaches_portal_plus_after_unusable_earlier_hosts():
-    fake_fetch = AsyncMock(
-        side_effect=[
-            httpx.Response(200, text="<html>redirect landing page</html>"),
-            httpx.Response(404),
-            httpx.Response(200, json=_payload()),
-        ]
-    )
-
-    with patch("app.services.issn_portal.outbound.fetch", new=fake_fetch):
-        result = await issn_portal.lookup("0953-6167", object())
-
-    assert result.found
-    assert result.payload["title"] == "VW motoring"
-    assert fake_fetch.await_count == 3
-    assert fake_fetch.await_args_list[2].args[2] == (
-        "https://portal-plus.issn.org/resource/ISSN/0953-6167"
-    )
 
 
 @pytest.mark.asyncio
@@ -118,23 +71,14 @@ async def test_lookup_accepts_issn_match_from_resource_id():
 
 
 @pytest.mark.asyncio
-async def test_lookup_accepts_expanded_bibo_issn_and_bibframe_title():
-    payload = _payload()
-    node = payload["@graph"][1]
-    del node["identifier"]
-    del node["mainTitle"]
-    node["@id"] = "resource/serial/vw-motoring"
-    node["http://purl.org/ontology/bibo/issn"] = "0953-6167"
-    node["http://id.loc.gov/ontologies/bibframe/mainTitle"] = [
-        {"@value": "VW motoring"}
-    ]
-    fake_fetch = AsyncMock(return_value=httpx.Response(200, json=payload))
+async def test_invalid_issn_checksum_is_rejected_without_network_call():
+    fake_fetch = AsyncMock()
 
     with patch("app.services.issn_portal.outbound.fetch", new=fake_fetch):
-        result = await issn_portal.lookup("0953-6167", object())
+        result = await issn_portal.lookup("0953-6168", object())
 
-    assert result.found
-    assert result.payload["title"] == "VW motoring"
+    assert result.outcome == "no_match"
+    fake_fetch.assert_not_awaited()
 
 
 @pytest.mark.parametrize(("status", "outcome"), [
@@ -149,7 +93,6 @@ async def test_lookup_preserves_http_outcomes(status, outcome):
         result = await issn_portal.lookup("0953-6167", object())
 
     assert result.outcome == outcome
-    assert fake_fetch.await_count == 3
 
 
 @pytest.mark.asyncio
@@ -160,4 +103,3 @@ async def test_lookup_preserves_transport_failure():
         result = await issn_portal.lookup("0953-6167", object())
 
     assert result.outcome == "transport_failed"
-    assert fake_fetch.await_count == 3

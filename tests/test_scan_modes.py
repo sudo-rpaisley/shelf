@@ -1,12 +1,19 @@
 """Tests for scan modes: add, wishlist, lend, return, move, inventory, lookup, quick_rate."""
 
+import re
+import time
 from unittest.mock import AsyncMock, patch
 
 import pytest
 
 from app.database import get_db
 from app.services import provider_result
-from tests.conftest import _insert_item, _insert_borrower, _insert_location
+from app.services import item_copies
+from app.services.item_copies import insert_copy
+from app.services.item_write import insert_item
+from tests.conftest import (
+    _assert_ownership_partition, _insert_item, _insert_borrower, _insert_location,
+)
 
 
 class TestAddMode:
@@ -27,6 +34,112 @@ class TestAddMode:
         })
         assert resp.status_code == 200
         assert b"Invalid ISBN" in resp.content
+
+
+class TestAddModePromotesWishlisted:
+    """#125: an Add-mode scan of a wishlisted ISBN is the purchase — the item
+    becomes owned and leaves the wishlist. Owned and neither rows, and any
+    Wishlist-mode scan, still answer `duplicate`."""
+
+    ISBN = "9780441013593"
+
+    def _scan(self, client, mode="add"):
+        with patch("app.routers.items_common._lookup_metadata",
+                   new=AsyncMock(side_effect=AssertionError("no lookup for a known ISBN"))):
+            return client.post("/api/scan", data={
+                "isbn": self.ISBN, "media_type": "book", "mode": mode,
+            })
+
+    def _state(self, db, item_id):
+        from app.services import lists
+
+        owned = db.execute("SELECT owned FROM items WHERE id = ?", (item_id,)).fetchone()["owned"]
+        return owned, lists.is_member(db, lists.WISHLIST, item_id)
+
+    def _last_scan(self, db):
+        return db.execute(
+            "SELECT result, mode, item_id FROM scan_log ORDER BY id DESC LIMIT 1"
+        ).fetchone()
+
+    def test_wishlisted_isbn_is_promoted(self, admin_client, db):
+        item_id = _insert_item(db, title="Wished Dune", isbn=self.ISBN, owned=0, wishlisted=True)
+        db.commit()
+
+        resp = self._scan(admin_client)
+
+        assert resp.status_code == 200
+        assert 'data-scan-status="promoted"' in resp.text
+        assert "Now owned" in resp.text
+        assert self._state(db, item_id) == (1, False)
+        log = self._last_scan(db)
+        assert (log["result"], log["mode"], log["item_id"]) == ("promoted", "add", item_id)
+        assert db.execute("SELECT COUNT(*) FROM items").fetchone()[0] == 1
+        _assert_ownership_partition(db)
+
+    @pytest.mark.parametrize("seed", [dict(owned=1), dict(owned=0)], ids=["owned", "neither"])
+    def test_owned_and_neither_isbns_stay_duplicates(self, admin_client, db, seed):
+        item_id = _insert_item(db, title="Known Dune", isbn=self.ISBN, **seed)
+        db.commit()
+
+        resp = self._scan(admin_client)
+
+        assert 'data-scan-status="duplicate"' in resp.text
+        assert self._state(db, item_id) == (seed["owned"], False)
+        assert self._last_scan(db)["result"] == "duplicate"
+        _assert_ownership_partition(db)
+
+    def test_wishlist_mode_leaves_a_wishlisted_isbn_alone(self, admin_client, db):
+        item_id = _insert_item(db, title="Still Wished", isbn=self.ISBN, owned=0, wishlisted=True)
+        db.commit()
+
+        resp = self._scan(admin_client, mode="wishlist")
+
+        assert 'data-scan-status="duplicate"' in resp.text
+        assert self._state(db, item_id) == (0, True)
+        log = self._last_scan(db)
+        assert (log["result"], log["mode"]) == ("duplicate", "wishlist")
+        _assert_ownership_partition(db)
+
+    def test_the_guard_reads_under_the_write_lock(self, admin_client, db, monkeypatch):
+        """G18 — see `_install_lock_probe` in tests/test_intake.py."""
+        from app.routers import items as items_router
+        from tests.test_intake import _install_lock_probe
+
+        _insert_item(db, title="Probe Dune", isbn=self.ISBN, owned=0, wishlisted=True)
+        db.commit()
+        probe_results = []
+        _install_lock_probe(
+            monkeypatch, items_router,
+            lambda sql: "FROM items_live WHERE isbn = ? AND media_type = ?" in sql,
+            probe_results,
+        )
+
+        resp = self._scan(admin_client)
+
+        assert 'data-scan-status="promoted"' in resp.text
+        assert probe_results, "the guard query never ran — the probe did not fire"
+        assert probe_results[0].startswith("locked"), (
+            f"a rival writer could take the write lock while scan_isbn's duplicate "
+            f"guard was being read (got {probe_results[0]!r}) — BEGIN IMMEDIATE is "
+            "missing or below the guard SELECT (G18)"
+        )
+
+    def test_the_scan_is_logged_after_the_lock_is_released(self, admin_client, db):
+        """G3 — `_log_scan` opens its own connection; called under the
+        request's write lock it waits out SQLite's 5s busy timeout."""
+        _insert_item(db, title="Timed Dune", isbn=self.ISBN, owned=0, wishlisted=True)
+        db.commit()
+
+        start = time.monotonic()
+        resp = self._scan(admin_client)
+        elapsed = time.monotonic() - start
+
+        assert resp.status_code == 200
+        assert self._last_scan(db)["result"] == "promoted"
+        assert elapsed < 2.0, (
+            f"the promoted scan took {elapsed:.2f}s — the scan log is being "
+            "written while the request still holds the write lock (G3)"
+        )
 
 
 class TestWishlistMode:
@@ -212,8 +325,242 @@ class TestInventoryMode:
         assert b"Missing" in resp.content
         assert b"1 item" in resp.content
 
+    def test_non_primary_copy_on_shelf_is_recognized(self, admin_client, db):
+        """A merged item's non-primary copy, filed on a different shelf than
+        the primary, is still expected there (issue #116's second contract).
+
+        This is the G31 pin: `main`'s item-level query only ever reads
+        `items.location_id` — the primary's shelf — so it never sees this
+        copy at all and silently reports Shelf A clean. Unscanned, the copy
+        must be flagged missing; scanned, it must clear as present.
+        """
+        shelf_a = _insert_location(db, "Shelf A")
+        shelf_b = _insert_location(db, "Shelf B")
+        item_id = _insert_item(db, title="Merged Item", isbn="9780000000521",
+                               location_id=shelf_b)
+        insert_copy(db, {"item_id": item_id, "copy_number": 1,
+                         "location_id": shelf_b, "is_primary": 1})
+        insert_copy(db, {"item_id": item_id, "copy_number": 2,
+                         "location_id": shelf_a, "is_primary": 0})
+        db.commit()
+
+        resp = admin_client.post("/api/inventory/missing", data={
+            "location_id": str(shelf_a), "scanned_ids": "",
+        })
+        assert b"Merged Item" in resp.content
+        assert b"1 item" in resp.content
+
+        resp = admin_client.post("/api/inventory/missing", data={
+            "location_id": str(shelf_a), "scanned_ids": str(item_id),
+        })
+        assert b"Merged Item" not in resp.content
+        assert b"accounted for" in resp.content
+
+    def test_the_audit_trusts_the_copy_over_the_legacy_location_field(
+        self, admin_client, db
+    ):
+        """The audit reads `item_copies`, not `items.location_id`. Here the
+        legacy field says Shelf B while the item's one actual copy is on
+        Shelf A, so A expects it and B does not — the reverse of what `main`
+        answers for both shelves."""
+        shelf_a = _insert_location(db, "Shelf A")
+        shelf_b = _insert_location(db, "Shelf B")
+        item_id = _insert_item(db, title="Relocated", isbn="9780000000538",
+                               location_id=shelf_b)
+        insert_copy(db, {"item_id": item_id, "copy_number": 1,
+                         "location_id": shelf_a, "is_primary": 1})
+        db.commit()
+
+        at_a = admin_client.post("/api/inventory/missing", data={
+            "location_id": str(shelf_a), "scanned_ids": "",
+        })
+        assert b"Relocated" in at_a.content
+        assert b"1 item" in at_a.content
+
+        # The half `main` gets wrong in the other direction: the seam still
+        # names Shelf B, but no copy is there, so B must report itself clean.
+        at_b = admin_client.post("/api/inventory/missing", data={
+            "location_id": str(shelf_b), "scanned_ids": "",
+        })
+        assert b"Relocated" not in at_b.content
+        assert b"accounted for" in at_b.content
+
+    def test_two_copies_on_one_shelf_collapse_to_one_line_with_count(self, admin_client, db):
+        """Two copies of one item on the same shelf are one line with a
+        count — an ISBN scan cannot tell them apart, so the audit can't
+        either."""
+        shelf_a = _insert_location(db, "Shelf A")
+        item_id = _insert_item(db, title="Twinned", isbn="9780000000545",
+                               location_id=shelf_a)
+        insert_copy(db, {"item_id": item_id, "copy_number": 1,
+                         "location_id": shelf_a, "is_primary": 1})
+        insert_copy(db, {"item_id": item_id, "copy_number": 2,
+                         "location_id": shelf_a, "is_primary": 0})
+        db.commit()
+
+        resp = admin_client.post("/api/inventory/missing", data={
+            "location_id": str(shelf_a), "scanned_ids": "",
+        })
+        assert resp.content.count(b"Twinned") == 1
+        assert b"(2 copies)" in resp.content
+        assert b"1 item" in resp.content
+
+    def test_inventory_missing_all_accounted_for(self, admin_client, db):
+        shelf_a = _insert_location(db, "Shelf A")
+        item_id = _insert_item(db, title="Found Copy", isbn="9780000000552",
+                               location_id=shelf_a)
+        insert_copy(db, {"item_id": item_id, "copy_number": 1,
+                         "location_id": shelf_a, "is_primary": 1})
+        db.commit()
+
+        resp = admin_client.post("/api/inventory/missing", data={
+            "location_id": str(shelf_a), "scanned_ids": str(item_id),
+        })
+        assert resp.status_code == 200
+        assert b"accounted for" in resp.content
+        assert b"Found Copy" not in resp.content
+
+    def test_a_multi_copy_item_reports_rather_than_moving(self, admin_client, db):
+        """#116's destructive half. An ISBN does not say which copy is in the
+        user's hand, so scanning a two-copy item at a shelf holding neither
+        must write nothing. `main` relocates the primary, destroying the
+        layout a merge preserved — this is the G31 pin, and it asserts on the
+        database, because the whole defect is a write."""
+        office = _insert_location(db, "Office")
+        loft = _insert_location(db, "Loft")
+        hall = _insert_location(db, "Hall")
+        item_id = _insert_item(db, title="Merged Copies", isbn="9780000000569",
+                               location_id=office)
+        insert_copy(db, {"item_id": item_id, "copy_number": 1,
+                         "location_id": office, "is_primary": 1})
+        insert_copy(db, {"item_id": item_id, "copy_number": 2,
+                         "location_id": loft, "is_primary": 0})
+        db.commit()
+
+        resp = admin_client.post("/api/scan", data={
+            "isbn": "9780000000569", "mode": "inventory", "location_id": str(hall),
+        })
+
+        assert resp.status_code == 200
+        assert b"elsewhere" in resp.content
+        assert b"Copies at Office and Loft; none here." in resp.content
+
+        with get_db() as check:
+            assert check.execute(
+                "SELECT location_id FROM items WHERE id = ?", (item_id,)
+            ).fetchone()["location_id"] == office
+            assert [r["location_id"] for r in check.execute(
+                "SELECT location_id FROM item_copies WHERE item_id = ? "
+                "ORDER BY copy_number", (item_id,)
+            ).fetchall()] == [office, loft]
+
+    def test_the_elsewhere_card_is_informational_not_an_error(self, admin_client, db):
+        """Nothing failed, so the card must carry the message in
+        `data-scan-detail` and wear the neutral badge — not `data-scan-error`
+        and not a warning or error colour (G62: the card's attributes are the
+        toast's only input)."""
+        office = _insert_location(db, "Office")
+        loft = _insert_location(db, "Loft")
+        hall = _insert_location(db, "Hall")
+        item_id = _insert_item(db, title="Merged Copies", isbn="9780000000576",
+                               location_id=office)
+        insert_copy(db, {"item_id": item_id, "copy_number": 1,
+                         "location_id": office, "is_primary": 1})
+        insert_copy(db, {"item_id": item_id, "copy_number": 2,
+                         "location_id": loft, "is_primary": 0})
+        db.commit()
+
+        html = admin_client.post("/api/scan", data={
+            "isbn": "9780000000576", "mode": "inventory", "location_id": str(hall),
+        }).text
+
+        assert 'data-scan-status="elsewhere"' in html
+        assert "data-scan-detail" in html
+        assert "data-scan-error" not in html
+        assert "bg-blue-500/20 text-blue-400" in html
+        assert "bg-shelf-error" not in html
+        assert "bg-shelf-warning" not in html
+        # The glyph and the title link are separate enumerations from the
+        # badge; a status missing from either renders a blank card corner.
+        assert "&check;" in html
+        assert f'href="/item/{item_id}"' in html
+
+    def test_an_item_with_no_copies_is_placed_by_the_scan(self, admin_client, db):
+        """The commonest Inventory case, and the arm a two-way split drops.
+        An item added without a location has no copy rows at all, and walking
+        a shelf to place it is what the mode is chiefly for."""
+        shelf = _insert_location(db, "Shelf A")
+        item_id = insert_item(db, title="Unplaced", isbn="9780000000583",
+                              media_type="book", source="test")
+        db.commit()
+        assert item_copies.copies_for_item(db, item_id) == []
+
+        resp = admin_client.post("/api/scan", data={
+            "isbn": "9780000000583", "mode": "inventory", "location_id": str(shelf),
+        })
+
+        assert resp.status_code == 200
+        assert b"relocated" in resp.content
+        with get_db() as check:
+            assert check.execute(
+                "SELECT location_id FROM items WHERE id = ?", (item_id,)
+            ).fetchone()["location_id"] == shelf
+            rows = check.execute(
+                "SELECT location_id, is_primary FROM item_copies WHERE item_id = ?",
+                (item_id,),
+            ).fetchall()
+        assert [tuple(r) for r in rows] == [(shelf, 1)]
+
+    def test_a_non_primary_copy_at_the_audited_shelf_confirms(self, admin_client, db):
+        """The audit's first contract: a copy here is a copy here, primary or
+        not. `main` compares the seam and would relocate the primary onto this
+        shelf instead."""
+        office = _insert_location(db, "Office")
+        loft = _insert_location(db, "Loft")
+        item_id = _insert_item(db, title="Second Copy Here", isbn="9780000000590",
+                               location_id=office)
+        insert_copy(db, {"item_id": item_id, "copy_number": 1,
+                         "location_id": office, "is_primary": 1})
+        insert_copy(db, {"item_id": item_id, "copy_number": 2,
+                         "location_id": loft, "is_primary": 0})
+        db.commit()
+
+        resp = admin_client.post("/api/scan", data={
+            "isbn": "9780000000590", "mode": "inventory", "location_id": str(loft),
+        })
+
+        assert resp.status_code == 200
+        assert b"confirmed" in resp.content
+        with get_db() as check:
+            assert check.execute(
+                "SELECT location_id FROM items WHERE id = ?", (item_id,)
+            ).fetchone()["location_id"] == office
+
+    def test_more_than_three_copy_locations_are_capped(self, admin_client, db):
+        """A scan card is two lines on a phone. Four places read as three
+        and a remainder; a copy with no location says so rather than being
+        dropped."""
+        names = ["Office", "Loft", "Hall", "Garage"]
+        locs = [_insert_location(db, n) for n in names]
+        item_id = _insert_item(db, title="Everywhere", isbn="9780000000613",
+                               location_id=locs[0])
+        for number, loc in enumerate(locs, start=1):
+            insert_copy(db, {"item_id": item_id, "copy_number": number,
+                             "location_id": loc, "is_primary": 1 if number == 1 else 0})
+        insert_copy(db, {"item_id": item_id, "copy_number": 5})
+        elsewhere = _insert_location(db, "Cellar")
+        db.commit()
+
+        html = admin_client.post("/api/scan", data={
+            "isbn": "9780000000613", "mode": "inventory",
+            "location_id": str(elsewhere),
+        }).text
+
+        assert "Copies at Office, Loft, Hall and 2 more; none here." in html
+
 
 class TestLookupMode:
+
     def test_lookup_found(self, admin_client, db):
         _insert_item(db, title="Found Book", isbn="9780000000606")
         db.commit()
@@ -222,6 +569,64 @@ class TestLookupMode:
         })
         assert resp.status_code == 200
         assert b"found" in resp.content
+
+    def test_lookup_names_every_copy_location(self, admin_client, db):
+        """Lookup is the fourth reader (#116). A two-copy item that reports
+        two rooms on its page must not report one when scanned. `main`
+        answers from `item.location_name`, the seam, and names only Office."""
+        office = _insert_location(db, "Office")
+        loft = _insert_location(db, "Loft")
+        item_id = _insert_item(db, title="Two Rooms", isbn="9780000000620",
+                               location_id=office)
+        insert_copy(db, {"item_id": item_id, "copy_number": 1,
+                         "location_id": office, "is_primary": 1})
+        insert_copy(db, {"item_id": item_id, "copy_number": 2,
+                         "location_id": loft, "is_primary": 0})
+        db.commit()
+
+        html = admin_client.post("/api/scan", data={
+            "isbn": "9780000000620", "mode": "lookup",
+        }).text
+
+        assert "Location: Office and Loft" in html
+
+    def test_lookup_on_an_item_with_no_copies_says_no_location_set(
+        self, admin_client, db
+    ):
+        """The zero-copy answer is unchanged, and is not the empty string."""
+        item_id = insert_item(db, title="Nowhere", isbn="9780000000637",
+                              media_type="book", source="test")
+        db.commit()
+        assert item_copies.copies_for_item(db, item_id) == []
+
+        html = admin_client.post("/api/scan", data={
+            "isbn": "9780000000637", "mode": "lookup",
+        }).text
+
+        assert "Location: No location set" in html
+
+    def test_lookup_falls_back_to_the_seam_for_a_located_zero_copy_item(
+        self, admin_client, db
+    ):
+        """An upgraded database holds located items with no copy rows at all
+        (G86) — a wishlist item, most often. Lookup formatted copies only, so
+        it answered "No location set" for an item whose own page names a
+        shelf: the fourth reader disagreeing with the other three, which is
+        the whole of #116 (B5). The test above covers the genuinely
+        location-less item; this one covers the located one."""
+        shelf = _insert_location(db, "Legacy Wishlist Shelf")
+        item_id = insert_item(db, title="Wishlist Only", isbn="9780000000644",
+                              media_type="book", source="test",
+                              location_id=shelf)
+        db.execute("DELETE FROM item_copies WHERE item_id = ?", (item_id,))
+        db.commit()
+        assert item_copies.copies_for_item(db, item_id) == []
+
+        html = admin_client.post("/api/scan", data={
+            "isbn": "9780000000644", "mode": "lookup",
+        }).text
+
+        assert "Location: Legacy Wishlist Shelf" in html
 
     def test_lookup_not_found(self, admin_client):
         resp = admin_client.post("/api/scan", data={
@@ -316,6 +721,78 @@ class TestManualAddForm:
         assert resp.status_code == 200
         assert 'name="location_id"' in resp.text
         assert ">Location</option>" in resp.text
+
+    def test_card_is_unchanged_by_the_fragment_extraction(self, admin_client, db):
+        """Issue #120 moved this form into fragments/manual_add_form.html and
+        included it back. The card is the default host, so nothing it renders
+        may change — including the parts the include could plausibly have
+        dropped on the way out: the Alpine root (which stays on the *card*, not
+        in the fragment), the two hidden inputs the scan fixes, and the swap
+        destination the form carries for itself (G54)."""
+        _insert_location(db, name="Study")
+        db.commit()
+
+        html = self._scan_unknown(admin_client).text
+
+        # The component root stays on the card. The fragment is scope-less
+        # markup, because several cards can sit on one page at once.
+        assert 'x-data="manualAddForm"' in html
+
+        # The scan fixes both of these, so on this host they are hidden.
+        assert '<input type="hidden" name="isbn"' in html
+        assert '<input type="hidden" name="media_type"' in html
+
+        # G54: this host's form settles its own destination.
+        assert 'hx-target="closest .scan-result"' in html
+        assert 'hx-swap="outerHTML"' in html
+
+        # The fields the extraction carried across.
+        assert 'name="series_name"' in html
+        assert 'name="location_id"' in html
+        assert "Copy from an existing item" in html
+        assert "Study" in html
+
+    def test_the_cards_shared_fields_carry_no_value_attribute(self, admin_client, db):
+        """The card host gets no prefill, so the three fields the panel
+        prefills must render exactly as they did before the panel existed.
+
+        T3 measured its own extraction as byte-neutral; T4 then added
+        `value="{{ manual_prefill.* }}"` to markup both hosts share, and on
+        the card that undefined value rendered as `value=""` on publisher,
+        publish_year and series_name. Inert in a browser, but it is the
+        contract the extraction was checked against, and the presence-only
+        assertions above cannot see it.
+
+        The opening tag is matched whole rather than pinning the class
+        chain, which any restyle would break.
+        """
+        _insert_location(db, name="Study")
+        db.commit()
+
+        html = self._scan_unknown(admin_client).text
+        for field in ("publisher", "publish_year", "series_name"):
+            tag = _input_tag(html, field)
+            assert "value=" not in tag, f"{field}: {tag}"
+
+    def test_the_panel_still_carries_the_prefill_slots(self, admin_client, db):
+        """The other half of the guard above: suppressing the attribute on the
+        card must not suppress it on the host that exists to be prefilled."""
+        _insert_location(db, name="Study")
+        db.commit()
+
+        html = admin_client.get("/scan?add=manual").text
+        for field in ("publisher", "publish_year", "series_name"):
+            tag = _input_tag(html, field)
+            assert "value=" in tag, f"{field}: {tag}"
+
+
+def _input_tag(html, name):
+    """The complete `<input ... name="{name}" ...>` opening tag, newlines and
+    all. Named for this module; see G93 on redefining a helper that already
+    exists here."""
+    m = re.search(r'<input[^>]*name="%s"[^>]*>' % re.escape(name), html)
+    assert m, f'no <input name="{name}"> in the rendered markup'
+    return m.group(0)
 
 
 class TestRecentScans:
@@ -423,6 +900,7 @@ class TestScanCoverQueue:
         job = cover_queue._get_queue().get_nowait()
         row = db.execute("SELECT owned FROM items WHERE id = ?", (job.item_id,)).fetchone()
         assert row["owned"] == 0
+        _assert_ownership_partition(db)
 
 
 class TestCoverStatusEndpoint:
@@ -521,7 +999,7 @@ class TestTheBarcodeOutranksTheDropdown:
         assert row is not None, "the item must still be created"
         assert row["media_type"] == "book"
 
-    @pytest.mark.parametrize("hint", ["kids_book", "audiobook", "ebook", "comic"])
+    @pytest.mark.parametrize("hint", ["manga", "audiobook", "ebook", "comic"])
     def test_an_isbn_keeps_a_book_family_hint_the_barcode_cannot_contradict(
         self, admin_client, db, stub_book_lookup, hint
     ):
@@ -657,3 +1135,228 @@ class TestMoveAndInventoryRefuseAStaleLocation:
         assert resp.status_code == 200
         assert "data-scan-error" in resp.text
         assert db.execute("SELECT location_id FROM items WHERE id = ?", (item_id,)).fetchone()["location_id"] == here
+
+
+class TestTheRetiredKidsBookAliasOnScan:
+    """`kids_book` is still accepted on input — a device whose cached form
+    still offers it, or a bookmarked POST, must keep working.
+
+    The canonicalisation sits at the top of the route rather than beside the
+    insert (G100). A guard that compared the raw value would miss a twin
+    already stored under `book`, and the duplicate card would never appear —
+    so the pin below seeds the row *first* and forbids the provider call.
+    """
+
+    ISBN = "9780306406157"
+
+    @pytest.fixture
+    def no_provider_call(self, monkeypatch):
+        from app.routers import items_common
+
+        async def _fail(*args, **kwargs):
+            raise AssertionError(
+                "the duplicate guard must answer before any provider call — "
+                "the row was seeded before the request"
+            )
+
+        monkeypatch.setattr(items_common, "_lookup_metadata", _fail)
+
+    def test_a_stale_kids_book_hint_stores_a_book(
+        self, admin_client, db, stub_book_lookup_alias
+    ):
+        resp = admin_client.post("/api/scan", data={
+            "isbn": self.ISBN, "media_type": "kids_book", "mode": "add",
+        })
+        assert resp.status_code == 200
+        row = db.execute(
+            "SELECT media_type FROM items WHERE isbn = ?", (self.ISBN,)
+        ).fetchone()
+        assert row is not None, "the item must still be created"
+        assert row["media_type"] == "book"
+
+    def test_a_pre_seeded_book_is_found_as_a_duplicate(
+        self, admin_client, db, no_provider_call
+    ):
+        """The G100 shape: the row exists before the request, so only the
+        early guard can answer.
+
+        Note on what this does and does not discriminate. On the ISBN path
+        the guard keys on `detect`'s *resolved* type, and an unrecognised
+        hint already resolves to `book` for an ISBN barcode — so this stays
+        green even with the alias removed. It is a regression pin on the
+        outcome, not the pin that proves the alias is wired. That one is
+        `tests/test_manual_add.py`, where the raw value reaches the
+        duplicate guard with no detection in between.
+        """
+        _insert_item(db, title="Already Here", isbn=self.ISBN, media_type="book")
+        db.commit()
+
+        resp = admin_client.post("/api/scan", data={
+            "isbn": self.ISBN, "media_type": "kids_book", "mode": "add",
+        })
+
+        assert resp.status_code == 200
+        assert db.execute(
+            "SELECT COUNT(*) AS c FROM items WHERE isbn = ?", (self.ISBN,)
+        ).fetchone()["c"] == 1, "no second row may be created"
+
+
+@pytest.fixture
+def stub_book_lookup_alias(monkeypatch):
+    from app.routers import items_common
+
+    async def _lookup(isbn13, hc_token, client, *, google_api_key=None):
+        meta = {"title": "A Real Novel", "authors": "Someone"}
+        return (meta, "openlibrary", {}, provider_result.found("openlibrary", meta))
+
+    monkeypatch.setattr(items_common, "_lookup_metadata", _lookup)
+
+
+class TestScanInTrash:
+    """soft-delete-trash T5: an existing-item mode that finds the barcode on
+    an item in Trash reports `in_trash` and offers Restore — and the mode's
+    own action does not run."""
+
+    ISBN = "9780000000026"
+
+    def _trashed(self, db, **fields):
+        from app.services import item_write
+
+        item_id = _insert_item(db, title="Binned Book", isbn=self.ISBN, **fields)
+        item_write.trash_item(db, item_id)
+        return item_id
+
+    def _scan(self, client, mode, **extra):
+        return client.post("/api/scan", data={"isbn": self.ISBN, "mode": mode, **extra})
+
+    def _last_scan(self, db):
+        return db.execute(
+            "SELECT result, mode, item_id FROM scan_log ORDER BY id DESC LIMIT 1"
+        ).fetchone()
+
+    def _assert_in_trash_card(self, resp, item_id):
+        assert resp.status_code == 200
+        assert 'data-scan-status="in_trash"' in resp.text
+        assert "Binned Book" in resp.text
+        assert "In Trash since" in resp.text
+        assert f'hx-post="/api/trash/items/{item_id}/restore"' in resp.text
+        # No link to a page that would bounce to Browse.
+        assert f'href="/item/{item_id}"' not in resp.text
+
+    def test_lend_reports_in_trash_and_lends_nothing(self, admin_client, db):
+        item_id = self._trashed(db)
+        bid = _insert_borrower(db, "Alice")
+        db.commit()
+        resp = self._scan(admin_client, "lend", borrower_id=str(bid))
+        self._assert_in_trash_card(resp, item_id)
+        assert db.execute("SELECT COUNT(*) FROM checkouts").fetchone()[0] == 0
+        assert tuple(self._last_scan(db)) == ("in_trash", "lend", item_id)
+
+    def test_return_reports_in_trash_and_leaves_the_loan_open(self, admin_client, db):
+        item_id = self._trashed(db)
+        bid = _insert_borrower(db, "Bea")
+        loan = db.execute(
+            "INSERT INTO checkouts (item_id, borrower_id) VALUES (?, ?)", (item_id, bid)
+        ).lastrowid
+        db.commit()
+        resp = self._scan(admin_client, "return")
+        self._assert_in_trash_card(resp, item_id)
+        assert db.execute(
+            "SELECT checked_in FROM checkouts WHERE id = ?", (loan,)
+        ).fetchone()["checked_in"] is None
+        assert tuple(self._last_scan(db)) == ("in_trash", "return", item_id)
+
+    def test_move_reports_in_trash_and_moves_nothing(self, admin_client, db):
+        item_id = self._trashed(db)
+        loc = _insert_location(db, "Garage")
+        db.commit()
+        resp = self._scan(admin_client, "move", location_id=str(loc))
+        self._assert_in_trash_card(resp, item_id)
+        assert db.execute(
+            "SELECT location_id FROM items WHERE id = ?", (item_id,)
+        ).fetchone()["location_id"] is None
+        assert tuple(self._last_scan(db)) == ("in_trash", "move", item_id)
+
+    def test_inventory_reports_in_trash_and_writes_nothing(self, admin_client, db):
+        home = _insert_location(db, "Home Shelf")
+        item_id = self._trashed(db, location_id=home)
+        audit = _insert_location(db, "Audit Shelf")
+        db.commit()
+        before = dict(db.execute("SELECT * FROM items WHERE id = ?", (item_id,)).fetchone())
+        resp = self._scan(admin_client, "inventory", location_id=str(audit))
+        self._assert_in_trash_card(resp, item_id)
+        assert "relocated" not in resp.text
+        assert dict(db.execute("SELECT * FROM items WHERE id = ?", (item_id,)).fetchone()) == before
+        assert tuple(self._last_scan(db)) == ("in_trash", "inventory", item_id)
+
+    def test_lookup_reports_in_trash_and_writes_nothing(self, admin_client, db):
+        item_id = self._trashed(db)
+        db.commit()
+        before = dict(db.execute("SELECT * FROM items WHERE id = ?", (item_id,)).fetchone())
+        resp = self._scan(admin_client, "lookup")
+        self._assert_in_trash_card(resp, item_id)
+        assert dict(db.execute("SELECT * FROM items WHERE id = ?", (item_id,)).fetchone()) == before
+        assert tuple(self._last_scan(db)) == ("in_trash", "lookup", item_id)
+
+    def test_quick_rate_reports_in_trash_and_rates_nothing(self, admin_client, db):
+        item_id = self._trashed(db)
+        db.commit()
+        resp = self._scan(admin_client, "quick_rate")
+        self._assert_in_trash_card(resp, item_id)
+        row = db.execute(
+            "SELECT reading_status, date_finished FROM items WHERE id = ?", (item_id,)
+        ).fetchone()
+        assert row["reading_status"] != "read" and row["date_finished"] is None
+        assert tuple(self._last_scan(db)) == ("in_trash", "quick_rate", item_id)
+
+    def test_a_live_row_on_the_same_isbn_wins_over_trash(self, admin_client, db):
+        from app.services import item_write
+
+        gone = _insert_item(db, title="Binned Audio", isbn=self.ISBN, media_type="audiobook")
+        item_write.trash_item(db, gone)
+        _insert_item(db, title="Live Paper", isbn=self.ISBN, media_type="book")
+        db.commit()
+        resp = self._scan(admin_client, "lookup")
+        assert 'data-scan-status="found"' in resp.text
+        assert "Live Paper" in resp.text
+
+    def test_recent_scans_renders_in_trash_as_a_warning(self, admin_client, db):
+        self._trashed(db)
+        db.commit()
+        self._scan(admin_client, "lookup")
+        strip = admin_client.get("/api/recent-scans", params={"mode": "lookup"}).text
+        row = re.search(r'<span class="text-xs px-2 py-1 rounded-full shrink-0([^"]*)">\s*in_trash', strip)
+        assert row, strip
+        assert "text-shelf-warning" in row.group(1)
+
+    def test_restore_from_the_card_answers_restored_and_logs_it(self, admin_client, db):
+        item_id = self._trashed(db)
+        db.commit()
+        resp = admin_client.post(f"/api/trash/items/{item_id}/restore", data={
+            "isbn": self.ISBN, "mode": "lend", "render": "scan",
+        })
+        assert resp.status_code == 200
+        assert 'data-scan-status="restored"' in resp.text
+        assert "Restored from Trash" in resp.text
+        assert db.execute("SELECT 1 FROM items_live WHERE id = ?", (item_id,)).fetchone()
+        assert tuple(self._last_scan(db)) == ("restored", "lend", item_id)
+        # A second click is idempotent: the same card, not an error.
+        again = admin_client.post(f"/api/trash/items/{item_id}/restore", data={
+            "isbn": self.ISBN, "mode": "lend", "render": "scan",
+        })
+        assert 'data-scan-status="restored"' in again.text
+
+    def test_restore_from_the_card_for_a_missing_item_is_an_error_card(self, admin_client):
+        resp = admin_client.post("/api/trash/items/99999/restore", data={
+            "isbn": self.ISBN, "mode": "lookup", "render": "scan",
+        })
+        assert resp.status_code == 404
+        assert 'data-scan-status="error"' in resp.text
+
+    def test_viewer_cannot_restore_from_the_card(self, viewer_client, db):
+        item_id = self._trashed(db)
+        db.commit()
+        resp = viewer_client.post(f"/api/trash/items/{item_id}/restore", data={
+            "isbn": self.ISBN, "mode": "lookup", "render": "scan",
+        })
+        assert resp.status_code == 403

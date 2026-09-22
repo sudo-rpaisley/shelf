@@ -14,33 +14,36 @@ import logging
 
 logger = logging.getLogger(__name__)
 
-# `group` controls presentation in base.html without changing route access.
-# Primary destinations stay visible; creation tools sit under Add; specialist
-# and reporting pages sit under More; admin pages live with the account menu.
+# `menu: "account"` puts a tab in the account dropdown instead of the tab row.
+# It is a rendering destination, not a second kind of tab: role gating, the
+# `requires` check and manual hiding all still run in `visible_tabs`. Declared
+# here so the templates ask the registry rather than testing for a key by name
+# — base.html used to skip `settings` with a hardcoded comparison in two
+# places, which is one place too many the moment a second tab moves.
 NAV_TABS = [
-    {"key": "home", "label": "Home", "path": "/", "group": "primary"},
-    {"key": "browse", "label": "Browse", "path": "/browse", "group": "primary"},
-    {"key": "my_list", "label": "My List", "path": "/my-list", "group": "primary"},
-    {"key": "collections", "label": "Collections", "path": "/collections", "group": "primary"},
-    {"key": "series", "label": "Series", "path": "/series", "group": "primary"},
-    {"key": "discover", "label": "Discover", "path": "/discover", "group": "primary",
-     "requires": "hardcover"},
-    {"key": "scan", "label": "Scan", "path": "/scan", "group": "add",
+    {"key": "browse", "label": "Browse", "path": "/browse"},
+    {"key": "scan", "label": "Scan", "path": "/scan", "roles": ("admin", "editor")},
+    {"key": "intake", "label": "Intake", "path": "/intake", "roles": ("admin", "editor"),
+     "requires": "vision"},
+    {"key": "shelf-fill", "label": "Shelf Fill", "path": "/shelf-fill",
      "roles": ("admin", "editor")},
-    {"key": "intake", "label": "Intake", "path": "/intake", "group": "add",
-     "roles": ("admin", "editor"), "requires": "vision"},
-    {"key": "locations", "label": "Locations", "path": "/locations", "group": "more"},
-    {"key": "music", "label": "Music", "path": "/music", "group": "more"},
-    {"key": "store", "label": "Store", "path": "/store", "group": "more"},
-    {"key": "stats", "label": "Stats", "path": "/stats", "group": "more"},
-    {"key": "settings", "label": "Settings", "path": "/settings", "group": "account",
-     "roles": ("admin",)},
-    {"key": "logs", "label": "Logs", "path": "/logs", "group": "account",
-     "roles": ("admin",)},
+    {"key": "store", "label": "Store", "path": "/store"},
+    {"key": "series", "label": "Series", "path": "/series"},
+    {"key": "music", "label": "Music", "path": "/music"},
+    {"key": "periodicals", "label": "Periodicals", "path": "/periodicals"},
+    {"key": "discover", "label": "Discover", "path": "/discover", "requires": "hardcover"},
+    {"key": "stats", "label": "Stats", "path": "/stats"},
+    {"key": "trash", "label": "Trash", "path": "/trash", "roles": ("admin", "editor"),
+     "menu": "account", "heading": "Library"},
+    {"key": "settings", "label": "Settings", "path": "/settings", "roles": ("admin",),
+     "menu": "account", "heading": "Administration"},
+    {"key": "logs", "label": "Logs", "path": "/logs", "roles": ("admin",),
+     "menu": "account", "heading": "Administration"},
 ]
 
-# Home, Browse, Collections and the page that controls visibility must stay reachable.
-ALWAYS_VISIBLE = ("home", "browse", "collections", "settings")
+# The page that controls visibility must stay reachable, and so must the
+# collection itself — neither can be hidden, however the form is submitted.
+ALWAYS_VISIBLE = ("browse", "settings")
 
 HIDEABLE_TABS = [t for t in NAV_TABS if t["key"] not in ALWAYS_VISIBLE]
 HIDEABLE_KEYS = frozenset(t["key"] for t in HIDEABLE_TABS)
@@ -175,7 +178,8 @@ def visible_tabs(user: dict | None) -> list[dict]:
             "key": tab["key"],
             "label": tab["label"],
             "path": tab["path"],
-            "group": tab.get("group", "primary"),
+            "menu": tab.get("menu", ""),
+            "heading": tab.get("heading", ""),
         })
     return tabs
 
@@ -186,13 +190,10 @@ def visible_tabs(user: dict | None) -> list[dict]:
 # here — including anything crafted to look like a URL or path — silently
 # degrades to the default with no `from=` param emitted at all.
 BACK_TARGETS = {
-    "home": ("/", "Back to Home"),
-    "music": ("/music", "Back to music"),
     "series": ("/series", "Back to series"),
     "stats": ("/stats", "Back to stats"),
-    "my_list": ("/my-list", "Back to My List"),
 }
-DEFAULT_BACK_TARGET = ("/browse", "Back to browse")
+DEFAULT_BACK_TARGET = ("/browse", "Back to collection")
 
 
 def back_target(key: str | None) -> dict:

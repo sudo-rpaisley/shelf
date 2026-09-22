@@ -18,15 +18,17 @@ make test                  # unit/integration tests — quiet + parallel (exclud
 make test-fast             # re-run only last run's failures (--lf, serial)
 make test-verbose          # per-test roll-call, for humans
 make test-e2e              # Playwright E2E — spins up its own server, no dev server needed
+make test-contract         # live UPC Item DB contract check — run at release, never on a gate
 python -m pytest tests/test_items.py::test_name -v           # single unit test
 python -m pytest tests/e2e/test_scan.py -v -m e2e            # single E2E file
-make css                   # rebuild committed Tailwind stylesheet + restamp SW_VERSION (required after template/JS changes)
+make css                   # rebuild committed Tailwind stylesheet + restamp SW_VERSION (required after template/JS changes; right on a monorepo branch, refused on a GitHub PR)
 make check-csrf            # lint: raw fetch() calls must send X-CSRF-Token
+make check-deleted         # lint: reads of items/item_copies must go through items_live/copies_live
 make check-alpine          # lint: templates stay compatible with Alpine CSP build
 make check-sw-version      # lint: SW_VERSION matches the precache digest (generated, never hand-edited)
 make badges                # restamp README's test-count badges (generated — run after adding/deleting tests)
 make check-badges          # lint: README test-count badges match what pytest collects
-make check-tests           # lint: test conventions — app.main import isolation, CSP-safe waits, page guards
+make check-tests           # lint: test conventions — app.main import isolation, CSP-safe waits, page guards, no networkidle wait after a click
 make checks-fast           # instant offline lints (secrets, csrf, alpine, sw-version, tests, badges) — the inner-loop target
 make checks                # everything, incl. network pip-audit + licenses — before a release
 make dev / dev-down / dev-logs   # docker compose up/down/logs
@@ -92,7 +94,7 @@ it). `templates.TemplateResponse` is wrapped in main.py to auto-inject `user` an
 - `app/routers/` — one router per feature area (items/scan, intake, store, series, share, tags, valuation, sync, archive, …). Routes return full pages or HTMX fragments from `app/templates/`. The item routes are split four ways: `items.py` (scan, CRUD, search, bulk ops), `items_covers.py`, `items_csv.py`, `items_catalog.py` (provider search-and-add for games/books/DVDs), with shared helpers in `items_common.py`. **Import `items_common` as a module and call through it** (`items_common._save_item(...)`) — a from-import binds a copy that tests cannot patch. All four register their own router on the `/api` prefix in `app/main.py`.
 - `app/browse_filters.py` — **the Browse filter set, declared once.** The `hx-include` lists in `browse.html` and `fragments/filter_counts_oob.html`, the SQL in `search_items` (including each dropdown's cross-filter counts), that route's parameters, and `static/js/browse.js` all derive from it. Add a filter by adding one `BrowseFilter(...)`, never by editing those places by hand.
 - `app/services/` — external API clients and domain logic: `openlibrary.py`, `hardcover.py`, `googlebooks.py`, `igdb.py`, `tmdb.py`, `isbndb.py`, `dnb.py`, `covers.py` + `cover_queue.py`, `vision.py` + `tiling.py`, `audiobookshelf.py`, `notify.py`, `outbound.py`, `upc.py`, `national.py`, `synopsis.py`, `title_match.py`, … The **metadata and cover clients** pace their requests through `outbound.py` (per-host minimum intervals, limits in `config.py`); add a new metadata or cover source the same way rather than calling `httpx` directly. Push/sync clients (`vision.py`, `notify.py`, `audiobookshelf.py`) are user-triggered or already interval-driven and call out directly.
-- `app/services/item_write.py` — **the only place that inserts a row into `items`.** Call `insert_item(db, fields)` inside an existing `with get_db()` block; it validates field names against the live table, so an unknown column raises instead of being silently dropped, and unset fields take their `SCHEMA` defaults. Never write `INSERT INTO items` anywhere else (a test enforces this).
+- `app/services/item_write.py` — **the only place that inserts a row into `items`.** Call `insert_item(db, fields)` inside an existing `with get_db()` block; it validates field names against the live table, so an unknown column raises instead of being silently dropped, and unset fields take their `SCHEMA` defaults. Never write `INSERT INTO items` anywhere else (a test enforces this). When the write claims an ISBN/UPC slot a **trashed** row still holds, `insert_item` restores that row (read the flag with `was_restored(item_id)` before transforming the id) — or, with `restore_trashed=False` for a machine sync, raises `IdentifierInTrash`; the update funnel refuses the same collision. `deleted_at` is written only by `trash_item`/`restore_item` and `item_copies.trash_copy`/`restore_copy`, and no route calls the trashing ones yet. The read side mirrors it: **every read of `items` goes through the `items_live` view, and every read of `item_copies` through `copies_live`** (`get_db()` creates both per connection; `copies_live` joins the items relation, so a copy is live only if it and its item are untrashed) — never the physical tables, which `make check-deleted` enforces for both. Writes stay physical, and so do the allowlisted reads that exist to predict a UNIQUE violation, since a trashed row still holds its unique slot — plus a few that exist to *find* the row the view hides (`restore_copy`, `_reparent_copies`, the sync external-id matchers), which say so at their entry (`GOTCHAS.md` G107).
 - `app/database.py` — **the `MIGRATIONS` tuple is append-only. Never modify or reorder an existing entry**; add new ones at the end. Fresh databases get the full `SCHEMA`, upgrades replay pending migrations tracked in `schema_version`, so **every schema change must be made in both places** (`GOTCHAS.md` G1).
 - `app/auth.py` / `app/crypto.py` — bcrypt + JWT, roles admin/editor/viewer; API credentials stored encrypted (key at `data/encryption.key` or `SHELF_ENCRYPTION_KEY`, deliberately outside the DB).
 - `data/` (gitignored) — `shelf.db`, `covers/`, `certs/`, `encryption.key`.
@@ -106,13 +108,18 @@ Paths live in `app/config.py` (`DATA_DIR`, `DATABASE_PATH`, `COVERS_DIR`). `from
 - **CSP is strict**: no inline `<script>`, no `eval`. All JS lives in `static/` (vendored — never add a CDN reference).
 - **Alpine is the CSP build**: expressions must be simple/parseable; nested or bracketed `x-model` bindings silently drop input — keep bindings flat (`make check-alpine` enforces).
 - **Raw `fetch()` must send the `X-CSRF-Token` header** (`make check-csrf` enforces; HTMX is configured globally in base.html).
-- Tailwind output (`static/css/app.css`) is built locally and committed — run `make css` after changing templates or classes. It also restamps `static/sw.js`'s `SW_VERSION` from the precache digest, so commit both; never hand-edit that constant.
+- Tailwind output (`static/css/app.css`) is built locally and committed — run `make css` after changing templates or classes. It also restamps `static/sw.js`'s `SW_VERSION` from the precache digest, so commit both; never hand-edit that constant. **Committing the build is correct on a monorepo branch and refused on a GitHub pull request** — the `generated-output` job rejects a PR carrying `app.css`, the `SW_VERSION` value or a README badge count, because those collide across a batch of PRs. Work here produces no `pull_request` build, so nothing changes for plan tasks, the absorb branch or a release.
 
 ## Testing conventions
 
 - `tests/conftest.py`: an autouse fixture isolates every test into a tmp data dir; use the `client` / `admin_client` / `editor_client` / `viewer_client` fixtures (CSRF pre-seeded, rate limiting off) and `db` for direct queries. Helpers `_insert_item`, `_insert_borrower`, `_insert_location` seed data.
 - E2E tests (`tests/e2e/`, marked `e2e`) use raw Playwright and launch their own uvicorn server per session.
 - `make verify` enforces a minimum unit-test count (`MIN_TESTS` in the Makefile) — deleting tests will fail it.
+- **E2E makes no live third-party calls.** The UPC Item DB stub
+  (`tests/e2e/conftest.py::upc_stub`, served to every E2E server through
+  `_boot_server`'s fixed env block) is the mechanism; `live` is the marker for a
+  test that does call out, and such tests live in `tests/contract/`, off every
+  gate target and run only by `make test-contract`.
 
 <!-- devwf:begin -->
 ## dev-workflow (installed)

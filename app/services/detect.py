@@ -62,7 +62,7 @@ import re
 from dataclasses import dataclass
 from typing import Literal
 
-from app.config import MEDIA_TYPES
+from app.config import BOOK_MEDIA_TYPES, MEDIA_TYPES, canonical_media_type
 
 # How detection reached its verdict. Callers branch on what the answer is
 # *worth*, never on which tier produced it — a tier number is a fact about
@@ -91,10 +91,9 @@ class Detection:
 
 
 # Hints that mean "this is some kind of book" and are honoured as-is when the
-# barcode is an ISBN. Not every MEDIA_TYPES key is book-family — dvd, cd and
-# video_game are physical/digital media, not books, even though they are
-# valid hints on a non-ISBN scan.
-_BOOK_FAMILY_HINTS = frozenset({"book", "kids_book", "audiobook", "ebook", "comic", "digital_comic"})
+# barcode is an ISBN. Keep this as the canonical config declaration so adding
+# a book-family media type cannot silently drift scan detection.
+_BOOK_FAMILY_HINTS = BOOK_MEDIA_TYPES
 
 # --- Tier 2: title markers -------------------------------------------------
 #
@@ -219,15 +218,6 @@ _MEDIUM_MARKERS = ["CD-ROM"]
 #
 # "CD" also matches *inside* "CD-ROM" — `_contains_marker` treats the hyphen as
 # a word boundary — which is why `_MEDIUM_MARKERS` above runs first.
-_VINYL_MARKERS = [
-    "[Vinyl]", "(Vinyl)", "Vinyl LP", '12" Vinyl', '10" Vinyl', '7" Vinyl',
-    "12-inch Vinyl", "10-inch Vinyl", "7-inch Vinyl",
-]
-
-_CASSETTE_MARKERS = [
-    "Audio Cassette", "Cassette Tape", "[Cassette]", "(Cassette)",
-]
-
 _AUDIO_MARKERS = ["Audio CD", "Compact Disc", "CD"]
 
 
@@ -280,16 +270,6 @@ def _match_title_markers(title: str) -> Detection | None:
                 f"Title carries a '{marker}' software-medium tag — "
                 f"filed as Video Game."
             ), "detected")
-    for marker in _VINYL_MARKERS:
-        if _contains_marker(title, marker):
-            return Detection("vinyl", (
-                f"Title carries a '{marker}' music-format tag — filed as Vinyl."
-            ), "detected")
-    for marker in _CASSETTE_MARKERS:
-        if _contains_marker(title, marker):
-            return Detection("cassette", (
-                f"Title carries a '{marker}' music-format tag — filed as Cassette."
-            ), "detected")
     for marker in _AUDIO_MARKERS:
         if _contains_marker(title, marker):
             return Detection("cd", (
@@ -312,16 +292,6 @@ def _category_decides_video_game(category: str) -> bool:
     exactly what it must never do.
     """
     return "video game software" in category.lower()
-
-
-def _category_decides_vinyl(category: str) -> bool:
-    value = category.lower()
-    return "vinyl record" in value or "vinyl records" in value
-
-
-def _category_decides_cassette(category: str) -> bool:
-    value = category.lower()
-    return "music cassette" in value or "audio cassette" in value
 
 
 def _category_decides_cd(category: str) -> bool:
@@ -366,6 +336,10 @@ def detect_media_type(
     `title` must be the raw scanned title, not a shortened search-query rung
     (see the G46 note in the module docstring).
     """
+    # Canonicalise first, so a stale client's retired value is read as the
+    # type that replaced it rather than silently becoming "no hint" — a
+    # `kids_book` hint is a confirmed *book* hint, not an absent one.
+    hint = canonical_media_type(hint)
     hint = hint if hint in MEDIA_TYPES else None
 
     # Tier 1: barcode prefix. Only an ISBN decides anything at this tier —
@@ -397,14 +371,6 @@ def detect_media_type(
         return Detection("video_game", (
             f"Category '{category}' names video game software — filed as "
             f"Video Game."
-        ), "detected")
-    if category and _category_decides_vinyl(category):
-        return Detection("vinyl", (
-            f"Category '{category}' names vinyl records — filed as Vinyl."
-        ), "detected")
-    if category and _category_decides_cassette(category):
-        return Detection("cassette", (
-            f"Category '{category}' names music cassettes — filed as Cassette."
         ), "detected")
     if category and _category_decides_cd(category):
         return Detection("cd", (
@@ -444,9 +410,8 @@ def detect_media_type(
     # G57: the question this branch exists to answer is "which MEDIA_TYPES
     # values can detection never produce?", and every one of them must survive
     # a no-signal outcome. Re-asked after the CD arms landed, the answer is
-    # now the book family only — `book`, `kids_book`, `audiobook`, `ebook`,
-    # `comic` — which is exactly `_BOOK_FAMILY_HINTS`, and those are wrong on
-    # a non-ISBN barcode for a different reason (tier 1's).
+    # now the book family, which is exactly `_BOOK_FAMILY_HINTS`, and those
+    # are wrong on a non-ISBN barcode for a different reason (tier 1's).
     if hint is not None and hint not in _BOOK_FAMILY_HINTS:
         return Detection(hint, (
             f"Nothing in the barcode or the product record said otherwise — "

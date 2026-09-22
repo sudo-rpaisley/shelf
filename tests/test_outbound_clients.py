@@ -234,6 +234,96 @@ class TestGooglebooksOutcomes:
         assert result.outcome == "no_match"
 
 
+class TestGooglebooksAuthors:
+    """T3 — `authors` now builds through `authors_svc.join_names` instead of
+    a bare `", ".join`, so blanks and exact repeats drop and a stray non-list
+    stops being silently stringified."""
+
+    async def test_blanks_and_repeats_drop_order_kept(self, fake_fetch):
+        fake_fetch.return_value = StubResponse(200, json_data={"items": [{
+            "volumeInfo": {
+                "title": "Some Book",
+                "authors": ["A One", "B Two", "B Two", ""],
+            },
+        }]})
+        result = await googlebooks.lookup("9780000000019", object())
+        assert result.outcome == "found"
+        assert result.payload["authors"] == "A One, B Two"
+
+    async def test_no_authors_key_or_empty_list_stores_none(self, fake_fetch):
+        fake_fetch.return_value = StubResponse(200, json_data={"items": [{
+            "volumeInfo": {"title": "Some Book", "authors": []},
+        }]})
+        result = await googlebooks.lookup("9780000000019", object())
+        assert result.payload["authors"] is None
+
+        fake_fetch.return_value = StubResponse(200, json_data={"items": [{
+            "volumeInfo": {"title": "Some Other Book"},
+        }]})
+        result = await googlebooks.lookup("9780000000020", object())
+        assert result.payload["authors"] is None
+
+    async def test_a_string_authors_value_is_a_loud_no_match(self, fake_fetch):
+        """join_names raises TypeError on a bare str (G45); lookup's parse
+        guard turns that into the same no_match every other malformed
+        response gets, rather than silently storing "F, r, a, n, k, …"."""
+        fake_fetch.return_value = StubResponse(200, json_data={"items": [{
+            "volumeInfo": {"title": "Some Book", "authors": "Frank Herbert"},
+        }]})
+        result = await googlebooks.lookup("9780000000019", object())
+        assert result.outcome == "no_match"
+
+    async def test_a_mapping_authors_value_is_a_loud_no_match(self, fake_fetch):
+        """diff-review codex-B1: a mapping iterates over its keys, so this
+        used to store the author "name"; join_names now raises, and the parse
+        guard answers no_match."""
+        fake_fetch.return_value = StubResponse(200, json_data={"items": [{
+            "volumeInfo": {"title": "Some Book", "authors": {"name": "Frank Herbert"}},
+        }]})
+        result = await googlebooks.lookup("9780000000019", object())
+        assert result.outcome == "no_match"
+
+
+class TestGooglebooksSearchByTitleAuthorAuthors:
+    """rev 1 (gemini-R1): this function has no parse guard of its own, and
+    its only caller (synopsis.py) catches httpx.HTTPError alone, so a
+    schema violation here must return [] rather than raise."""
+
+    @respx.mock
+    async def test_a_str_authors_value_returns_empty_list_not_a_raise(self):
+        respx.get("https://www.googleapis.com/books/v1/volumes").mock(
+            return_value=httpx.Response(200, json={"items": [{
+                "volumeInfo": {"title": "Some Book", "authors": "Frank Herbert"},
+            }]})
+        )
+        async with httpx.AsyncClient() as client:
+            results = await googlebooks.search_by_title_author("Some Book", None, client)
+        assert results == []
+
+    @respx.mock
+    async def test_a_mapping_authors_value_returns_empty_list_not_a_raise(self):
+        """diff-review codex-B1: the mapping case takes the same guard."""
+        respx.get("https://www.googleapis.com/books/v1/volumes").mock(
+            return_value=httpx.Response(200, json={"items": [{
+                "volumeInfo": {"title": "Some Book", "authors": {"name": "Frank Herbert"}},
+            }]})
+        )
+        async with httpx.AsyncClient() as client:
+            results = await googlebooks.search_by_title_author("Some Book", None, client)
+        assert results == []
+
+    @respx.mock
+    async def test_a_well_formed_volume_joins_its_authors(self):
+        respx.get("https://www.googleapis.com/books/v1/volumes").mock(
+            return_value=httpx.Response(200, json={"items": [{
+                "volumeInfo": {"title": "Some Book", "authors": ["A One", "B Two"]},
+            }]})
+        )
+        async with httpx.AsyncClient() as client:
+            results = await googlebooks.search_by_title_author("Some Book", None, client)
+        assert results[0]["authors"] == "A One, B Two"
+
+
 class TestGooglebooksNeverRaises:
     """Before T7 this module had no try/except anywhere: outbound.fetch(),
     resp.json(), and the `ident["type"]` indexing all propagated -- an
@@ -393,6 +483,124 @@ class TestOpenLibraryOutcomes:
         assert "description" not in result.payload
 
 
+_OL = "https://openlibrary.org"
+_NAMES = ["A One", "B Two", "C Three", "D Four", "E Five", "F Six", "G Seven"]
+
+
+@pytest.fixture
+def unpaced_openlibrary(monkeypatch):
+    monkeypatch.setitem(app.config.HOST_RATE_LIMITS, "openlibrary.org", 0.0)
+
+
+def _mock_edition_and_work(isbn, work_json):
+    respx.get(f"{_OL}/isbn/{isbn}.json").mock(return_value=httpx.Response(
+        200, json={"title": "Many Hands", "works": [{"key": "/works/OL9W"}]}))
+    respx.get(f"{_OL}/works/OL9W.json").mock(return_value=httpx.Response(200, json=work_json))
+
+
+def _mock_authors(count):
+    return [
+        respx.get(f"{_OL}/authors/OL{i + 1}A.json").mock(
+            return_value=httpx.Response(200, json={"name": _NAMES[i]}))
+        for i in range(count)
+    ]
+
+
+def _work_authors(*numbers):
+    return [{"author": {"key": f"/authors/OL{n}A"}} for n in numbers]
+
+
+@pytest.mark.usefixtures("unpaced_openlibrary")
+class TestOpenLibrarySearchAuthorShape:
+    """diff-review codex-B1: `_search`'s parse guard turns a join_names
+    TypeError into no_match, for a mapping as for a bare string."""
+
+    @respx.mock
+    @pytest.mark.parametrize("author_name", ["Frank Herbert", {"name": "Frank Herbert"}])
+    async def test_a_non_list_author_name_is_no_match(self, author_name):
+        respx.get("https://openlibrary.org/search.json").mock(
+            return_value=httpx.Response(200, json={"docs": [
+                {"title": "Some Book", "key": "/works/OL1W", "author_name": author_name},
+            ]})
+        )
+        async with httpx.AsyncClient() as client:
+            result = await openlibrary.search_books("Some Book", client)
+        assert result.outcome == "no_match"
+
+
+class TestOpenLibraryEveryAuthor:
+    """#117a — the ISBN lookup used to keep only the first author."""
+
+    @respx.mock
+    async def test_every_work_author_is_kept_in_order(self):
+        _mock_edition_and_work("9780000000101", {"authors": _work_authors(1, 2, 3)})
+        _mock_authors(3)
+        async with httpx.AsyncClient() as client:
+            result = await openlibrary.lookup("9780000000101", client)
+        assert result.payload["authors"] == "A One, B Two, C Three"
+        assert len(respx.calls) == 5
+
+    @respx.mock
+    async def test_an_edition_with_its_own_authors_keeps_them_all(self):
+        respx.get(f"{_OL}/isbn/9780000000118.json").mock(return_value=httpx.Response(
+            200, json={"title": "Workless Pair", "authors": [
+                {"key": "/authors/OL1A"}, "not-a-dict", {"key": "/authors/OL2A"}]}))
+        work = respx.get(f"{_OL}/works/OL9W.json").mock(return_value=httpx.Response(200, json={}))
+        _mock_authors(2)
+        async with httpx.AsyncClient() as client:
+            result = await openlibrary.lookup("9780000000118", client)
+        assert work.call_count == 0
+        assert result.payload["authors"] == "A One, B Two"
+
+    @respx.mock
+    async def test_at_most_five_authors_are_fetched(self):
+        _mock_edition_and_work("9780000000125", {"authors": _work_authors(1, 2, 3, 4, 5, 6, 7)})
+        routes = _mock_authors(7)
+        async with httpx.AsyncClient() as client:
+            result = await openlibrary.lookup("9780000000125", client)
+        assert [r.call_count for r in routes] == [1, 1, 1, 1, 1, 0, 0]
+        assert result.payload["authors"] == "A One, B Two, C Three, D Four, E Five"
+        assert len(respx.calls) == 7
+
+    @respx.mock
+    async def test_a_repeated_author_key_is_fetched_once(self):
+        _mock_edition_and_work("9780000000132", {"authors": [
+            {"author": {"key": "/authors/OL1A"}}, {"key": "/authors/OL1A"},
+            {"author": {"key": "/authors/OL2A"}}]})
+        routes = _mock_authors(2)
+        async with httpx.AsyncClient() as client:
+            result = await openlibrary.lookup("9780000000132", client)
+        assert [r.call_count for r in routes] == [1, 1]
+        assert result.payload["authors"] == "A One, B Two"
+
+    @respx.mock
+    async def test_a_dead_socket_on_one_author_keeps_the_others(self):
+        _mock_edition_and_work("9780000000149", {
+            "authors": _work_authors(1, 2, 3), "description": "Still here."})
+        _mock_authors(3)[1].mock(side_effect=httpx.ConnectError("boom"))
+        async with httpx.AsyncClient() as client:
+            result = await openlibrary.lookup("9780000000149", client)
+        assert result.outcome == "found"
+        assert result.payload["authors"] == "A One, C Three"
+        assert result.payload["description"] == "Still here."
+
+    @respx.mock
+    async def test_a_missing_author_record_is_skipped(self):
+        _mock_edition_and_work("9780000000156", {"authors": _work_authors(1, 2, 3)})
+        _mock_authors(3)[1].mock(return_value=httpx.Response(404))
+        async with httpx.AsyncClient() as client:
+            result = await openlibrary.lookup("9780000000156", client)
+        assert result.payload["authors"] == "A One, C Three"
+
+    @respx.mock
+    async def test_a_work_with_no_authors_stores_none(self):
+        _mock_edition_and_work("9780000000163", {"authors": []})
+        async with httpx.AsyncClient() as client:
+            result = await openlibrary.lookup("9780000000163", client)
+        assert result.outcome == "found"
+        assert "authors" not in result.payload
+
+
 class TestDnbOutcomes:
     """T2 — `lookup` now returns a `ProviderResult` instead of a bare
     dict/None plus an `on_rate_limit` callback."""
@@ -533,6 +741,32 @@ class TestHardcoverLookupByIsbnFallback:
         ]
 
 
+class TestHardcoverLookupByIsbnAuthors:
+    """T3 — the contributions -> authors tail now runs through
+    authors_svc.join_names; a contribution with no author.name stays
+    dropped, and the remaining names keep their order."""
+
+    async def test_two_authors_join_a_missing_name_is_dropped(self):
+        edition = {
+            "book": {
+                "title": "Some Book",
+                "contributions": [
+                    {"author": {"name": "A One"}},
+                    {"author": {"name": "B Two"}},
+                    {"author": {}},
+                ],
+            },
+        }
+
+        async def graphql_outcome(query, variables, **kwargs):
+            return provider_result.found("hardcover", {"editions": [edition]})
+
+        with patch("app.services.hardcover._graphql_outcome", side_effect=graphql_outcome):
+            result = await hardcover.lookup_by_isbn("9780000000019", AsyncMock())
+        assert result.outcome == "found"
+        assert result.payload["authors"] == "A One, B Two"
+
+
 class TestHardcoverLookupByIsbnRateLimit:
     """A rate-limited outcome must be reported from either attempt -- the
     ISBN-13 lookup, or the ISBN-10 retry that runs when the first misses --
@@ -566,3 +800,51 @@ class TestHardcoverLookupByIsbnRateLimit:
             result = await hardcover.lookup_by_isbn("9780000000019", client, token="tok")
         assert result.outcome == "rate_limited"
         assert respx.calls.call_count == 2
+
+
+class TestHardcoverSearchBooksAuthors:
+    """T3 — `search_books`'s Typesense-style doc carries author_names as
+    either a list or a bare string; the string case is wrapped before the
+    funnel sees it (G45: adapt at the call site, not in join_names)."""
+
+    async def test_list_joins_string_kept_empty_is_none(self):
+        data = {
+            "search": {
+                "results": {
+                    "hits": [
+                        {"document": {"id": "1", "title": "List Book", "author_names": ["A One", "B Two"]}},
+                        {"document": {"id": "2", "title": "String Book", "author_names": "C Three"}},
+                        {"document": {"id": "3", "title": "No Author Book", "author_names": []}},
+                    ],
+                },
+            },
+        }
+        with patch("app.services.hardcover._graphql", new=AsyncMock(return_value=data)):
+            books = await hardcover.search_books("query", AsyncMock())
+
+        by_title = {b["title"]: b["authors"] for b in books}
+        assert by_title["List Book"] == "A One, B Two"
+        assert by_title["String Book"] == "C Three"
+        assert by_title["No Author Book"] is None
+
+    async def test_a_mapping_author_names_is_dropped_not_stored_as_its_key(self):
+        """diff-review codex-B1: a mapping used to reach join_names and store
+        "name". This loop has no parse guard, so the adapter drops any shape
+        other than str/list/tuple instead of letting join_names raise."""
+        data = {
+            "search": {
+                "results": {
+                    "hits": [
+                        {"document": {"id": "1", "title": "Mapping Book",
+                                      "author_names": {"name": "A One"}}},
+                        {"document": {"id": "2", "title": "List Book", "author_names": ["B Two"]}},
+                    ],
+                },
+            },
+        }
+        with patch("app.services.hardcover._graphql", new=AsyncMock(return_value=data)):
+            books = await hardcover.search_books("query", AsyncMock())
+
+        by_title = {b["title"]: b["authors"] for b in books}
+        assert by_title["Mapping Book"] is None
+        assert by_title["List Book"] == "B Two"

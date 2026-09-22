@@ -43,11 +43,18 @@ from starlette.requests import Request
 from starlette.responses import Response, RedirectResponse
 
 from app import browse_columns, browse_filters
-from app.config import COVERS_DIR, DATA_DIR, MEDIA_TYPES, get_client_ip
+from app.config import (
+    COVERS_DIR,
+    CREATOR_LABELS,
+    DATA_DIR,
+    MEDIA_TYPES,
+    creator_label,
+    get_client_ip,
+)
 from app.currency import CURRENCIES, format_money, get_currency
 from app.services.national import SEARCH_LANGS
 from app.database import init_db, get_db
-from app.routers import pages, items, items_covers, items_csv, items_catalog, locations, platforms, settings, sync, komga, romm, related, checkouts, valuation, hardcover, store, series, collections, share, tags, intake, archive, music
+from app.routers import pages, items, item_copies, items_covers, cover_review, cover_review_actions, items_csv, items_catalog, locations, location_order, platforms, settings, sync, checkouts, valuation, hardcover, store, series, share, tags, intake, archive, shelf_fill, romm, komga, periodicals, music, related_media, trash
 from app.routers import auth_routes
 
 
@@ -222,7 +229,7 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
 
 async def _periodic_abs_sync():
     """Background task: run ABS sync on schedule if configured."""
-    from app.services import audiobookshelf, sync_jobs
+    from app.services import audiobookshelf
 
     intervals = {"daily": 86400, "weekly": 604800}
 
@@ -248,145 +255,16 @@ async def _periodic_abs_sync():
                 abs_token_val = get_setting(db, "abs_token")
 
             if abs_url_val and abs_token_val:
-                async def runner(on_progress):
-                    return await audiobookshelf.sync(
-                        abs_url_val, abs_token_val, on_progress=on_progress
-                    )
-
-                started = sync_jobs.start(
-                    "audiobookshelf", runner, source="scheduled"
-                )
-                if not started.get("started"):
-                    continue
-                final = await sync_jobs.wait("audiobookshelf")
-                if final["state"] != "completed":
-                    logger.warning(
-                        "Periodic Audiobookshelf sync did not complete: %s",
-                        final.get("error") or final["state"],
-                    )
-                    continue
-                finished = str(time.time())
+                await audiobookshelf.sync(abs_url_val, abs_token_val)
                 with get_db() as db:
                     db.execute(
                         "INSERT INTO settings (key, value) VALUES ('abs_last_sync', ?) "
                         "ON CONFLICT(key) DO UPDATE SET value = ?",
-                        (finished, finished),
+                        (str(now), str(now)),
                     )
                 logger.info("Periodic Audiobookshelf sync completed")
         except Exception:
             logger.exception("Periodic Audiobookshelf sync failed")
-
-
-async def _periodic_komga_sync():
-    """Background task: run Komga sync on schedule if configured."""
-    from app.services import komga as komga_service, sync_jobs
-    from app.database import get_setting
-
-    intervals = {"daily": 86400, "weekly": 604800}
-
-    while True:
-        await asyncio.sleep(300)
-        try:
-            with get_db() as db:
-                row = db.execute(
-                    "SELECT value FROM settings WHERE key = 'komga_sync_interval'"
-                ).fetchone()
-                interval = row["value"] if row else "off"
-                if interval == "off":
-                    continue
-
-                last = db.execute(
-                    "SELECT value FROM settings WHERE key = 'komga_last_sync'"
-                ).fetchone()
-                now = time.time()
-                if last and last["value"]:
-                    elapsed = now - float(last["value"])
-                    if elapsed < intervals.get(interval, 86400):
-                        continue
-
-                komga_url_val = get_setting(db, "komga_url")
-                komga_api_key = get_setting(db, "komga_api_key")
-
-            if komga_url_val and komga_api_key:
-                async def runner(on_progress):
-                    return await komga_service.sync(
-                        komga_url_val, komga_api_key, on_progress=on_progress
-                    )
-
-                started = sync_jobs.start("komga", runner, source="scheduled")
-                if not started.get("started"):
-                    continue
-                final = await sync_jobs.wait("komga")
-                if final["state"] != "completed":
-                    logger.warning(
-                        "Periodic Komga sync did not complete: %s",
-                        final.get("error") or final["state"],
-                    )
-                    continue
-                finished = str(time.time())
-                with get_db() as db:
-                    db.execute(
-                        "INSERT INTO settings (key, value) VALUES ('komga_last_sync', ?) "
-                        "ON CONFLICT(key) DO UPDATE SET value = ?",
-                        (finished, finished),
-                    )
-                logger.info("Periodic Komga sync completed")
-        except Exception:
-            logger.exception("Periodic Komga sync failed")
-
-
-async def _periodic_romm_sync():
-    """Background task: run RomM sync on schedule if configured."""
-    from app.services import romm as romm_service, sync_jobs
-    from app.database import get_setting
-
-    intervals = {"daily": 86400, "weekly": 604800}
-
-    while True:
-        await asyncio.sleep(300)
-        try:
-            with get_db() as db:
-                row = db.execute(
-                    "SELECT value FROM settings WHERE key = 'romm_sync_interval'"
-                ).fetchone()
-                interval = row["value"] if row else "off"
-                if interval == "off":
-                    continue
-                last = db.execute(
-                    "SELECT value FROM settings WHERE key = 'romm_last_sync'"
-                ).fetchone()
-                now = time.time()
-                if last and last["value"]:
-                    if now - float(last["value"]) < intervals.get(interval, 86400):
-                        continue
-                romm_url_val = get_setting(db, "romm_url")
-                romm_token = get_setting(db, "romm_api_token")
-
-            if romm_url_val and romm_token:
-                async def runner(on_progress):
-                    return await romm_service.sync(
-                        romm_url_val, romm_token, on_progress=on_progress
-                    )
-                started = sync_jobs.start("romm", runner, source="scheduled")
-                if not started.get("started"):
-                    continue
-                final = await sync_jobs.wait("romm")
-                if final["state"] != "completed":
-                    logger.warning(
-                        "Periodic RomM sync did not complete: %s",
-                        final.get("error") or final["state"],
-                    )
-                    continue
-                finished = str(time.time())
-                with get_db() as db:
-                    db.execute(
-                        "INSERT INTO settings (key, value) VALUES ('romm_last_sync', ?) "
-                        "ON CONFLICT(key) DO UPDATE SET value = ?",
-                        (finished, finished),
-                    )
-                logger.info("Periodic RomM sync completed")
-        except Exception:
-            logger.exception("Periodic RomM sync failed")
 
 
 async def _periodic_hardcover_sync():
@@ -495,22 +373,16 @@ async def lifespan(app: FastAPI):
     from app.crypto import migrate_sensitive_settings
     migrate_sensitive_settings()
     task = asyncio.create_task(_periodic_abs_sync())
-    komga_task = asyncio.create_task(_periodic_komga_sync())
-    romm_task = asyncio.create_task(_periodic_romm_sync())
     hc_task = asyncio.create_task(_periodic_hardcover_sync())
     loan_task = asyncio.create_task(_periodic_loan_reminders())
     from app.services import cover_queue
     cover_task = cover_queue.start()
     yield
     task.cancel()
-    komga_task.cancel()
-    romm_task.cancel()
     hc_task.cancel()
     loan_task.cancel()
     if cover_task is not None:
         cover_task.cancel()
-    from app.services import sync_jobs
-    await sync_jobs.cancel_all()
 
 
 app = FastAPI(title="Shelf", lifespan=lifespan)
@@ -551,6 +423,10 @@ templates.env.filters["money"] = format_money
 templates.env.globals["currency"] = get_currency
 templates.env.globals["currencies"] = CURRENCIES
 templates.env.globals["search_langs"] = SEARCH_LANGS
+# The creator field's label per media type — declared once in app/config.py.
+# A global rather than route context, so neither host route grows a key for it.
+templates.env.globals["creator_labels"] = CREATOR_LABELS
+templates.env.globals["creator_label"] = creator_label
 # Browse's hx-include lists are derived, not written — see app/browse_filters.py.
 templates.env.globals["filter_includes"] = browse_filters.filter_includes
 templates.env.globals["browse_filter_config"] = browse_filters.client_config
@@ -560,6 +436,25 @@ templates.env.globals["browse_column_config"] = browse_columns.client_config
 
 # Wrap TemplateResponse to auto-inject 'user' from request.state
 _original_template_response = templates.TemplateResponse
+
+def _trash_nag(user):
+    """The admin Trash banner's state for this render, or None.
+
+    Runs on every render for every user, so the role is checked here, before
+    any service call: a non-admin render reaches no Trash code and no query.
+    An admin's render reads the cached count (one query pair per process per
+    hour). A failure means no banner this render, never a failed page — the
+    same rule as the nav's settings read.
+    """
+    if not user or user["role"] != "admin":
+        return None
+    from app.services import trash
+    try:
+        return trash.nag_state(user)
+    except Exception:
+        logger.warning("Could not read the Trash count", exc_info=True)
+        return None
+
 
 def _template_response_with_user(request_or_self, *args, **kwargs):
     # Handle both templates.TemplateResponse(request, name, ctx) patterns
@@ -573,6 +468,7 @@ def _template_response_with_user(request_or_self, *args, **kwargs):
     # Find the context dict and inject user + the nav tabs that user can see
     from app.nav import visible_tabs
     user = getattr(request.state, "user", None)
+    trash_nag = _trash_nag(user)
     context = kwargs.get('context', None)
     if context is None:
         # Context is a positional arg (3rd after request, name)
@@ -580,10 +476,12 @@ def _template_response_with_user(request_or_self, *args, **kwargs):
             if isinstance(a, dict):
                 a.setdefault("user", user)
                 a.setdefault("nav_tabs", visible_tabs(user))
+                a.setdefault("trash_nag", trash_nag)
                 break
     else:
         context.setdefault("user", user)
         context.setdefault("nav_tabs", visible_tabs(user))
+        context.setdefault("trash_nag", trash_nag)
 
     return _original_template_response(request_or_self, *args, **kwargs)
 
@@ -625,26 +523,33 @@ async def health():
 # Routers
 app.include_router(auth_routes.router)
 app.include_router(pages.router)
-app.include_router(music.router)
 app.include_router(items.router)
 # items.py was split by feature area (Lever 5); all four share the /api prefix.
 app.include_router(items_covers.router)
+app.include_router(cover_review.router)
+app.include_router(cover_review_actions.router)
 app.include_router(items_csv.router)
 app.include_router(items_catalog.router)
 app.include_router(locations.router)
+app.include_router(location_order.router)
 app.include_router(platforms.router)
 app.include_router(settings.router)
 app.include_router(sync.router)
-app.include_router(komga.router)
-app.include_router(romm.router)
-app.include_router(related.router)
 app.include_router(checkouts.router)
 app.include_router(valuation.router)
 app.include_router(hardcover.router)
 app.include_router(store.router)
 app.include_router(series.router)
-app.include_router(collections.router)
 app.include_router(share.router)
+app.include_router(item_copies.router)
 app.include_router(tags.router)
 app.include_router(intake.router)
 app.include_router(archive.router)
+app.include_router(music.router)
+app.include_router(shelf_fill.router)
+app.include_router(romm.router)
+app.include_router(komga.router)
+app.include_router(periodicals.router)
+app.include_router(related_media.router)
+app.include_router(trash.router)
+app.include_router(trash.page_router)

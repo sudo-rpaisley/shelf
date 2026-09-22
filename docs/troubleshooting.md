@@ -51,10 +51,13 @@ has a barcode for this).
 - Many pre-2007 books carry only an ISBN-10 *printed* and an EAN that isn't
   the ISBN; type the ISBN-10.
 - Store-price-sticker barcodes aren't ISBNs. Peel.
-- Genuinely obscure editions: use **Title search** or **Add manually**. The
-  title-search result box makes the same distinctions this card does — a
-  rejected key, a rate-limited provider and an unreachable one each say so,
-  so an empty box there is a real miss and not a silent failure.
+- Genuinely obscure editions: use **Title search**. The title-search result
+  box makes the same distinctions this card does — a rejected key, a
+  rate-limited provider and an unreachable one each say so, so an empty box
+  there is a real miss and not a silent failure. If title search misses too,
+  the empty result box offers **Add it by hand**, which opens the Scan page's
+  Add by hand panel with what you typed already in the title field. A title
+  typed into the barcode box reaches the same offer from its error card.
 - A **connectivity card** is a different problem: the lookup could not reach
   the provider at all (DNS, no route, a timeout). It is not a missing record,
   and the scan is logged as `error` rather than `not_found`. Check the
@@ -117,7 +120,8 @@ Shelf files neither rather than choosing one. Set it in **Edit**.
 
 **A 979-12 book has no cover.** The Amazon cover fallback takes only ISBNs
 beginning 978, so a 979-12 book can be covered only by Open Library. **Find
-cover** searches by title and often turns one up.
+cover** searches by title and often turns one up. If it does not, **Use image
+from URL** takes a public HTTPS link to an image you found yourself.
 
 **DVDs and games that filed a bare title — no synopsis, no year, no cover —
 were a bug, not a missing key.** TMDb rejected the credential type the setup
@@ -133,7 +137,9 @@ search.
 ## Covers missing after an import
 
 Imports fetch covers in the background; give it a few minutes on a big
-batch. Then Settings → Data → Maintenance → **Retry missing covers**. Items
+batch. Then Settings → Data → Maintenance → **Retry missing covers** (books,
+comics and manga only) and **Review covers needing attention** for everything
+else it cannot reach. Items
 with no ISBN (manual adds, discs, games without IGDB) need a manual cover
 or **Find cover**.
 
@@ -220,6 +226,16 @@ usually means one of three things:
 For a book the picker is unchanged: it always combines the item's stored
 author with your query, so a wrong author on the record finds nothing whatever
 you type.
+
+When none of the above turns up an image, **Use image from URL** sets the
+cover from a public HTTPS link directly — the one route that does not depend
+on a provider having the record at all.
+
+If a disc or a game genuinely has no cover anywhere, **Settings → Data →
+Maintenance → Review covers needing attention** is the tool for it. Retry
+missing covers cannot help here — it only sweeps book-shaped rows, on purpose —
+and the queue is where every cover-less disc, game and record actually shows
+up. It also lets you mark one **Not available** so it stops coming back.
 
 ## Photo Intake finds nothing / garbage
 
@@ -358,6 +374,22 @@ rate-limited carries "A metadata source is rate-limiting us right now — this
 may not be a genuine miss." The log line still names *which* host, which the
 card deliberately does not — a book lookup consults up to four sources and any
 subset can be starved at once.
+
+## "This page did not load fully — reload it."
+
+One of the page's script files did not arrive, so part of the page is inert:
+buttons that do nothing, panels stuck open, a search box that does not search.
+Nothing is wrong with your data.
+
+**Reload the page.** The failure happens per navigation and a reload almost
+always clears it.
+
+If it keeps coming back, open the browser console (F12 → Console) and look for
+the line beginning `[shelf] component load failure:`. That line names the exact
+script file that was lost and whether it ran at all — include it verbatim when
+you report the problem, along with anything the network tab shows for that
+file. Without it there is nothing to go on: the page cannot tell the difference
+between a script that never arrived and one that arrived too late.
 
 ## Rate-limited (HTTP 429) in the UI
 

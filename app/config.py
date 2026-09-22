@@ -7,7 +7,6 @@ COVERS_DIR = DATA_DIR / "covers"
 
 MEDIA_TYPES = {
     "book": "Book",
-    "kids_book": "Kids Book",
     "audiobook": "Audiobook",
     "ebook": "eBook",
     "magazine": "Magazine",
@@ -16,71 +15,100 @@ MEDIA_TYPES = {
     "cassette": "Cassette",
     "cd": "CD",
     "digital_music": "Digital Music",
-    "music_other": "Other Music Format",
     "comic": "Comic / Graphic Novel",
-    "digital_comic": "Digital Comic",
     "manga": "Manga",
-    "digital_manga": "Digital Manga",
     "video_game": "Video Game",
-    "digital_game": "Digital Game",
 }
 
+# The book family: media types that are read, carry ISBNs, and belong to a
+# series. Everything else is deliberately outside it and, where it needs one,
+# names its own family below — periodicals are issue-based, music is
+# release-based. `dvd` and `video_game` belong to no family; `cd` belongs to
+# the music one. Declared here, beside the types themselves.
+BOOK_MEDIA_TYPES = frozenset({"book", "audiobook", "ebook", "comic", "manga"})
+
+# Retired physical types, mapped to the canonical value that replaced them.
+# `kids_book` was a user *category* wearing a format's clothes — it had no
+# behaviour of its own anywhere, and every existing row became a `book`
+# carrying a `Kids` tag at boot.
+#
+# The map is input-only: a key must never be a MEDIA_TYPES member, or the
+# vocabulary would have two spellings of one type and every consumer would
+# need to know both. Old CSVs, old archives and a client whose cached form
+# still offers the retired value keep working because of this, and nothing
+# at rest keeps the old spelling.
+MEDIA_TYPE_ALIASES = {"kids_book": "book"}
+
+
+def canonical_media_type(value):
+    """Map a retired media type onto the one that replaced it.
+
+    Anything else — including None, '' and an outright unknown value — is
+    returned unchanged, so this never decides whether a value is *valid*.
+    That stays with the caller's own membership test, which runs after.
+    """
+    return MEDIA_TYPE_ALIASES.get(value, value)
+
+# Periodicals are modelled as publication + concrete issue records. The
+# family is named separately even though the first supported format is
+# magazine, leaving room for journals/newspapers later without redesigning
+# every consumer.
+PERIODICAL_MEDIA_TYPES = frozenset({"magazine"})
+
 # Music is a first-class media family. Keep this declaration beside
-# MEDIA_TYPES so routes/templates/services can share one membership test
-# instead of scattering near-identical tuples across the application.
+# MEDIA_TYPES so routes/templates/services can share one membership test.
+# `cd` is the existing upstream CD type; adding music does not create a
+# second incompatible CD identity.
 MUSIC_MEDIA_TYPES = frozenset({
     "vinyl",
     "cassette",
     "cd",
     "digital_music",
-    "music_other",
 })
 
-# Shelf's user-facing library sections are broader than storage formats.
-# Keep family membership here so Home, Collection filters, statistics and
-# future integrations all agree on where a media type belongs. Tuples are
-# deliberately ordered for predictable display and query construction.
-MEDIA_FAMILIES = {
-    "books": {
-        "label": "Books",
-        "types": ("book", "kids_book", "ebook"),
-    },
-    "magazines": {
-        "label": "Magazines",
-        "types": ("magazine",),
-    },
-    "comics": {
-        "label": "Comics",
-        "types": ("comic", "digital_comic"),
-    },
-    "manga": {
-        "label": "Manga",
-        "types": ("manga", "digital_manga"),
-    },
-    "music": {
-        "label": "Music",
-        "types": ("vinyl", "cassette", "cd", "digital_music", "music_other"),
-    },
-    "film": {
-        "label": "Film & TV",
-        "types": ("dvd",),
-    },
-    "games": {
-        "label": "Games",
-        "types": ("video_game", "digital_game"),
-    },
-    "audiobooks": {
-        "label": "Audiobooks",
-        "types": ("audiobook",),
-    },
+# What to call the person on the cover. `items.authors` is one column for
+# every media type, but "Author(s)" is only right for the book family, so the
+# label the add form puts on that field is declared here — once — rather than
+# as a ternary in whichever template needs it. Two templates read it today and
+# the Browse/Music cards (#119) are the third.
+#
+# Only the overrides live in the map; everything else takes the default. Read
+# it through creator_label() rather than indexing it.
+#
+# `magazine` is deliberately absent, so it reads "Author(s)": a magazine's
+# `authors` column holds contributors, and the publication itself already has
+# its own `publisher` field. This is the intended answer, not an omission.
+DEFAULT_CREATOR_LABEL = "Author(s)"
+
+CREATOR_LABELS = {
+    "video_game": "Developer",
+    "dvd": "Director",
+    # Derived from MUSIC_MEDIA_TYPES rather than retyped, so a fifth music
+    # format added above cannot silently fall back to "Author(s)".
+    **{media_type: "Artist" for media_type in MUSIC_MEDIA_TYPES},
 }
 
-# The book-shaped family: media types that are read, carry ISBN identity and
-# participate in series/reading workflows. Digital comics belong here for
-# validation and controls even though they live in the Comics browse family.
-BOOK_MEDIA_TYPES = frozenset({
-    "book", "kids_book", "audiobook", "ebook", "comic", "digital_comic"
-})
+
+def creator_label(media_type):
+    """The label for the creator field of `media_type`."""
+    return CREATOR_LABELS.get(media_type, DEFAULT_CREATOR_LABEL)
+
+# Starter tag suggestions offered per media type by
+# app.services.tags.suggestions_for(), shown only until the user scopes a
+# tag of their own to that type. The three music formats share one list
+# since a genre vocabulary does not vary by physical format.
+MUSIC_GENRES = ["Rock", "Pop", "Jazz", "Classical", "Hip-hop", "Country",
+                "Electronic", "Folk", "Soundtrack", "Kids"]
+
+TAG_SUGGESTIONS = {
+    "book": ["Fiction", "Non-fiction", "Kids", "Cookbook", "Reference",
+             "Signed", "First edition", "Book club"],
+    "dvd": ["Movie", "TV series", "Kids", "Documentary", "Blu-ray", "4K"],
+    "video_game": ["Multiplayer", "Co-op", "Kids", "Collector's edition", "Sealed"],
+    "cd": MUSIC_GENRES,
+    "vinyl": MUSIC_GENRES,
+    "cassette": MUSIC_GENRES,
+}
 
 # Seed data — runtime platform list comes from game_platforms table
 GAME_PLATFORMS = {
@@ -198,24 +226,21 @@ HOST_RATE_LIMITS: dict[str, float] = {
     "services.dnb.de": 1.0,  # DNB SRU catalog — good citizenship
     "portal.dnb.de": 1.0,  # DNB cover host, same citizenship
     "opac.sbn.it": 1.0,  # SBN publishes no rate limit; matches DNB, a comparable national library
+    "data.bibliotheken.nl": 1.0,  # KB Dutch National Bibliography SPARQL endpoint
     "api.hardcover.app": 1.0,  # 60/min API limit
     "api2.isbndb.com": 3.0,  # was isbndb's own 3s post-request sleep
     "www.googleapis.com": 0.25,  # Google Books quota is per-day; light pacing only
     "images-na.ssl-images-amazon.com": 0.5,  # image CDN; politeness only
     "api.igdb.com": 0.25,  # IGDB publishes 4 req/s
     "api.themoviedb.org": 0.1,  # no hard per-second cap
-    # MusicBrainz requires ordinary clients to stay at or below one request
-    # per second. Give the limiter a little margin rather than sitting exactly
-    # on the boundary; musicbrainz.py also sends the required identifying UA.
+    # MusicBrainz asks ordinary clients to stay at or below one request per
+    # second. Give the limiter a little margin instead of sitting exactly on
+    # the boundary; musicbrainz.py also sends an identifying User-Agent.
     "musicbrainz.org": 1.05,
-    # Cover Art Archive is a separate host. It does not publish the same hard
-    # one-request rule, but album-art fetches are never latency critical, so
-    # pace them conservatively and serially alongside other metadata sources.
+    # Cover Art Archive is separate from MusicBrainz. Artwork requests are
+    # not latency critical, so pace them conservatively too.
     "coverartarchive.org": 1.0,
-    # Discogs publishes request ceilings through response headers. Shelf
-    # does not need bursty collector lookups, so one request/second is a
-    # deliberately conservative client-side pace.
-    "api.discogs.com": 1.0,
+    "api.discogs.com": 1.0,  # 60/min for authenticated requests
     # EXPLORER (the keyless trial tier this client uses) allows 6 lookups per
     # minute and 100 per day; faster than the burst rate is declined with 429
     # (https://www.upcitemdb.com/wp/docs/main/development/api-rate-limits/).
@@ -224,6 +249,20 @@ HOST_RATE_LIMITS: dict[str, float] = {
     # without moving off the trial tier.
     "api.upcitemdb.com": 10.0,
 }
+
+# The keyless trial endpoint `services/upcitemdb.py` calls. Overridable so a
+# test harness can point the app at a local stub; read at call time so the
+# override is honoured by a process that set it before import and by a test
+# that sets it after. Pacing is keyed on the URL's *host* (outbound.py), so an
+# override to 127.0.0.1 is unpaced by design — never add the stub host to
+# HOST_RATE_LIMITS above. Not a production setting: leave it unset.
+UPC_LOOKUP_URL_DEFAULT = "https://api.upcitemdb.com/prod/trial/lookup"
+
+
+def upc_lookup_url() -> str:
+    """The UPC Item DB lookup endpoint: `SHELF_UPC_LOOKUP_URL`, else the trial URL."""
+    return os.environ.get("SHELF_UPC_LOOKUP_URL") or UPC_LOOKUP_URL_DEFAULT
+
 
 # HTTP client defaults
 HTTP_TIMEOUT = 15  # seconds for external API calls
@@ -240,17 +279,12 @@ SECRET_ENV_VARS = {
     "abs_url": "ABS_URL",
     "abs_public_url": "ABS_PUBLIC_URL",
     "abs_token": "ABS_TOKEN",
-    "komga_url": "KOMGA_URL",
-    "komga_api_key": "KOMGA_API_KEY",
-    "romm_url": "ROMM_URL",
-    "romm_api_token": "ROMM_API_TOKEN",
     "hardcover_token": "HARDCOVER_TOKEN",
     "google_books_api_key": "GOOGLE_BOOKS_API_KEY",
     "isbndb_api_key": "ISBNDB_API_KEY",
     "tmdb_api_key": "TMDB_API_KEY",
     "igdb_client_id": "IGDB_CLIENT_ID",
     "igdb_client_secret": "IGDB_CLIENT_SECRET",
-    "discogs_token": "DISCOGS_TOKEN",
 }
 
 

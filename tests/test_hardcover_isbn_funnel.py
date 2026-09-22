@@ -12,7 +12,7 @@ import asyncio
 from app.routers import hardcover as hc_router
 from app.services import hardcover as hc_svc
 from app.services.item_write import InvalidIsbn, READING_STATUSES
-from tests.conftest import _insert_item
+from tests.conftest import _assert_ownership_partition, _insert_item
 from tests.test_intake import _install_lock_probe
 
 ASIN = "B00EXAMPLE"
@@ -192,6 +192,95 @@ class TestAddToShelfDuplicateGuards:
             f"duplicate guard was being read (got {probe_results[-1]!r}) — the route "
             "is missing its BEGIN IMMEDIATE, or takes it after the guard SELECT (G18)"
         )
+
+
+class TestAddToShelfNeitherRow:
+    """Issue #125 T11: a "neither" row (owned=0, not on the wishlist) that
+    already carries the hardcover_book_id or isbn is joined to the wishlist
+    rather than duplicated; an owned or wishlisted row is unchanged."""
+
+    def test_neither_row_matched_by_hardcover_book_id_is_wishlisted(self, editor_client, db):
+        existing_id = _insert_item(
+            db, title="Tracked Book", isbn=None, hardcover_book_id=555, owned=0,
+        )
+        db.commit()
+
+        resp = editor_client.post(
+            "/api/hardcover/add-to-shelf",
+            json={"title": "Tracked Book", "hardcover_book_id": 555},
+        )
+
+        assert resp.status_code == 200
+        assert resp.json() == {
+            "ok": True, "message": "Added to wishlist", "item_id": existing_id,
+        }
+        assert db.execute("SELECT COUNT(*) AS c FROM items").fetchone()["c"] == 1
+        row = db.execute("SELECT owned FROM items WHERE id = ?", (existing_id,)).fetchone()
+        assert row["owned"] == 0
+        from app.services import lists
+        assert lists.is_member(db, lists.WISHLIST, existing_id)
+        _assert_ownership_partition(db)
+
+    def test_neither_row_matched_by_isbn_is_wishlisted(self, editor_client, db):
+        existing_id = _insert_item(
+            db, title="Tracked Book", isbn="9780441013593", hardcover_book_id=None, owned=0,
+        )
+        db.commit()
+
+        resp = editor_client.post(
+            "/api/hardcover/add-to-shelf",
+            json={"title": "Tracked Book", "isbn": "9780441013593"},
+        )
+
+        assert resp.status_code == 200
+        assert resp.json() == {
+            "ok": True, "message": "Added to wishlist", "item_id": existing_id,
+        }
+        assert db.execute("SELECT COUNT(*) AS c FROM items").fetchone()["c"] == 1
+        from app.services import lists
+        assert lists.is_member(db, lists.WISHLIST, existing_id)
+        _assert_ownership_partition(db)
+
+    def test_owned_row_is_unchanged(self, editor_client, db):
+        existing_id = _insert_item(
+            db, title="Owned Book", isbn=None, hardcover_book_id=555, owned=1,
+        )
+        db.commit()
+
+        resp = editor_client.post(
+            "/api/hardcover/add-to-shelf",
+            json={"title": "Owned Book", "hardcover_book_id": 555},
+        )
+
+        assert resp.status_code == 200
+        assert resp.json() == {
+            "ok": False, "message": "Already in your library", "item_id": existing_id,
+        }
+        assert db.execute("SELECT COUNT(*) AS c FROM items").fetchone()["c"] == 1
+        from app.services import lists
+        assert not lists.is_member(db, lists.WISHLIST, existing_id)
+        _assert_ownership_partition(db)
+
+    def test_wishlisted_row_is_unchanged(self, editor_client, db):
+        existing_id = _insert_item(
+            db, title="Wishlisted Book", isbn=None, hardcover_book_id=555, owned=0,
+            wishlisted=True,
+        )
+        db.commit()
+
+        resp = editor_client.post(
+            "/api/hardcover/add-to-shelf",
+            json={"title": "Wishlisted Book", "hardcover_book_id": 555},
+        )
+
+        assert resp.status_code == 200
+        assert resp.json() == {
+            "ok": False, "message": "Already in your library", "item_id": existing_id,
+        }
+        assert db.execute("SELECT COUNT(*) AS c FROM items").fetchone()["c"] == 1
+        from app.services import lists
+        assert lists.is_member(db, lists.WISHLIST, existing_id)
+        _assert_ownership_partition(db)
 
 
 class TestImportMetadataIsbnPreclean:

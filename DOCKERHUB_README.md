@@ -104,12 +104,13 @@ key material.
 ## Features
 
 ### Scanning and Cataloging
-- **Camera barcode scanning** on mobile — tap to scan ISBNs and UPCs, on iPhone and iPad as well as Android (EAN-13, EAN-8, UPC-A, UPC-E)
+- **Camera barcode scanning** on mobile — tap to scan ISBNs and UPCs, on iPhone and iPad as well as Android (EAN-13, EAN-8, UPC-A, UPC-E). Also available from an item's edit form, for correcting a single wrong ISBN
 - **USB/Bluetooth scanner support** — works with any scanner that sends Enter after the barcode
 - **Photo intake** — bulk-add from a photo of your shelves; a vision model (Anthropic API, any OpenAI-compatible endpoint, or fully local Ollama) reads the spines and you confirm before import. Rows typed DVD or Video Game are looked up on TMDb or IGDB at confirm, on an exact title match
 - **Title search** — search Open Library, TMDb, or IGDB by title when you don't have a barcode
+- **Add by hand** — a title is the only field required, for anything no lookup can find: a self-published book, a burned CD, a niche import, something you made yourself. Every media type, no barcode needed, and reachable from Home, from an empty title search, from a mistyped barcode, and from any item's page
 - **Cascading metadata lookup** — Open Library, Hardcover, Google Books, and more
-- **Cover art pipeline** — automatically fetches covers from multiple sources with manual upload fallback
+- **Cover art pipeline** — automatically fetches covers from multiple sources, with manual upload or a pasted image URL as a fallback, plus a cover review queue for everything the automatic sweep cannot reach (discs, games, music) with a remembered "not available" verdict
 - **Store Mode (offline PWA)** — scan in a bookstore with no signal and get an instant Owned / On wishlist / Not in library verdict; unknown books queue on-device and land on your wishlist when back online
 
 ### 8 Scan Modes
@@ -121,34 +122,40 @@ key material.
 | **Lend** | Select a borrower, then scan items to check them out |
 | **Return** | Scan items to check them back in |
 | **Move** | Select a target location, then batch-scan items to relocate them |
-| **Inventory** | Select a location, scan everything there, then check for missing items |
+| **Inventory** | Select a location, scan everything there, then check for missing items. Counts physical copies, so a book with copies in two rooms is expected in both; a scan that cannot say *which* copy reports instead of moving one |
 | **Lookup** | Scan to check if an item is in your collection — no changes made |
 | **Quick Rate** | Scan to mark items as read/completed |
 
 ### Media Types
-- Books, audiobooks, eBooks, DVDs, Blu-rays, CDs, comics, kids' books, and video games
-- Link physical and digital formats together
+- Books, audiobooks, eBooks, magazines, DVDs, Blu-rays, vinyl, cassettes, CDs, digital music, comics, manga, and video games
+- **Music by release, not by title** — search MusicBrainz by title, artist, barcode or catalogue number and catalogue the exact pressing: country, date, label, catalogue number, packaging, and real track lists across multiple discs. Two pressings of one album stay distinct and link to each other
+- **Periodicals as publication plus issue** — a magazine run is one publication with many issues; a 977 barcode resolves it from its ISSN
+- Link physical and digital formats together, and connect a novel to its audiobook or its film adaptation as a related-media group — the whole group shows on every item in it, and you build it by hand rather than having Shelf guess
 - Video game support with IGDB metadata and 30+ platforms (Atari 2600 to PS5)
 
 ### Collection Management
-- Filter and search by media type, location, reading status, ownership, lending status, and custom tags
+- Home overview — totals, what is lent out, missing covers, a media-type breakdown and recent additions, with Browse kept for searching and bulk editing
+- Filter and search by media type, location, reading status, ownership, lending status, source (which sync, provider or import an item arrived from), and custom tags
+- Shelf Fill — keep one shelf selected and scan item after item onto it; Arrange drags the copies on a shelf into the order they really sit in, or sorts them by title, creator, series, release or issue
+- Physical copies — own two of something and track them apart: add a copy on the item page, give each its own location, condition, acquired date, source, price, provenance and barcode, and remove one when it goes. Removing the copy marked primary promotes the next one and the item's location follows it
+- Trash — deleting an item or removing a copy moves it to Trash with its tags, loans, copies and history intact; editors restore, admins empty it, prompted once rows pass a retention window (180 days by default)
 - Reading tracking — want-to-read, reading, and read with start/finish dates
 - Series tracking — grouped by series with position numbers, gap detection, and one-click "add missing volumes to wishlist" via Hardcover; series synopses, plus rename/merge/disband from the series card
 - Stats dashboard — books read per year, collection growth, top authors, and value-over-time charts
-- Locations — organize by room, shelf, or any system you like
+- Locations — organize by room, shelf, or any system you like, and nest them: a shelf inside a bookcase inside a room
 - Checkout system — lend to borrowers and track who has what, with overdue badges and an optional daily reminder digest (ntfy/webhook)
-- Wishlist — mark items as unowned alongside your catalog
+- Wishlist — a list of what you want, alongside your catalog; an item can also be neither owned nor wished for, keeping its reading history
 - Public share links — read-only wishlist or collection pages for gift ideas, revocable anytime
 - Goodreads & StoryGraph import — upload your export as-is; format auto-detected, covers fetched automatically
 - Custom tags — free-form tags (`signed`, `first-edition`, …) with a tag filter on Browse
-- Bulk editing — select items in Browse to move them, change type or reading status, or set and clear series in one go
+- Bulk editing — select items in Browse to move them, change type or reading status, add to or remove from the wishlist, or set and clear series in one go
 - Valuation report — location-grouped, print-ready collection value report for insurance (via ISBNdb)
 - Display currency — 20 currencies for every value surface (formatting, not conversion)
-- CSV import/export, plus a portable archive — export the whole collection as one zip **including cover art** and merge it into any Shelf instance without refetching a cover
+- CSV import/export, plus a portable archive — export the whole collection as one zip **including physical copies and cover art** and merge it into any Shelf instance without refetching a cover
 
 ### Multi-User
-- **Admin** — full control: settings, users, locations, sync, bulk ops, logs
-- **Editor** — add/edit/delete items, scan, manage covers, checkout/checkin
+- **Admin** — full control: settings, users, locations, sync, bulk ops, logs, delete permanently / empty Trash
+- **Editor** — add/edit items, delete to Trash and restore, scan, manage covers, checkout/checkin
 - **Viewer** — browse, search, reading status, export, view stats
 
 ## Optional Integrations
@@ -160,6 +167,8 @@ Shelf works fully out of the box with no API keys. These optional integrations a
 | [Hardcover](https://hardcover.app) | Reading status sync, richer metadata, series gap checks, Discover page | Yes |
 | [Audiobookshelf](https://www.audiobookshelf.org) | Sync selected audiobook libraries, link physical + digital formats | Yes |
 | [IGDB](https://dev.twitch.tv/console) (Twitch) | Video game metadata, cover art, platform info — on UPC scan, title search, and Photo Intake confirm | Yes |
+| [RomM](https://romm.app) | Sync a self-hosted RomM server's digital game library | Yes |
+| [Komga](https://komga.org) | Sync a self-hosted Komga server's digital comics and manga | Yes |
 | [TMDb](https://www.themoviedb.org) | DVD/Blu-ray metadata — from UPC barcodes, title search, and Photo Intake confirm | Yes |
 | [ISBNdb](https://isbndb.com) | Collection valuation with market prices | Paid |
 | [Anthropic](https://console.anthropic.com) | Photo Intake spine recognition (best accuracy) | Pay-per-use |

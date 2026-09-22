@@ -9,7 +9,9 @@ import logging
 from fastapi import APIRouter, Depends, Form, Request
 
 from app.auth import require_role
+from app.config import BOOK_MEDIA_TYPES
 from app.database import gc_orphaned_series_meta, get_db, get_setting
+from app.services import lists
 from app.services import hardcover
 
 logger = logging.getLogger(__name__)
@@ -21,77 +23,11 @@ router = APIRouter()
 # introducing a second, different limit for the same field.
 MAX_SERIES_NAME = 1000
 
-# Media types that can belong to a series. Deliberately a local literal,
-# not an import of items.BOOK_MEDIA_TYPES / synopsis.BOOK_MEDIA_TYPES (which
-# already disagree about comics) — see docs: issue #31 design plan §1.
-UNASSIGNED_MEDIA_TYPES = ("book", "kids_book", "audiobook", "ebook", "comic", "digital_comic")
+# Media types that can belong to a series. Keep this derived from the canonical
+# config declaration so new book-family types cannot silently disappear here.
+UNASSIGNED_MEDIA_TYPES = tuple(sorted(BOOK_MEDIA_TYPES))
 # Covers shown in the Unassigned strip; the heading always shows the true total.
 UNASSIGNED_STRIP_CAP = 12
-
-
-def _sync_item_series_memberships(db) -> None:
-    """Reconcile legacy primary series fields into ``item_series``.
-
-    Migrations backfill existing libraries at startup. This lightweight
-    reconciliation also covers imports/tests/older edit paths that may write
-    ``items.series_name`` directly after startup, while preserving secondary
-    memberships.
-    """
-    db.execute(
-        """CREATE TABLE IF NOT EXISTS item_series (
-            item_id INTEGER NOT NULL REFERENCES items(id) ON DELETE CASCADE,
-            series_name TEXT NOT NULL COLLATE NOCASE,
-            position REAL,
-            is_primary INTEGER NOT NULL DEFAULT 0,
-            created_at TEXT NOT NULL DEFAULT (datetime('now')),
-            PRIMARY KEY (item_id, series_name)
-        )"""
-    )
-    db.execute(
-        "CREATE INDEX IF NOT EXISTS idx_item_series_name "
-        "ON item_series(series_name COLLATE NOCASE)"
-    )
-    db.execute(
-        "DELETE FROM item_series WHERE is_primary = 1 AND NOT EXISTS ("
-        "SELECT 1 FROM items i WHERE i.id = item_series.item_id "
-        "AND i.series_name IS NOT NULL AND TRIM(i.series_name) != '' "
-        "AND TRIM(i.series_name) = item_series.series_name COLLATE NOCASE"
-        ")"
-    )
-    db.execute(
-        "INSERT INTO item_series (item_id, series_name, position, is_primary) "
-        "SELECT id, TRIM(series_name), series_position, 1 FROM items "
-        "WHERE series_name IS NOT NULL AND TRIM(series_name) != '' "
-        "ON CONFLICT(item_id, series_name) DO UPDATE SET "
-        "position = excluded.position, is_primary = 1"
-    )
-
-
-def _promote_primary_membership(db, item_id: int) -> None:
-    """Promote the oldest remaining membership and sync legacy fields."""
-    replacement = db.execute(
-        "SELECT series_name, position FROM item_series WHERE item_id = ? "
-        "ORDER BY created_at, series_name COLLATE NOCASE LIMIT 1",
-        (item_id,),
-    ).fetchone()
-    if replacement:
-        db.execute(
-            "UPDATE item_series SET is_primary = CASE "
-            "WHEN series_name = ? COLLATE NOCASE THEN 1 ELSE 0 END "
-            "WHERE item_id = ?",
-            (replacement["series_name"], item_id),
-        )
-        db.execute(
-            "UPDATE items SET series_name = ?, series_position = ?, "
-            "updated_at = datetime('now') WHERE id = ?",
-            (replacement["series_name"], replacement["position"], item_id),
-        )
-    else:
-        db.execute(
-            "UPDATE items SET series_name = NULL, series_position = NULL, "
-            "updated_at = datetime('now') WHERE id = ?",
-            (item_id,),
-        )
 
 
 def find_gaps(positions: list) -> list[int]:
@@ -116,14 +52,14 @@ def find_gaps(positions: list) -> list[int]:
 async def series_page(request: Request, _=Depends(require_role("viewer"))):
     templates = request.app.state.templates
     with get_db() as db:
-        _sync_item_series_memberships(db)
         rows = db.execute(
-            "SELECT i.id, i.title, i.authors, i.cover_path, "
-            "s.series_name, s.position AS series_position, "
-            "i.owned, i.reading_status FROM item_series s "
-            "JOIN items i ON i.id = s.item_id "
-            "ORDER BY s.series_name COLLATE NOCASE, "
-            "s.position IS NULL, s.position, i.title COLLATE NOCASE"
+            "SELECT i.id, i.title, i.authors, i.cover_path, i.series_name, "
+            "i.series_position, i.owned, i.reading_status, "
+            f"{lists.WISHLISTED_SQL} AS wishlisted "
+            "FROM items_live i WHERE i.series_name IS NOT NULL "
+            "AND TRIM(i.series_name) != '' "
+            "ORDER BY i.series_name COLLATE NOCASE, "
+            "i.series_position IS NULL, i.series_position, i.title COLLATE NOCASE"
         ).fetchall()
         has_hardcover = bool(get_setting(db, "hardcover_token"))
         meta_rows = {
@@ -134,16 +70,17 @@ async def series_page(request: Request, _=Depends(require_role("viewer"))):
             ).fetchall()
         }
         _unassigned_where = (
-            "NOT EXISTS (SELECT 1 FROM item_series s WHERE s.item_id = items.id) "
+            "(series_name IS NULL OR TRIM(series_name) = '') "
             f"AND media_type IN ({','.join('?' * len(UNASSIGNED_MEDIA_TYPES))})"
         )
         unassigned_total = db.execute(
-            f"SELECT COUNT(*) FROM items WHERE {_unassigned_where}",
+            f"SELECT COUNT(*) FROM items_live WHERE {_unassigned_where}",
             UNASSIGNED_MEDIA_TYPES,
         ).fetchone()[0]
         unassigned_items = [dict(r) for r in db.execute(
             "SELECT id, title, authors, cover_path, series_name, series_position, "
-            f"owned, reading_status FROM items WHERE {_unassigned_where} "
+            f"owned, reading_status, {lists.WISHLISTED_SQL} AS wishlisted "
+            f"FROM items_live i WHERE {_unassigned_where} "
             "ORDER BY title COLLATE NOCASE LIMIT ?",
             (*UNASSIGNED_MEDIA_TYPES, UNASSIGNED_STRIP_CAP),
         ).fetchall()]
@@ -173,6 +110,7 @@ async def series_page(request: Request, _=Depends(require_role("viewer"))):
 
     for entry in series.values():
         entry["owned_count"] = sum(1 for i in entry["items"] if i["owned"])
+        entry["wishlist_count"] = sum(1 for i in entry["items"] if i["wishlisted"])
         entry["gaps"] = find_gaps([i["series_position"] for i in entry["items"]])
         meta = meta_ci.get(entry["name"].casefold())
         entry["description"] = meta["description"] if meta else None
@@ -203,14 +141,13 @@ async def check_series(name: str = "", _=Depends(require_role("viewer"))):
         return {"ok": False, "message": "Series name required"}
 
     with get_db() as db:
-        _sync_item_series_memberships(db)
         token = get_setting(db, "hardcover_token")
         if not token:
             return {"ok": False, "message": "Hardcover integration not configured"}
         local = db.execute(
-            "SELECT i.title, i.owned, i.hardcover_book_id FROM item_series s "
-            "JOIN items i ON i.id = s.item_id "
-            "WHERE s.series_name = ? COLLATE NOCASE",
+            "SELECT title, owned, hardcover_book_id, "
+            f"{lists.WISHLISTED_SQL} AS wishlisted FROM items_live i "
+            "WHERE series_name = ? COLLATE NOCASE",
             (name,),
         ).fetchall()
 
@@ -225,7 +162,7 @@ async def check_series(name: str = "", _=Depends(require_role("viewer"))):
     for b in books:
         match = by_hc_id.get(b["hardcover_book_id"]) or by_title.get(b["title"].casefold().strip())
         if match:
-            status = "owned" if match["owned"] else "wishlist"
+            status = "owned" if match["owned"] else "wishlist" if match["wishlisted"] else "missing"
         else:
             status = "missing"
         out.append({**b, "status": status, "series_name": name})
@@ -383,10 +320,8 @@ async def set_series_complete(name: str, complete: str = Form(...),
     value = 1 if complete == "1" else None
 
     with get_db() as db:
-        _sync_item_series_memberships(db)
         count = db.execute(
-            "SELECT COUNT(*) AS c FROM item_series "
-            "WHERE series_name = ? COLLATE NOCASE",
+            "SELECT COUNT(*) AS c FROM items_live WHERE series_name = ? COLLATE NOCASE",
             (name,),
         ).fetchone()["c"]
         if not count:
@@ -427,18 +362,17 @@ async def rename_series(name: str, new_name: str = Form(""),
         return {"ok": False, "message": "That is already the series name"}
 
     with get_db() as db:
-        _sync_item_series_memberships(db)
-        source_rows = db.execute(
-            "SELECT item_id, position, is_primary FROM item_series "
-            "WHERE series_name = ? COLLATE NOCASE ORDER BY item_id",
+        count = db.execute(
+            "SELECT COUNT(*) AS c FROM items_live WHERE series_name = ? COLLATE NOCASE",
             (name,),
-        ).fetchall()
-        count = len(source_rows)
+        ).fetchone()["c"]
         if not count:
             return {"ok": False, "message": "Series not found"}
 
+        # Both reads happen before the UPDATE, while the two names still
+        # describe distinct sets of items.
         merged = bool(db.execute(
-            "SELECT 1 FROM item_series WHERE series_name = ? COLLATE NOCASE LIMIT 1",
+            "SELECT 1 FROM items_live WHERE series_name = ? COLLATE NOCASE LIMIT 1",
             (new_name,),
         ).fetchone())
         src_meta = db.execute(
@@ -452,61 +386,42 @@ async def rename_series(name: str, new_name: str = Form(""),
             (new_name,),
         ).fetchone()
 
-        for source in source_rows:
-            target = db.execute(
-                "SELECT position, is_primary FROM item_series "
-                "WHERE item_id = ? AND series_name = ? COLLATE NOCASE",
-                (source["item_id"], new_name),
-            ).fetchone()
-            if target:
-                position = target["position"] if target["position"] is not None else source["position"]
-                is_primary = int(bool(target["is_primary"] or source["is_primary"]))
-                db.execute(
-                    "UPDATE item_series SET position = ?, is_primary = ? "
-                    "WHERE item_id = ? AND series_name = ? COLLATE NOCASE",
-                    (position, is_primary, source["item_id"], new_name),
-                )
-                db.execute(
-                    "DELETE FROM item_series WHERE item_id = ? "
-                    "AND series_name = ? COLLATE NOCASE",
-                    (source["item_id"], name),
-                )
-            else:
-                position = source["position"]
-                is_primary = int(source["is_primary"])
-                db.execute(
-                    "UPDATE item_series SET series_name = ? "
-                    "WHERE item_id = ? AND series_name = ? COLLATE NOCASE",
-                    (new_name, source["item_id"], name),
-                )
+        db.execute(
+            "UPDATE items SET series_name = ? WHERE series_name = ? COLLATE NOCASE",
+            (new_name, name),
+        )
 
-            if is_primary:
-                db.execute(
-                    "UPDATE item_series SET is_primary = CASE "
-                    "WHEN series_name = ? COLLATE NOCASE THEN 1 ELSE 0 END "
-                    "WHERE item_id = ?",
-                    (new_name, source["item_id"]),
-                )
-                db.execute(
-                    "UPDATE items SET series_name = ?, series_position = ?, "
-                    "updated_at = datetime('now') WHERE id = ?",
-                    (new_name, position, source["item_id"]),
-                )
-
+        # The whole meta row follows the series, or the rename quietly loses
+        # it. Each group is carried independently, on the same rule: on a
+        # merge the destination's own value wins, otherwise the source's moves
+        # across (a plain rename is just that case with no destination row).
+        # The groups are separate because the upserts are — writing the
+        # synopsis must not clobber a stored check, and vice versa.
+        # gc_orphaned_series_meta then drops the source row now that nothing
+        # references it — same connection, after the UPDATE, as its docstring
+        # requires.
         src_desc = (src_meta["description"] or "").strip() if src_meta else ""
         dst_desc = (dst_meta["description"] or "").strip() if dst_meta else ""
         if src_desc and not dst_desc:
-            _upsert_series_description(db, new_name, src_meta["description"], src_meta["source"])
+            _upsert_series_description(db, new_name, src_meta["description"],
+                                       src_meta["source"])
 
-        if src_meta and src_meta["complete"] is not None and (not dst_meta or dst_meta["complete"] is None):
+        # Completeness override: the destination's own flag wins when it has one.
+        if src_meta and src_meta["complete"] is not None and (
+                not dst_meta or dst_meta["complete"] is None):
             _upsert_series_complete(db, new_name, src_meta["complete"])
 
-        if src_meta and src_meta["hc_checked_at"] is not None and (not dst_meta or dst_meta["hc_checked_at"] is None):
-            _upsert_series_check_row(
-                db, new_name, src_meta["hc_total"], src_meta["hc_missing"], src_meta["hc_checked_at"]
-            )
+        # Cached Hardcover check: carried as one unit — a total without its
+        # matching missing count and check date is not a usable result. On a
+        # merge the counts describe the destination's own listing, so they only
+        # move across when the destination has never been checked.
+        if src_meta and src_meta["hc_checked_at"] is not None and (
+                not dst_meta or dst_meta["hc_checked_at"] is None):
+            _upsert_series_check_row(db, new_name, src_meta["hc_total"],
+                                     src_meta["hc_missing"], src_meta["hc_checked_at"])
 
         gc_orphaned_series_meta(db, name)
+
         return {"ok": True, "name": new_name, "merged": merged, "count": count}
 
 
@@ -523,25 +438,18 @@ async def remove_all_from_series(name: str, _=Depends(require_role("editor"))):
         return {"ok": False, "message": "Series name required"}
 
     with get_db() as db:
-        _sync_item_series_memberships(db)
-        rows = db.execute(
-            "SELECT item_id, is_primary FROM item_series "
-            "WHERE series_name = ? COLLATE NOCASE",
+        cur = db.execute(
+            "UPDATE items SET series_name = NULL WHERE series_name = ? COLLATE NOCASE",
             (name,),
-        ).fetchall()
-        count = len(rows)
+        )
+        count = cur.rowcount
         if not count:
             return {"ok": False, "message": "Series not found"}
 
-        primary_item_ids = [row["item_id"] for row in rows if row["is_primary"]]
-        db.execute(
-            "DELETE FROM item_series WHERE series_name = ? COLLATE NOCASE",
-            (name,),
-        )
-        for item_id in primary_item_ids:
-            _promote_primary_membership(db, item_id)
-
+        # Same connection, after the UPDATE — nothing references this name
+        # any more, so its series_meta row (if any) is garbage.
         gc_orphaned_series_meta(db, name)
+
         return {"ok": True, "count": count}
 
 

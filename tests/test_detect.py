@@ -151,9 +151,25 @@ class TestIsbnHintOverride:
         assert d.media_type == "book"
         assert "overrid" in d.reason.lower()
 
-    def test_isbn_with_kids_book_hint_is_honoured(self):
+    def test_isbn_with_a_retired_kids_book_hint_is_read_as_book(self):
+        """A stale client can still post the retired value. It must read as
+        a *confirmed book* hint, not as no hint at all — the latter would
+        drop it to the fallback tier and lose the user's intent.
+
+        `media_type` and `signal` cannot tell those two apart: an ISBN
+        barcode decides `book` at tier 1 whichever way the hint is read, so
+        asserting only those passes with the canonicalisation deleted. The
+        `reason` is the field that records the difference, and it is checked
+        against both references rather than spelled out here.
+        """
         d = detect_media_type("isbn", "kids_book", None, None)
-        assert d.media_type == "kids_book"
+        assert d.media_type == "book"
+        assert d.signal == "detected"
+
+        confirmed = detect_media_type("isbn", "book", None, None)
+        unhinted = detect_media_type("isbn", "auto", None, None)
+        assert d.reason == confirmed.reason, "read as a confirmed book hint"
+        assert d.reason != unhinted.reason, "not read as no hint at all"
 
     def test_isbn_with_no_hint_defaults_to_book(self):
         d = detect_media_type("isbn", "auto", None, None)
@@ -777,7 +793,7 @@ class TestAMusicDiscIsDetectedAsACD:
 def test_every_five_type_book_family_declaration_agrees_with_config():
     """config.BOOK_MEDIA_TYPES is the family's home; the three older five-type
     literals are deferred repoints (design §1) and must not drift from it.
-    synopsis.BOOK_MEDIA_TYPES is deliberately four and is not compared."""
+    synopsis.SYNOPSIS_MEDIA_TYPES is deliberately three and is not compared."""
     from app.routers import items_catalog, series
 
     assert BOOK_MEDIA_TYPES <= set(MEDIA_TYPES)

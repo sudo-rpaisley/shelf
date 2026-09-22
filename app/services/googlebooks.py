@@ -1,9 +1,9 @@
 import logging
-import re
 
 import httpx
 
 from app.config import HTTP_TIMEOUT
+from app.services import authors as authors_svc
 from app.services import outbound, provider_result
 
 logger = logging.getLogger(__name__)
@@ -22,10 +22,6 @@ def _api_headers(api_key: str | None) -> dict[str, str]:
     """Return credential headers without ever putting the key in a URL."""
     key = (api_key or "").strip()
     return {"X-Goog-Api-Key": key} if key else {}
-
-
-def _normalise_issn(value: str | None) -> str:
-    return re.sub(r"[^0-9X]", "", (value or "").upper())
 
 
 async def lookup(
@@ -74,7 +70,9 @@ async def lookup(
         result = {
             "title": info["title"],
             "subtitle": info.get("subtitle"),
-            "authors": ", ".join(info.get("authors", [])) or None,
+            # A string here (schema violation) raises in join_names, which
+            # this function's parse guard turns into a loud no_match (G45).
+            "authors": authors_svc.join_names(info.get("authors") or []),
             "publisher": info.get("publisher"),
             "page_count": info.get("pageCount"),
             "description": info.get("description"),
@@ -83,6 +81,7 @@ async def lookup(
         # Extract publish year
         pub_date = info.get("publishedDate", "")
         if pub_date:
+            import re
             year_match = re.search(r"(\d{4})", pub_date)
             if year_match:
                 result["publish_year"] = int(year_match.group(1))
@@ -127,92 +126,6 @@ async def lookup(
         return provider_result.no_match("google", status=resp.status_code)
 
 
-async def lookup_magazine_by_issn(
-    issn: str, client: httpx.AsyncClient,
-    *, api_key: str | None = None,
-) -> provider_result.ProviderResult:
-    """Identify a magazine publication by ISSN using Google Books.
-
-    Google Books exposes magazines through the same volumes endpoint and
-    returns ISSN values in ``industryIdentifiers``.  The query itself is a
-    full-text ISSN search restricted to ``printType=magazines``; Shelf then
-    requires an exact returned ISSN match before trusting the record.
-
-    A Google Books magazine result represents one digitised issue, but a bare
-    977 EAN does not identify that issue reliably.  Therefore this lookup only
-    returns publication-stable metadata (title, publisher, description,
-    language and ISSN).  It deliberately does *not* borrow that arbitrary
-    result's date, page count or cover and pretend they belong to the scanned
-    physical issue.
-    """
-    target = _normalise_issn(issn)
-    if len(target) != 8:
-        return provider_result.no_match("google")
-
-    try:
-        resp = await outbound.fetch(
-            client,
-            "GET",
-            VOLUMES_URL,
-            params={"q": issn, "printType": "magazines", "maxResults": "10"},
-            headers=_api_headers(api_key),
-        )
-    except Exception:
-        logger.debug("Google Books magazine lookup failed for ISSN %s", issn, exc_info=True)
-        return provider_result.transport_failed("google")
-
-    auth_statuses = _AUTH_STATUSES if _api_headers(api_key) else ()
-    classified = provider_result.classify_response("google", resp, auth_statuses=auth_statuses)
-    if classified is not None:
-        logger.debug(
-            "Google Books magazine lookup failed for ISSN %s: HTTP %d",
-            issn, resp.status_code,
-        )
-        return classified
-
-    try:
-        for item in resp.json().get("items", []):
-            info = item.get("volumeInfo", {})
-            if str(info.get("printType", "")).upper() != "MAGAZINE":
-                continue
-
-            matched_issn = None
-            for ident in info.get("industryIdentifiers", []):
-                if str(ident.get("type", "")).upper() != "ISSN":
-                    continue
-                if _normalise_issn(ident.get("identifier")) == target:
-                    matched_issn = ident.get("identifier") or issn
-                    break
-            if not matched_issn or not info.get("title"):
-                continue
-
-            result = {
-                "title": info["title"],
-                "publisher": info.get("publisher"),
-                "description": info.get("description"),
-                "issn": matched_issn,
-                "series_name": info["title"],
-            }
-
-            if info.get("language"):
-                from app.services.national import to_iso639_1
-
-                lang = to_iso639_1(info["language"])
-                if lang:
-                    result["language"] = lang
-
-            return provider_result.found("google", result, status=resp.status_code)
-    except Exception:
-        logger.debug(
-            "Google Books magazine lookup: malformed response for ISSN %s",
-            issn,
-            exc_info=True,
-        )
-        return provider_result.no_match("google", status=resp.status_code)
-
-    return provider_result.no_match("google", status=resp.status_code)
-
-
 async def search_by_title_author(
     title: str,
     author: str | None,
@@ -235,17 +148,23 @@ async def search_by_title_author(
         logger.debug("Google Books search failed for %r: HTTP %d", query, resp.status_code)
         return []
 
-    results = []
-    for item in resp.json().get("items", []):
-        info = item.get("volumeInfo", {})
-        if not info.get("title"):
-            continue
-        results.append({
-            "title": info["title"],
-            "authors": ", ".join(info.get("authors", [])) or None,
-            "description": info.get("description"),
-        })
-    return results
+    # synopsis.fetch_description catches only httpx.HTTPError, so a malformed
+    # body (e.g. a string `authors`, which join_names rejects) must stop here.
+    try:
+        results = []
+        for item in resp.json().get("items", []):
+            info = item.get("volumeInfo", {})
+            if not info.get("title"):
+                continue
+            results.append({
+                "title": info["title"],
+                "authors": authors_svc.join_names(info.get("authors") or []),
+                "description": info.get("description"),
+            })
+        return results
+    except Exception:
+        logger.debug("Google Books search: malformed response for %r", query, exc_info=True)
+        return []
 
 
 async def search_covers(

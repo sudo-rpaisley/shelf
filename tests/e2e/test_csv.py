@@ -20,7 +20,7 @@ def _get_token_cookie(live_server, browser, setup_admin) -> str:
 
 def test_csv_export(live_server, browser, setup_admin):
     """GET /api/export/csv returns a CSV file containing seeded items."""
-    insert_item(live_server["data_dir"], title="Export Test Book", media_type="book", isbn="9780000111222")
+    insert_item(live_server["data_dir"], title="Export Test Book", media_type="book", isbn="9780001112223")
 
     token = _get_token_cookie(live_server, browser, setup_admin)
     req = urllib.request.Request(
@@ -41,14 +41,13 @@ def test_csv_export(live_server, browser, setup_admin):
 def test_csv_import(live_server, authed_page):
     """Uploading a CSV file via the settings page imports items."""
     # Build a minimal CSV
-    csv_content = "title,media_type,isbn\nImported Book,book,9780000222336\n"
+    csv_content = "title,media_type,isbn\nImported Book,book,9780002223331\n"
 
     authed_page.goto(f"{live_server['url']}/settings")
     authed_page.wait_for_load_state("networkidle")
 
     # CSV import is on the "Data" tab — click it first
     authed_page.locator("button:has-text('Data')").click()
-    authed_page.wait_for_load_state("networkidle")
 
     # CSV import file input
     file_input = authed_page.locator("input[type=file][accept='.csv']")
@@ -63,8 +62,21 @@ def test_csv_import(live_server, authed_page):
     # Scope to the CSV import form to avoid matching the Hardcover import button
     submit = file_input.locator("xpath=ancestor::form").locator("button[type=submit], input[type=submit]").first
 
-    submit.click()
-    authed_page.wait_for_load_state("networkidle")
+    # The form is `@submit.prevent="doImport"` — an Alpine fetch to
+    # /api/import/csv, not a navigation. So there is nothing for a
+    # `wait_for_load_state("networkidle")` after the click to wait *for*: the
+    # page is frequently already idle, the wait returns immediately, and the
+    # goto below then races the still-in-flight import, so Browse renders
+    # before the row exists. Wait on the POST's response instead — once it has
+    # returned, the server has committed the rows.
+    #
+    # Measured as an intermittent CI failure on #76, a branch that touches
+    # nothing on the CSV path. Same class as the flake #79 fixed in
+    # tests/e2e/test_bulk_actions.py, but *not* the same fix: that form really
+    # does navigate, this one does not, and `expect_navigation` here times out.
+    with authed_page.expect_response(
+            lambda r: "/api/import/csv" in r.url and r.request.method == "POST"):
+        submit.click()
 
     # Navigate to browse and verify the imported item appears
     authed_page.goto(f"{live_server['url']}/browse")
@@ -83,9 +95,9 @@ def test_goodreads_import_via_ui(live_server, authed_page):
         "Private Notes,Read Count,Owned Copies"
     )
     rows = [
-        '1,GR Read Book,Ann Author,"Author, Ann",,"=""""","=""9780900000010""",'
+        '1,GR Read Book,Ann Author,"Author, Ann",,"=""""","=""9789000000111""",'
         '5,4.2,Ace,Paperback,300,2005,1999,2023/08/15,2023/01/02,,,read,,,,1,0',
-        '2,GR Wishlist Book,Bob Writer,"Writer, Bob",,"=""""","=""9780900000027""",'
+        '2,GR Wishlist Book,Bob Writer,"Writer, Bob",,"=""""","=""9789000000289""",'
         '0,4.0,Bantam,Hardcover,500,1990,1989,,2023/01/02,,,to-read,,,,0,0',
     ]
     csv_content = header + "\n" + "\n".join(rows) + "\n"
@@ -120,3 +132,22 @@ def test_goodreads_import_via_ui(live_server, authed_page):
     expect(authed_page.locator("body")).to_contain_text("GR Read Book")
     expect(authed_page.locator("body")).to_contain_text("GR Wishlist Book")
     expect(authed_page.get_by_text("Wishlist", exact=True).first).to_be_visible()
+
+    # Issue #125 T11: a `read`, zero-owned Goodreads row lands neither owned
+    # nor wishlisted — not the pre-#125 rule that owned=0 meant wishlisted.
+    # Browse's owned=none filter is the third arm's own surface, scoped by
+    # title so the assertion holds regardless of what else the session-scoped
+    # server has accumulated (G34).
+    authed_page.goto(f"{live_server['url']}/browse?owned=none&q=GR+Read+Book")
+    authed_page.wait_for_load_state("networkidle")
+    expect(authed_page.locator("body")).to_contain_text("GR Read Book")
+
+    # Scoped to #item-grid (the swap target — present whether or not there
+    # are results), not the whole body: the search chip above it echoes the
+    # query text ("Search: GR Read Book"), which would otherwise make this
+    # assertion pass vacuously. A no-match result renders "No items match
+    # your filters" inside the same element, which is exactly what this
+    # expects to find here.
+    authed_page.goto(f"{live_server['url']}/browse?owned=1&q=GR+Read+Book")
+    authed_page.wait_for_load_state("networkidle")
+    expect(authed_page.locator("#item-grid")).not_to_contain_text("GR Read Book")

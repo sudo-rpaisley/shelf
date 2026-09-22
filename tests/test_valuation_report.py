@@ -193,3 +193,87 @@ class TestISBNdbUSDCaveat:
     def _seed_priced_item(self, db):
         _insert_item(db, title="Priced Book", isbn="9789000007004", estimated_value=9.99)
         db.execute("COMMIT")
+
+
+class TestValuationIsOwnedOnly:
+    """The valuation concerns what you own (#125) — a wishlisted or neither
+    row must not appear on the report, count toward its totals, be swept for
+    a price by either batch sweep, or feed the Stats snapshot / Est. Value
+    tile."""
+
+    def _seed_partition(self, db):
+        owned_id = _insert_item(db, title="Owned Book", isbn="9789000007011",
+                                 estimated_value=40.00)
+        wishlisted_id = _insert_item(db, title="Wishlisted Book", isbn="9789000007028",
+                                      owned=0, wishlisted=True, estimated_value=15.00)
+        neither_id = _insert_item(db, title="Neither Book", isbn="9789000007035",
+                                   owned=0, estimated_value=25.00)
+        db.execute("COMMIT")
+        return owned_id, wishlisted_id, neither_id
+
+    def test_report_lists_owned_and_omits_wishlisted_and_neither(self, admin_client, db):
+        self._seed_partition(db)
+        html = admin_client.get("/api/valuation/report").text
+        assert "Owned Book" in html
+        assert "Wishlisted Book" not in html
+        assert "Neither Book" not in html
+        # Total is the owned row alone (40.00) — not 40 + 15 + 25 = 80.
+        assert "$40.00" in html
+        assert "$80.00" not in html
+
+    def test_report_total_with_isbn_excludes_them(self, admin_client, db):
+        self._seed_partition(db)
+        html = admin_client.get("/api/valuation/report").text
+        # All three rows carry an ISBN, but only the owned one counts.
+        assert "/ 1 with ISBN" in html
+
+    def test_snapshot_total_value_excludes_them(self, admin_client, db):
+        self._seed_partition(db)
+        from app.database import get_db
+        from app.routers.valuation import _snapshot_valuation
+
+        _snapshot_valuation()
+        with get_db() as conn:
+            row = conn.execute(
+                "SELECT * FROM valuation_history ORDER BY id DESC LIMIT 1"
+            ).fetchone()
+        assert row["total_value"] == 40.00
+        assert row["priced_count"] == 1
+
+    def test_valuate_all_prices_only_owned_isbns(self, admin_client, db):
+        self._seed_partition(db)
+        db.execute("INSERT INTO settings (key, value) VALUES ('isbndb_api_key', 'k')")
+        db.commit()
+
+        with patch("app.services.isbndb.lookup_price",
+                   new=AsyncMock(return_value={"book": {}})) as mock_lookup, \
+             patch("app.services.isbndb.parse_price", return_value=12.5), \
+             patch("app.services.isbndb._load_cache", return_value={}), \
+             patch("app.services.isbndb._save_cache"):
+            resp = admin_client.post("/api/valuate/all")
+
+        assert resp.json()["total"] == 1
+        requested_isbns = [call.args[0] for call in mock_lookup.await_args_list]
+        assert requested_isbns == ["9789000007011"]
+
+    def test_valuate_all_stream_prices_only_owned_isbns(self, admin_client, db):
+        self._seed_partition(db)
+        db.execute("INSERT INTO settings (key, value) VALUES ('isbndb_api_key', 'k')")
+        db.commit()
+
+        with patch("app.services.isbndb.lookup_price",
+                   new=AsyncMock(return_value={"book": {}})) as mock_lookup, \
+             patch("app.services.isbndb.parse_price", return_value=12.5), \
+             patch("app.services.isbndb._load_cache", return_value={}), \
+             patch("app.services.isbndb._save_cache"):
+            resp = admin_client.get("/api/valuate/stream")
+            resp.text  # drain the stream so the sweep completes
+
+        requested_isbns = [call.args[0] for call in mock_lookup.await_args_list]
+        assert requested_isbns == ["9789000007011"]
+
+    def test_stats_page_est_value_excludes_them(self, admin_client, db):
+        self._seed_partition(db)
+        html = admin_client.get("/stats").text
+        assert "$40" in html
+        assert "$80" not in html

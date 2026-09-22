@@ -16,6 +16,7 @@ abbreviated middle names come from in the first place.
 
 import re
 import unicodedata
+from collections.abc import Iterable, Mapping
 
 # Latin letters written with a stroke or bar rather than a combining accent.
 # NFKD decomposes é into e + U+0301, but ł is an indivisible code point, so
@@ -43,6 +44,44 @@ def normalize(name: str) -> list[str]:
     decomposed = unicodedata.normalize("NFKD", name.translate(_STROKED))
     stripped = "".join(c for c in decomposed if not unicodedata.combining(c))
     return re.sub(r"[^a-z0-9]+", " ", stripped.casefold()).split()
+
+
+def join_names(names: Iterable[object]) -> str | None:
+    """Build the comma-joined author string stored on an item.
+
+    Accepts an iterable of names. Each element that is a ``str`` is
+    stripped; anything else (None, a dict, an int) is dropped rather than
+    raising. A bare ``str`` argument itself raises ``TypeError`` — iterating
+    a string yields characters, so ``join_names("Frank Herbert")`` would
+    store "F, r, a, n, k, …"; callers holding one name pass ``[name]``.
+    A bare mapping raises for the same reason: iterating it yields its keys,
+    so ``join_names({"name": "Frank Herbert"})`` would store "name".
+
+    Blanks left after stripping are dropped. Exact repeats (post-strip,
+    case-sensitive) are dropped, first occurrence wins — deliberately not
+    :func:`matches`, which treats "J. Smith" and "John Smith" as one person
+    (right for validating a lookup, wrong for deciding a book has one
+    contributor or two; see GOTCHAS G22).
+
+    Order is the caller's order; several call sites read position 0
+    (``split(",")[0]``) as the primary author. Returns None, never "",
+    when nothing survives.
+    """
+    if isinstance(names, str):
+        raise TypeError("join_names expects an iterable of names, not a string")
+    if isinstance(names, Mapping):
+        raise TypeError("join_names expects an iterable of names, not a mapping")
+    result: list[str] = []
+    seen: set[str] = set()
+    for name in names:
+        if not isinstance(name, str):
+            continue
+        stripped = name.strip()
+        if not stripped or stripped in seen:
+            continue
+        seen.add(stripped)
+        result.append(stripped)
+    return ", ".join(result) or None
 
 
 def _given_compatible(wanted: str, found: str) -> bool:
@@ -80,7 +119,7 @@ def _one_matches(wanted: list[str], found: list[str]) -> bool:
 def matches(wanted: str | None, found: str | None) -> bool:
     """Whether the wanted item's first author appears among the found authors.
 
-    `found` is a comma-joined author list as the metadata clients build it;
+    `found` is a comma-joined author list as :func:`join_names` builds it;
     matching any one of its entries is enough.
     """
     if not wanted:

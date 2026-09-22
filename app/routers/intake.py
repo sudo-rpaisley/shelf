@@ -10,14 +10,21 @@ from fastapi import APIRouter, Depends, Request, UploadFile, File
 from pydantic import BaseModel, field_validator
 
 from app.auth import require_role
-from app.config import HTTP_TIMEOUT, LOW_RES_LONG_EDGE, MEDIA_TYPES, TILING_THRESHOLD
+from app.config import (
+    HTTP_TIMEOUT,
+    LOW_RES_LONG_EDGE,
+    MEDIA_TYPES,
+    TILING_THRESHOLD,
+    canonical_media_type,
+)
 from app.database import get_db, get_all_settings, get_setting
-from app.services import cover_queue, covers, openlibrary, tiling, title_lookup, vision
+from app.services import cover_queue, covers, openlibrary, restore_report, tiling, title_lookup, vision
 from app.services import isbn as isbn_svc
 from app.services import authors as authors_svc
 from app.services import national
+from app.services import item_write
 from app.services.title_match import titles_agree, titles_match_exactly
-from app.services.item_write import ItemValueError, insert_item, update_item_fields
+from app.services.item_write import ItemValueError, insert_item
 from app.services.write_targets import UnknownLocationError, validated_location_id
 
 logger = logging.getLogger(__name__)
@@ -124,6 +131,10 @@ class IntakeBook(BaseModel):
     @field_validator("media_type")
     @classmethod
     def _known_media_type(cls, v):
+        # Canonicalise before the membership test and return the canonical
+        # value, so a stale intake plan holding a retired type validates and
+        # every later step — the dupe guard included — sees one spelling.
+        v = canonical_media_type(v)
         if v not in MEDIA_TYPES:
             raise ValueError(f"Unknown media_type: {v!r}")
         return v
@@ -143,7 +154,7 @@ def _isbn_taken(isbn13: str, media_type: str) -> bool:
     """
     with get_db() as db:
         return db.execute(
-            "SELECT id FROM items WHERE isbn = ? AND media_type = ?",
+            "SELECT id FROM items_live WHERE isbn = ? AND media_type = ?",
             (isbn13, media_type),
         ).fetchone() is not None
 
@@ -160,7 +171,7 @@ def _title_taken(db, title: str, authors: str, media_type: str) -> bool:
     (G18). Declared once so the two cannot drift.
     """
     return db.execute(
-        "SELECT id FROM items WHERE title = ? COLLATE NOCASE "
+        "SELECT id FROM items_live WHERE title = ? COLLATE NOCASE "
         "AND IFNULL(authors, '') = ? COLLATE NOCASE AND media_type = ?",
         (title, authors, media_type),
     ).fetchone() is not None
@@ -223,7 +234,8 @@ async def _confirm_one(
             if titles_agree(title, metadata.get("title")):
                 try:
                     item_id = items_common._save_item(metadata, printed_isbn13, media_type,
-                                         location_id, "photo_intake", hc_ids)
+                                         location_id, "photo_intake", hc_ids,
+                                         owned=bool(owned))
                 except sqlite3.IntegrityError:
                     # A location deleted after the boundary check can still
                     # raise the same FK exception; classify ISBN races before
@@ -232,13 +244,16 @@ async def _confirm_one(
                         return "skipped", {
                             "title": title, "reason": "ISBN already in library"}, None
                     raise
-                if not owned:
-                    with get_db() as db:
-                        update_item_fields(db, item_id, {"owned": 0})
+                # Read the restore flag before item_id is used for anything
+                # else. No cover guard needed here: this row's cover, if any,
+                # comes off the cover queue below (confirm_books ->
+                # _enrich_import_covers), and resolve_missing_cover already
+                # skips a row that has one.
+                restored = item_write.was_restored(item_id)
                 # The catalogue's title is the record; the row's was the query.
                 return "added", {
                     "title": metadata["title"], "id": item_id, "matched": True,
-                    "lookup": "matched"}, item_id
+                    "lookup": "matched", "restored": restored}, item_id
 
             # 6b. The cascade resolved the identifier and it names a different
             # book, so the identifier is known untrusted. Clear it rather than
@@ -372,7 +387,7 @@ async def _confirm_one(
         # where it would repeat step 1 verbatim.
         if title != book.title.strip():
             resolved_dupe = db.execute(
-                "SELECT id FROM items WHERE title = ? COLLATE NOCASE AND media_type = ?",
+                "SELECT id FROM items_live WHERE title = ? COLLATE NOCASE AND media_type = ?",
                 (title, media_type),
             ).fetchone()
             if resolved_dupe:
@@ -381,7 +396,7 @@ async def _confirm_one(
         # 4. ISBN dupe check, scoped to media type.
         if isbn13:
             taken = db.execute(
-                "SELECT id FROM items WHERE isbn = ? AND media_type = ?",
+                "SELECT id FROM items_live WHERE isbn = ? AND media_type = ?",
                 (isbn13, media_type),
             ).fetchone()
             if taken:
@@ -410,13 +425,14 @@ async def _confirm_one(
                 series_name=meta.get("series_name"),
                 location_id=location_id,
                 owned=int(owned),
+                wishlisted=not owned,
                 source="photo_intake",
                 language=language,
             )
         except sqlite3.IntegrityError:
             if isbn13:
                 hit = db.execute(
-                    "SELECT id FROM items WHERE isbn = ? AND media_type = ?",
+                    "SELECT id FROM items_live WHERE isbn = ? AND media_type = ?",
                     (isbn13, media_type),
                 ).fetchone()
                 if hit:
@@ -424,13 +440,19 @@ async def _confirm_one(
             raise
         # insert_item() reads lastrowid inside the connection's scope (G16).
 
+    # Read the restore flag before item_id is used for anything else.
+    restored = item_write.was_restored(item_id)
+
     # 5b. A disc/game hit's cover downloads directly, on the batch's own
     # client (G29 — this stays off the book cover-queue hand-off; a book's
     # `meta` may also carry a cover_url, but `cover_url` above is only ever
     # set on the UPC_METADATA_PROVIDERS branch). None is a normal outcome —
     # allowlist reject or failed fetch — and changes nothing else about the
     # row (G11: covers._download_to_item re-validates the post-redirect URL).
-    if cover_url:
+    # Cover kept: skip the download entirely on a restored row that already
+    # has one — a skipped download is also a skipped outbound call for a
+    # cover we would then discard (claude-R8).
+    if cover_url and not restore_report.keeps_stored_cover(item_id):
         cover_path = await covers._download_to_item(item_id, cover_url, client)
         if cover_path:
             with get_db() as db:
@@ -440,7 +462,8 @@ async def _confirm_one(
     if meta:
         lookup = "matched"
     return "added", {
-        "title": title, "id": item_id, "matched": bool(meta), "lookup": lookup}, item_id
+        "title": title, "id": item_id, "matched": bool(meta), "lookup": lookup,
+        "restored": restored}, item_id
 
 
 @router.post("/confirm")

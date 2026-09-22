@@ -7,8 +7,8 @@ its home.
 
 - **Cover**, with **Find cover** (search by title, or type your own query,
   and pick a candidate — your current cover is shown first, marked
-  *Current*, for comparison), **Upload** your own image, or **Remove
-  cover**. These work on an item that already has a cover, not just a
+  *Current*, for comparison), **Upload** your own image, paste a link
+  under **Use image from URL**, or **Remove cover**. These work on an item that already has a cover, not just a
   cover-less one; **Retry cover** (re-running the automatic chain) only
   shows up when a cover is missing, since it would have nothing to do
   otherwise.
@@ -17,7 +17,7 @@ its home.
 
   | Media type | What it searches | Tiles are labelled |
   |---|---|---|
-  | Books, ebooks, audiobooks, kids' books, comics | Google Books and Open Library | by source |
+  | Books, ebooks, audiobooks, comics | Google Books and Open Library | by source |
   | DVDs and Blu-rays | the film's poster set on TMDb | by language (`TMDb · EN`) — the same film's posters differ mostly by language |
   | Video games | IGDB cover art **and** key artwork, as separate tiles | by game and kind (`IGDB · Portal · cover`) |
 
@@ -45,36 +45,109 @@ its home.
   captured on add.
 - **Reading status** — Want to read / Reading / Read, with start and finish
   dates. Viewers can set this too; it's the one thing they can change. It
-  appears on books, kids' books, audiobooks, ebooks and comics — discs and
+  appears on books, audiobooks, ebooks and comics — discs and
   games don't carry one.
-- **Location** and **owned / wishlist** flag.
-- **Tags** — add or remove chips inline.
+- **Location**. Locations can be nested, and an item shows the full path —
+  see [Locations](locations.md). Every location shown here is a link to
+  Browse filtered to that location.
+- **I own this item** and **On my wishlist** — two separate checkboxes. An
+  item is owned, on your wishlist, or neither; it can't be both, so the
+  wishlist box is greyed out while *I own this item* is ticked, and ticking
+  it clears the wishlist box. Untick both for a book you read but don't own
+  (a library copy, a borrowed one): it stays in your catalogue with its
+  reading status and dates, and it is left out of the Owned and Wishlist
+  filters, Store Mode and the valuation.
+- **Copies** — the physical objects you own, as opposed to the catalogue entry
+  describing them. An item with more than one copy shows a **Copies** list
+  instead of the single Location line: one row per copy with its location, its
+  position on that shelf, and whatever condition, acquisition and provenance
+  detail that copy carries. One copy still shows the single line.
+
+  **Add copy** records a second (or third) of the same title — two copies of a
+  novel on different shelves, a reading copy and a signed one. Pick a location
+  or leave it blank; the copy is added without disturbing the copy you already
+  had.
+
+  **Edit** on a row opens that copy in place, where you can set its location,
+  condition, acquired date, source, price, provenance and its own copy
+  barcode. Condition is free text with a list of suggestions (New, Fine, Good,
+  Fair, Poor, Ex-library) — type anything else if you grade your own way.
+  Moving a copy to a different shelf clears the position it had on the old one.
+  A copy barcode belongs to one copy across your whole collection: reusing one
+  is refused, and the message names the item already holding it.
+
+  **Remove copy** is in the same panel, behind a confirmation. It moves the
+  copy to [Trash](#trash), where it waits with its condition, acquisition
+  details and provenance intact until someone restores it. Removing the copy
+  marked primary hands that status to the lowest-numbered copy left, and the
+  item's location follows it. Removing the last copy leaves the item in your
+  catalogue with no location. A restored copy comes back as a secondary copy
+  unless the item has no primary left.
+
+  Adding, editing and removing copies needs an editor or admin account.
+  Viewers see the list and nothing else.
+- **Tags** — add or remove chips inline. Tags are how categories that are
+  not formats are recorded: a kids' book is a **book tagged `Kids`**, not a
+  media type of its own. The `Kids` tag is global, so it can sit on anything;
+  a later release lets you scope a tag to one media type if you want to.
+- **Related Media** — the other items this one belongs with: another format of
+  the same work, an adaptation of it, or something simply related. The panel
+  shows the whole connected group, so an item reached only through a third item
+  still appears, marked apart from a direct link. Editors and admins search the
+  catalogue here to add a relationship; viewers see the group and nothing else.
+  Nothing is linked automatically — see [Related Media](../related-media.md).
 - **Loan state** — who has it and since when, with check-in right there.
 - **Value** — ISBNdb list price if valued, or a manual value you enter.
 - **Links** — jump to the item in Audiobookshelf or Hardcover when linked.
-- **Add a copy** — new item form pre-filled from this one.
+- **Add another like this** — opens the Scan page's Add by hand panel with this
+  item's author, publisher, year, media type, platform, series and location
+  filled in. It creates a separate record, not another physical copy of this
+  one.
 
 ## Editing
 
 **Edit** opens the full form: every field above plus notes, a manual value,
-and the cover upload. Changing the ISBN does *not* re-fetch metadata
-automatically — use **Retry cover** / **Fetch synopsis** afterwards, or
-delete and rescan if the record was wrong from the start.
+and the cover upload. It is organised into six sections — **General**,
+**Artwork**, **Series**, **Identifiers**, **Location** and **Media
+Details** — with a row of links at the top to jump straight to one.
 
-The ISBN is checked when you save. An ISBN whose check digit doesn't add up
-is refused with a banner at the top of the form, and **nothing else on the
-form is saved** — correct the ISBN or clear the field and save again.
+Sections that do not apply to the item's media type are hidden: a video game
+does not show Series or ISBN, an audiobook shows narrator and duration, and
+changing the **Media type** dropdown updates what is shown straight away.
+Anything the item *already* has a value for stays visible even when its
+media type would normally hide it, so an existing value is never put out of
+reach — and nothing is dropped on save either way. Changing the ISBN does *not* re-fetch metadata
+automatically — use **Retry cover** / **Fetch synopsis** afterwards. If the
+record was wrong from the start, delete it, have an admin **Delete
+permanently** from Trash, and rescan: rescanning an item that is still in
+Trash restores it as it was rather than adding a fresh record.
+
+The **Identifiers** section has a **Scan ISBN** button. It opens the same
+camera scanner the Scan tab uses, with the same per-device decoder, and is the
+quick way to correct a wrong ISBN with the book in your hand. It accepts a
+13-digit 978 or 979 barcode only, and says so rather than filing a DVD's UPC
+as an ISBN. A read **fills the field and selects it — it does not save**, so
+you can see what it got before you commit. If the camera cannot start, the
+toast says which problem it is: permission denied, or a page not served over
+HTTPS.
+
+**An ISBN you change is checked when you save.** One whose check digit
+doesn't add up is refused with a banner at the top of the form, and **nothing
+else on the form is saved** — correct it or empty the field and save again.
 Entering an ISBN-10 stores both forms (the ISBN-13 and the ISBN-10 it
-implies); a 979 ISBN has no ISBN-10 and stores none. The same banner
-appears for a media type, location, game platform or reading status Shelf
-doesn't recognise, and for a non-number in a number field.
+implies); a 979 ISBN has no ISBN-10 and stores none. Emptying the field
+clears the ISBN. The same banner appears for a media type, location, game
+platform or reading status Shelf doesn't recognise, and for a non-number in
+a number field.
 
-An item whose stored ISBN isn't a real ISBN — older Audiobookshelf syncs
-stored an ASIN there when a title had no ISBN — has to have it corrected or
-cleared before the form will save, since the form submits every field. Clear
-it and the item keeps everything else. For the Audiobookshelf case you
-usually don't have to: from 0.28.0 the next sync clears an ASIN out of the
-ISBN field for you (see [Integrations](integrations.md)).
+**An ISBN you leave alone is left as it is**, even when it would not pass
+that check — older Audiobookshelf syncs stored an ASIN in the ISBN field when
+a title had no ISBN, and such an item used to refuse every save until the
+field was fixed. It no longer does: edit the title, the location or anything
+else and the save goes through, with a note under the field telling you the
+stored value is not a valid ISBN. For the Audiobookshelf case you usually
+don't have to correct anything: from 0.28.0 the next sync clears an ASIN out
+of the ISBN field for you (see [Integrations](integrations.md)).
 
 **Retry cover** appears once the item has an ISBN. **Push to Hardcover**
 appears only for book-family items, and only when the item has an ISBN or
@@ -86,13 +159,56 @@ book-family rows.
 The automatic chain tries, in order: Open Library → Hardcover → DNB (German
 ISBNs) → Amazon → Google Books → IGDB (games). A miss is retried in the
 background, and Settings → Data → Maintenance → **Retry missing covers** sweeps
-every cover-less item with an ISBN.
+cover-less items — but **only book-shaped ones** (books, comics, manga). It
+deliberately never touches a DVD, a game, a CD or a record: the automatic
+chain's fallback is a book-catalogue title search, and turning it loose on a
+disc once wrote a novel's cover and ISBN onto it.
+
+### The review queue
+
+That leaves everything the sweep cannot reach, which is exactly the media the
+automatic chain is worst at. **Settings → Data → Maintenance → Review covers
+needing attention** opens a queue that walks **every** cover-less item — discs,
+games and music included — one at a time, with the full cover picker inline so
+you can search, pick or upload without leaving it. Each pick advances to the
+next item.
+
+Three things make it different from Retry missing covers:
+
+- **It shows you everything**, not just books, because a person is choosing
+  rather than an algorithm guessing.
+- **It remembers.** Some items genuinely have no findable cover — a
+  self-published paperback, a burned CD. **Not available** takes one out of the
+  queue for good, so the list converges on zero instead of showing you the same
+  handful forever. That verdict survives a restart, and a library
+  export/restore carries it with the item.
+- **It is a decision, not a sweep.** Retry missing covers is unattended and
+  fast; the queue is for the ones that need a look.
+
+The two compose: run Retry missing covers first to clear the easy book rows,
+then walk what is left.
+
+**Removing a cover puts the item back in the queue** and clears any previous
+"not available" verdict — so a cover you decide was wrong becomes reviewable
+again. Note that Retry missing covers still sweeps a dismissed item, which is
+deliberate: it is currently the only way an accidental **Not available** comes
+back on its own.
 
 Covers you keep are stored locally in `data/covers/`; nothing hot-links to
 the source. While the picker is open, though, the candidate tiles *are*
 remote thumbnails fetched live from the source you're searching — only the
 one you select gets downloaded and saved locally. Upload accepts JPEG /
 PNG / GIF / WebP.
+
+**Use image from URL** takes a public HTTPS link to an image in those same
+four formats, under 10 MB. Shelf fetches it once and saves its own copy
+alongside every other cover — the page never hot-links to the address you
+gave. Links over plain HTTP, links carrying a username and password, and
+links that resolve to a private or internal address are refused, so this
+cannot be used to make Shelf fetch something from inside your network. If
+the fetch fails for any of those reasons the existing cover is left alone
+and the notice reads *"Could not use that cover URL — use a public HTTPS
+JPEG, PNG, GIF or WebP under 10 MB"*.
 
 ## Reading status vs. Hardcover
 
@@ -106,18 +222,55 @@ Scanning an owned ISBN again opens the existing item rather than creating a
 twin. If you end up with duplicates anyway (two different ISBNs for one
 book, or a manual add before a scan), keep the better record and delete the
 other; tags and loan history live on the record, so move anything you need
-first.
+first. The deleted record goes to Trash, so a wrong pick can be undone.
 
 Bulk **Merge** copies the fields the kept record lacks from the others
 before removing them. A merge that would copy an invalid ISBN is refused and
 both records are left in place. The message names the record it stopped on,
 by title and id, so a merge of several records tells you which one to fix.
 
+Merging two records that were filed in **different** places keeps both physical
+copies, in both places — the kept record then shows a Copies list naming each
+room, and each room's inventory audit expects it. That is the point of merging
+duplicate records rather than deleting one: you had two books, and you still do.
+
 ## Deleting
 
-**Delete** on the item page (editor or admin). Loan history referencing the
-item is removed with it. A portable archive export is *not* an undo for
-deletions — keep a backup if that matters.
+**Delete** on the item page, or Browse's bulk delete (editor or admin), moves
+the item to **Trash**. Nothing attached to it is removed: its copies, tags,
+related-media links, loans, reading history and scan history stay with it and
+come back with it. While it is in Trash it is gone from Browse, Home, Stats,
+Store Mode, the valuation report and every count.
+
+### Trash
+
+**Trash** is in the account menu, under **Library** (editors and admins). It
+lists deleted items, and copies removed on their own grouped under their
+item — the item's name links to its page when the item itself is still in
+your catalogue. An item that was on loan when it was deleted is marked
+**Loaned**, because the loan is still open and still counts against its
+borrower.
+
+- **Restore** (editor or admin) puts an item or copy back exactly as it was.
+  Restoring a copy whose item is also in Trash is refused — restore the item,
+  and its copies come back with it.
+- **Delete permanently** (admin) removes one item or copy for good, with
+  everything attached to it. It cannot be undone.
+- **Empty expired** (admin) permanently deletes everything that has been in
+  Trash longer than the retention window (180 days by default — Settings →
+  Library → Trash). **Show expired only** filters the page to those rows.
+
+Nothing is deleted on a timer. Once rows pass the window, admins see a banner
+across the top of every page saying how many; **Dismiss** hides it until more
+rows expire. See [Settings](settings.md).
+
+Scanning or adding something that is in Trash restores it rather than making a
+duplicate. The existing-item scan modes do not: they report it as *In Trash*
+and offer **Restore** — see [Scanning](scanning.md).
+
+Trash is not carried by the CSV export or the portable archive yet — both
+contain only what is not in Trash. The database backup (Settings → Data)
+carries everything, Trash included.
 
 ## Video games
 

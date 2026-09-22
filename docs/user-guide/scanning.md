@@ -1,7 +1,8 @@
 # Scanning
 
 The **Scan** tab is where items enter Shelf and where most day-to-day actions
-happen. One barcode field, one mode selector, and a strip of recent scans.
+happen. One barcode field, one mode selector, and a strip of recent scans —
+plus title search and **Add by hand** for the things a barcode cannot reach.
 
 ## Input methods
 
@@ -23,41 +24,46 @@ The mode is sticky — set it once and scan a pile.
 
 | Mode | What happens on each scan |
 |---|---|
-| **Add** | Look up metadata, download the cover, add the item as owned. Scanning a barcode you already own shows the existing item instead of duplicating it — whatever the media-type dropdown says. A dropdown pick the barcode contradicts is corrected rather than obeyed (see [Media types](#media-types)) |
-| **Shelf Fill** | Pick a precise physical room, bookcase or shelf once, then scan items in the order they sit there. Existing items are moved; unknown items go through the normal Add lookup first. Each physical copy is appended to that location's stored position order |
-| **Wishlist** | Same lookup, but the item is added as *not owned* — your wish list |
+| **Add** | Look up metadata, download the cover, add the item as owned. Scanning a barcode you already own shows the existing item instead of duplicating it — whatever the media-type dropdown says. Scanning something on your wishlist marks it owned and takes it off the wishlist (*Now owned*). Scanning something you deleted brings it back from Trash as it was (*Restored from Trash*) rather than adding a second record. A dropdown pick the barcode contradicts is corrected rather than obeyed (see [Media types](#media-types)) |
+| **Wishlist** | Same lookup, but the item is added to your wishlist, not as owned. A barcode already in your library is left as it is |
 | **Lend** | Pick a borrower first; each scan checks that item out to them. Optional due date |
 | **Return** | Each scan checks the item back in, whoever had it |
-| **Move** | Pick a location first; each scan relocates the item there |
-| **Inventory** | Pick a location; scan everything physically present; then **Check for missing** lists items Shelf thinks are there but you didn't scan |
+| **Move** | Pick a location first; each scan relocates the item there. To work along a shelf putting things away in order, use [Shelf Fill](shelf-fill.md) instead — it keeps the shelf selected and numbers each scan's position |
+| **Inventory** | Pick a location; scan everything physically present; then **Check for missing** lists items Shelf thinks are there but you didn't scan. Counts *copies*, not records — see [Auditing a shelf with more than one copy](#auditing-a-shelf-with-more-than-one-copy) |
 | **Lookup** | Read-only: tells you whether the item is in your library (and where, and whether it's lent out). Changes nothing |
 | **Quick Rate** | Marks the item as read / finished with today's date |
 
 The Scan tab is for editors and admins; viewers don't see it.
 
-## Shelf Fill
+### Scanning an item that is in Trash
 
-Use **Shelf Fill** when you are standing in front of a physical shelf and want
-Shelf's catalogue to match what is actually there. Choose the exact target —
-for example **Living Room › Bookcase › Shelf 1** — once, then scan from left to
-right. The selected target is remembered on that device so you can keep working
-without choosing it again for every item.
+**Lend, Return, Move, Inventory, Lookup and Quick Rate never act on an item in
+[Trash](items.md#trash).** The card says *In Trash since* the date it was
+deleted, with an amber **in Trash** badge, and nothing else happens: no loan,
+no move, no rating, no inventory mark. A **Restore** button on the card brings
+the item back, and the card turns into *Restored from Trash*; scan it again to
+lend, move or rate it. Both scans appear in Recent scans.
 
-Shelf Fill uses the physical-copy record rather than the older flat item
-location. That means different copies of the same title can occupy different
-places. If a copy has its own `copy_barcode`, scanning that code moves that
-exact copy; an ordinary ISBN or UPC moves the item's primary physical copy.
+### Auditing a shelf with more than one copy
 
-Each successful scan is appended after the current last `position_order` at
-the target. The result card shows the full location path and assigned position.
-You can later refine the order with the existing drag-and-drop location
-organiser or its automatic title/author/series/release ordering tools.
+A book can exist as two physical objects — you bought a second, or you merged
+two duplicate records that were filed in different rooms. Shelf tracks those
+separately, and both Inventory and the audit count them:
 
-If the barcode is not already in Shelf, Shelf uses the normal **Add** metadata
-flow and then places the resulting physical copy at the selected precise
-location. Manual-add and magazine issue-detail steps keep the Shelf Fill target
-through that extra form. A wishlisted physical item becomes owned when it is
-shelved. Digital media is rejected because it has no physical shelf position.
+- **The audit expects an item on a shelf if any of its copies is there**, not
+  only the one Shelf considers primary. A copy in the Loft is expected in the
+  Loft even though the record also has a copy in the Office.
+- **Two copies of one book on the same shelf are one line with a count**
+  ("(2 copies)"). A barcode cannot tell two identical books apart, so neither
+  can the audit — scanning either one marks the book accounted for.
+- **Scanning a multi-copy book at a shelf where none of its copies live
+  reports rather than moves.** You get "Copies at Office and Loft; none here."
+  and nothing is changed. The barcode says *which book*, never *which copy*, so
+  guessing would silently move a copy out of the room it is actually in.
+
+A book with only one copy still relocates on a scan, as it always has — there
+is only one object the scan can mean. **Lookup** mode names every room a copy
+is in, for the same reason.
 
 ## Title search (no barcode)
 
@@ -76,11 +82,42 @@ card uses: a rejected key, a provider that is rate-limiting us, or a provider
 Shelf could not reach at all. "No books found for …" now means only what it
 says — the provider answered and genuinely had nothing.
 
-## Manual add
+## Add by hand
 
-**Add manually** opens a blank item form for anything lookup can't find: a
-self-published book, a burned CD, a box set. Fill what you know; you can
-attach a cover by upload or cover search afterwards from the item page.
+Nothing needs a barcode. **Add by hand** is a panel on the Scan page, below
+title search, and a title is the only field it requires. Everything else is
+optional and editable afterwards from the item page.
+
+Open it with the **Add by hand** button, or go straight to `/scan?add=manual`.
+It is available in **Add** and **Wishlist** modes; arriving by the link from
+anywhere else switches you to Add mode so the panel is there when you land.
+
+- **Media type** is yours to choose — every type Shelf supports, including
+  the music formats and magazines. There is no "Auto" here: that means
+  "detect it from the barcode", and there is no barcode to detect from.
+- **ISBN or barcode** is optional. Type one and Shelf files it correctly on
+  its own — an ISBN goes in the ISBN column, a UPC in the UPC column.
+- **Wishlist mode** works here too: switch the Scan page to Wishlist and what
+  you add by hand goes on the wishlist rather than the shelf.
+- The **creator field** renames itself to match the type — Author(s) for
+  books, Developer for games, Director for discs, Artist for music.
+- The **platform** picker appears only for video games.
+
+Five ways in, all landing on the same panel:
+
+1. The **Add by hand** button on the Scan page itself.
+2. **Add by hand** in Home's quick actions.
+3. The button on an empty **title search** — it carries what you typed
+   through as the title. A provider *failure* deliberately does not offer it:
+   a rejected key is not a missing book, and hand-typing what a working key
+   would have fetched is the wrong repair.
+4. The button on the card you get when the scan box cannot read what you
+   typed — which is what happens when you type a **title** into it.
+5. **Add another like this** on any item's page, which prefills the author,
+   publisher, year, type, platform, series and location from that item.
+
+A scan that finds a valid barcode no provider knows still opens the same
+form in place on its result card, as it always has.
 
 What you type is checked before it's stored: an ISBN whose check digit
 doesn't add up, a location that no longer exists, or a game platform that
@@ -93,16 +130,24 @@ straight away. The lookup modes (lend, return, move, inventory, lookup,
 quick-rate) are not that strict on purpose: an old record whose stored ISBN
 isn't valid is still found when you scan it.
 
-From an existing item's page, **Add a copy** pre-fills a new form from it —
-handy for a second edition or a duplicate copy you want as its own record.
+From an existing item's page, **Add another like this** opens the Add by
+hand panel with that item's author, publisher, year, media type, platform,
+series and location already filled — handy for a second edition or the next
+book in a series. It creates a **separate record**; it does not register
+another physical copy of the same item.
+
+The Scan tab is not the only place a camera scan happens. An item's **edit**
+form has a **Scan ISBN** button in its Identifiers section, for fixing one
+wrong ISBN without starting a scan session — see
+[Items](items.md#editing). It fills the field and leaves the saving to you.
 
 ## What happens after a scan
 
 Each scan lands in **Recent scans** with its cover, title and what was done
-("Added", "Lent to Sam", "Moved to Office", "shelved"). Click through to the
-item page to fix anything. Cover art that wasn't immediately available is
-fetched in the background and appears on its own; a **Retry cover** button on
-the item page re-runs the chain on demand.
+("Added", "Lent to Sam", "Moved to Office"). Click through to the item page
+to fix anything. Cover art that wasn't immediately available is fetched in
+the background and appears on its own; a **Retry cover** button on the item
+page re-runs the chain on demand.
 
 Lookups are paced per provider to stay inside each one's published rate
 limit and retried on transient failures, so a 200-book scanning session
@@ -136,9 +181,29 @@ supplement could mean and looks each one up:
   rather than reporting "not found", because an unanswered lookup is not the
   same as a book that does not exist.
 
-Only barcodes whose publisher prefix has been confirmed are treated this way;
-anything else falls through to the ordinary UPC path. If a scan will not
-resolve, scanning the printed ISBN on the copyright page always works.
+Shelf needs both parts of one of these barcodes. Scanning it **with** the
+five-digit supplement follows the lookup path above. Scanning the bare UPC-A
+**without** the supplement stops the scan instead of filing anything: the card
+tells you it is an older book barcode and asks for the five digits printed
+beside it. You **type** those digits — you do not have to rescan, which is what
+makes this work on a scanner that drops the supplement in the first place. An
+entry that is not exactly five digits is refused on the spot.
+
+Your answer is remembered under the **full** 17-digit code, so scanning the bare
+12 digits again asks for the digits again. That is deliberate: the bare code
+alone does not say which book it is — on the order of 100,000 titles share it —
+so remembering an answer under it would put that answer on the next Scholastic
+book you scanned.
+
+All of this works the same way in [Shelf Fill](shelf-fill.md): the card appears
+without leaving the page, and the book you resolve takes its position on the
+shelf you are filling. The one difference is the escape hatch. On this page the
+card offers **Add it by hand**; Shelf Fill has no by-hand panel, so there it
+offers what its other cards offer — scan the printed ISBN instead.
+
+A barcode whose publisher prefix is **not** confirmed still falls through to the
+ordinary UPC path, unchanged. If a scan will not resolve, scanning the printed
+ISBN on the copyright page always works.
 
 For a UPC there is no certain prefix, so Shelf reads the product record it
 already fetched — the platform, format, medium or audio wording in the retail
@@ -167,9 +232,9 @@ the retail title carries an audio tag (`… - CD`, `Audio CD`) or the category
 names music CDs, but when the record names **neither**, the dropdown is what
 says it — and the choice stands.
 
-Books further divide into book, kids book, audiobook, eBook, comic / graphic
-novel — the barcode cannot tell those apart, so they stay yours to pick.
-Change the type on the item page or in bulk from Browse.
+Books further divide into book, audiobook, eBook, comic / graphic
+novel and Manga — the barcode cannot tell those apart, so they stay yours to
+pick. Change the type on the item page or in bulk from Browse.
 
 Whatever it decides, the card says so: *"Title names the Nintendo Switch
 platform — filed as Video Game."* or *"ISBN barcodes are books — overriding

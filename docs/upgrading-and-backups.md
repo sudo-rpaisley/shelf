@@ -26,6 +26,169 @@ Release notes for every version are in the
 [changelog](../CHANGELOG.md) and on the
 [releases page](https://github.com/dgahagan/shelf/releases).
 
+### After upgrading to 0.46.0
+
+**Delete now moves things to Trash.** Deleting an item — from its page, from
+Browse's bulk delete, or by the Audiobookshelf excluded-library cleanup — and
+removing a copy no longer delete anything. The item or copy goes to
+[Trash](user-guide/items.md#trash) (account menu → Library) with everything
+attached to it, and **Restore** brings it back. Only an admin's **Delete
+permanently** or **Empty expired** removes a row for good. Merging records
+still removes the merged record, as before.
+
+**Nothing you deleted before this upgrade comes back.** Those deletes were
+permanent when you made them; Trash starts empty.
+
+**The retention window defaults to 180 days** (Settings → Library → Trash).
+Past it, admins see a banner offering to empty the expired rows; nothing is
+deleted automatically.
+
+**No migrations run.** The columns Trash uses shipped earlier, empty.
+
+**Exports leave Trash out.** The CSV export and the portable archive contain
+only what is not in Trash; the database backup carries everything.
+
+### After upgrading to 0.43.0
+
+**Kids books become books with a tag.** `kids_book` was a media type that had
+no behaviour of its own — everything it did, `book` already did. On the first
+boot after this upgrade, every kids book in your library becomes a **book
+carrying the `Kids` tag**. Nothing is lost: the tag is filterable on Browse
+exactly as the old type was, and the `Kids` tag is global, so you can put it
+on anything.
+
+**A kids book that shares an ISBN or barcode with a book you already have is
+merged into it.** That happens because the two rows become the same book once
+the type is translated, and they cannot both exist. The existing book's own
+details are kept — its title, notes, value and reading status. What moves
+across is everything you would miss: tags, physical copies, scan and reading
+history, loans (including both, if the two were on loan at once), and wishlist
+membership. If the kids book was one you owned, the surviving book is marked
+owned too. A physical copy brings its own shelf location with it, so the
+surviving book can show a location it did not have before — that is the copy's
+location, not a change to the book's own details.
+
+**This is one-way, and the way back is a backup *and* the previous image.**
+There is no migration that turns books back into kids books, and restoring a
+backup through this version will simply convert it again — Settings → Restore
+re-runs the upgrade on whatever it restores. To get back to how things were
+you need both the backup you took before upgrading and the Shelf version you
+were on. **The portable archive is not a way back**: an archive that names
+`kids_book` imports as a book with the `Kids` tag, exactly like the upgrade.
+
+**One migration runs.** It adds a nullable `media_type` column to `tags`,
+which is an advisory scope for a later release; every existing tag comes out
+global, and nothing is scoped by this upgrade.
+
+**The CSV export has a new last column, `tags`.** Import reads it and is
+additive — it adds tags and never removes one — so a file from an older Shelf
+with no `tags` column imports exactly as it did before.
+
+### After upgrading to 0.42.4
+
+**Two migrations run.** They add a `deleted_at` column to `items` and to
+`item_copies` and leave it empty on every row. No row is rewritten, so they are
+quick even on a large library, and they need no action from you.
+
+**Nothing changes on screen.** Every item, copy, count, filter badge, export
+and share link shows exactly what it showed before, and deleting something
+still deletes it permanently. What changed is underneath: every read of an item
+now goes through a filtered view rather than the table. That is groundwork — a
+later release uses it for a Trash you can restore from.
+
+**Backups are unaffected.** The view exists only for the life of a database
+connection, so it is never written into a backup file. A backup taken from
+Settings still contains no views and restores exactly as before.
+
+### After upgrading to 0.42.0
+
+**No migrations run.** Your items keep the state they had: everything you
+marked as not owned is still on your wishlist. An item becomes *neither owned
+nor wishlisted* only when you make it so — see
+[Cleaning up a wishlist after a Goodreads import](user-guide/import-and-export.md#cleaning-up-a-wishlist-after-a-goodreads-import).
+
+**Valuation totals can drop.** The valuation now counts only what you own. If
+any wishlist items had values, the collection total, the Stats page's **Est.
+Value** and the insurance report are lower by that amount. Earlier points on
+the value-over-time chart stay as they were recorded. See
+[Stats and valuation](user-guide/stats-and-valuation.md).
+
+### After upgrading to 0.41.1
+
+**Four migrations run.** They add two tables (`lists` and `list_items`), seed
+one list named *Wishlist*, and put every item you had marked as not owned onto
+it. They write one row per wishlist item, so they are quick even on a large
+library, and they need no action from you.
+
+**Nothing changes on screen.** Every wishlist badge, filter, count and share
+link shows exactly what it showed before. What changed is underneath: being on
+the wishlist is now its own fact rather than a side effect of *not owned*.
+That is groundwork — a later release uses it to let an item be neither owned
+nor wishlisted, for books you have read but do not own.
+
+Portable archives and CSV exports carry it. Each item in an archive gains a
+`wishlisted` key, and the CSV export gains a `wishlisted` column at the end.
+An archive or CSV written *before* this release imports normally: without the
+key, Shelf derives wishlist membership from the item's owned flag, exactly as
+that file already meant.
+
+### After upgrading to 0.39.0
+
+**One migration runs.** It adds a single column (`items.cover_review_dismissed`)
+and writes no rows, so it is instant on any size of library and needs no action
+from you. Nothing existing changes meaning: every item starts undismissed.
+
+One number will look different, deliberately. The Settings **"N items without a
+cover"** figure and Home's **Missing covers** tile both now exclude items you
+have marked **Not available** in the new review queue. Before the queue existed
+there was nothing to exclude, so this only diverges once you start using it —
+and the two agree with each other, which is the point.
+
+Portable archives carry the flag: a library exported after this release and
+restored later keeps its "not available" verdicts. An archive written *before*
+this release restores normally, with every item undismissed.
+
+### After upgrading to 0.38.0
+
+No migration runs and no data changes. What changes is what Shelf *shows* you,
+and two of those will look different on a collection that has ever merged two
+owned records:
+
+- **An item with more than one physical copy now lists all of them** on its
+  page, in place of the single **Location** line. An item with one copy is
+  unchanged.
+- **A shelf audit expects an item wherever any of its copies is.** A room
+  holding a non-primary copy used to report clean; it will now list that copy
+  as missing until you scan it. That is the correct answer — the copy really is
+  in that room — but the first audit you run after upgrading can show items you
+  are not used to seeing.
+
+Scanning an item at a shelf where none of its copies live no longer relocates a
+copy onto that shelf: it reports where the copies actually are and changes
+nothing. Single-copy items still relocate on a scan, exactly as before. See
+[Scanning](user-guide/scanning.md#auditing-a-shelf-with-more-than-one-copy).
+
+### After upgrading to 0.36.0
+
+Six migrations run, and one of them **writes rows**. Every item that is marked
+owned **and** already has a location gets one primary physical-copy record
+created for it, holding that location. Items with no location get nothing — the
+backfill deliberately does not treat *owned* on its own as proof that something
+is a physical object, because on a collection with many unplaced rows that
+would manufacture a copy for each of them. At 0.36.0 nothing in the interface
+looked different — an item's own **Location** field kept working as before and
+now moved that item's primary copy with it. Copies became visible in 0.38.0;
+see the note below, and [Physical copies](item-copies.md).
+
+Your existing locations become top-level nodes of the new location tree, with
+their names unchanged. You can now nest them — see
+[Locations](user-guide/locations.md) — and once you do, a location that still
+has children cannot be deleted until its children are moved or deleted.
+
+Nothing to set, and nothing to do. As with any upgrade, take a backup of
+`data/shelf.db` first; a database that has run these migrations will not load
+in an older image.
+
 ### After upgrading to 0.31.0
 
 Photo Intake now looks up rows you type DVD or Video Game, on TMDb and IGDB.
@@ -123,7 +286,8 @@ credentials, but **no covers**.
 ### 3. Portable archive
 
 Settings → Data → **Portable archive** exports a zip with items, tags,
-locations, series, reading log, checkouts **and cover images** — and no
+locations, series, reading log, checkouts, physical copies **and cover
+images** — and no
 credentials, users or instance-specific data. It is the safe way to move to
 a new server or hand your library to someone else, and it imports with a
 preview step that shows what's new, what's already there and how duplicates

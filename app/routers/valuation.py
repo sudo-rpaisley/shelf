@@ -101,7 +101,7 @@ async def test_tmdb_key(request: Request, _=Depends(require_role("admin"))):
 async def valuate_item(item_id: int, _=Depends(require_role("admin"))):
     """Look up price for a single item."""
     with get_db() as db:
-        item = db.execute("SELECT isbn FROM items WHERE id = ?", (item_id,)).fetchone()
+        item = db.execute("SELECT isbn FROM items_live WHERE id = ?", (item_id,)).fetchone()
         api_key = get_setting(db, "isbndb_api_key")
 
     if not item or not item["isbn"]:
@@ -129,11 +129,16 @@ async def valuate_item(item_id: int, _=Depends(require_role("admin"))):
 
 
 def _snapshot_valuation() -> None:
-    """Append a valuation_history row after a batch run (feeds the stats chart)."""
+    """Append a valuation_history row after a batch run (feeds the stats chart).
+
+    The valuation concerns what you own (#125): the total, the report and
+    both sweeps are scoped to `owned = 1`. Pricing one named item
+    (`valuate_item`) is not.
+    """
     with get_db() as db:
         row = db.execute(
             "SELECT COALESCE(SUM(estimated_value), 0) as total, COUNT(*) as c "
-            "FROM items WHERE estimated_value IS NOT NULL"
+            "FROM items_live WHERE estimated_value IS NOT NULL AND owned = 1"
         ).fetchone()
         if row["c"] > 0:
             db.execute(
@@ -147,7 +152,7 @@ async def valuate_all(_=Depends(require_role("admin"))):
     """Batch valuate all items with ISBNs."""
     with get_db() as db:
         items = db.execute(
-            "SELECT id, isbn FROM items WHERE isbn IS NOT NULL"
+            "SELECT id, isbn FROM items_live WHERE isbn IS NOT NULL AND owned = 1"
         ).fetchall()
         api_key = get_setting(db, "isbndb_api_key")
 
@@ -186,7 +191,7 @@ async def valuate_all_stream(request: Request, _=Depends(require_role("admin")))
     """SSE endpoint for batch valuation with progress updates."""
     with get_db() as db:
         items = db.execute(
-            "SELECT id, isbn, title FROM items WHERE isbn IS NOT NULL"
+            "SELECT id, isbn, title FROM items_live WHERE isbn IS NOT NULL AND owned = 1"
         ).fetchall()
         api_key = get_setting(db, "isbndb_api_key")
 
@@ -263,13 +268,16 @@ async def valuation_report(request: Request, _=Depends(require_role("viewer"))):
         items = db.execute(
             "SELECT i.*, l.name as location_name, "
             "COALESCE(i.manual_value, i.estimated_value) AS effective_value "
-            "FROM items i "
+            "FROM items_live i "
             "LEFT JOIN locations l ON i.location_id = l.id "
+            "WHERE i.owned = 1 "
             "ORDER BY (l.name IS NULL), l.name COLLATE NOCASE, "
             "(COALESCE(i.manual_value, i.estimated_value) IS NULL), "
             "COALESCE(i.manual_value, i.estimated_value) DESC, i.title COLLATE NOCASE"
         ).fetchall()
-        total_with_isbn = db.execute("SELECT COUNT(*) as c FROM items WHERE isbn IS NOT NULL").fetchone()["c"]
+        total_with_isbn = db.execute(
+            "SELECT COUNT(*) as c FROM items_live WHERE isbn IS NOT NULL AND owned = 1"
+        ).fetchone()["c"]
 
     total_items = len(items)
     priced = [i for i in items if i["effective_value"]]

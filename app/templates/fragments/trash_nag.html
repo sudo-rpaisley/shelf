@@ -1,0 +1,22 @@
+{# The admin banner: Trash holds rows past the retention window. Dismiss posts
+   to /api/trash/nag/dismiss, which answers an EMPTY body; this element is its
+   own hx-target with hx-swap="outerHTML", so the empty body replaces the
+   banner and it goes (G54 — `none` would leave it on screen). It comes back
+   when the expired count grows past the count at dismissal. #}
+<div id="trash-nag" data-testid="trash-nag" role="status"
+     class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 pt-4">
+    <div class="flex flex-wrap items-center gap-3 rounded-lg border border-shelf-warning/40 bg-shelf-warning/10 px-4 py-3 text-sm text-shelf-warning">
+        <span class="flex-1 min-w-0">
+            {% if trash_nag.count == 1 %}1 item in Trash has been there longer than your retention window.
+            {% else %}{{ trash_nag.count }} items in Trash have been there longer than your retention window.{% endif %}
+        </span>
+        <a href="/trash?expired=1" data-testid="trash-nag-link"
+           class="underline hover:text-white">Review expired items</a>
+        <button type="button" data-testid="trash-nag-dismiss"
+                hx-post="/api/trash/nag/dismiss"
+                hx-target="#trash-nag" hx-swap="outerHTML"
+                class="px-3 py-1 rounded-lg border border-shelf-warning/40 text-xs hover:bg-shelf-warning/20 transition-colors">
+            Dismiss
+        </button>
+    </div>
+</div>

@@ -18,7 +18,7 @@ from app.auth import require_role
 from app.config import COVERS_DIR, HTTP_TIMEOUT
 from app.database import get_db, get_setting
 from app.routers import items_common
-from app.services import covers, cover_queue, openlibrary, scan_outcome
+from app.services import covers, cover_queue, manual_cover, openlibrary, scan_outcome
 from app.services import isbn as isbn_svc
 
 logger = logging.getLogger(__name__)
@@ -42,7 +42,7 @@ async def cover_status(request: Request, item_id: int, attempt: int = 0, _=Depen
     attempt = max(0, min(attempt, MAX_COVER_POLLS))
     with get_db() as db:
         row = db.execute(
-            "SELECT cover_path FROM items WHERE id = ?", (item_id,)
+            "SELECT cover_path FROM items_live WHERE id = ?", (item_id,)
         ).fetchone()
     if not row:
         return templates.TemplateResponse(
@@ -58,7 +58,7 @@ async def cover_status(request: Request, item_id: int, attempt: int = 0, _=Depen
 async def retry_cover(item_id: int, _=Depends(require_role("editor"))):
     """Re-attempt cover download for an item."""
     with get_db() as db:
-        item = db.execute("SELECT isbn FROM items WHERE id = ?", (item_id,)).fetchone()
+        item = db.execute("SELECT isbn FROM items_live WHERE id = ?", (item_id,)).fetchone()
     if not item or not item["isbn"]:
         return {"ok": False, "message": "No ISBN"}
 
@@ -141,7 +141,7 @@ async def cover_search(request: Request, item_id: int, query: str | None = None,
     with get_db() as db:
         item = db.execute(
             "SELECT title, authors, cover_path, media_type, publish_year, platform "
-            "FROM items WHERE id = ?", (item_id,)
+            "FROM items_live WHERE id = ?", (item_id,)
         ).fetchone()
         # Key-by-key through get_setting, never the bulk settings accessor:
         # Provider credentials are in SECRET_ENV_VARS, and the bulk one
@@ -179,16 +179,6 @@ async def cover_select(
     _=Depends(require_role("editor")),
 ):
     """Download a selected cover URL and save it for an item."""
-    # The downloader writes directly to the item-id-derived cover path. A
-    # stale link must therefore be rejected before network I/O, otherwise an
-    # unknown id can leave an orphan file and still receive a success redirect.
-    with get_db() as db:
-        item_exists = db.execute(
-            "SELECT 1 FROM items WHERE id = ?", (item_id,)
-        ).fetchone()
-    if not item_exists:
-        return HTMLResponse("Not found", status_code=404)
-
     async with httpx.AsyncClient(timeout=HTTP_TIMEOUT) as client:
         cover_path = await covers._download_to_item(item_id, url, client)
 
@@ -204,7 +194,7 @@ async def cover_select(
     with get_db() as db:
         item = db.execute(
             "SELECT title, authors, cover_path, media_type, publish_year, platform "
-            "FROM items WHERE id = ?", (item_id,)
+            "FROM items_live WHERE id = ?", (item_id,)
         ).fetchone()
         # Same key-by-key build as cover_search — this failure path re-renders
         # the grid, and a DVD whose pick failed must not fall back to book
@@ -235,21 +225,21 @@ async def cover_select(
     resp.headers["HX-Trigger"] = items_common._toast_header("Failed to download cover", "error")
     return resp
 
+
 @router.post("/items/{item_id}/cover-url")
 async def cover_from_url(
     item_id: int,
     url: str = Form(...),
+    return_to: str | None = Form(None),
     _=Depends(require_role("editor")),
 ):
     """Use a user-pasted public HTTPS image as an item's cover."""
     with get_db() as db:
-        item = db.execute("SELECT id FROM items WHERE id = ?", (item_id,)).fetchone()
+        item = db.execute("SELECT id FROM items_live WHERE id = ?", (item_id,)).fetchone()
     if not item:
         return HTMLResponse("Not found", status_code=404)
 
-    async with httpx.AsyncClient(timeout=HTTP_TIMEOUT) as client:
-        cover_path = await covers.download_manual_cover(item_id, url, client)
-
+    cover_path = await manual_cover.download(item_id, url)
     if not cover_path:
         resp = HTMLResponse("")
         resp.headers["HX-Trigger"] = items_common._toast_header(
@@ -265,7 +255,8 @@ async def cover_from_url(
         )
     resp = HTMLResponse("")
     resp.headers["HX-Trigger"] = items_common._toast_header("Cover updated")
-    resp.headers["HX-Redirect"] = f"/item/{item_id}"
+    if return_to != "edit":
+        resp.headers["HX-Redirect"] = f"/item/{item_id}"
     return resp
 
 
@@ -279,7 +270,7 @@ async def cover_upload(request: Request, item_id: int, _=Depends(require_role("e
     still navigates on success regardless of swap.
     """
     with get_db() as db:
-        item = db.execute("SELECT id FROM items WHERE id = ?", (item_id,)).fetchone()
+        item = db.execute("SELECT id FROM items_live WHERE id = ?", (item_id,)).fetchone()
     if not item:
         return HTMLResponse("Not found", status_code=404)
 
@@ -319,18 +310,24 @@ async def cover_remove(item_id: int, _=Depends(require_role("editor"))):
     The file stays on disk — covers overwrite `{item_id}.jpg` in place, so
     orphan cleanup is a separate concern.
 
-    The removal is **not durable across a restart** for a book added in the
-    last 48 h: `cover_queue.requeue_recent_missing` selects on
-    `cover_path IS NULL` at startup and will re-run the auto chain (GOTCHAS
-    G29). Accepted by design — durable suppression needs a schema column and
-    belongs to the cover review queue (roadmap item 7).
+    Removing a cover returns the item to the cover review queue, and **clears
+    any previous "not available" verdict** — otherwise an item dismissed once
+    could never be reviewed again after a later removal, because the queue's
+    Remove control renders only when a cover exists.
+
+    The suppression the old note called impossible now exists: migration 32
+    added the dismissal column that roadmap item 7 was waiting on, and the
+    startup requeue honours it. A removal is therefore durable in the sense
+    that matters — it puts the item in front of a human rather than back into
+    the automatic chain.
     """
     with get_db() as db:
-        item = db.execute("SELECT id FROM items WHERE id = ?", (item_id,)).fetchone()
+        item = db.execute("SELECT id FROM items_live WHERE id = ?", (item_id,)).fetchone()
         if not item:
             return HTMLResponse("Not found", status_code=404)
         db.execute(
-            "UPDATE items SET cover_path = NULL, updated_at = datetime('now') WHERE id = ?",
+            "UPDATE items SET cover_path = NULL, cover_review_dismissed = 0, "
+            "updated_at = datetime('now') WHERE id = ?",
             (item_id,),
         )
 
@@ -339,6 +336,17 @@ async def cover_remove(item_id: int, _=Depends(require_role("editor"))):
     resp.headers["HX-Redirect"] = f"/item/{item_id}"
     return resp
 
+# These two sweeps are deliberately NOT filtered on `cover_review_dismissed`.
+# Both are admin-only and media-type-gated, so G29's defect cannot fire and no
+# wrong data is written; the worst case is an admin who asked for a sweep
+# getting one on a row they earlier dismissed. The deciding factor is the other
+# direction: there is no un-dismiss path in the UI (the Remove control renders
+# only when a cover exists, and a dismissed item is cover-less), so this sweep
+# is the only way an accidental dismissal comes back on its own. Adding the
+# clause would make "Not available" permanent short of a database edit.
+# Pinned by test_cover_review.py::TestRetryMissingCoversStaysDismissalBlind.
+# Revisit when un-dismissing from the UI ships.
+#
 # Bulk cover retry is restricted to book media types for the same reason the
 # startup requeue is (GOTCHAS G29): items_common.resolve_missing_cover's fallback is a
 # book-catalogue title search that accepts the first Open Library hit when the
@@ -354,7 +362,7 @@ async def bulk_retry_covers(request: Request, _=Depends(require_role("admin"))):
     """Retry downloading covers for all book items missing them."""
     with get_db() as db:
         items = db.execute(
-            f"SELECT id FROM items WHERE cover_path IS NULL "
+            f"SELECT id FROM items_live WHERE cover_path IS NULL "
             f"AND media_type IN ({_COVER_RETRY_PLACEHOLDERS})",
             cover_queue.COVER_REQUEUE_MEDIA_TYPES,
         ).fetchall()
@@ -383,7 +391,7 @@ async def bulk_retry_covers_stream(request: Request, _=Depends(require_role("adm
     """SSE endpoint for bulk cover retry with progress updates."""
     with get_db() as db:
         items = db.execute(
-            f"SELECT id, isbn, title FROM items WHERE cover_path IS NULL "
+            f"SELECT id, isbn, title FROM items_live WHERE cover_path IS NULL "
             f"AND media_type IN ({_COVER_RETRY_PLACEHOLDERS})",
             cover_queue.COVER_REQUEUE_MEDIA_TYPES,
         ).fetchall()

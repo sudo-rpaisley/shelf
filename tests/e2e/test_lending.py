@@ -32,19 +32,6 @@ def _insert_active_checkout(data_dir, item_id: int, borrower_id: int) -> None:
         conn.close()
 
 
-def _assign_items_to_main(data_dir, *item_ids: int) -> None:
-    """Mirror normal modern Shelf writes for direct-SQL E2E fixtures."""
-    conn = sqlite3.connect(str(data_dir / "shelf.db"))
-    try:
-        conn.executemany(
-            "INSERT OR REPLACE INTO library_items (item_id, library_id) VALUES (?, 1)",
-            [(item_id,) for item_id in item_ids],
-        )
-        conn.commit()
-    finally:
-        conn.close()
-
-
 def _csrf_headers(page):
     return {"X-CSRF-Token": page.evaluate("() => window.csrfToken()")}
 
@@ -56,7 +43,7 @@ def test_item_page_lend_then_return_full_journey(live_server, authed_page):
     item_id = insert_item(
         live_server["data_dir"],
         title="E2E Lending Journey",
-        isbn="9780907000017",
+        isbn="9789070000172",
     )
     base = live_server["url"]
 
@@ -99,7 +86,6 @@ def test_viewer_sees_read_only_product_ui_without_editor_mutations(
     # Create a real Viewer through the same admin UI a household would use.
     authed_page.goto(f"{base}/settings")
     authed_page.get_by_role("button", name="Users").click()
-    authed_page.wait_for_load_state("networkidle")
     authed_page.fill('input[placeholder="Username"]', username)
     authed_page.fill('input[placeholder="Password (min 8 chars)"]', password)
     authed_page.locator('select[x-model="newRole"]').select_option("viewer")
@@ -110,19 +96,14 @@ def test_viewer_sees_read_only_product_ui_without_editor_mutations(
     lent_item_id = insert_item(
         live_server["data_dir"],
         title="E2E Viewer Lent Item",
-        isbn="9780907000024",
+        isbn="9789070000240",
     )
     available_item_id = insert_item(
         live_server["data_dir"],
         title="E2E Viewer Available Item",
-        isbn="9780907000031",
+        isbn="9789070000318",
         series_name="E2E Viewer Saga",
         series_position=1,
-    )
-    _assign_items_to_main(
-        live_server["data_dir"],
-        lent_item_id,
-        available_item_id,
     )
     _insert_active_checkout(live_server["data_dir"], lent_item_id, borrower_id)
 
@@ -144,14 +125,11 @@ def test_viewer_sees_read_only_product_ui_without_editor_mutations(
         page.fill("input[name=username]", username)
         page.fill("input[name=password]", password)
         page.click("button[type=submit]")
-        page.wait_for_url(f"{base}/browse", timeout=10_000)
+        page.wait_for_url(f"{base}/", timeout=10_000)
 
-        # Viewer navigation exposes the primary read-only destinations while
-        # specialist read-only surfaces remain available under More.
-        for key in ("home", "browse", "series", "discover"):
+        # Viewer navigation exposes read-only product surfaces, not editor/admin tools.
+        for key in ("browse", "store", "series", "discover", "stats"):
             expect(page.locator(f'[data-nav-tab="{key}"]')).to_be_visible()
-        for key in ("store", "stats"):
-            expect(page.locator(f'[data-nav-tab="{key}"]')).to_have_count(1)
         for key in ("scan", "settings", "logs"):
             expect(page.locator(f'[data-nav-tab="{key}"]')).to_have_count(0)
 

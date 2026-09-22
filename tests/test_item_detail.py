@@ -1,7 +1,12 @@
 """T1 — record footer, wishlist badge, value as-of date, admin integration block."""
+import re
+from pathlib import Path
+
 import pytest
 
-from tests.conftest import _insert_item
+from app.services.item_copies import insert_copy
+from app.services.item_write import update_item_fields
+from tests.conftest import _insert_item, _insert_location
 
 
 class TestRecordFooter:
@@ -23,7 +28,7 @@ class TestRecordFooter:
 class TestWishlistBadge:
     def test_wishlist_badge_present_when_not_owned(self, viewer_client, db):
         item_id = _insert_item(
-            db, title="Wishlist Book", isbn="9789000020027", owned=0,
+            db, title="Wishlist Book", isbn="9789000020027", owned=0, wishlisted=True,
         )
         db.commit()
 
@@ -217,7 +222,7 @@ class TestSeriesProgress:
         first = _insert_item(db, title="Wish One", isbn="9780900002021",
                              series_name="Wish Saga", series_position=1, owned=1)
         _insert_item(db, title="Wish Two", isbn="9789000020225",
-                     series_name="Wish Saga", series_position=2, owned=0)
+                     series_name="Wish Saga", series_position=2, owned=0, wishlisted=True)
         _insert_item(db, title="Wish Three", isbn="9789000020232",
                      series_name="Wish Saga", series_position=3, owned=1)
         db.commit()
@@ -284,30 +289,25 @@ class TestSeriesProgress:
 
 
 class TestBookShapedControls:
-    """Static item actions stay media-shaped; activity is loaded per account.
+    """The item page shows only the controls its item can use.
 
-    The item page keeps provider/cover actions on the shared catalogue record,
-    while personal reading/listening/watching/playing controls are supplied by
-    the HTMX personal-state fragment. This pins both surfaces without leaking
-    another user's activity into the initial shared page render.
+    Retry ISBN keys on the ISBN (the route's own precondition), Push to Hardcover
+    on the book family plus an ISBN or an existing Hardcover id, and Reading
+    Status on the book family — or on anything else while a status is still set,
+    so a stale one can be cleared. Every negative here has row 5 as its positive
+    control, and every row seeds and commits before it requests.
     """
 
     RETRY = "retry-cover"
     PUSH = "Push to Hardcover"
     SYNCED = "Synced to Hardcover"
+    HEADING = ">Reading Status</p>"
     SECTION = 'id="reading-status-section"'
     CLEAR = 'title="Clear status"'
 
-    @staticmethod
-    def _personal(client, item_id):
-        return client.get(f"/api/items/{item_id}/personal-state").text
-
-    @pytest.mark.parametrize(
-        "media_type,activity_heading",
-        [("cd", "Listening Status"), ("video_game", "Playing Status")],
-    )
-    def test_a_disc_or_cartridge_keeps_media_specific_activity_and_page_actions(
-        self, editor_client, db, monkeypatch, media_type, activity_heading,
+    @pytest.mark.parametrize("media_type", ["cd", "video_game"])
+    def test_a_disc_or_cartridge_loses_all_three_and_keeps_the_page(
+        self, editor_client, db, monkeypatch, media_type,
     ):
         monkeypatch.setenv("HARDCOVER_TOKEN", "hc-token")
         item_id = _insert_item(db, title="Not A Book", isbn=None, media_type=media_type)
@@ -319,19 +319,14 @@ class TestBookShapedControls:
         assert resp.status_code == 200
         assert self.RETRY not in html
         assert self.PUSH not in html
-        assert 'hx-get="/api/items/' in html and "/personal-state" in html
-        personal = self._personal(editor_client, item_id)
-        assert activity_heading in personal
-        assert self.SECTION in personal
-        # Music owns its artwork UI; non-music media retain the generic cover controls.
-        if media_type == "cd":
-            assert 'data-testid="cover-controls"' not in html
-        else:
-            assert 'data-testid="cover-controls"' in html
+        assert self.HEADING not in html
+        assert self.SECTION not in html
+        # The page lost three controls, not the page.
+        assert 'data-testid="cover-controls"' in html
         assert f'href="/item/{item_id}/edit' in html
         assert "hx-delete=" in html
 
-    def test_a_book_without_an_isbn_keeps_personal_reading_status_only(
+    def test_a_book_without_an_isbn_keeps_reading_status_only(
         self, editor_client, db, monkeypatch,
     ):
         monkeypatch.setenv("HARDCOVER_TOKEN", "hc-token")
@@ -339,10 +334,9 @@ class TestBookShapedControls:
         db.commit()
 
         html = editor_client.get(f"/item/{item_id}").text
-        personal = self._personal(editor_client, item_id)
 
-        assert "Reading Status" in personal
-        assert self.SECTION in personal
+        assert self.HEADING in html
+        assert self.SECTION in html
         assert self.RETRY not in html
         assert self.PUSH not in html
 
@@ -363,7 +357,7 @@ class TestBookShapedControls:
         assert self.SYNCED in editor_client.get(f"/item/{synced_id}").text
         assert self.PUSH in editor_client.get(f"/item/{linked_id}").text
 
-    def test_a_book_with_an_isbn_carries_catalogue_and_personal_controls(
+    def test_a_book_with_an_isbn_carries_all_three_the_positive_control(
         self, editor_client, db, monkeypatch,
     ):
         monkeypatch.setenv("HARDCOVER_TOKEN", "hc-token")
@@ -371,30 +365,28 @@ class TestBookShapedControls:
         db.commit()
 
         html = editor_client.get(f"/item/{item_id}").text
-        personal = self._personal(editor_client, item_id)
 
         assert self.RETRY in html
         assert self.PUSH in html
-        assert "Reading Status" in personal
-        assert self.SECTION in personal
+        assert self.HEADING in html
 
-    def test_a_disc_with_a_stale_personal_status_can_still_clear_it(self, viewer_client, db):
+    def test_a_disc_with_a_stale_status_can_still_clear_it(self, viewer_client, db):
+        """The undo path — and the G65 pin: the toggle route renders the
+        fragment without book_media_types in context and must not care."""
         item_id = _insert_item(
             db, title="Read DVD", isbn=None, media_type="dvd", reading_status="read",
         )
         db.commit()
 
-        personal = self._personal(viewer_client, item_id)
-        assert "Watching Status" in personal
-        assert self.CLEAR in personal
+        html = viewer_client.get(f"/item/{item_id}").text
+        assert self.HEADING in html
+        assert self.CLEAR in html
 
         resp = viewer_client.post(f"/api/items/{item_id}/reading-status", data={"status": ""})
         assert resp.status_code == 200
         assert self.SECTION in resp.text
 
-        after = self._personal(viewer_client, item_id)
-        assert "Watching Status" in after
-        assert self.CLEAR not in after
+        assert self.HEADING not in viewer_client.get(f"/item/{item_id}").text
 
     def test_a_dvd_with_an_isbn_gets_retry_but_not_hardcover(
         self, editor_client, db, monkeypatch,
@@ -409,12 +401,424 @@ class TestBookShapedControls:
         assert self.RETRY in html
         assert self.PUSH not in html
 
-    def test_a_viewer_gets_listening_status_for_a_cd_from_personal_state(self, viewer_client, db):
+    def test_a_viewer_sees_no_reading_status_on_a_disc(self, viewer_client, db):
         item_id = _insert_item(db, title="Viewer CD", isbn=None, media_type="cd")
         db.commit()
 
-        static_html = viewer_client.get(f"/item/{item_id}").text
-        assert "Listening Status" not in static_html
-        personal = self._personal(viewer_client, item_id)
-        assert "Listening Status" in personal
-        assert self.SECTION in personal
+        assert self.HEADING not in viewer_client.get(f"/item/{item_id}").text
+
+
+class TestFetchSynopsisControl:
+    """The "Fetch synopsis" button (T6) renders only for the synopsis
+    media-type set — `synopsis_media_types`, not `book_media_types` — so
+    comics and manga, which the metadata sources can't answer for, don't
+    get an offer that always fails. Asserted on the element (`data-testid`),
+    never on its prose, per G69."""
+
+    TESTID = 'data-testid="fetch-synopsis"'
+
+    def test_a_book_with_no_description_offers_it(self, editor_client, db):
+        item_id = _insert_item(db, title="No Synopsis Yet", isbn=None, media_type="book")
+        db.commit()
+
+        assert self.TESTID in editor_client.get(f"/item/{item_id}").text
+
+    @pytest.mark.parametrize("media_type", ["comic", "manga"])
+    def test_a_comic_or_manga_does_not_offer_it(self, editor_client, db, media_type):
+        item_id = _insert_item(db, title="No Synopsis Comic", isbn=None, media_type=media_type)
+        db.commit()
+
+        assert self.TESTID not in editor_client.get(f"/item/{item_id}").text
+
+
+class TestLinkedItemsAreFormatOnly:
+    """"Also available as:" claims the target is the same content in another
+    format. media_groups.link_items() also writes 'related' and 'adaptation'
+    links, for which that claim is false — a novel and its film adaptation are
+    different works — so the item page renders format links only.
+
+    Found on a live test drive (2026-09-08): an 'adaptation' link between two
+    distinct books rendered as "Also available as: Book".
+    """
+
+    def test_format_links_are_shown(self, viewer_client, db):
+        from app.services import media_groups
+
+        a = _insert_item(db, title="Novel", media_type="book")
+        b = _insert_item(db, title="Novel (audio)", media_type="audiobook")
+        media_groups.link_items(db, a, b, link_type="format")
+        db.commit()
+
+        html = viewer_client.get(f"/item/{a}").text
+
+        assert "Also available as:" in html
+        assert f'/item/{b}' in html
+
+    @pytest.mark.parametrize("link_type", ["related", "adaptation"])
+    def test_non_format_links_are_not_shown_as_another_format(
+        self, viewer_client, db, link_type
+    ):
+        from app.services import media_groups
+
+        a = _insert_item(db, title="Novel", media_type="book")
+        b = _insert_item(db, title="The Film Of It", media_type="dvd")
+        media_groups.link_items(db, a, b, link_type=link_type)
+        db.commit()
+
+        html = viewer_client.get(f"/item/{a}").text
+
+        assert "Also available as:" not in html
+
+    def test_the_audiobookshelf_linker_still_shows_because_it_defaults_to_format(
+        self, viewer_client, db
+    ):
+        """The ABS linker omits link_type and relies on the column default."""
+        a = _insert_item(db, title="Novel", media_type="book")
+        b = _insert_item(db, title="Novel (audio)", media_type="audiobook")
+        db.execute(
+            "INSERT INTO item_links (item_a_id, item_b_id) VALUES (?, ?)",
+            (min(a, b), max(a, b)),
+        )
+        db.commit()
+
+        html = viewer_client.get(f"/item/{a}").text
+
+        assert "Also available as:" in html
+
+
+class TestCopiesBlock:
+    """The item page reads `item_copies`, not just the `items.location_id`
+    seam (issue #116). A merged item legitimately has copies in two places;
+    before this the page showed only the first."""
+
+    def test_one_placed_copy_renders_the_single_location_line(self, viewer_client, db):
+        office = _insert_location(db, "Office / Bookcase 2 / Shelf 3")
+        item_id = _insert_item(db, title="One Copy", isbn="9789000020034",
+                               location_id=office)
+        insert_copy(db, {"item_id": item_id, "copy_number": 1,
+                         "location_id": office, "is_primary": 1})
+        db.commit()
+
+        html = viewer_client.get(f"/item/{item_id}").text
+
+        assert "Location:" in html
+        assert "Office / Bookcase 2 / Shelf 3" in html
+        assert ">Copies<" not in html
+
+    def test_a_position_is_shown_when_set_and_absent_when_not(self, viewer_client, db):
+        office = _insert_location(db, "Office")
+        placed = _insert_item(db, title="Placed", isbn="9789000020041",
+                              location_id=office)
+        insert_copy(db, {"item_id": placed, "copy_number": 1, "location_id": office,
+                         "is_primary": 1, "position_order": 4})
+        loose = _insert_item(db, title="Loose", isbn="9789000020058",
+                             location_id=office)
+        insert_copy(db, {"item_id": loose, "copy_number": 1, "location_id": office,
+                         "is_primary": 1})
+        db.commit()
+
+        assert "· position 4" in viewer_client.get(f"/item/{placed}").text
+        assert "position" not in viewer_client.get(f"/item/{loose}").text
+
+    def test_two_copies_render_both_locations_under_a_copies_heading(
+        self, viewer_client, db
+    ):
+        office = _insert_location(db, "Office")
+        loft = _insert_location(db, "Loft")
+        item_id = _insert_item(db, title="Merged", isbn="9789000020065",
+                               location_id=office)
+        insert_copy(db, {"item_id": item_id, "copy_number": 1, "location_id": office,
+                         "is_primary": 1})
+        insert_copy(db, {"item_id": item_id, "copy_number": 2, "location_id": loft,
+                         "condition": "Fair", "provenance": "gift"})
+        db.commit()
+
+        html = viewer_client.get(f"/item/{item_id}").text
+
+        assert ">Copies<" in html
+        assert "Office" in html
+        assert "Loft" in html
+        assert "#1" in html and "#2" in html
+        assert "Fair" in html and "gift" in html
+
+    def test_a_copy_with_no_location_reads_as_no_location_not_none(
+        self, viewer_client, db
+    ):
+        office = _insert_location(db, "Office")
+        item_id = _insert_item(db, title="Half Placed", isbn="9789000020072",
+                               location_id=office)
+        insert_copy(db, {"item_id": item_id, "copy_number": 1, "location_id": office,
+                         "is_primary": 1})
+        insert_copy(db, {"item_id": item_id, "copy_number": 2})
+        db.commit()
+
+        html = viewer_client.get(f"/item/{item_id}").text
+
+        assert "No location" in html
+        assert "None" not in html
+
+    def test_an_item_with_no_copies_renders_neither_line_nor_heading(
+        self, viewer_client, db
+    ):
+        item_id = _insert_item(db, title="Unplaced", isbn="9789000020089")
+        db.commit()
+
+        html = viewer_client.get(f"/item/{item_id}").text
+
+        assert "Location:" not in html
+        assert ">Copies<" not in html
+
+    def test_a_located_item_with_no_copies_still_shows_its_location(
+        self, viewer_client, db
+    ):
+        """An upgraded database holds located items with no copy rows at all
+        (G86). `main` rendered `Location: X` for them straight off
+        `items.location_name`; hiding the wrapper on `copies == []` dropped
+        that line, so the page showed no location for an item that has one —
+        a regression, and the item-page half of B5. Distinct from the test
+        above, whose item has no location either."""
+        shelf = _insert_location(db, "Wishlist Shelf")
+        item_id = _insert_item(db, title="Wanted", isbn="9789000020119",
+                               location_id=shelf)
+        db.execute("DELETE FROM item_copies WHERE item_id = ?", (item_id,))
+        db.commit()
+
+        html = viewer_client.get(f"/item/{item_id}").text
+
+        assert "Location:" in html
+        assert "Wishlist Shelf" in html
+        assert ">Copies<" not in html
+        assert 'id="item-copies" class="hidden"' not in html
+
+    def test_clearing_a_location_leaves_no_false_location_line(self, viewer_client, db):
+        """`update_item_fields(..., location_id=None)` keeps the primary copy
+        and nulls its location (pinned in tests/test_item_copies.py). The page
+        must show the same clean empty state it showed before this fragment
+        existed, not the string `Location: None`."""
+        office = _insert_location(db, "Office")
+        item_id = _insert_item(db, title="Cleared", isbn="9789000020096",
+                               location_id=office)
+        insert_copy(db, {"item_id": item_id, "copy_number": 1, "location_id": office,
+                         "is_primary": 1})
+        db.commit()
+
+        update_item_fields(db, item_id, {"location_id": None})
+        db.commit()
+
+        html = viewer_client.get(f"/item/{item_id}").text
+
+        assert "Location:" not in html
+        assert ">Copies<" not in html
+        assert "None" not in html
+
+    def test_a_viewer_sees_the_block_and_it_carries_no_controls(
+        self, viewer_client, db
+    ):
+        """Item detail is `viewer`; every copy mutation is `editor`. A control
+        rendered to a viewer produces a 403 on click, which is the failure
+        that split exists to avoid — so the viewer's page must carry none.
+
+        Asserted against the viewer's *rendered page* rather than the fragment
+        source: since the copies surface landed, the source legitimately holds
+        controls, and they are gated by role at render time. That is the thing
+        worth pinning."""
+        office = _insert_location(db, "Office")
+        loft = _insert_location(db, "Loft")
+        item_id = _insert_item(db, title="Read Only", isbn="9789000020102",
+                               location_id=office)
+        insert_copy(db, {"item_id": item_id, "copy_number": 1, "location_id": office,
+                         "is_primary": 1})
+        insert_copy(db, {"item_id": item_id, "copy_number": 2, "location_id": loft})
+        db.commit()
+
+        html = viewer_client.get(f"/item/{item_id}").text
+
+        assert 'id="item-copies"' in html
+        assert "Loft" in html
+        assert 'data-testid="add-copy"' not in html
+        assert "/api/items/%d/copies" % item_id not in html
+
+    def test_an_editor_gets_an_add_control_on_every_arm(self, admin_client, db):
+        """placed, listed, legacy and the empty state all offer Add copy. The
+        empty state is the one that changed: an owned but unlocated item is
+        exactly where "I own two of these" starts, so it renders for an editor
+        rather than hiding."""
+        office = _insert_location(db, "Office")
+        loft = _insert_location(db, "Loft")
+
+        placed = _insert_item(db, title="Placed", isbn="9789000020126",
+                              location_id=office)
+        insert_copy(db, {"item_id": placed, "copy_number": 1,
+                         "location_id": office, "is_primary": 1})
+
+        listed = _insert_item(db, title="Listed", isbn="9789000020133",
+                              location_id=office)
+        insert_copy(db, {"item_id": listed, "copy_number": 1,
+                         "location_id": office, "is_primary": 1})
+        insert_copy(db, {"item_id": listed, "copy_number": 2, "location_id": loft})
+
+        legacy = _insert_item(db, title="Legacy", isbn="9789000020140",
+                              location_id=office)
+        db.execute("DELETE FROM item_copies WHERE item_id = ?", (legacy,))
+
+        empty = _insert_item(db, title="Empty", isbn="9789000020157")
+        db.execute("DELETE FROM item_copies WHERE item_id = ?", (empty,))
+        db.commit()
+
+        for item_id in (placed, listed, legacy, empty):
+            html = admin_client.get(f"/item/{item_id}").text
+            assert 'data-testid="add-copy"' in html, f"no Add copy on item {item_id}"
+            assert f'hx-post="/api/items/{item_id}/copies"' in html
+            # `hidden` is a CSS class, so the control is in the markup either
+            # way — asserting only on the markup passes against a block that
+            # is hidden from the editor who is supposed to use it.
+            assert 'id="item-copies" class="hidden"' not in html, (
+                f"the block is hidden from an editor on item {item_id}"
+            )
+
+    def test_the_empty_state_stays_hidden_for_a_viewer(self, viewer_client, db):
+        """The wrapper is only `hidden` when there is nothing to show *and*
+        the user cannot edit — otherwise an empty grid cell shifts the cells
+        after it into the wrong column."""
+        item_id = _insert_item(db, title="Nothing", isbn="9789000020164")
+        db.execute("DELETE FROM item_copies WHERE item_id = ?", (item_id,))
+        db.commit()
+
+        html = viewer_client.get(f"/item/{item_id}").text
+
+        assert 'id="item-copies" class="hidden"' in html
+
+    def test_the_add_form_offers_every_location_and_a_no_location_option(
+        self, admin_client, db
+    ):
+        _insert_location(db, "Attic")
+        _insert_location(db, "Basement")
+        item_id = _insert_item(db, title="Picker", isbn="9789000020171")
+        db.commit()
+
+        html = admin_client.get(f"/item/{item_id}").text
+
+        assert '<option value="">No location</option>' in html
+        assert ">Attic<" in html and ">Basement<" in html
+
+    def test_every_control_settles_its_own_swap_destination(self):
+        """G54 — a control in a swapped-in fragment has no ancestor outside it,
+        so an omitted target swaps the whole block into the control itself.
+        The regex reads each element's own opening tag; a page-level
+        `assert "hx-target" in html` is satisfiable by any sibling and defends
+        nothing."""
+        fragments = Path(__file__).resolve().parents[1] / "app" / "templates" / "fragments"
+        # Both halves of the surface: the collapsed block and the panel that
+        # replaces it. The panel is swapped-in content twice over, so its
+        # Save, Cancel and Remove have no ancestor inside the page at all.
+        for name in ("item_copies.html", "item_copy_edit.html"):
+            body = re.sub(r"\{#.*?#\}", "", (fragments / name).read_text(), flags=re.S)
+            issuing = re.findall(r"<[a-z]+\b[^>]*hx-(?:post|get|put|delete)=[^>]*>",
+                                 body, re.S)
+            assert issuing, f"{name} should issue at least one request"
+            for tag in issuing:
+                assert re.search(r'hx-target|hx-swap="(none|outerHTML)"', tag), \
+                    f"{name}: {tag}"
+
+    def test_a_location_path_links_to_browse_on_every_arm(self, viewer_client, db):
+        """The link carries the registered `location_filter` parameter — held
+        to the registry by tests/test_nav.py — and scopes to that node only."""
+        office = _insert_location(db, "Office")
+        loft = _insert_location(db, "Loft")
+
+        placed = _insert_item(db, title="Placed Link", isbn="9789000020188",
+                              location_id=office)
+        insert_copy(db, {"item_id": placed, "copy_number": 1,
+                         "location_id": office, "is_primary": 1})
+
+        listed = _insert_item(db, title="Listed Link", isbn="9789000020195",
+                              location_id=office)
+        insert_copy(db, {"item_id": listed, "copy_number": 1,
+                         "location_id": office, "is_primary": 1})
+        insert_copy(db, {"item_id": listed, "copy_number": 2, "location_id": loft})
+
+        legacy = _insert_item(db, title="Legacy Link", isbn="9789000020201",
+                              location_id=office)
+        db.execute("DELETE FROM item_copies WHERE item_id = ?", (legacy,))
+        db.commit()
+
+        assert f"/browse?location_filter={office}" in viewer_client.get(
+            f"/item/{placed}").text
+        listed_html = viewer_client.get(f"/item/{listed}").text
+        assert f"/browse?location_filter={office}" in listed_html
+        assert f"/browse?location_filter={loft}" in listed_html
+        assert f"/browse?location_filter={office}" in viewer_client.get(
+            f"/item/{legacy}").text
+
+    def test_every_row_offers_an_editor_its_own_edit_control(self, admin_client, db):
+        """Each row's control names its own copy id. Several rows carry the
+        same label, so a control that pointed at a shared route would open the
+        wrong copy's panel — and nothing on the page would look wrong."""
+        office = _insert_location(db, "Office")
+        loft = _insert_location(db, "Loft")
+        item_id = _insert_item(db, title="Two Rows", isbn="9789000020225",
+                               location_id=office)
+        first = insert_copy(db, {"item_id": item_id, "copy_number": 1,
+                                 "location_id": office, "is_primary": 1})
+        second = insert_copy(db, {"item_id": item_id, "copy_number": 2,
+                                  "location_id": loft})
+        db.commit()
+
+        html = admin_client.get(f"/item/{item_id}").text
+
+        for copy_id in (first, second):
+            assert f'data-testid="edit-copy-{copy_id}"' in html
+            assert f'hx-get="/api/items/{item_id}/copies/{copy_id}/edit"' in html
+
+    def test_a_single_copy_line_also_offers_edit(self, admin_client, db):
+        office = _insert_location(db, "Office")
+        # A decoy copy on another item first, so this item's copy is not id 1.
+        # `item_copies.id` is AUTOINCREMENT and each test gets a fresh
+        # database, so without the decoy a control hardcoded to `/copies/1/`
+        # satisfies the assertion below by coincidence — the pin would pass
+        # against a control that opens the wrong copy's panel.
+        decoy = _insert_item(db, title="Decoy", isbn="9789000020256")
+        insert_copy(db, {"item_id": decoy, "copy_number": 1, "is_primary": 1})
+        item_id = _insert_item(db, title="One Row", isbn="9789000020232",
+                               location_id=office)
+        only = insert_copy(db, {"item_id": item_id, "copy_number": 1,
+                                "location_id": office, "is_primary": 1})
+        assert only != 1, "the decoy should have taken id 1"
+        db.commit()
+
+        html = admin_client.get(f"/item/{item_id}").text
+
+        assert f'data-testid="edit-copy-{only}"' in html
+        # The destination, not just the marker: a control carrying the right
+        # test id and the wrong copy id opens someone else's panel, and
+        # nothing on the page looks wrong.
+        assert f'hx-get="/api/items/{item_id}/copies/{only}/edit"' in html
+
+    def test_a_viewer_gets_no_edit_control(self, viewer_client, db):
+        office = _insert_location(db, "Office")
+        loft = _insert_location(db, "Loft")
+        item_id = _insert_item(db, title="No Edit", isbn="9789000020249",
+                               location_id=office)
+        insert_copy(db, {"item_id": item_id, "copy_number": 1,
+                         "location_id": office, "is_primary": 1})
+        insert_copy(db, {"item_id": item_id, "copy_number": 2, "location_id": loft})
+        db.commit()
+
+        html = viewer_client.get(f"/item/{item_id}").text
+
+        assert "data-testid=\"edit-copy-" not in html
+        assert "/edit" not in html
+
+    def test_a_copy_with_no_location_gets_no_link(self, viewer_client, db):
+        office = _insert_location(db, "Office")
+        item_id = _insert_item(db, title="Half Linked", isbn="9789000020218",
+                               location_id=office)
+        insert_copy(db, {"item_id": item_id, "copy_number": 1,
+                         "location_id": office, "is_primary": 1})
+        insert_copy(db, {"item_id": item_id, "copy_number": 2})
+        db.commit()
+
+        html = viewer_client.get(f"/item/{item_id}").text
+
+        assert "No location" in html
+        assert "/browse?location_filter=None" not in html

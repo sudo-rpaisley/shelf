@@ -9,7 +9,7 @@ import pytest
 import respx
 
 from app.services import vision
-from tests.conftest import _insert_item
+from tests.conftest import _assert_ownership_partition, _insert_item
 
 OL_SEARCH_URL = "https://openlibrary.org/search.json"
 ANTHROPIC_URL = "https://api.anthropic.com/v1/messages"
@@ -823,10 +823,11 @@ class TestConfirmEndpoint:
         row = db.execute("SELECT * FROM items WHERE title = 'Obscure Zine'").fetchone()
         assert row["isbn"] is None
         assert row["owned"] == 0
+        _assert_ownership_partition(db)
 
     def test_unknown_media_type_rejected(self, admin_client):
         resp = admin_client.post("/api/intake/confirm", json={
-            "books": [{"title": "Something", "media_type": "laserdisc"}],
+            "books": [{"title": "Something", "media_type": "not-a-media-type"}],
         })
         assert resp.status_code == 422
 
@@ -859,7 +860,7 @@ class TestConfirmEndpoint:
         }]}))
 
         resp = admin_client.post("/api/intake/confirm", json={
-            "books": [{"title": "Goodnight Moon", "authors": None, "media_type": "kids_book"}],
+            "books": [{"title": "Goodnight Moon", "authors": None, "media_type": "ebook"}],
         })
         data = resp.json()
         assert data["skipped"] == []
@@ -957,21 +958,22 @@ class TestConfirmWithIsbn:
         route = respx.get(OL_SEARCH_URL).mock(return_value=httpx.Response(200, json={"docs": []}))
         resp = admin_client.post("/api/intake/confirm", json={
             "books": [{"title": "DUNE", "authors": "F. Herbert",
-                       "isbn": "978-0-441-17271-9", "media_type": "kids_book"}],
+                       "isbn": "978-0-441-17271-9", "media_type": "ebook"}],
             "owned": False,
         })
         data = resp.json()
         assert data["added"] == [{
             "title": "Dune", "id": data["added"][0]["id"],
-            "matched": True, "lookup": "matched"}]
+            "matched": True, "lookup": "matched", "restored": False}]
         row = db.execute("SELECT * FROM items WHERE isbn = ?", (ISBN13,)).fetchone()
         assert row["title"] == "Dune"                 # catalogue's, not the row's
         assert row["subtitle"] == "A Novel"
         assert row["description"] == "Spice."
         assert row["series_name"] == "Dune Chronicles"
-        assert row["media_type"] == "kids_book"
+        assert row["media_type"] == "ebook"
         assert row["source"] == "photo_intake"
         assert row["owned"] == 0
+        _assert_ownership_partition(db)
         assert row["hardcover_book_id"] == 42
         assert route.called is False                  # no weak-path search
 
@@ -2255,3 +2257,49 @@ class TestNonBookRowStaysOffTheCoverQueueHandOff:
 
         assert resp.status_code == 200
         assert queued_ids == []
+
+
+class TestTheRetiredKidsBookAlias:
+    """The intake validator canonicalises before its membership test, so a
+    plan built before the retirement still confirms — and every later step,
+    the ISBN dupe guard included, sees one spelling."""
+
+    @respx.mock
+    def test_a_kids_book_row_confirms_and_stores_a_book(self, admin_client, db):
+        respx.get(OL_SEARCH_URL).mock(return_value=httpx.Response(200, json={"docs": [{
+            "title": "Goodnight Moon", "author_name": None, "isbn": ["9780060775858"],
+        }]}))
+
+        resp = admin_client.post("/api/intake/confirm", json={
+            "books": [{"title": "Goodnight Moon", "authors": None,
+                       "media_type": "kids_book"}],
+        })
+
+        assert resp.status_code == 200, resp.text
+        data = resp.json()
+        assert data["skipped"] == []
+        assert len(data["added"]) == 1
+        row = db.execute(
+            "SELECT media_type FROM items WHERE title = ?", ("Goodnight Moon",)
+        ).fetchone()
+        assert row["media_type"] == "book"
+
+    @respx.mock
+    def test_it_dedupes_against_an_existing_book_isbn(self, admin_client, db):
+        """Without canonicalisation in the validator the request would 422
+        outright; with the raw value reaching the guard it would miss the
+        stored `book` row and add a duplicate."""
+        _insert_item(db, title="Goodnight Moon (1st ed)",
+                     isbn="9780060775858", media_type="book")
+        db.execute("COMMIT")
+        respx.get(OL_SEARCH_URL).mock(return_value=httpx.Response(200, json={"docs": [{
+            "title": "Goodnight Moon", "author_name": None, "isbn": ["9780060775858"],
+        }]}))
+
+        resp = admin_client.post("/api/intake/confirm", json={
+            "books": [{"title": "Goodnight Moon", "authors": None,
+                       "media_type": "kids_book"}],
+        })
+
+        assert resp.status_code == 200, resp.text
+        assert resp.json()["skipped"][0]["reason"] == "ISBN already in library"

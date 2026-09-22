@@ -86,15 +86,22 @@ class TestTagEndpoints:
         resp = _add_tag(viewer_client, item_id, "signed")
         assert resp.status_code in (401, 403)
 
-    def test_item_delete_cascades(self, admin_client, db):
+    def test_item_delete_keeps_the_tag_for_restore_and_purge_cascades(self, admin_client, db):
         item_id = _insert_item(db)
         db.execute("COMMIT")
         _add_tag(admin_client, item_id, "signed")
         admin_client.delete(f"/api/items/{item_id}")
-        count = db.execute(
-            "SELECT COUNT(*) as c FROM item_tags WHERE item_id = ?", (item_id,)
-        ).fetchone()["c"]
-        assert count == 0
+
+        def links():
+            return db.execute(
+                "SELECT COUNT(*) as c FROM item_tags WHERE item_id = ?", (item_id,)
+            ).fetchone()["c"]
+
+        # Delete moves the item to Trash; its tag link waits for a restore.
+        assert links() == 1
+        # Delete permanently is where the cascade fires.
+        assert admin_client.delete(f"/api/trash/items/{item_id}").status_code == 200
+        assert links() == 0
 
 
 class TestTagFiltering:

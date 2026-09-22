@@ -15,17 +15,6 @@ KRISTY_UPC5 = "07807300350143506"
 KRISTY_ISBN13 = "9780590435062"
 KRISTY_OTHER_ISBN13 = "9780439435062"
 KRISTY_EAN13_PLUS5 = "007807300350143506"
-LEGACY_MAPPING_DESCRIPTION = "Add confirmed legacy book barcode mappings"
-
-
-def _legacy_mapping_version() -> int:
-    matches = [
-        version
-        for version, description, _sql in MIGRATIONS
-        if description == LEGACY_MAPPING_DESCRIPTION
-    ]
-    assert len(matches) == 1
-    return matches[0]
 
 
 def _metadata(title: str) -> dict:
@@ -70,6 +59,57 @@ def test_formatted_and_zero_padded_scans_share_one_identity():
 def test_unsupported_or_invalid_inputs_fail_closed(raw):
     assert legacy_book.parse(raw) is None
     assert legacy_book.isbn13_candidates(raw) == ()
+
+
+KRISTY_UPC = "078073003501"
+KRISTY_SUPPLEMENT = "43506"
+
+
+@pytest.mark.parametrize(
+    "raw",
+    [
+        "078073003501",
+        "0078073003501",
+        "0 78073 00350 1",
+    ],
+)
+def test_incomplete_accepts_known_bare_upc_in_tolerated_forms(raw):
+    assert legacy_book.incomplete(raw) == KRISTY_UPC
+
+
+@pytest.mark.parametrize(
+    "raw",
+    [
+        KRISTY_UPC5,  # 17-digit full form is not "incomplete"
+        "078073003502",  # invalid UPC-A check digit
+        "025192107801",  # valid UPC-A, unknown publisher prefix
+        "",
+        "1078073003501",  # 13 digits, not zero-led
+    ],
+)
+def test_incomplete_rejects_unknown_or_malformed_input(raw):
+    assert legacy_book.incomplete(raw) is None
+
+
+def test_complete_combines_known_upc_with_typed_supplement():
+    assert legacy_book.complete(KRISTY_UPC, KRISTY_SUPPLEMENT) == KRISTY_UPC5
+
+
+@pytest.mark.parametrize(
+    "supplement",
+    ["4350", "435067", "abcde", ""],
+)
+def test_complete_rejects_malformed_supplements(supplement):
+    assert legacy_book.complete(KRISTY_UPC, supplement) is None
+
+
+def test_complete_rejects_a_non_legacy_upc_even_with_a_valid_supplement():
+    assert legacy_book.complete("025192107801", KRISTY_SUPPLEMENT) is None
+
+
+@pytest.mark.parametrize("raw", [KRISTY_UPC5, KRISTY_EAN13_PLUS5])
+def test_incomplete_is_disjoint_from_full_legacy_forms(raw):
+    assert legacy_book.incomplete(raw) is None
 
 
 def test_mapping_table_rejects_noncanonical_values(db):
@@ -148,12 +188,15 @@ def test_resolver_does_not_swallow_cancellation():
         asyncio.run(legacy_book.resolve(KRISTY_UPC5, lookup))
 
 
-def test_mapping_table_exists_in_a_fresh_database_and_migration_is_unique(db):
-    # Fork migrations occupy the numbers after upstream's original slot, so
-    # the integration moved this migration to 46. Later fork features may add
-    # newer migrations; the invariant is identity/uniqueness, not "latest".
-    assert _legacy_mapping_version() == 46
-    assert len({version for version, _, _ in MIGRATIONS}) == len(MIGRATIONS)
+def test_mapping_table_exists_in_a_fresh_database_and_migration_24_is_append_only(db):
+    versions = [version for version, _, _ in MIGRATIONS]
+    assert versions == sorted(versions)
+    assert 24 in versions
+
+    version, description, sql = next(m for m in MIGRATIONS if m[0] == 24)
+    assert version == 24
+    assert description == "Add confirmed legacy book barcode mappings"
+    assert "CREATE TABLE IF NOT EXISTS legacy_book_mappings" in sql
 
     columns = {
         row[1] for row in db.execute("PRAGMA table_info(legacy_book_mappings)")
@@ -161,18 +204,17 @@ def test_mapping_table_exists_in_a_fresh_database_and_migration_is_unique(db):
     assert columns == {"barcode", "isbn13", "confirmed_at"}
 
 
-def test_mapping_migration_upgrades_a_database_missing_only_that_migration(db):
-    version = _legacy_mapping_version()
+def test_mapping_migration_upgrades_a_database_that_has_only_previous_versions(db):
     db.execute("DROP TABLE legacy_book_mappings")
-    db.execute("DELETE FROM schema_version WHERE version = ?", (version,))
+    db.execute("DELETE FROM schema_version WHERE version = 24")
     db.commit()
 
     _run_migrations(db)
     db.commit()
 
     assert db.execute(
-        "SELECT description FROM schema_version WHERE version = ?", (version,)
-    ).fetchone()["description"] == LEGACY_MAPPING_DESCRIPTION
+        "SELECT description FROM schema_version WHERE version = 24"
+    ).fetchone()["description"] == "Add confirmed legacy book barcode mappings"
     assert {
         row[1] for row in db.execute("PRAGMA table_info(legacy_book_mappings)")
     } == {"barcode", "isbn13", "confirmed_at"}

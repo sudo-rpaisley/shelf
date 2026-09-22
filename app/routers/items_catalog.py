@@ -14,10 +14,10 @@ from fastapi import APIRouter, Depends, Form, Request
 from fastapi.responses import HTMLResponse, JSONResponse
 
 from app.auth import require_role
-from app.config import HTTP_TIMEOUT, MEDIA_TYPES
+from app.config import BOOK_MEDIA_TYPES, HTTP_TIMEOUT, MEDIA_TYPES, canonical_media_type
 from app.database import get_db, get_game_platforms, get_setting
 from app.routers import items_common
-from app.services import covers, igdb, openlibrary, scan_outcome, tmdb
+from app.services import covers, igdb, openlibrary, restore_report, scan_outcome, tmdb
 from app.services import isbn as isbn_svc
 from app.services import upc as upc_svc
 from app.services.item_write import ItemValueError, insert_item, validated_location_id
@@ -62,7 +62,7 @@ async def search_games(
     return templates.TemplateResponse(
         request, "fragments/game_search_results.html",
         {
-            "results": results, "platform": platform,
+            "results": results, "platform": platform, "query": q.strip(),
             "search_status": search_status, "search_provider": search_provider,
         },
     )
@@ -122,7 +122,7 @@ async def add_game_from_search(
     with get_db() as db:
         db.execute("BEGIN IMMEDIATE")
         existing = db.execute(
-            "SELECT id, title FROM items WHERE title = ? AND media_type = 'video_game' AND platform = ?",
+            "SELECT id, title FROM items_live WHERE title = ? AND media_type = 'video_game' AND platform = ?",
             (metadata["title"], platform_val),
         ).fetchone()
         if existing is None:
@@ -138,7 +138,6 @@ async def add_game_from_search(
                     publisher=metadata.get("publisher"),
                     publish_year=metadata.get("publish_year"),
                     series_name=metadata.get("series_name"),
-                    series_memberships=metadata.get("series_memberships"),
                     platform=platform_val,
                     location_id=loc_id,
                     source="igdb",
@@ -183,8 +182,6 @@ async def add_game_from_search(
     resp.headers["HX-Trigger"] = items_common._toast_header(f"Added: {metadata['title'][:50]}")
     return resp
 
-BOOK_MEDIA_TYPES = {"book", "kids_book", "audiobook", "ebook", "comic", "digital_comic"}
-
 @router.get("/title-search")
 async def title_search(
     request: Request,
@@ -196,6 +193,7 @@ async def title_search(
     """Unified title search — routes to the right backend based on media type."""
     if not q.strip():
         return HTMLResponse("")
+    media_type = canonical_media_type(media_type)
     if media_type == "video_game":
         return await search_games(request, q=q, platform=platform, _=_)
     if media_type == "dvd":
@@ -220,6 +218,9 @@ async def search_books(
     templates = request.app.state.templates
     if not q.strip():
         return HTMLResponse("")
+    # The fragment renders this straight into the add form's hidden field,
+    # so a retired value would otherwise ride back out to the client.
+    media_type = canonical_media_type(media_type)
 
     with get_db() as db:
         search_lang = get_setting(db, "metadata_search_lang") or "en"
@@ -249,6 +250,7 @@ async def add_book_from_search(
 ):
     """Add a book to the collection from a title search result (by ISBN)."""
     templates = request.app.state.templates
+    media_type = canonical_media_type(media_type)
     # The `auto` guard, kept in front of the lookup below so a bad value never
     # costs a provider call; the funnel checks the value again on the save.
     if not items_common.is_valid_media_type(media_type):
@@ -275,7 +277,7 @@ async def add_book_from_search(
         except ItemValueError as e:
             location_error = str(e)
         existing = db.execute(
-            "SELECT id, title FROM items WHERE isbn = ? AND media_type = ?",
+            "SELECT id, title FROM items_live WHERE isbn = ? AND media_type = ?",
             (isbn13, media_type),
         ).fetchone()
     if location_error:
@@ -310,24 +312,32 @@ async def add_book_from_search(
 
         item_id = items_common._save_item(metadata, isbn13, media_type, location_id, source, hc_ids)
 
-        hc_cover = metadata.get("cover_url") if source == "hardcover" else hc_ids.get("cover_url")
-        cover_path = await covers.download_cover(
-            item_id, isbn13,
-            metadata.get("cover_url") if source != "hardcover" else None,
-            metadata.get("cover_id"), client,
-            hardcover_cover_url=hc_cover,
-        )
-        if cover_path:
-            with get_db() as db:
-                db.execute("UPDATE items SET cover_path = ? WHERE id = ?", (cover_path, item_id))
+        # Cover kept: skip the download entirely on a restored row that
+        # already has one — a skipped download is also a skipped outbound
+        # call for a cover we would then discard (claude-R8).
+        cover_path = None
+        if not restore_report.keeps_stored_cover(item_id):
+            hc_cover = metadata.get("cover_url") if source == "hardcover" else hc_ids.get("cover_url")
+            cover_path = await covers.download_cover(
+                item_id, isbn13,
+                metadata.get("cover_url") if source != "hardcover" else None,
+                metadata.get("cover_id"), client,
+                hardcover_cover_url=hc_cover,
+            )
+            if cover_path:
+                with get_db() as db:
+                    db.execute("UPDATE items SET cover_path = ? WHERE id = ?", (cover_path, item_id))
 
-    items_common._log_scan(isbn13, media_type, "added", item_id)
+    status = restore_report.restored_status(item_id, "added")
+    items_common._log_scan(isbn13, media_type, status, item_id)
 
     resp = templates.TemplateResponse(
         request, "fragments/scan_result.html",
         {
-            "status": "added", "isbn": isbn13, "title": metadata["title"],
-            "authors": metadata.get("authors"), "cover_path": cover_path,
+            "status": status, "isbn": isbn13,
+            **({"title": metadata["title"], "authors": metadata.get("authors"),
+                "cover_path": cover_path}
+               if status != "restored" else restore_report.restored_card(item_id)),
             "item_id": item_id, "source": source,
             "media_type_label": MEDIA_TYPES.get(media_type, media_type),
         },
@@ -401,21 +411,6 @@ async def add_dvd_from_search(
     else:
         year = None
 
-    # Fetch richer TMDb grouping metadata before the write lock. Network I/O
-    # must never happen while BEGIN IMMEDIATE is held.
-    series_name = None
-    series_memberships = None
-    if tmdb_id:
-        with get_db() as db:
-            tmdb_key = get_setting(db, "tmdb_api_key")
-        if tmdb_key:
-            async with httpx.AsyncClient(timeout=HTTP_TIMEOUT) as client:
-                detail = await tmdb.lookup_movie(tmdb_id, tmdb_key, client)
-            if detail.found:
-                detail_meta = detail.payload or {}
-                series_name = detail_meta.get("series_name")
-                series_memberships = detail_meta.get("series_memberships")
-
     # The funnel's own <=0-is-no-location rule applies on write; no need to
     # pre-map the sentinel here (#54).
     loc_id = location_id
@@ -433,7 +428,7 @@ async def add_dvd_from_search(
     with get_db() as db:
         db.execute("BEGIN IMMEDIATE")
         existing = db.execute(
-            "SELECT id, title FROM items WHERE title = ? AND media_type = 'dvd'",
+            "SELECT id, title FROM items_live WHERE title = ? AND media_type = 'dvd'",
             (title,),
         ).fetchone()
         if existing is None:
@@ -447,8 +442,6 @@ async def add_dvd_from_search(
                     description=description or None,
                     media_type="dvd",
                     publish_year=year,
-                    series_name=series_name,
-                    series_memberships=series_memberships,
                     location_id=loc_id,
                     source="tmdb",
                 )

@@ -4,11 +4,20 @@ function scanPage() {
         // Auto for a *new* user. A stored value is deliberately never
         // migrated: "book" is also what someone who scans books chose, and
         // reinterpreting that as "no choice" is guessing at intent. The
-        // barcode rule (§1) is what reaches those users instead.
-        mediaType: localStorage.getItem('shelf_media_type') || 'auto',
+        // barcode rule (§1) is what reaches those users instead. The one
+        // exception is `kids_book`: that option no longer exists, so a
+        // device whose cache still holds it is normalized to `book` here
+        // and the stored value corrected, not merely reinterpreted.
+        mediaType: (function () {
+            var v = localStorage.getItem('shelf_media_type') || 'auto';
+            if (v === 'kids_book') {
+                v = 'book';
+                localStorage.setItem('shelf_media_type', v);
+            }
+            return v;
+        })(),
         platform: localStorage.getItem('shelf_platform') || '',
         location: localStorage.getItem('shelf_location') || '',
-        shelfLocation: localStorage.getItem('shelf_fill_location') || '',
         borrowerId: '',
         cameraActive: false,
         scanPaused: false,
@@ -19,10 +28,10 @@ function scanPage() {
         lastScanTime: 0,
         inventoryScannedIds: [],
         isZxingFallback: false,
+        manualOpen: false,
 
         modes: [
             {id: 'add', label: 'Add'},
-            {id: 'shelf_fill', label: 'Shelf Fill'},
             {id: 'wishlist', label: 'Wishlist'},
             {id: 'lend', label: 'Lend'},
             {id: 'return', label: 'Return'},
@@ -35,7 +44,6 @@ function scanPage() {
         get modeConfig() {
             var configs = {
                 add: {heading: 'Add Items', description: 'Scan barcodes to add items to your collection.'},
-                shelf_fill: {heading: 'Shelf Filling', description: 'Pick a precise shelf or sub-location, then scan items in the order they sit. New items are added; existing items are moved.'},
                 wishlist: {heading: 'Add to Wishlist', description: 'Scan to save items you want but haven\'t bought yet.'},
                 lend: {heading: 'Lend Items', description: 'Select a borrower, then scan items to check them out.'},
                 'return': {heading: 'Return Items', description: 'Scan items to check them back in.'},
@@ -61,6 +69,10 @@ function scanPage() {
                 });
         },
 
+        toggleManual() {
+            this.manualOpen = !this.manualOpen;
+        },
+
         setMode(m) {
             this.mode = m;
             localStorage.setItem('shelf_scan_mode', m);
@@ -71,7 +83,6 @@ function scanPage() {
             if (si) si.value = '';
             var sr = document.getElementById('title-search-results');
             if (sr) sr.innerHTML = '';
-            this.updateShelfFillVisibility();
         },
 
         // @change handlers (CSP build: no localStorage/document in templates)
@@ -87,108 +98,49 @@ function scanPage() {
             localStorage.setItem('shelf_location', this.location);
         },
 
-        persistShelfLocation() {
-            var select = document.getElementById('shelf-fill-location');
-            this.shelfLocation = select ? select.value : '';
-            localStorage.setItem('shelf_fill_location', this.shelfLocation);
-        },
-
         persistPlatform() {
             localStorage.setItem('shelf_platform', this.platform);
-        },
-
-        updateShelfFillVisibility() {
-            var wrap = document.getElementById('shelf-fill-location-wrap');
-            if (wrap) wrap.style.display = this.mode === 'shelf_fill' ? '' : 'none';
-        },
-
-        installShelfFillPicker() {
-            var self = this;
-            var form = document.querySelector('form[hx-post="/api/scan"]');
-            if (!form || document.getElementById('shelf-fill-picker-host')) return;
-
-            var host = document.createElement('div');
-            host.id = 'shelf-fill-picker-host';
-            var card = form.querySelector('.bg-shelf-card');
-            if (card) form.insertBefore(host, card);
-            else form.appendChild(host);
-
-            fetch('/api/shelf-fill/location-picker')
-                .then(function(r) {
-                    if (!r.ok) throw new Error('HTTP ' + r.status);
-                    return r.text();
-                })
-                .then(function(html) {
-                    host.innerHTML = html;
-                    var select = document.getElementById('shelf-fill-location');
-                    if (select) {
-                        select.value = self.shelfLocation;
-                        if (select.value !== self.shelfLocation) {
-                            self.shelfLocation = '';
-                            localStorage.removeItem('shelf_fill_location');
-                        }
-                        select.addEventListener('change', function() {
-                            self.persistShelfLocation();
-                        });
-                    }
-                    self.updateShelfFillVisibility();
-                })
-                .catch(function() {
-                    host.innerHTML = '';
-                    if (self.mode === 'shelf_fill') {
-                        showToast('Could not load shelf locations', 'error');
-                    }
-                });
-        },
-
-        async placeDeferredResult(html) {
-            if (this.mode !== 'shelf_fill' || !this.shelfLocation || !html) return;
-
-            var tmp = document.createElement('div');
-            tmp.innerHTML = html;
-            var incoming = tmp.querySelector('.scan-result');
-            if (!incoming) return;
-            var status = incoming.getAttribute('data-scan-status') || '';
-            if (status !== 'added' && status !== 'duplicate') return;
-
-            var link = incoming.querySelector('a[href^="/item/"]');
-            if (!link) return;
-            var match = link.getAttribute('href').match(/\/item\/(\d+)/);
-            if (!match) return;
-            var itemId = parseInt(match[1]);
-
-            var body = new FormData();
-            body.set('item_id', itemId);
-            body.set('location_node_id', this.shelfLocation);
-            try {
-                var resp = await fetch('/api/shelf-fill/place', {
-                    method: 'POST',
-                    headers: {'X-CSRF-Token': window.csrfToken()},
-                    body: body
-                });
-                if (!resp.ok) throw new Error('HTTP ' + resp.status);
-                var replacement = await resp.text();
-                var cards = document.querySelectorAll('#scan-results .scan-result');
-                for (var i = 0; i < cards.length; i++) {
-                    var cardLink = cards[i].querySelector('a[href="/item/' + itemId + '"]');
-                    var cardStatus = cards[i].getAttribute('data-scan-status') || '';
-                    if (cardLink && (cardStatus === 'added' || cardStatus === 'duplicate')) {
-                        cards[i].outerHTML = replacement;
-                        var first = document.querySelector('#scan-results .scan-result');
-                        if (first) htmx.process(first);
-                        break;
-                    }
-                }
-            } catch (err) {
-                showToast('Item was added, but could not be placed on the selected shelf', 'error');
-            }
         },
 
         // Client-side validation before form submit
         init() {
             var self = this;
+
+            // The manual panel's open state is seeded server-side from
+            // ?add=manual, so there is no URL parsing here and no
+            // open-then-populate flash.
+            var seed = document.querySelector('[data-manual-open]');
+            this.manualOpen = !!(seed && seed.dataset.manualOpen === 'true');
+
+            // ...but `mode` is restored from localStorage above, and six of
+            // the eight modes hide the panel AND its only toggle. Without
+            // this, every returning user whose last mode was Lookup follows
+            // Home's "Add by hand" link and sees nothing change. Normalize
+            // before Alpine paints. A seeded 'wishlist' is preserved:
+            // arriving by deep link must not move someone off wishlist mode.
+            if (this.manualOpen && this.mode !== 'add' && this.mode !== 'wishlist') {
+                this.mode = 'add';
+                localStorage.setItem('shelf_scan_mode', 'add');
+            }
+
+            // One delegated listener for every way in (#120). A button in a
+            // swapped-in search-result fragment has no reliable Alpine scope
+            // and the CSP forbids inline onclick, so each way in is a plain
+            // button carrying three data attributes and no JS of its own —
+            // and it survives every HTMX swap.
+            document.addEventListener('click', function (e) {
+                var btn = e.target.closest ? e.target.closest('[data-manual-add]') : null;
+                if (!btn) return;
+                e.preventDefault();
+                self.manualOpen = true;
+                window.dispatchEvent(new CustomEvent('shelf:manual-add', {
+                    detail: {
+                        title: btn.dataset.manualAddTitle || '',
+                        media_type: btn.dataset.manualAddType || ''
+                    }
+                }));
+            });
             var form = document.querySelector('form[hx-post="/api/scan"]');
-            this.installShelfFillPicker();
             if (form) {
                 form.addEventListener('htmx:beforeRequest', function(e) {
                     if (self.mode === 'lend' && !self.borrowerId) {
@@ -201,30 +153,13 @@ function scanPage() {
                         showToast('Select a location first', 'error');
                         return false;
                     }
-                    if (self.mode === 'shelf_fill' && !self.shelfLocation) {
-                        e.preventDefault();
-                        showToast('Select a shelf location first', 'error');
-                        return false;
-                    }
-                });
-                form.addEventListener('htmx:configRequest', function(e) {
-                    if (self.mode === 'shelf_fill') {
-                        e.detail.path = '/api/shelf-fill/scan';
-                    }
                 });
             }
 
-            // Metadata misses and magazine scans can render a second-step form.
-            // Once that form eventually creates or resolves an item, place it
-            // on the still-selected precise shelf without asking again.
-            document.body.addEventListener('htmx:afterRequest', function(e) {
-                if (self.mode !== 'shelf_fill' || !e.detail.successful) return;
-                var el = e.detail.elt;
-                if (!el || !el.closest || !el.closest('#scan-results')) return;
-                var xhr = e.detail.xhr;
-                if (xhr && xhr.responseText) self.placeDeferredResult(xhr.responseText);
-            });
-
+            // A legacy ambiguity is submitted by a nested HTMX form rather
+            // than by onScan's fetch. The replacement card carries the item
+            // link only after the user confirms it, so account for that
+            // response here before the inventory missing check runs.
             document.body.addEventListener('htmx:afterSwap', function(e) {
                 var target = e.detail && e.detail.target;
                 var card = target && target.matches &&
@@ -235,8 +170,6 @@ function scanPage() {
                 self.recordInventoryItem(card);
                 card.removeAttribute('data-scan-inventory-confirmed');
             });
-
-            this.updateShelfFillVisibility();
         },
 
         recordInventoryItem(root) {
@@ -342,10 +275,6 @@ function scanPage() {
                 showToast('Select a location first', 'error');
                 return;
             }
-            if (this.mode === 'shelf_fill' && !this.shelfLocation) {
-                showToast('Select a shelf location first', 'error');
-                return;
-            }
 
             var now = Date.now();
             if (code === this.lastScanned && now - this.lastScanTime < 3000) return;
@@ -379,9 +308,8 @@ function scanPage() {
             formData.set('isbn', code);
             formData.set('mode', this.mode);
             if (this.mode === 'lend') formData.set('borrower_id', this.borrowerId);
-            var endpoint = this.mode === 'shelf_fill' ? '/api/shelf-fill/scan' : '/api/scan';
             try {
-                var resp = await fetch(endpoint, { method: 'POST', headers: { 'X-CSRF-Token': window.csrfToken() }, body: formData });
+                var resp = await fetch('/api/scan', { method: 'POST', headers: { 'X-CSRF-Token': window.csrfToken() }, body: formData });
                 if (!resp.ok) throw new Error('HTTP ' + resp.status);
                 var html = await resp.text();
 
@@ -398,7 +326,12 @@ function scanPage() {
                 tmp.innerHTML = html;
                 var outcome = scanCardOutcome(tmp.querySelector('.scan-result'));
 
-                if (outcome && outcome.status === 'legacy_ambiguous') {
+                // Both legacy cards require the user's interaction with the
+                // card below the camera — an ambiguous choice, or the five
+                // typed digits. Stop scanning so another frame cannot enqueue
+                // a second unresolved choice and swap the card out from
+                // under the user.
+                if (outcome && (outcome.status === 'legacy_ambiguous' || outcome.status === 'legacy_incomplete')) {
                     if (this.scanner) {
                         try { await this.scanner.stop(); } catch (e) {}
                         this.scanner = false;
@@ -407,7 +340,7 @@ function scanPage() {
                     this.scanPaused = false;
                     this.scanLoading = false;
                     this.scanResult = false;
-                    showToast('Choose the matching book below', 'warning');
+                    showToast(outcome.status === 'legacy_ambiguous' ? 'Choose the matching book below' : 'Type the five digits below', 'warning');
                     return;
                 }
 
@@ -421,7 +354,7 @@ function scanPage() {
                     isbn: code
                 };
 
-                // Track item IDs for inventory mode.
+                // Track item IDs for inventory mode
                 this.recordInventoryItem(tmp);
             } catch (err) {
                 this.scanResult = { ok: false, warn: false, label: 'error', title: 'Scan failed', isbn: code };

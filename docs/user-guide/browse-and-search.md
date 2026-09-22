@@ -57,13 +57,14 @@ Filter chips along the top, all combinable:
 | Filter | Values |
 |---|---|
 | **Search** | Free text over title, author, ISBN, series, publisher |
-| **Type** | Book, kids book, audiobook, eBook, DVD / Blu-ray, CD, comic, video game |
+| **Type** | Book, audiobook, eBook, DVD / Blu-ray, CD, comic, Manga, video game |
 | **Location** | Any location, or "no location" |
 | **Reading status** | Want to read, reading, read, none |
-| **Owned** | Owned / wishlist |
+| **Owned** | All / Owned / Wishlist / Not owned or wishlisted |
 | **Lent out** | Items currently checked out |
 | **Tag** | Any custom tag |
 | **Language** | Edition language (captured on lookup) |
+| **Source** | How the item arrived — a sync (RomM, Komga, Audiobookshelf), a metadata provider, a CSV import, Photo Intake, or Manual. Only sources your library actually contains are listed |
 
 Counts next to each value update as you narrow down, and they tell you what
 you would get if you picked that value — counted against your other active

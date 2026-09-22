@@ -9,7 +9,7 @@ from app.auth import require_role
 from app.config import DATABASE_PATH, DATA_DIR
 from app.crypto import SENSITIVE_KEYS, encrypt_value, get_encryption_key
 from app.currency import CURRENCIES, invalidate_cache as invalidate_currency_cache
-from app.database import get_db, get_setting
+from app.database import get_db, get_setting, set_setting
 from app.nav import HIDEABLE_KEYS, invalidate_cache as invalidate_nav_cache
 from app.services import audiobookshelf
 from app.services.national import SEARCH_LANGS
@@ -20,10 +20,6 @@ _INTEGRATION_KEYS = (
     "abs_url",
     "abs_public_url",
     "abs_token",
-    "komga_url",
-    "komga_api_key",
-    "romm_url",
-    "romm_api_token",
     "isbndb_api_key",
     "tmdb_api_key",
     "hardcover_token",
@@ -45,10 +41,7 @@ def _upsert_setting(db, key: str, value: str, cleared: bool = False):
             return
         else:
             value = encrypt_value(value, get_encryption_key())
-    db.execute(
-        "INSERT INTO settings (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = ?",
-        (key, value, value),
-    )
+    set_setting(db, key, value)
 
 
 @router.post("")
@@ -60,7 +53,8 @@ async def update_settings(request: Request):
     (previously handled by echoing every credential as a hidden input).
     """
     form = await request.form()
-    # Validate the browser-facing ABS URL before opening the write transaction.
+    # Validated before the transaction opens: a bad browser URL must leave the
+    # whole submission untouched, not write the other fields and reject one.
     if "abs_public_url" in form:
         public_url = (form.get("abs_public_url") or "").strip().rstrip("/")
         if public_url and audiobookshelf.validate_url(public_url):
@@ -72,7 +66,7 @@ async def update_settings(request: Request):
             if key not in form:
                 continue
             value = (form.get(key) or "").strip()
-            if key in ("abs_url", "abs_public_url", "komga_url", "romm_url"):
+            if key in ("abs_url", "abs_public_url"):
                 value = value.rstrip("/")
             _upsert_setting(db, key, value, cleared=form.get(f"clear_{key}") == "on")
     invalidate_nav_cache()  # hardcover_token gates the Discover tab
@@ -101,34 +95,6 @@ async def test_google_books(request: Request):
     if not api_key:
         return {"ok": False, "message": "No API key configured"}
     return await googlebooks.test_connection(api_key)
-
-
-@router.post("/discogs/test")
-async def test_discogs_token(discogs_token: str = Form("")):
-    """Test a typed Discogs token, falling back to the configured token."""
-    import httpx
-
-    from app.config import HTTP_TIMEOUT
-    from app.services import discogs
-
-    token = discogs_token.strip()
-    if not token:
-        with get_db() as db:
-            token = get_setting(db, "discogs_token")
-    if not token:
-        code = "missing"
-    else:
-        async with httpx.AsyncClient(timeout=HTTP_TIMEOUT) as client:
-            result = await discogs.test_connection(token, client)
-        code = {
-            "found": "ok",
-            "rejected": "rejected",
-            "rate_limited": "rate_limited",
-            "transport_failed": "unavailable",
-            "no_match": "invalid",
-            "no_credential": "missing",
-        }.get(result.outcome, "invalid")
-    return RedirectResponse(url=f"/settings?discogs_test={code}", status_code=303)
 
 
 @router.post("/vision")
@@ -212,6 +178,32 @@ async def update_lending_settings(
     return RedirectResponse(url="/settings", status_code=303)
 
 
+@router.post("/trash")
+async def update_trash_settings(trash_retention_days: str = Form("180")):
+    """Save the Trash retention window.
+
+    Separate from POST /api/settings on purpose, same as /lending: a partial
+    form posted there would blank the integration credentials.
+    """
+    from app.services import trash
+
+    raw = trash_retention_days.strip() or "180"
+    # int() on an ASCII-only string: str.isdigit() also accepts "²" and other
+    # Unicode digits, which get_retention_days then reads back as the default.
+    try:
+        days = int(raw) if raw.isascii() else -1
+    except ValueError:
+        days = -1
+    if not 0 <= days <= trash.MAX_TRASH_RETENTION_DAYS:
+        return {"ok": False, "message": "Retention days must be a whole number"}
+
+    with get_db() as db:
+        _upsert_setting(db, "trash_retention_days", str(days))
+        trash.settle_marker(db)
+    trash.invalidate()
+    return RedirectResponse(url="/settings", status_code=303)
+
+
 @router.post("/nav")
 async def update_nav_settings(request: Request):
     """Save which nav tabs are visible.
@@ -232,7 +224,7 @@ async def update_nav_settings(request: Request):
 
 @router.post("/display")
 async def update_display_settings(request: Request):
-    """Save display currency, metadata language and Browse grouping.
+    """Save the display currency and metadata search language.
 
     Only writes when the posted code is known — an unknown code is silently
     dropped, same posture as /nav's key filtering. Currency is display
@@ -250,11 +242,6 @@ async def update_display_settings(request: Request):
     if search_lang in SEARCH_LANGS:
         with get_db() as db:
             _upsert_setting(db, "metadata_search_lang", search_lang)
-
-    if form.get("browse_group_digital_comics_present") == "1":
-        group_digital_comics = "1" if form.get("browse_group_digital_comics") == "on" else "0"
-        with get_db() as db:
-            _upsert_setting(db, "browse_group_digital_comics", group_digital_comics)
 
     return RedirectResponse(url="/settings", status_code=303)
 

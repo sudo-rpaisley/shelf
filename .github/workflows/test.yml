@@ -5,13 +5,131 @@ on:
     branches: [main]
   pull_request:
 
+# Read-only by default. Exactly one job below raises this, and only to write the
+# restamp commit; a pull_request build never reaches that job, and a fork's token
+# is read-only whatever this says.
+permissions:
+  contents: read
+
 jobs:
+  # Regenerate the three artefacts a pull request is not allowed to carry —
+  # static/css/app.css, SW_VERSION in static/sw.js, and README.md's two
+  # test-count badges — and commit them, on the push to `main` only.
+  #
+  # Before this job they were restamped by hand after a merge, which left `main`
+  # red in between: `make test` fails the badge test and the `css` job fails its
+  # comparison, both from the moment a PR carrying a template or a test is
+  # merged. Measured 2026-09-19/20 on the merges of #133, #129 and #131 — three
+  # red squash commits, and the README's workflow badge shows that to every
+  # visitor.
+  #
+  # Why the three gates below depend on this job rather than ignoring it:
+  # a push made with a workflow's own GITHUB_TOKEN does not start another
+  # workflow run. That is a GitHub platform rule, not something this repo
+  # arranges, and it cuts both ways. It means the restamp commit would never be
+  # tested by a run of its own, so the gates have to check out what this job
+  # produced or the bytes that ship are the bytes nothing judged — hence
+  # `needs: restamp` and the `ref:` on each checkout. And it means no loop guard
+  # has to be written: the bot's push cannot re-trigger this workflow, so there
+  # is no recursion to break.
+  restamp:
+    if: github.event_name == 'push'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    outputs:
+      # The commit the gates below must judge: the restamp commit when one was
+      # made, otherwise the pushed commit unchanged. Written on every branch of
+      # the decision step, so a consumer never reads an empty string.
+      sha: ${{ steps.restamp.outputs.sha }}
+    steps:
+      # fetch-depth: 0 — the push and the tip check both need real history, and
+      # stamp_sw_version.py hashes files rather than revisions, so a shallow
+      # checkout buys nothing here.
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+          ref: ${{ github.sha }}
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+
+      # 3.12 with the pip cache, matching the `test` job below: `make badges`
+      # shells out to `pytest --co`, which imports the app, so this job needs
+      # the full dependency install and not the stdlib-only one the `css` and
+      # `generated-output` jobs get away with.
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+          cache: pip
+
+      - name: Install Tailwind
+        run: npm ci
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt -r requirements-dev.txt
+
+      - name: Rebuild the stylesheet and restamp the service worker
+        run: make css
+
+      - name: Restamp the README test-count badges
+        run: make badges
+
+      # Three paths are staged by name rather than with `git add -A`, so a
+      # rebuild that touched anything else cannot be swept into a bot commit on
+      # `main`.
+      #
+      # The tip check reads origin/main after an explicit fetch and runs BEFORE
+      # the push, rather than treating a rejected push as the signal: a
+      # non-fast-forward rejection is indistinguishable from a real failure, so
+      # reading it that way would mean swallowing every push error — including
+      # an authentication failure — to keep the job green. It still races, since
+      # a merge can land between the check and the push; that residual case is
+      # the rejection, and the job then exits non-zero, which is the accepted
+      # outcome for a run the tip has outrun.
+      - name: Commit the restamp when this commit is still the tip of main
+        id: restamp
+        run: |
+          set -euo pipefail
+
+          if [ -z "$(git status --porcelain -- README.md static/css/app.css static/sw.js)" ]; then
+            echo "::notice::Generated output is already current; nothing to restamp."
+            echo "sha=${GITHUB_SHA}" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          # Explicit refspec: `git fetch origin main` updates the remote-tracking
+          # ref only opportunistically, and reading a stale origin/main here would
+          # answer the one question this step exists to ask.
+          git fetch origin +refs/heads/main:refs/remotes/origin/main
+          if [ "$(git rev-parse origin/main)" != "${GITHUB_SHA}" ]; then
+            echo "::notice::A newer commit is the tip of main; leaving the restamp to its run, whose tree contains this merge too."
+            echo "sha=${GITHUB_SHA}" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add -- README.md static/css/app.css static/sw.js
+          git commit -m 'Restamp generated output after merge'
+          git push origin HEAD:refs/heads/main
+          echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+
   # Unit/integration suite plus the offline lints. These are the cheap gates and
   # they run together because they share one dependency install.
   test:
+    needs: restamp
+    # `restamp` does not run on a pull request, and a job whose `needs` was
+    # SKIPPED is itself skipped — without this condition every pull-request
+    # build would show this gate green because it never ran.
+    if: ${{ !failure() && !cancelled() }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
+        with:
+          ref: ${{ needs.restamp.outputs.sha || github.sha }}
 
       - uses: actions/setup-python@v6
         with:
@@ -19,7 +137,7 @@ jobs:
           cache: pip
 
       - name: Install dependencies
-        run: pip install -r requirements-dev.txt
+        run: pip install -r requirements.txt -r requirements-dev.txt
 
       - name: Run unit and integration tests
         run: make test
@@ -31,14 +149,67 @@ jobs:
       - name: Offline lints (secrets, CSRF header, Alpine CSP)
         run: make checks-fast
 
+  # A pull request carries no generated build output: the Tailwind build
+  # static/css/app.css, the SW_VERSION value in static/sw.js, and README.md's
+  # two test-count badges. All three are regenerated on `main` by CI, in the
+  # `restamp` job above, on the push that merges the pull request.
+  #
+  # This job deliberately takes no `needs: restamp`. It is pull-request-only,
+  # where `restamp` never runs, and depending on a skipped job would skip this
+  # one too — removing the check that keeps the three artefacts out of a diff.
+  #
+  # The reason is collision, not tidiness. app.css is one minified line and
+  # SW_VERSION is one token, so any two PRs that touch a template regenerate
+  # the same line from the same base and conflict with each other under every
+  # merge method — through no fault of either author. Measured 2026-09-19: of
+  # six PRs opened that day, four carried both files, and squash-merging the
+  # first put the second into conflict on exactly those two files and nothing
+  # else. A fifth committed a badge restamp taken from a stale base and moved
+  # the counts backwards.
+  #
+  # The comparison is merge-result against the base it merges into, so a PR
+  # that is merely behind `main` is not blamed for a restamp `main` made since.
+  generated-output:
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    steps:
+      # fetch-depth: 2 — the default of 1 leaves the merge ref without its
+      # first parent, and the comparison would then fail for a reason that
+      # reads like a bug in the script rather than a shallow checkout.
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 2
+
+      # Stdlib only: the check imports the two stamp scripts for their
+      # parsers, and neither has a third-party dependency. No pip install.
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+
+      - name: A pull request must not change generated build output
+        run: python scripts/check_pr_generated.py
+
   # The committed Tailwind build must match what the templates actually ask for.
   # Nothing caught a forgotten `make css` before: the stale stylesheet is valid
   # CSS, every unit test passes, and the missing rule only shows up as a broken
   # layout in a browser.
+  #
+  # The rebuild runs on every event — a template or tailwind.config.js change
+  # that breaks compilation should still fail somewhere cheap. The *comparison*
+  # splits: enforced on push to main, advisory on a pull request, where a PR
+  # that edits any precached file moves the digest and is not allowed to
+  # restamp it. `scripts/ci_context.py` is the one place that decides which,
+  # shared with check-sw-version and its pin in tests/test_store.py.
   css:
+    needs: restamp
+    # See the `test` job: a skipped `needs` skips the dependent job, and this
+    # gate must still run on every pull request.
+    if: ${{ !failure() && !cancelled() }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
+        with:
+          ref: ${{ needs.restamp.outputs.sha || github.sha }}
 
       - uses: actions/setup-node@v4
         with:
@@ -60,22 +231,33 @@ jobs:
       - name: Committed build output must match the rebuild
         run: |
           git diff --exit-code --stat static/css/app.css static/sw.js || {
-            echo "::group::Generated asset diff"
-            git diff -- static/css/app.css static/sw.js
-            echo "::endgroup::"
-            echo "::error::Committed build output is stale — run 'make css' and commit the result."
-            echo "static/css/app.css is the Tailwind build; static/sw.js carries the"
-            echo "SW_VERSION stamped from the precache digest. Both are generated."
-            exit 1
+            if python scripts/ci_context.py; then
+              echo "::error::Committed build output is stale — run 'make css' and commit the result."
+              echo "static/css/app.css is the Tailwind build; static/sw.js carries the"
+              echo "SW_VERSION stamped from the precache digest. Both are generated."
+              exit 1
+            fi
+            echo "::notice::ADVISORY on a pull-request build: the committed build output is"
+            echo "stale, and this cannot be satisfied here — a pull request that changes any"
+            echo "precached file moves the digest, and a pull request that restamps it"
+            echo "collides with every other pull request restamping the same line. CI runs"
+            echo "'make css' once on the push to main, in the 'restamp' job. Enforced on"
+            echo "push to main and locally."
           }
 
   # Playwright suite, in its own job: it is the slowest gate and the only one
   # that sees rendered geometry, so a failure here should be attributable at a
   # glance rather than buried behind a unit-test run.
   e2e:
+    needs: restamp
+    # See the `test` job: a skipped `needs` skips the dependent job, and this
+    # gate must still run on every pull request.
+    if: ${{ !failure() && !cancelled() }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
+        with:
+          ref: ${{ needs.restamp.outputs.sha || github.sha }}
 
       - uses: actions/setup-python@v6
         with:
@@ -83,10 +265,29 @@ jobs:
           cache: pip
 
       - name: Install dependencies
-        run: pip install -r requirements-dev.txt
+        run: pip install -r requirements.txt -r requirements-dev.txt
 
       - name: Install Chromium
         run: playwright install --with-deps chromium
+
+      # E2E must judge the PR against the CSS its own templates ask for.
+      # Pull requests no longer carry static/css/app.css, so without this a PR
+      # that adds a utility class is tested against a stylesheet that lacks it
+      # — a `hidden lg:flex` element is simply visible, and a test passes or
+      # fails for the wrong reason, undiagnosable from the PR's own diff.
+      # Rebuilt on every event, not only pull requests: one code path, and on
+      # a current `main` it is a no-op. Observed cost 16 s against 11 m 17 s
+      # for the suite itself. Nothing built here is pushed anywhere.
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+
+      - name: Install Tailwind
+        run: npm ci
+
+      - name: Rebuild the stylesheet the tests will be served
+        run: make css
 
       # Spins up its own uvicorn per session — no dev server needed.
       - name: Run E2E tests

@@ -2,7 +2,7 @@
 first fragment.
 
 Both routes now derive their filter values, WHERE clause and dropdown counts
-from `app/browse_filters.py` and `items_common.filter_counts` (see that
+from `app/browse_filters.py` and `browse_counts.filter_counts` (see that
 module's docstring and G24 in GOTCHAS.md). These tests pin the contract: the
 same query string must produce the same dropdown options, the same result
 set, the same `q` truncation, and no duplicated filter markup on `/browse`'s
@@ -13,7 +13,7 @@ import re
 
 import pytest
 
-from tests.conftest import _insert_borrower, _insert_item, _insert_location
+from tests.conftest import _assert_ownership_partition, _insert_borrower, _insert_item, _insert_location
 
 SELECT_IDS = ("type-filter", "owned-filter", "location-filter", "reading-status-filter")
 
@@ -61,6 +61,10 @@ def seeded_library(db):
     )
     _insert_item(
         db, title="Wishlist Book", isbn="9780000030016", media_type="book",
+        owned=0, wishlisted=True,
+    )
+    _insert_item(
+        db, title="Neither Book", isbn="9780000060013", media_type="book",
         owned=0,
     )
     deu = _insert_item(
@@ -91,6 +95,8 @@ QUERYSTRINGS = [
     "",
     "owned=0",
     "owned=1",
+    "owned=none",
+    "owned=none&media_type_filter=book",
     "media_type_filter=dvd",
     # location_filter is filled in per-test from the seeded loc_a id.
     "reading_status=read",
@@ -126,7 +132,8 @@ def test_dropdown_parity_location_filter(admin_client, seeded_library):
 
 
 @pytest.mark.parametrize("qs", QUERYSTRINGS)
-def test_result_set_parity(admin_client, seeded_library, qs):
+def test_result_set_parity(admin_client, seeded_library, db, qs):
+    _assert_ownership_partition(db)
     b = admin_client.get(f"/browse?{qs}")
     s = admin_client.get(f"/api/search?{qs}")
     assert b.status_code == 200
@@ -181,11 +188,14 @@ def test_q_truncation(admin_client, db, monkeypatch):
     resp = admin_client.get(f"/browse?q={long_q}")
     html = resp.text
 
-    # The single responsive search control must carry the truncated value.
+    # Both the desktop and the mobile search input must carry the truncated
+    # value.
     values = re.findall(
-        r'<input[^>]*type="search"[^>]*name="q"[^>]*value="([^"]*)"', html
+        r'<input type="search" name="q"[^>]*value="([^"]*)"', html
     )
-    assert values == [truncated], values
+    assert len(values) == 2, values
+    for v in values:
+        assert v == truncated, v
 
     # The load-more URL's q= must also be truncated.
     load_more_urls = re.findall(r'hx-get="(/api/search\?[^"]*)"', html)

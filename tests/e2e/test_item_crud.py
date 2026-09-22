@@ -1,7 +1,6 @@
 """E2E tests: item detail, edit, and delete."""
 import sqlite3
 from pathlib import Path
-from types import SimpleNamespace
 
 import pytest
 from playwright.sync_api import expect
@@ -71,7 +70,6 @@ def _cover_search_fragment(item_id: int, *, with_current: bool = True) -> str:
         cover_path=f"covers/{item_id}.jpg" if with_current else None,
         query="stub query",
         failed_url=None,
-        request=SimpleNamespace(query_params={}),
     )
 
 
@@ -127,6 +125,56 @@ def test_item_detail_page_loads(live_server, authed_page):
     expect(authed_page.locator("body")).to_contain_text("Tolkien")
 
 
+def test_two_copies_in_two_locations_show_both_in_the_copies_block(
+    live_server, authed_page
+):
+    """#116 T10: an item with two copies in two locations renders the
+    `Copies` block (not the single-copy `Location:` line) and names both
+    locations — the design plan's own multi-copy contract for
+    fragments/item_copies.html."""
+    from app.services.item_copies import insert_copy
+
+    data_dir = live_server["data_dir"]
+    conn = sqlite3.connect(str(data_dir / "shelf.db"))
+    try:
+        office = conn.execute(
+            "INSERT INTO locations (name) VALUES ('Copies Block Office')"
+        ).lastrowid
+        loft = conn.execute(
+            "INSERT INTO locations (name) VALUES ('Copies Block Loft')"
+        ).lastrowid
+        conn.commit()
+    finally:
+        conn.close()
+
+    item_id = insert_item(
+        data_dir, title="Two Copy Book", media_type="book",
+        isbn="9780000116000", location_id=office,
+    )
+
+    conn = sqlite3.connect(str(data_dir / "shelf.db"))
+    try:
+        insert_copy(conn, {"item_id": item_id, "copy_number": 1,
+                            "location_id": office, "is_primary": 1})
+        insert_copy(conn, {"item_id": item_id, "copy_number": 2,
+                            "location_id": loft, "is_primary": 0})
+        conn.commit()
+    finally:
+        conn.close()
+
+    authed_page.goto(f"{live_server['url']}/item/{item_id}")
+    authed_page.wait_for_load_state("networkidle")
+
+    copies_block = authed_page.locator("#item-copies")
+    expect(copies_block).to_contain_text("Copies")
+    expect(copies_block).to_contain_text("Copies Block Office")
+    expect(copies_block).to_contain_text("Copies Block Loft")
+    # The single-copy `Location:` line is a different rendering arm — its
+    # presence here would mean the block collapsed to one row instead of
+    # listing both.
+    expect(copies_block).not_to_contain_text("Location:")
+
+
 def test_item_edit_page_loads(live_server, authed_page):
     """The edit page renders with a form pre-populated with item data."""
     item_id = insert_item(
@@ -161,6 +209,47 @@ def test_item_edit_save(live_server, authed_page):
     expect(authed_page.locator("body")).to_contain_text("Updated Title")
 
 
+def test_owned_box_disables_and_clears_the_wishlist_box(live_server, authed_page):
+    """#125: the two ownership boxes are independent, except that an owned
+    item cannot be wishlisted — checking "I own this" clears and disables the
+    wishlist box, and the saved row is owned and off the wishlist."""
+    item_id = insert_item(
+        live_server["data_dir"],
+        title="Ownership Boxes Probe",
+        media_type="book",
+        isbn="9780000125002",
+        owned=0,
+        wishlisted=True,
+    )
+    authed_page.goto(f"{live_server['url']}/item/{item_id}/edit")
+    owned = authed_page.get_by_test_id("edit-owned")
+    wish = authed_page.get_by_test_id("edit-wishlisted")
+    expect(wish).to_be_checked()
+    expect(wish).to_be_enabled()
+    expect(owned).not_to_be_checked()
+
+    owned.check()
+    expect(wish).not_to_be_checked()
+    expect(wish).to_be_disabled()
+
+    owned.uncheck()
+    expect(wish).to_be_enabled()
+    owned.check()
+
+    authed_page.locator("button[type=submit]:has-text('Save')").click()
+    authed_page.wait_for_url(f"{live_server['url']}/item/{item_id}", timeout=10_000)
+    conn = sqlite3.connect(str(live_server["data_dir"] / "shelf.db"))
+    try:
+        owned_val = conn.execute("SELECT owned FROM items WHERE id = ?", (item_id,)).fetchone()[0]
+        member = conn.execute(
+            "SELECT COUNT(*) FROM list_items li JOIN lists l ON l.id = li.list_id "
+            "WHERE l.slug = 'wishlist' AND li.item_id = ?", (item_id,)
+        ).fetchone()[0]
+    finally:
+        conn.close()
+    assert (owned_val, member) == (1, 0)
+
+
 def test_manual_value_overrides_estimate_then_falls_back(live_server, authed_page):
     """#18: a manual value overrides the ISBNdb estimate in the Stats total
     and the valuation report (with a "manual" badge); clearing it falls
@@ -176,7 +265,6 @@ def test_manual_value_overrides_estimate_then_falls_back(live_server, authed_pag
     # Set a manual value via the edit form.
     authed_page.goto(f"{live_server['url']}/item/{item_id}/edit")
     authed_page.wait_for_load_state("networkidle")
-    authed_page.get_by_role("button", name="Copies & Location", exact=True).click()
     authed_page.locator("input[name=manual_value]").fill("500")
     authed_page.locator("button[type=submit]:has-text('Save')").click()
     authed_page.wait_for_url(f"{live_server['url']}/item/{item_id}", timeout=10_000)
@@ -197,7 +285,6 @@ def test_manual_value_overrides_estimate_then_falls_back(live_server, authed_pag
     # Clear the manual value — falls back to the ISBNdb estimate everywhere.
     authed_page.goto(f"{live_server['url']}/item/{item_id}/edit")
     authed_page.wait_for_load_state("networkidle")
-    authed_page.get_by_role("button", name="Copies & Location", exact=True).click()
     authed_page.locator("input[name=manual_value]").fill("")
     authed_page.locator("button[type=submit]:has-text('Save')").click()
     authed_page.wait_for_url(f"{live_server['url']}/item/{item_id}", timeout=10_000)
@@ -213,25 +300,22 @@ def test_manual_value_overrides_estimate_then_falls_back(live_server, authed_pag
 
 
 def test_item_delete(live_server, authed_page):
-    """Deleting an item through More actions removes it and redirects away."""
+    """Deleting an item removes it and redirects to browse."""
     item_id = insert_item(
         live_server["data_dir"],
         title="Book To Delete",
         media_type="book",
         isbn="9780000009999",
     )
+    # Navigate to detail page
     authed_page.goto(f"{live_server['url']}/item/{item_id}")
     authed_page.wait_for_load_state("networkidle")
 
-    actions_menu = authed_page.get_by_test_id("item-actions-menu")
-    expect(actions_menu).to_be_hidden()
-    authed_page.get_by_test_id("item-actions-toggle").click()
-    expect(actions_menu).to_be_visible()
-
-    # Record the confirmation message rather than blindly accepting: an
-    # accept-and-assume handler passes even when the confirm is missing or its
-    # listener is dead, because the plain submit still fires and the row still
-    # disappears (G28).
+    # Click delete — may be a button that fires a DELETE request via HTMX
+    # or a form submit. Record the confirmation message rather than blindly
+    # accepting: an accept-and-assume handler passes even when the confirm is
+    # missing or its listener is dead, because the plain submit still fires
+    # and the row still disappears (G28).
     messages = []
 
     def accept(dialog):
@@ -239,15 +323,25 @@ def test_item_delete(live_server, authed_page):
         dialog.accept()
 
     authed_page.once("dialog", accept)
-    authed_page.get_by_test_id("delete-btn").click()
-    authed_page.wait_for_load_state("networkidle")
+    delete_btn = authed_page.locator(
+        "button:has-text('Delete'), a:has-text('Delete'), [hx-delete], [data-testid='delete-btn']"
+    ).first
+    # The DELETE answers 200 with a body, not a redirect (app/routers/items.py),
+    # and the navigation is a *second*, JS-driven step: data-after-request=
+    # "goto-browse" on the button sends app.js to /browse once the swap lands.
+    # The assertion below reads page.url, so the waiter is the navigation —
+    # waiting for the HTMX response would return before app.js had run.
+    with authed_page.expect_navigation():
+        delete_btn.click()
 
-    assert messages == ["Delete 'Book To Delete'?"]
+    assert messages == ["Move 'Book To Delete' to Trash?"]
 
-    # Should be gone — either redirected to browse or item no longer shows.
+    # Should be gone — either redirected to browse or item no longer shows
     if "/item/" not in authed_page.url:
+        # Redirected away — success
         assert True
     else:
+        # Still on item page — check for 404 / removal message
         assert authed_page.locator("body").inner_text() != ""
 
 
@@ -301,7 +395,6 @@ def test_fractional_series_position_round_trips_in_browser(live_server, authed_p
 
     authed_page.goto(f"{live_server['url']}/item/{item_id}/edit")
     authed_page.wait_for_load_state("networkidle")
-    authed_page.get_by_role("button", name="Series", exact=True).click()
 
     position = authed_page.locator("#series_position")
     expect(position).to_have_value("2.25")

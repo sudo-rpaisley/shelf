@@ -10,6 +10,7 @@ library — was inserted again with no check against the file or the database.
 round-tripped an export containing ISBN-less rows (G33).
 """
 
+import csv
 import io
 
 from tests.conftest import _insert_item
@@ -33,6 +34,60 @@ def _import(client, content, mode="skip"):
 
 def _count(db):
     return db.execute("SELECT COUNT(*) AS c FROM items").fetchone()["c"]
+
+
+class TestWishlistedColumn:
+    def test_header_ends_owned_wishlisted_tags(self, admin_client):
+        header = _export(admin_client).splitlines()[0]
+        assert header.split(",")[-3:] == ["owned", "wishlisted", "tags"]
+
+    def test_wishlist_item_exports_one_owned_item_exports_zero(self, admin_client, db):
+        _insert_item(db, title="Owned Book", isbn="9780441013593", media_type="book", owned=1)
+        _insert_item(db, title="Wishlist Book", isbn="9780553283686", media_type="book", owned=0, wishlisted=True)
+        db.execute("COMMIT")
+
+        rows = list(csv.DictReader(io.StringIO(_export(admin_client))))
+        owned_row = next(r for r in rows if r["title"] == "Owned Book")
+        wishlist_row = next(r for r in rows if r["title"] == "Wishlist Book")
+
+        assert owned_row["wishlisted"] == "0"
+        assert wishlist_row["wishlisted"] == "1"
+
+
+class TestOwnershipStatesRoundTrip:
+    """#125: owned, wishlisted and neither all survive export → import."""
+
+    def test_header_carries_owned_before_wishlisted(self, admin_client):
+        header = _export(admin_client).splitlines()[0]
+        assert header.split(",")[-3:] == ["owned", "wishlisted", "tags"]
+
+    def test_all_three_states_survive_into_a_fresh_library(self, admin_client, db):
+        from app.services import lists
+        from tests.conftest import _assert_ownership_partition
+
+        _insert_item(db, title="State Owned", isbn="9780441013593", media_type="book", owned=1)
+        _insert_item(db, title="State Wished", isbn="9780553283686", media_type="book",
+                     owned=0, wishlisted=True)
+        _insert_item(db, title="State Neither", isbn=None, authors="N. Body",
+                     media_type="book", owned=0)
+        db.execute("COMMIT")
+
+        exported = _export(admin_client)
+        db.execute("DELETE FROM list_items")
+        db.execute("DELETE FROM items")
+        db.execute("COMMIT")
+
+        result = _import(admin_client, exported)
+        assert (result["imported"], result["errors"]) == (3, [])
+
+        def state(title):
+            row = db.execute("SELECT id, owned FROM items WHERE title = ?", (title,)).fetchone()
+            return row["owned"], lists.is_member(db, lists.WISHLIST, row["id"])
+
+        assert state("State Owned") == (1, False)
+        assert state("State Wished") == (0, True)
+        assert state("State Neither") == (0, False)
+        _assert_ownership_partition(db)
 
 
 class TestRoundTrip:
@@ -320,3 +375,162 @@ class TestUnknownMode:
             "SELECT publisher FROM items WHERE title = 'Some Game'"
         ).fetchone()
         assert row["publisher"] == "Original Publisher"
+
+
+class TestTagsRoundTrip:
+    """T8: tags survive export -> import, additively — the import never
+    removes a tag — and a `kids_book` row earns the `Kids` tag on the way
+    in, the same statement _retire_kids_book makes at boot for a live row."""
+
+    def test_tags_survive_export_into_a_fresh_library(self, admin_client, db):
+        from app.services import tags as tags_svc
+
+        item_id = _insert_item(db, title="Tagged Book", isbn="9780441013593", media_type="book")
+        db.execute("COMMIT")
+        tags_svc.attach_tags(db, item_id, ["Signed", "First Edition"])
+        db.execute("COMMIT")
+
+        exported = _export(admin_client)
+        db.execute("DELETE FROM item_tags")
+        db.execute("DELETE FROM list_items")
+        db.execute("DELETE FROM items")
+        db.execute("DELETE FROM tags")
+        db.execute("COMMIT")
+
+        result = _import(admin_client, exported)
+        assert (result["imported"], result["errors"]) == (1, [])
+
+        new_id = db.execute(
+            "SELECT id FROM items WHERE title = 'Tagged Book'"
+        ).fetchone()["id"]
+        names = {row["name"] for row in tags_svc.get_item_tags(db, new_id)}
+        assert names == {"Signed", "First Edition"}
+
+    def test_reimporting_an_export_with_tags_is_idempotent(self, admin_client, db):
+        """update mode on the same export must not duplicate the association
+        or the tag row itself."""
+        from app.services import tags as tags_svc
+
+        item_id = _insert_item(db, title="Idempotent Book", isbn="9780553283686",
+                               media_type="book")
+        db.execute("COMMIT")
+        tags_svc.attach_tags(db, item_id, ["Signed"])
+        db.execute("COMMIT")
+
+        exported = _export(admin_client)
+        result = _import(admin_client, exported, mode="update")
+        assert result["errors"] == []
+
+        rows = tags_svc.get_item_tags(db, item_id)
+        assert [r["name"] for r in rows] == ["Signed"]
+        count = db.execute(
+            "SELECT COUNT(*) c FROM tags WHERE name = 'Signed'"
+        ).fetchone()["c"]
+        assert count == 1
+
+    def test_no_tags_column_imports_as_before_and_removes_nothing(self, admin_client, db):
+        """A CSV with no `tags` column at all (pre-#T8 export, or a
+        hand-edited file) must not strip an existing row's tags on an
+        update-mode reimport — absent and empty are the same answer here."""
+        from app.services import tags as tags_svc
+
+        item_id = _insert_item(db, title="Untouched Book", isbn="9780441172719",
+                               media_type="book")
+        db.execute("COMMIT")
+        tags_svc.attach_tags(db, item_id, ["Signed"])
+        db.execute("COMMIT")
+
+        csv_content = "title,authors,isbn,media_type\nUntouched Book,,9780441172719,book\n"
+        result = _import(admin_client, csv_content, mode="update")
+        assert (result["imported"], result["errors"]) == (1, [])
+
+        rows = tags_svc.get_item_tags(db, item_id)
+        assert [r["name"] for r in rows] == ["Signed"]
+
+    def test_kids_book_row_lands_as_book_plus_kids_tag(self, admin_client, db):
+        from app.services import tags as tags_svc
+
+        csv_content = "title,authors,isbn,media_type\nAlice,,9780441172719,kids_book\n"
+        result = _import(admin_client, csv_content)
+        assert (result["imported"], result["errors"]) == (1, [])
+
+        item = db.execute(
+            "SELECT id, media_type FROM items WHERE isbn = '9780441172719'"
+        ).fetchone()
+        assert item["media_type"] == "book"
+        names = {r["name"] for r in tags_svc.get_item_tags(db, item["id"])}
+        assert "Kids" in names
+
+    def test_kids_book_row_dedupes_against_an_existing_book_isbn(self, admin_client, db):
+        """The alias must land in normalize_generic, above the dedupe guard
+        (G100) — a kids_book row for an ISBN already stored as book is a
+        twin, not a new row."""
+        _insert_item(db, title="Existing", isbn="9780316769488", media_type="book")
+        db.execute("COMMIT")
+        before = _count(db)
+
+        csv_content = "title,authors,isbn,media_type\nExisting,,9780316769488,kids_book\n"
+        result = _import(admin_client, csv_content)
+
+        assert _count(db) == before
+        assert result["skipped"] == 1 and result["imported"] == 0
+
+    def test_overlong_tags_cell_is_a_row_error_and_writes_nothing(self, admin_client, db):
+        before = _count(db)
+        long_tags = "A" * 1001
+        csv_content = (
+            f"title,authors,isbn,media_type,tags\nOverlong,,9780441013593,book,{long_tags}\n"
+        )
+        result = _import(admin_client, csv_content)
+
+        assert _count(db) == before
+        assert result["imported"] == 0
+        assert any("tags too long" in e for e in result["errors"])
+
+    def test_storygraph_tags_column_imports_fine_and_attaches_nothing(self, admin_client, db):
+        """StoryGraph's own Tags column survives header lowercasing into
+        row["tags"] — normalize_storygraph never reads it, so a populated
+        Tags cell must not fail the length check or attach anything."""
+        from app.services import tags as tags_svc
+        from tests.test_reading_imports import STORYGRAPH_HEADER
+
+        long_tags = "fantasy;" * 200  # well over 1000 chars, in the Tags column
+        row = (
+            "Piranesi,Susanna Clarke,,9781635575637,digital,read,2023-01-15,"
+            f"2023-02-20,,1,4.5,,{long_tags},Yes"
+        )
+        csv_content = STORYGRAPH_HEADER + "\n" + row
+        result = _import(admin_client, csv_content)
+
+        assert result["imported"] == 1
+        assert result["errors"] == []
+        item = db.execute(
+            "SELECT id FROM items WHERE isbn = '9781635575637'"
+        ).fetchone()
+        assert tags_svc.get_item_tags(db, item["id"]) == []
+
+
+class TestUploadReadIsBounded:
+    """G55: bound the read before validating. `items_csv.py` used to call
+    `await csv_file.read()` with no argument, buffering the entire upload
+    before the 50 MB ceiling was ever consulted."""
+
+    def test_read_is_called_with_the_ceiling_plus_one(self, admin_client, monkeypatch):
+        from starlette.datastructures import UploadFile
+
+        from app.routers import items_csv
+
+        calls = []
+        original_read = UploadFile.read
+
+        async def spy_read(self, size=-1):
+            calls.append(size)
+            return await original_read(self, size)
+
+        monkeypatch.setattr(UploadFile, "read", spy_read)
+
+        csv_content = "title,authors,isbn,media_type\nSome Book,Someone,9780441013593,book\n"
+        result = _import(admin_client, csv_content)
+
+        assert result["imported"] == 1
+        assert calls == [items_csv.MAX_CSV_UPLOAD_SIZE + 1]

@@ -23,7 +23,7 @@ document.addEventListener('securitypolicyviolation', function(e) {
 
 
 def test_no_csp_violations_on_key_pages(live_server, browser, setup_admin):
-    item_id = insert_item(live_server["data_dir"], title="CSP Probe Book", isbn="9780000000301")
+    item_id = insert_item(live_server["data_dir"], title="CSP Probe Book", isbn="9780000003010")
 
     ctx = browser.new_context()
     page = attach_page_guard(ctx.new_page())
@@ -39,7 +39,7 @@ def test_no_csp_violations_on_key_pages(live_server, browser, setup_admin):
     page.fill("input[name=username]", setup_admin["username"])
     page.fill("input[name=password]", setup_admin["password"])
     page.click("button[type=submit]")
-    page.wait_for_url(f"{live_server['url']}/browse", timeout=10_000)
+    page.wait_for_url(f"{live_server['url']}/", timeout=10_000)
 
     for path in ["/browse", "/scan", "/settings", "/stats", "/series", f"/item/{item_id}"]:
         page.goto(f"{live_server['url']}{path}")
@@ -60,12 +60,20 @@ def test_js_stack_boots_under_csp(live_server, browser, setup_admin):
     page.fill("input[name=username]", setup_admin["username"])
     page.fill("input[name=password]", setup_admin["password"])
     page.click("button[type=submit]")
-    page.wait_for_url(f"{live_server['url']}/browse", timeout=10_000)
+    page.wait_for_url(f"{live_server['url']}/", timeout=10_000)
 
+    # Base-template globals: present on every authenticated page, so Home
+    # (where login now lands) is a fair place to read them.
     assert page.evaluate("typeof window.htmx") == "object"
     assert page.evaluate("typeof window.Alpine") == "object"
     assert page.evaluate("typeof window.csrfToken") == "function"
     assert page.evaluate("typeof window.showToast") == "function"
+
+    # `browsePage` is page-scoped — browse.js only loads on /browse — so it has
+    # to be read there. Asserting it on the landing page passed only for as
+    # long as login happened to land on Browse.
+    page.goto(f"{live_server['url']}/browse")
+    page.wait_for_load_state("networkidle")
     assert page.evaluate("typeof window.browsePage") == "function"
     assert_page_clean(page)
     ctx.close()
@@ -83,26 +91,21 @@ def test_shortcut_help_interacts_without_inline_script_violation(
         page.fill("input[name=username]", setup_admin["username"])
         page.fill("input[name=password]", setup_admin["password"])
         page.click("button[type=submit]")
-        page.wait_for_url(f"{live_server['url']}/browse", timeout=10_000)
+        page.wait_for_url(f"{live_server['url']}/", timeout=10_000)
 
+        trigger = page.locator('button[title="Keyboard shortcuts (?)"]')
         modal = page.locator("#shortcut-modal")
         expect(modal).to_be_hidden()
 
-        def open_shortcuts():
-            page.locator('[data-testid="account-menu-button"]').click()
-            panel = page.locator('[data-testid="account-menu-panel"]')
-            expect(panel).to_be_visible()
-            panel.locator('[data-testid="account-shortcuts-action"]').click()
-
-        open_shortcuts()
+        trigger.click()
         expect(modal).to_be_visible()
         expect(modal).to_contain_text("Keyboard Shortcuts")
         assert page.evaluate("window.__cspViolations") == []
 
-        page.get_by_role("button", name="Close keyboard shortcuts").click()
+        modal.locator("button").click()
         expect(modal).to_be_hidden()
 
-        open_shortcuts()
+        trigger.click()
         expect(modal).to_be_visible()
         page.keyboard.press("Escape")
         expect(modal).to_be_hidden()

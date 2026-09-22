@@ -11,10 +11,12 @@ from app.services.reading_imports import (
     _clean_date,
     _clean_isbn,
     detect_format,
+    normalize_generic,
     normalize_goodreads,
     normalize_storygraph,
     split_series_title,
 )
+from tests.conftest import _assert_ownership_partition
 
 # Realistic export headers
 GOODREADS_HEADER = (
@@ -118,6 +120,58 @@ class TestCleanDate:
 # ---------------------------------------------------------------------------
 
 
+class TestNormalizeGenericWishlisted:
+    """normalize_generic's `wishlisted` column: accepted spellings and the
+    absent/blank -> None cases. The importer does not read this value in
+    plan 1 (items_csv.py) — this pins the parser alone."""
+
+    @pytest.mark.parametrize("spelling", ["1", "true", "True", "TRUE", "yes", "Yes", "YES"])
+    def test_truthy_spellings(self, spelling):
+        n = normalize_generic({"title": "T", "wishlisted": spelling})
+        assert n["wishlisted"] is True
+
+    @pytest.mark.parametrize("spelling", ["0", "false", "False", "FALSE", "no", "No", "NO"])
+    def test_falsy_spellings(self, spelling):
+        n = normalize_generic({"title": "T", "wishlisted": spelling})
+        assert n["wishlisted"] is False
+
+    def test_blank_is_none(self):
+        assert normalize_generic({"title": "T", "wishlisted": ""})["wishlisted"] is None
+
+    def test_absent_column_is_none(self):
+        assert normalize_generic({"title": "T"})["wishlisted"] is None
+
+
+class TestNormalizeGenericTags:
+    """normalize_generic's `tags` column, and the kids_book alias's Kids
+    tag (T8) — the parser alone; the importer's own additive-only /
+    length-check behavior is pinned in test_csv_roundtrip.py."""
+
+    def test_semicolon_list_parsed(self):
+        n = normalize_generic({"title": "T", "tags": "Signed; First Edition"})
+        assert n["tags"] == ["Signed", "First Edition"]
+
+    def test_absent_column_is_empty_list(self):
+        assert normalize_generic({"title": "T"})["tags"] == []
+
+    def test_blank_cell_is_empty_list(self):
+        assert normalize_generic({"title": "T", "tags": ""})["tags"] == []
+
+    def test_kids_book_media_type_earns_the_kids_tag(self):
+        n = normalize_generic({"title": "T", "media_type": "kids_book"})
+        assert n["media_type"] == "book"
+        assert n["tags"] == ["Kids"]
+
+    def test_plain_book_media_type_earns_no_tag(self):
+        n = normalize_generic({"title": "T", "media_type": "book"})
+        assert n["media_type"] == "book"
+        assert n["tags"] == []
+
+    def test_kids_book_does_not_duplicate_an_existing_kids_tag(self):
+        n = normalize_generic({"title": "T", "media_type": "kids_book", "tags": "kids"})
+        assert n["tags"] == ["kids"]  # NOCASE match on the row's own spelling wins
+
+
 class TestNormalizeGoodreads:
     def _row(self, **over):
         base = {
@@ -201,8 +255,12 @@ class TestNormalizeStorygraph:
         assert n["date_finished"] == "2023-02-20"
         assert n["owned"] is True
 
-    def test_not_owned_is_wishlist(self):
-        assert normalize_storygraph(self._row(**{"owned?": "No"}))["owned"] is False
+    def test_not_owned_is_not_owned(self):
+        """The normaliser speaks only to `owned`; whether the row is
+        wishlisted is the importer's decision (#125)."""
+        n = normalize_storygraph(self._row(**{"owned?": "No"}))
+        assert n["owned"] is False
+        assert n["wishlisted"] is None
 
     def test_missing_owned_defaults_owned(self):
         assert normalize_storygraph(self._row(**{"owned?": ""}))["owned"] is True
@@ -233,6 +291,7 @@ class TestGoodreadsImport:
         assert item["date_finished"] == "2023-08-15"
         assert item["owned"] == 0  # Owned Copies is 0 in the export
         assert item["source"] == "goodreads_import"
+        _assert_ownership_partition(db)
 
     def test_owned_copies_imports_as_owned(self, admin_client, db):
         csv_content = GOODREADS_HEADER + "\n" + _gr_row(
@@ -242,6 +301,7 @@ class TestGoodreadsImport:
         assert data["imported"] == 1
         item = db.execute("SELECT owned FROM items WHERE isbn = '9780441172719'").fetchone()
         assert item["owned"] == 1
+        _assert_ownership_partition(db)
 
     def test_series_title_imports_split(self, admin_client, db):
         csv_content = GOODREADS_HEADER + "\n" + _gr_row(
@@ -257,14 +317,46 @@ class TestGoodreadsImport:
         assert item["series_position"] == 1.0
 
     def test_to_read_wishlist_option(self, admin_client, db):
-        csv_content = GOODREADS_HEADER + "\n" + _gr_row(
+        """A to-read, zero-owned row is wishlisted with the option on and
+        neither with it off (#125)."""
+        from app.services import lists
+
+        on = GOODREADS_HEADER + "\n" + _gr_row(
             title="Hyperion", isbn13="9780553283686", isbn10="0553283685",
-            shelf="to-read", date_read="")
+            shelf="to-read", date_read="", owned_copies="0")
+        assert _post_csv(admin_client, on, to_read_wishlist="1").json()["imported"] == 1
+        off = GOODREADS_HEADER + "\n" + _gr_row(
+            title="Endymion", isbn13="9780553572988", isbn10="0553572989",
+            shelf="to-read", date_read="", owned_copies="0")
+        assert _post_csv(admin_client, off).json()["imported"] == 1
+
+        wished = db.execute("SELECT * FROM items WHERE isbn = '9780553283686'").fetchone()
+        assert wished["reading_status"] == "want_to_read"
+        assert wished["owned"] == 0
+        assert lists.is_member(db, lists.WISHLIST, wished["id"])
+        neither = db.execute("SELECT * FROM items WHERE isbn = '9780553572988'").fetchone()
+        assert neither["reading_status"] == "want_to_read"
+        assert neither["owned"] == 0
+        assert not lists.is_member(db, lists.WISHLIST, neither["id"])
+        _assert_ownership_partition(db)
+
+    def test_read_unowned_imports_as_neither(self, admin_client, db):
+        """The #125 reporter's case: a `read` book with no owned copies is
+        neither owned nor wishlisted, and keeps its reading history — with
+        the to-read option on, too."""
+        from app.services import lists
+
+        csv_content = GOODREADS_HEADER + "\n" + _gr_row(
+            shelf="read", date_read="2023/08/15", owned_copies="0")
         data = _post_csv(admin_client, csv_content, to_read_wishlist="1").json()
         assert data["imported"] == 1
-        item = db.execute("SELECT * FROM items WHERE isbn = '9780553283686'").fetchone()
-        assert item["reading_status"] == "want_to_read"
+        assert data["errors"] == []
+        item = db.execute("SELECT * FROM items WHERE isbn = '9780441013593'").fetchone()
         assert item["owned"] == 0
+        assert not lists.is_member(db, lists.WISHLIST, item["id"])
+        assert item["reading_status"] == "read"
+        assert item["date_finished"] == "2023-08-15"
+        _assert_ownership_partition(db)
 
     def test_in_file_duplicate_skipped(self, admin_client):
         csv_content = GOODREADS_HEADER + "\n" + _gr_row() + "\n" + _gr_row()
@@ -304,14 +396,152 @@ class TestStorygraphImport:
         assert item["media_type"] == "ebook"
         assert item["reading_status"] == "read"
         assert item["source"] == "storygraph_import"
+        _assert_ownership_partition(db)
 
-    def test_not_owned_imports_as_wishlist(self, admin_client, db):
+    def test_read_unowned_imports_as_neither(self, admin_client, db):
+        """A StoryGraph `read` row marked not owned is neither (#125)."""
+        from app.services import lists
+
         csv_content = STORYGRAPH_HEADER + "\n" + _sg_row(
-            title="Piranesi", isbn="9781635575637", owned="No", status="to-read", last_read="")
-        data = _post_csv(admin_client, csv_content).json()
+            title="Piranesi", isbn="9781635575637", owned="No", status="read",
+            last_read="2023/03/04")
+        data = _post_csv(admin_client, csv_content, to_read_wishlist="1").json()
         assert data["imported"] == 1
         item = db.execute("SELECT * FROM items WHERE isbn = '9781635575637'").fetchone()
         assert item["owned"] == 0
+        assert not lists.is_member(db, lists.WISHLIST, item["id"])
+        assert item["reading_status"] == "read"
+        assert item["date_finished"] == "2023-03-04"
+        _assert_ownership_partition(db)
+
+
+class TestGenericStateColumns:
+    """Shelf's own CSV carries `owned` and `wishlisted` (#125). The import
+    resolves them in order: owned wins, then the file's `wishlisted` column,
+    then the to-read option."""
+
+    HEADER = "title,authors,isbn,media_type,owned,wishlisted"
+
+    def _state(self, db, isbn):
+        from app.services import lists
+
+        row = db.execute("SELECT id, owned FROM items WHERE isbn = ?", (isbn,)).fetchone()
+        return row["owned"], lists.is_member(db, lists.WISHLIST, row["id"])
+
+    def test_wishlisted_column_is_honoured_with_the_option_off(self, admin_client, db):
+        content = self.HEADER + "\nWish Book,A,9780441013593,book,0,1\n"
+        data = _post_csv(admin_client, content).json()
+        assert (data["imported"], data["errors"]) == (1, [])
+        assert self._state(db, "9780441013593") == (0, True)
+        _assert_ownership_partition(db)
+
+    def test_owned_and_wishlisted_imports_owned_without_an_error(self, admin_client, db):
+        content = self.HEADER + "\nBoth Book,A,9780441013593,book,1,1\n"
+        data = _post_csv(admin_client, content).json()
+        assert (data["imported"], data["errors"]) == (1, [])
+        assert self._state(db, "9780441013593") == (1, False)
+        _assert_ownership_partition(db)
+
+    def test_present_wishlisted_zero_beats_the_to_read_option(self, admin_client, db):
+        """Rule 2 before rule 3. A generic file carries no reading status, so
+        the option is driven here through a patched normaliser row."""
+        from app.services import reading_imports
+
+        real = reading_imports.normalize_generic
+
+        def with_status(row):
+            norm = real(row)
+            norm["reading_status"] = "want_to_read"
+            return norm
+
+        content = self.HEADER + "\nNeither Book,A,9780441013593,book,0,0\n"
+        with patch.dict(reading_imports.NORMALIZERS,
+                        {reading_imports.GENERIC: with_status}):
+            data = _post_csv(admin_client, content, to_read_wishlist="1").json()
+        assert (data["imported"], data["errors"]) == (1, [])
+        assert self._state(db, "9780441013593") == (0, False)
+        _assert_ownership_partition(db)
+
+    def test_absent_wishlisted_column_falls_back_to_the_option(self, admin_client, db):
+        """The same patched row with no `wishlisted` value reaches rule 3."""
+        from app.services import reading_imports
+
+        real = reading_imports.normalize_generic
+
+        def with_status(row):
+            norm = real(row)
+            norm["reading_status"] = "want_to_read"
+            return norm
+
+        content = self.HEADER + "\nOption Book,A,9780441013593,book,0,\n"
+        with patch.dict(reading_imports.NORMALIZERS,
+                        {reading_imports.GENERIC: with_status}):
+            data = _post_csv(admin_client, content, to_read_wishlist="1").json()
+        assert (data["imported"], data["errors"]) == (1, [])
+        assert self._state(db, "9780441013593") == (0, True)
+        _assert_ownership_partition(db)
+
+    def test_legacy_export_without_an_owned_column(self, admin_client, db):
+        """A 0.41.1 export has `wishlisted` but no `owned`: membership meant
+        not owned, and every other row was owned."""
+        content = (
+            "title,authors,isbn,media_type,wishlisted\n"
+            "Old Wish,A,9780441013593,book,1\n"
+            "Old Owned,A,9780553283686,book,0\n"
+        )
+        data = _post_csv(admin_client, content).json()
+        assert (data["imported"], data["errors"]) == (2, [])
+        assert self._state(db, "9780441013593") == (0, True)
+        assert self._state(db, "9780553283686") == (1, False)
+        _assert_ownership_partition(db)
+
+    def test_update_mode_moves_a_row_through_all_three_states(self, admin_client, db):
+        from tests.conftest import _insert_item
+
+        _insert_item(db, title="Mover", isbn="9780441013593", media_type="book", owned=1)
+        db.execute("COMMIT")
+
+        for owned, wished, expected in (("0", "1", (0, True)),
+                                        ("0", "0", (0, False)),
+                                        ("1", "0", (1, False))):
+            content = self.HEADER + f"\nMover,A,9780441013593,book,{owned},{wished}\n"
+            data = _post_csv(admin_client, content, mode="update").json()
+            assert (data["imported"], data["errors"]) == (1, [])
+            assert self._state(db, "9780441013593") == expected, (owned, wished)
+        _assert_ownership_partition(db)
+
+    def test_update_mode_without_state_columns_leaves_state_alone(self, admin_client, db):
+        """G87: a metadata-only CSV must not flip a wishlisted or neither row
+        to owned — nor un-wish an item because its `owned` alone was given."""
+        from tests.conftest import _insert_item
+
+        _insert_item(db, title="Stay Neither", isbn="9780441013593", media_type="book",
+                     owned=0)
+        _insert_item(db, title="Stay Wished", isbn="9780553283686", media_type="book",
+                     owned=0, wishlisted=True)
+        db.execute("COMMIT")
+
+        content = (
+            "title,authors,isbn,media_type,publisher\n"
+            "Stay Neither,A,9780441013593,book,New Pub\n"
+            "Stay Wished,A,9780553283686,book,New Pub\n"
+        )
+        data = _post_csv(admin_client, content, mode="update").json()
+        assert (data["imported"], data["errors"]) == (2, [])
+        assert self._state(db, "9780441013593") == (0, False)
+        assert self._state(db, "9780553283686") == (0, True)
+        publisher = db.execute(
+            "SELECT publisher FROM items WHERE isbn = '9780441013593'"
+        ).fetchone()["publisher"]
+        assert publisher == "New Pub"
+
+        owned_only = self.HEADER.replace(",wishlisted", "") + (
+            "\nStay Wished,A,9780553283686,book,0\n"
+        )
+        data = _post_csv(admin_client, owned_only, mode="update").json()
+        assert (data["imported"], data["errors"]) == (1, [])
+        assert self._state(db, "9780553283686") == (0, True)
+        _assert_ownership_partition(db)
 
 
 class TestGenericStillWorks:
@@ -391,25 +621,41 @@ class TestCsvValueFunnel:
 
     def test_reading_tracker_update_applies_to_read_wishlist(self, admin_client, db):
         """The COALESCE-shaped update path — mode=update on an existing
-        row — must still apply the to_read_wishlist option through the
-        funnel's update_item_fields, not raw SQL (#54)."""
+        row — applies the to_read_wishlist option through the funnel's
+        update_item_fields, not raw SQL (#54). With the option on, a
+        zero-owned `to-read` row becomes wishlisted and a zero-owned `read`
+        row becomes neither (#125)."""
+        from app.services import lists
         from tests.conftest import _insert_item
 
-        _insert_item(db, title="Hyperion", isbn="9780553283686", media_type="book", owned=1)
+        to_read_id = _insert_item(db, title="Hyperion", isbn="9780553283686",
+                                  media_type="book", owned=1)
+        read_id = _insert_item(db, title="Dune", isbn="9780441013593",
+                               media_type="book", owned=1)
         db.execute("COMMIT")
 
         csv_content = GOODREADS_HEADER + "\n" + _gr_row(
             title="Hyperion", isbn13="9780553283686", isbn10="0553283685",
-            shelf="to-read", date_read="")
+            shelf="to-read", date_read="", owned_copies="0") + "\n" + _gr_row(
+            shelf="read", owned_copies="0")
         data = _post_csv(admin_client, csv_content, mode="update",
                          to_read_wishlist="1").json()
-        assert data["imported"] == 1
+        assert data["imported"] == 2
+        assert data["errors"] == []
 
         item = db.execute(
-            "SELECT reading_status, owned FROM items WHERE isbn = '9780553283686'"
+            "SELECT reading_status, owned FROM items WHERE id = ?", (to_read_id,)
         ).fetchone()
         assert item["reading_status"] == "want_to_read"
         assert item["owned"] == 0
+        assert lists.is_member(db, lists.WISHLIST, to_read_id)
+        item = db.execute(
+            "SELECT reading_status, owned FROM items WHERE id = ?", (read_id,)
+        ).fetchone()
+        assert item["reading_status"] == "read"
+        assert item["owned"] == 0
+        assert not lists.is_member(db, lists.WISHLIST, read_id)
+        _assert_ownership_partition(db)
 
 
 # ---------------------------------------------------------------------------

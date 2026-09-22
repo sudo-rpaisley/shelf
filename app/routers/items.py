@@ -13,21 +13,29 @@ from app import nav
 from app.auth import require_role
 
 logger = logging.getLogger(__name__)
-from app.config import MEDIA_TYPES, HTTP_TIMEOUT, DEFAULT_PAGE_SIZE
+from app.config import MEDIA_TYPES, HTTP_TIMEOUT, DEFAULT_PAGE_SIZE, canonical_media_type
 from app.database import (get_db, get_setting, gc_orphaned_series_meta,
                           get_reading_history)
 from app.routers.series import MAX_SERIES_NAME
 from app.routers import items_common
+from app.routers import items_scan_modes
 from app.routers.items_common import SORT_OPTIONS  # re-exported for pages.py
 from app.services import isbn as isbn_svc
-from app.services.item_write import (ItemValueError, insert_item, update_item_fields,
+from app.services import browse_counts
+from app.services import lists
+from app.services.item_write import (IdentifierInTrash, ItemValueError,
+                                     insert_item, update_item_fields,
                                      update_items_fields, validate_item_fields,
                                      validated_location_id)
+from app.services import item_write  # _coerce_owned (bulk update), promote_wishlisted (scan), trash_item (delete)
 from app.services import openlibrary, googlebooks, hardcover, covers, national
 from app.services import detect
 from app.services import cover_queue
 from app.services import legacy_book
 from app.services import scan_outcome
+from app.services import item_merge
+from app.services import restore_report
+from app.services import item_template
 from app.services import upc as upc_svc, tmdb, igdb
 from app.services import synopsis as synopsis_svc
 from app.services import authors as authors_svc
@@ -55,14 +63,14 @@ def _find_duplicate_item(db, isbn13: str | None, upc_code: str | None, media_typ
     """
     if isbn13:
         row = db.execute(
-            "SELECT id, title FROM items WHERE isbn = ? AND media_type = ?",
+            "SELECT id, title FROM items_live WHERE isbn = ? AND media_type = ?",
             (isbn13, media_type),
         ).fetchone()
         if row:
             return dict(row)
     if upc_code:
         row = db.execute(
-            "SELECT id, title FROM items WHERE upc = ? AND media_type = ?",
+            "SELECT id, title FROM items_live WHERE upc = ? AND media_type = ?",
             (upc_code, media_type),
         ).fetchone()
         if row:
@@ -74,7 +82,7 @@ def _find_duplicate_item(db, isbn13: str | None, upc_code: str | None, media_typ
         # still share the database. No real ISBN can land here: ISBN-13 is
         # always 978/979, which detect_barcode_type() classifies as an ISBN.
         row = db.execute(
-            "SELECT id, title FROM items WHERE isbn = ? AND media_type = ?",
+            "SELECT id, title FROM items_live WHERE isbn = ? AND media_type = ?",
             (upc_code, media_type),
         ).fetchone()
         if row:
@@ -94,7 +102,8 @@ def _find_item_by_barcode(raw: str) -> dict | None:
         if isbn13:
             item = db.execute(
                 "SELECT i.*, l.name as location_name FROM items i "
-                "LEFT JOIN locations l ON i.location_id = l.id WHERE i.isbn = ?",
+                "LEFT JOIN locations l ON i.location_id = l.id WHERE i.isbn = ? "
+                "ORDER BY i.deleted_at IS NOT NULL, i.id",  # live wins over Trash
                 (isbn13,),
             ).fetchone()
             if item:
@@ -102,7 +111,8 @@ def _find_item_by_barcode(raw: str) -> dict | None:
         if upc_norm:
             item = db.execute(
                 "SELECT i.*, l.name as location_name FROM items i "
-                "LEFT JOIN locations l ON i.location_id = l.id WHERE i.upc = ?",
+                "LEFT JOIN locations l ON i.location_id = l.id WHERE i.upc = ? "
+                "ORDER BY i.deleted_at IS NOT NULL, i.id",  # live wins over Trash
                 (upc_norm,),
             ).fetchone()
             if item:
@@ -220,216 +230,6 @@ def _legacy_resolution_message(resolution: legacy_book.LegacyBookResolution) -> 
     )
 
 
-def _scan_mode_lend(request, templates, item: dict, borrower_id: int | None, raw: str):
-    """Handle lend mode: check out an item to a borrower."""
-    if not borrower_id:
-        return templates.TemplateResponse(
-            request, "fragments/scan_result.html",
-            {"status": "error", "isbn": raw, "message": "No borrower selected"},
-        )
-
-    with get_db() as db:
-        # Check if already checked out
-        active = db.execute(
-            "SELECT c.id, b.name FROM checkouts c JOIN borrowers b ON c.borrower_id = b.id "
-            "WHERE c.item_id = ? AND c.checked_in IS NULL", (item["id"],)
-        ).fetchone()
-        if active:
-            items_common._log_scan(raw, item.get("media_type", ""), "already_checked_out", item["id"], "lend")
-            return templates.TemplateResponse(
-                request, "fragments/scan_result.html",
-                {"status": "already_checked_out", "isbn": raw, "title": item["title"],
-                 "item_id": item["id"], "cover_path": item.get("cover_path"),
-                 "message": f"Already lent to {active['name']}"},
-            )
-
-        borrower = db.execute("SELECT name FROM borrowers WHERE id = ?", (borrower_id,)).fetchone()
-        if not borrower:
-            return templates.TemplateResponse(
-                request, "fragments/scan_result.html",
-                {"status": "error", "isbn": raw, "message": "Borrower not found"},
-            )
-
-        db.execute(
-            "INSERT INTO checkouts (item_id, borrower_id, checked_out) VALUES (?, ?, datetime('now'))",
-            (item["id"], borrower_id),
-        )
-
-    items_common._log_scan(raw, item.get("media_type", ""), "checked_out", item["id"], "lend")
-    resp = templates.TemplateResponse(
-        request, "fragments/scan_result.html",
-        {"status": "checked_out", "isbn": raw, "title": item["title"],
-         "item_id": item["id"], "cover_path": item.get("cover_path"),
-         "authors": item.get("authors"), "message": f"Lent to {borrower['name']}"},
-    )
-    return resp
-
-
-def _scan_mode_return(request, templates, item: dict, raw: str):
-    """Handle return mode: check in an item."""
-    with get_db() as db:
-        active = db.execute(
-            "SELECT c.id, b.name, c.checked_out FROM checkouts c JOIN borrowers b ON c.borrower_id = b.id "
-            "WHERE c.item_id = ? AND c.checked_in IS NULL", (item["id"],)
-        ).fetchone()
-        if not active:
-            items_common._log_scan(raw, item.get("media_type", ""), "not_checked_out", item["id"], "return")
-            return templates.TemplateResponse(
-                request, "fragments/scan_result.html",
-                {"status": "not_checked_out", "isbn": raw, "title": item["title"],
-                 "item_id": item["id"], "cover_path": item.get("cover_path"),
-                 "message": "Not currently checked out"},
-            )
-
-        db.execute(
-            "UPDATE checkouts SET checked_in = datetime('now') WHERE id = ?", (active["id"],)
-        )
-
-    items_common._log_scan(raw, item.get("media_type", ""), "returned", item["id"], "return")
-    resp = templates.TemplateResponse(
-        request, "fragments/scan_result.html",
-        {"status": "returned", "isbn": raw, "title": item["title"],
-         "item_id": item["id"], "cover_path": item.get("cover_path"),
-         "authors": item.get("authors"), "message": f"Returned from {active['name']}"},
-    )
-    return resp
-
-
-def _scan_mode_move(request, templates, item: dict, location_id: int | None, raw: str):
-    """Handle move mode: update item location."""
-    if not location_id or location_id <= 0:
-        return templates.TemplateResponse(
-            request, "fragments/scan_result.html",
-            {"status": "error", "isbn": raw, "message": "No target location selected"},
-        )
-
-    old_location = item.get("location_name") or "No location"
-
-    # A deleted location used to be a foreign-key 500 here (#54).
-    value_error = None
-    with get_db() as db:
-        try:
-            update_item_fields(db, item["id"], {"location_id": location_id})
-        except ItemValueError as e:
-            value_error = str(e)
-        new_loc = db.execute("SELECT name FROM locations WHERE id = ?", (location_id,)).fetchone()
-    if value_error:
-        items_common._log_scan(raw, item.get("media_type", ""), "error", item["id"], "move")
-        return templates.TemplateResponse(
-            request, "fragments/scan_result.html",
-            {"status": "error", "isbn": raw, "message": value_error},
-        )
-
-    new_name = new_loc["name"] if new_loc else "Unknown"
-    items_common._log_scan(raw, item.get("media_type", ""), "moved", item["id"], "move")
-    resp = templates.TemplateResponse(
-        request, "fragments/scan_result.html",
-        {"status": "moved", "isbn": raw, "title": item["title"],
-         "item_id": item["id"], "cover_path": item.get("cover_path"),
-         "authors": item.get("authors"), "message": f"{old_location} → {new_name}"},
-    )
-    return resp
-
-
-def _scan_mode_inventory(
-    request,
-    templates,
-    item: dict | None,
-    location_id: int | None,
-    raw: str,
-    *,
-    inventory_confirmation: bool = False,
-):
-    """Handle inventory mode: verify item is at expected location."""
-    if not location_id or location_id <= 0:
-        return templates.TemplateResponse(
-            request, "fragments/scan_result.html",
-            {"status": "error", "isbn": raw, "message": "No audit location selected"},
-        )
-
-    with get_db() as db:
-        loc = db.execute("SELECT name FROM locations WHERE id = ?", (location_id,)).fetchone()
-    loc_name = loc["name"] if loc else "Unknown"
-
-    if not item:
-        items_common._log_scan(raw, "", "not_owned", None, "inventory")
-        return templates.TemplateResponse(
-            request, "fragments/scan_result.html",
-            {"status": "not_owned", "isbn": raw, "message": "Not in collection"},
-        )
-
-    if item.get("location_id") == location_id:
-        items_common._log_scan(raw, item.get("media_type", ""), "confirmed", item["id"], "inventory")
-        return templates.TemplateResponse(
-            request, "fragments/scan_result.html",
-            {"status": "confirmed", "isbn": raw, "title": item["title"],
-             "item_id": item["id"], "cover_path": item.get("cover_path"),
-             "authors": item.get("authors"), "message": f"Confirmed at {loc_name}",
-             "inventory_confirmation": inventory_confirmation},
-        )
-    else:
-        old_location = item.get("location_name") or "No location"
-        # Update location to where it actually is
-        value_error = None
-        with get_db() as db:
-            try:
-                update_item_fields(db, item["id"], {"location_id": location_id})
-            except ItemValueError as e:
-                value_error = str(e)
-        if value_error:
-            items_common._log_scan(raw, item.get("media_type", ""), "error", item["id"], "inventory")
-            return templates.TemplateResponse(
-                request, "fragments/scan_result.html",
-                {"status": "error", "isbn": raw, "message": value_error},
-            )
-        items_common._log_scan(raw, item.get("media_type", ""), "relocated", item["id"], "inventory")
-        return templates.TemplateResponse(
-            request, "fragments/scan_result.html",
-            {"status": "relocated", "isbn": raw, "title": item["title"],
-             "item_id": item["id"], "cover_path": item.get("cover_path"),
-             "authors": item.get("authors"),
-             "message": f"Was at {old_location}, updated to {loc_name}",
-             "inventory_confirmation": inventory_confirmation},
-        )
-
-
-def _scan_mode_lookup(request, templates, item: dict | None, raw: str):
-    """Handle lookup mode: check if item exists in collection."""
-    if not item:
-        items_common._log_scan(raw, "", "not_owned", None, "lookup")
-        return templates.TemplateResponse(
-            request, "fragments/scan_result.html",
-            {"status": "not_owned", "isbn": raw, "message": "Not in your collection"},
-        )
-
-    location_str = item.get("location_name") or "No location set"
-    items_common._log_scan(raw, item.get("media_type", ""), "found", item["id"], "lookup")
-    return templates.TemplateResponse(
-        request, "fragments/scan_result.html",
-        {"status": "found", "isbn": raw, "title": item["title"],
-         "item_id": item["id"], "cover_path": item.get("cover_path"),
-         "authors": item.get("authors"), "message": f"Location: {location_str}"},
-    )
-
-
-def _scan_mode_quick_rate(request, templates, item: dict, raw: str):
-    """Handle quick rate mode: mark item as read/completed."""
-    from datetime import date
-    with get_db() as db:
-        update_item_fields(db, item["id"], {
-            "reading_status": "read", "date_finished": date.today().isoformat(),
-        })
-
-    items_common._log_scan(raw, item.get("media_type", ""), "marked_read", item["id"], "quick_rate")
-    resp = templates.TemplateResponse(
-        request, "fragments/scan_result.html",
-        {"status": "marked_read", "isbn": raw, "title": item["title"],
-         "item_id": item["id"], "cover_path": item.get("cover_path"),
-         "authors": item.get("authors"), "message": "Marked as read"},
-    )
-    return resp
-
-
 # Modes that operate on existing items (not add/wishlist)
 _EXISTING_ITEM_MODES = {"lend", "return", "move", "inventory", "lookup", "quick_rate"}
 
@@ -440,11 +240,22 @@ async def scan_isbn(
     location_id: int | None = Form(None), platform: str = Form(""),
     mode: str = Form("add"), borrower_id: int | None = Form(None),
     legacy_confirm_isbn13: str = Form(""),
+    legacy_supplement: str = Form(""),
     _=Depends(require_role("editor")),
 ):
     """Scan a barcode: mode-aware dispatch for add, lend, return, move, inventory, lookup, quick_rate."""
     templates = request.app.state.templates
     raw = isbn.strip()
+    media_type = canonical_media_type(media_type)  # above every mode's guards
+
+    # #90: a bare legacy UPC carries no title, so the card below asks for the
+    # five digits printed beside it.  Typing them turns the scan into the
+    # 17-digit form #88 already resolves, so this rewrite happens *above* mode
+    # dispatch — `_get_confirmed_legacy_mapping` does too, and a completed
+    # value has to reach it.  Nothing else in this route reads the supplement.
+    completed = legacy_book.complete(raw, legacy_supplement)
+    if completed:
+        raw = completed
 
     # A legacy price-point barcode is an identity problem, not an ordinary UPC
     # lookup. Resolve it before any mode can act on an existing item, so an
@@ -561,9 +372,11 @@ async def scan_isbn(
     if mode in _EXISTING_ITEM_MODES:
         lookup_barcode = legacy_isbn13 if legacy_candidates else raw
         item = _find_item_by_barcode(lookup_barcode)
+        if item and item.get("deleted_at"):  # in Trash: report, never act
+            return items_scan_modes._scan_mode_in_trash(request, templates, item, raw, mode)
         # inventory mode handles not-found specially
         if mode == "inventory":
-            return _scan_mode_inventory(
+            return items_scan_modes._scan_mode_inventory(
                 request,
                 templates,
                 item,
@@ -578,15 +391,15 @@ async def scan_isbn(
                 {"status": "not_owned", "isbn": raw, "message": "Not in your collection"},
             )
         if mode == "lend":
-            return _scan_mode_lend(request, templates, item, borrower_id, raw)
+            return items_scan_modes._scan_mode_lend(request, templates, item, borrower_id, raw)
         if mode == "return":
-            return _scan_mode_return(request, templates, item, raw)
+            return items_scan_modes._scan_mode_return(request, templates, item, raw)
         if mode == "move":
-            return _scan_mode_move(request, templates, item, location_id, raw)
+            return items_scan_modes._scan_mode_move(request, templates, item, location_id, raw)
         if mode == "lookup":
-            return _scan_mode_lookup(request, templates, item, raw)
+            return items_scan_modes._scan_mode_lookup(request, templates, item, raw)
         if mode == "quick_rate":
-            return _scan_mode_quick_rate(request, templates, item, raw)
+            return items_scan_modes._scan_mode_quick_rate(request, templates, item, raw)
 
     # --- Add / Wishlist modes (create new items) ---
     if legacy_candidates:
@@ -597,8 +410,35 @@ async def scan_isbn(
         assert legacy_isbn13 is not None
         isbn13 = legacy_isbn13
     else:
+        # #90: a *known* legacy publisher prefix scanned without its supplement
+        # is a book whose title nobody knows yet — never an ordinary product.
+        # Stop here and ask for the five digits rather than spend a UPC lookup
+        # that would file a confident wrong answer (a DVD).  This sits below
+        # mode dispatch on purpose: rows already misfiled under the bare UPC
+        # must stay findable by lend/return/move/inventory/lookup/quick_rate.
+        bare_upc = legacy_book.incomplete(raw)
+        if bare_upc:
+            return templates.TemplateResponse(
+                request,
+                "fragments/scan_result.html",
+                {
+                    "status": "legacy_incomplete",
+                    "isbn": bare_upc,
+                    # Anything the user actually submitted and that `complete`
+                    # refused gets an explanation; only an untouched field
+                    # (the first render after the scan) is silent.
+                    "supplement_rejected": bool(legacy_supplement),
+                    "media_type": media_type,
+                    "location_id": location_id,
+                    "platform": platform,
+                    "mode": mode,
+                    "borrower_id": borrower_id,
+                },
+            )
+
         # Detect barcode type — route ordinary UPC barcodes to DVD/product
-        # lookup. Legacy UPC+5 values never reach this branch.
+        # lookup. Legacy UPC+5 values never reach this branch, and a bare
+        # legacy UPC is stopped just above it.
         barcode_type = upc_svc.detect_barcode_type(raw)
         if barcode_type == "upc":
             return await items_common._scan_upc(
@@ -625,7 +465,14 @@ async def scan_isbn(
             return templates.TemplateResponse(
                 request,
                 "fragments/scan_result.html",
-                {"status": "error", "isbn": isbn, "message": "Invalid ISBN"},
+                # This branch is also what a *title* typed into the scan box
+                # reaches, which is the whole reason it offers the manual
+                # panel (#120). The offer is gated on this flag and NOT on
+                # `status == 'error'`: manual_add's own four validation
+                # errors render the same arm, and a link back into the form
+                # they came from is a loop. Exactly one branch sets it.
+                {"status": "error", "isbn": isbn, "message": "Invalid ISBN",
+                 "offer_manual": True, "manual_add_text": raw},
             )
         isbn13 = pair[0]
 
@@ -633,7 +480,7 @@ async def scan_isbn(
     # prefix is certain, so a stale "DVD" or "Video Game" in the picker is
     # overridden to Book here rather than filing a novel as a disc; the
     # book-family distinctions the barcode genuinely cannot make
-    # (kids_book / audiobook / ebook / comic) are left to the user.
+    # (audiobook / ebook / comic) are left to the user.
     #
     # There is no product record on this branch — an ISBN never reaches UPC
     # Item DB — so tiers 2 and 3 have nothing to read and tier 1 decides
@@ -645,17 +492,24 @@ async def scan_isbn(
     detect_reason = detection.reason
     detect_overrode = media_type != hint
 
-    # Check duplicate
+    # Check duplicate. An Add-mode scan of a wishlisted book is the purchase:
+    # it becomes owned (#125). The read and that write share one write lock,
+    # taken first (G18); the scan is logged after the block (G3).
+    promoted = False
     with get_db() as db:
+        db.execute("BEGIN IMMEDIATE")
         existing = db.execute(
-            "SELECT id, title FROM items WHERE isbn = ? AND media_type = ?",
+            "SELECT id, title FROM items_live WHERE isbn = ? AND media_type = ?",
             (isbn13, media_type),
         ).fetchone()
+        if existing and mode != "wishlist":
+            promoted = item_write.promote_wishlisted(db, existing["id"])
     if existing:
-        items_common._log_scan(isbn13, media_type, "duplicate", existing["id"], mode)
+        status = "promoted" if promoted else "duplicate"
+        items_common._log_scan(isbn13, media_type, status, existing["id"], mode)
         return templates.TemplateResponse(
             request, "fragments/scan_result.html",
-            {"status": "duplicate", "isbn": isbn13, "title": existing["title"], "item_id": existing["id"]},
+            {"status": status, "isbn": isbn13, "title": existing["title"], "item_id": existing["id"]},
         )
 
     # Get optional metadata-provider credentials — and refuse a stale location
@@ -732,12 +586,8 @@ async def scan_isbn(
                 },
             )
 
-        item_id = items_common._save_item(metadata, isbn13, media_type, location_id, source, hc_ids)
-
-        # Wishlist mode: set owned = 0
-        if mode == "wishlist":
-            with get_db() as db:
-                update_item_fields(db, item_id, {"owned": 0})
+        item_id = items_common._save_item(metadata, isbn13, media_type, location_id,
+                                          source, hc_ids, owned=mode != "wishlist")
 
         # Queue the cover instead of downloading it in-request. The
         # hints are the exact three inputs the download used to take, so
@@ -750,18 +600,20 @@ async def scan_isbn(
         })
 
 
-    status = "wishlisted" if mode == "wishlist" else "added"
+    # Read the restore flag before the id is used for anything else.
+    status = restore_report.restored_status(
+        item_id, "wishlisted" if mode == "wishlist" else "added")
     items_common._log_scan(isbn13, media_type, status, item_id, mode)
 
+    card = ({"title": metadata["title"], "authors": metadata.get("authors"),
+             "cover_path": None, "cover_pending": True}
+            if status != "restored" else restore_report.restored_card(item_id))
     resp = templates.TemplateResponse(
         request, "fragments/scan_result.html",
         {
             "status": status,
             "isbn": isbn13,
-            "title": metadata["title"],
-            "authors": metadata.get("authors"),
-            "cover_path": None,
-            "cover_pending": True,
+            **card,
             "item_id": item_id,
             "source": source,
             "media_type_label": MEDIA_TYPES.get(media_type, media_type),
@@ -791,7 +643,11 @@ async def manual_add(request: Request, _=Depends(require_role("editor"))):
         )
 
     isbn = form.get("isbn", "").strip()
-    media_type = form.get("media_type", "book")
+    media_type = canonical_media_type(form.get("media_type", "book"))
+    # Defaulted to "add" to match /api/scan's own Form("add") at :233 — the
+    # value reaches scan_log.mode, so an absent field must log what the scan
+    # route would log for the same submission.
+    mode = form.get("mode", "add")
 
     # A UPC belongs in items.upc, never in items.isbn (#20). to_isbn13()
     # will happily zero-pad a 12-digit UPC-A into something ISBN-shaped, so
@@ -848,12 +704,21 @@ async def manual_add(request: Request, _=Depends(require_role("editor"))):
     # `insert_item` raises `ItemValueError` and the card carries its message.
     # Rendered after the block so nothing runs under the write.
     value_error = None
+    promoted = False
     with get_db() as db:
+        # The duplicate guard and the insert (or the promotion below) share
+        # one write lock, taken before the guard reads (G18).
+        db.execute("BEGIN IMMEDIATE")
         existing = _find_duplicate_item(db, isbn13, upc_code, media_type)
         if existing is None:
+            # Wishlist intent rides the insert, not a second transaction: a
+            # restoring funnel has to be told it, and the demote this
+            # replaced also sat outside the lock above.
+            wishlist = {"owned": 0, "wishlisted": True} if mode == "wishlist" else {}
             try:
                 item_id = insert_item(
                     db,
+                    **wishlist,
                     title=title,
                     authors=form.get("authors"),
                     isbn=isbn13,
@@ -876,6 +741,9 @@ async def manual_add(request: Request, _=Depends(require_role("editor"))):
                 existing = _find_duplicate_item(db, isbn13, upc_code, media_type)
                 if existing is None:
                     raise
+        # Adding a wishlisted item in Add mode is buying it (#125).
+        if existing and mode != "wishlist":
+            promoted = item_write.promote_wishlisted(db, existing["id"])
 
     if value_error:
         return templates.TemplateResponse(
@@ -885,53 +753,88 @@ async def manual_add(request: Request, _=Depends(require_role("editor"))):
 
     if existing:
         code = isbn13 or upc_code or ""
-        items_common._log_scan(code, media_type, "duplicate", existing["id"])
+        status = "promoted" if promoted else "duplicate"
+        items_common._log_scan(code, media_type, status, existing["id"], mode)
         return templates.TemplateResponse(
             request, "fragments/scan_result.html",
-            {"status": "duplicate", "isbn": code, "title": existing["title"],
+            {"status": status, "isbn": code, "title": existing["title"],
              "item_id": existing["id"]},
         )
 
-    # Handle cover upload
+
+    status = restore_report.restored_status(
+        item_id, "wishlisted" if mode == "wishlist" else "added")
+
+    # Handle cover upload.
+    #
+    # Everything from here to the UPDATE is enrichment over a row that is
+    # already committed — twice, in wishlist mode. A filesystem or network
+    # failure used to escape as a 500 over an add that had in fact
+    # succeeded, and the user's natural retry filed a *second* row: a
+    # title-only manual add carries no identifier, so `_find_duplicate_item`
+    # cannot recognise the one already stored and nothing else can either.
+    # The item is the thing the user asked for; the cover is not worth
+    # losing it over, and rolling the row back instead would only trade
+    # this failure for an orphaned file.
     cover_path = None
-    cover_file = form.get("cover")
-    if cover_file and hasattr(cover_file, "read"):
-        content = await cover_file.read()
-        if content and len(content) > 100:
-            cover_path = covers.save_uploaded_cover(item_id, content)
+    cover_failed = False
+    try:
+        cover_file = form.get("cover")
+        if cover_file and hasattr(cover_file, "read"):
+            content = await cover_file.read()
+            if content and len(content) > 100:
+                cover_path = covers.save_uploaded_cover(item_id, content)
 
-    # If no upload, check for preview cover from scan, then try Amazon
-    if not cover_path and isbn13:
-        preview_path = covers.COVERS_DIR / f"preview_{isbn13}.jpg"
-        if preview_path.exists():
-            # Rename preview to permanent cover
-            dest = covers.COVERS_DIR / f"{item_id}.jpg"
-            preview_path.rename(dest)
-            cover_path = f"covers/{item_id}.jpg"
-        else:
-            async with httpx.AsyncClient(timeout=HTTP_TIMEOUT) as client:
-                cover_path = await covers.download_cover(item_id, isbn13, None, None, client)
+        # If no upload, check for preview cover from scan, then try Amazon —
+        # unless this restored a row that keeps its stored cover.
+        if not cover_path and isbn13 and not restore_report.keeps_stored_cover(item_id):
+            preview_path = covers.COVERS_DIR / f"preview_{isbn13}.jpg"
+            if preview_path.exists():
+                # Rename preview to permanent cover
+                dest = covers.COVERS_DIR / f"{item_id}.jpg"
+                preview_path.rename(dest)
+                cover_path = f"covers/{item_id}.jpg"
+            else:
+                async with httpx.AsyncClient(timeout=HTTP_TIMEOUT) as client:
+                    cover_path = await covers.download_cover(item_id, isbn13, None, None, client)
 
-    if cover_path:
-        with get_db() as db:
-            db.execute("UPDATE items SET cover_path = ? WHERE id = ?", (cover_path, item_id))
+        if cover_path:
+            with get_db() as db:
+                db.execute("UPDATE items SET cover_path = ? WHERE id = ?", (cover_path, item_id))
+    except Exception:
+        logger.warning(
+            "manual add %s: cover could not be saved", item_id, exc_info=True
+        )
+        cover_path = None
+        cover_failed = True
 
-    items_common._log_scan(isbn13 or upc_code or "", media_type, "added", item_id)
+    items_common._log_scan(isbn13 or upc_code or "", media_type, status, item_id, mode)
 
     resp = templates.TemplateResponse(
         request, "fragments/scan_result.html",
         {
-            "status": "added",
+            "status": status,
             "isbn": isbn13 or upc_code or "",
-            "title": title,
-            "authors": form.get("authors"),
-            "cover_path": cover_path,
+            # A restored row shows its stored title and authors; an
+            # explicitly uploaded cover still wins over the stored one.
+            **({"title": title, "authors": form.get("authors"),
+                "cover_path": cover_path}
+               if status != "restored"
+               else {**restore_report.restored_card(item_id),
+                     **({"cover_path": cover_path} if cover_path else {})}),
             "item_id": item_id,
             "source": "manual",
             "media_type_label": MEDIA_TYPES.get(media_type, media_type),
         },
     )
-    resp.headers["HX-Trigger"] = items_common._toast_header(f"Added: {title[:50]}")
+    toast_message = f"Added to wishlist: {title[:50]}" if mode == "wishlist" else f"Added: {title[:50]}"
+    # Say what actually happened. Silently dropping the cover would leave the
+    # user with a coverless item and no idea why; the item page can retry it.
+    if cover_failed:
+        toast_message += " — cover could not be saved"
+    resp.headers["HX-Trigger"] = items_common._toast_header(
+        toast_message, "warning" if cover_failed else "success"
+    )
     return resp
 
 
@@ -947,7 +850,7 @@ async def suggest_items(q: str = "", _=Depends(require_role("editor"))):
         return JSONResponse([])
     with get_db() as db:
         rows = db.execute(
-            "SELECT id, title, authors FROM items WHERE title LIKE ? "
+            "SELECT id, title, authors FROM items_live WHERE title LIKE ? "
             "ORDER BY title COLLATE NOCASE LIMIT 10",
             (f"{q}%",),
         ).fetchall()
@@ -958,27 +861,15 @@ async def suggest_items(q: str = "", _=Depends(require_role("editor"))):
 async def copy_template(item_id: int, _=Depends(require_role("editor"))):
     """Copyable-field subset of an item for manual-add prefill (#19).
 
-    Explicitly excludes title, isbn/upc, cover, reading status, value, and
-    notes — those are identity/state, not template, fields. Keep this key
-    set in sync with .devdocs/archive/completed/plan-issues-15-18-19-quick-wins.md section B.
+    The field set is `item_template.COPYABLE_FIELDS`, which /scan's `?from={id}`
+    panel prefill also reads (#120) — one declaration, two consumers, so they
+    cannot drift.
     """
     with get_db() as db:
-        row = db.execute(
-            """SELECT authors, publisher, publish_year, media_type, platform,
-               series_name, location_id FROM items WHERE id = ?""",
-            (item_id,),
-        ).fetchone()
-    if not row:
+        fields = item_template.copyable_fields(db, item_id)
+    if fields is None:
         return JSONResponse({"error": "Not found"}, status_code=404)
-    return JSONResponse({
-        "authors": row["authors"],
-        "publisher": row["publisher"],
-        "publish_year": row["publish_year"],
-        "media_type": row["media_type"],
-        "platform": row["platform"],
-        "series_name": row["series_name"],
-        "location_id": row["location_id"],
-    })
+    return JSONResponse(fields)
 
 
 @router.get("/search")
@@ -1010,7 +901,7 @@ async def search_items(
 
     with get_db() as db:
         total = db.execute(
-            f"SELECT COUNT(*) as c FROM items i {where}", params
+            f"SELECT COUNT(*) as c FROM items_live i {where}", params
         ).fetchone()["c"]
 
         from app.routers.checkouts import OVERDUE_CONDITION, get_overdue_days
@@ -1018,8 +909,9 @@ async def search_items(
             f"SELECT i.*, l.name as location_name, "
             f"(SELECT b.name FROM checkouts c JOIN borrowers b ON c.borrower_id = b.id "
             f" WHERE c.item_id = i.id AND c.checked_in IS NULL LIMIT 1) AS lent_to, "
-            f"(SELECT 1 FROM checkouts c WHERE c.item_id = i.id AND {OVERDUE_CONDITION} LIMIT 1) AS lent_overdue "
-            f"FROM items i "
+            f"(SELECT 1 FROM checkouts c WHERE c.item_id = i.id AND {OVERDUE_CONDITION} LIMIT 1) AS lent_overdue, "
+            f"{lists.WISHLISTED_SQL} AS wishlisted "
+            f"FROM items_live i "
             f"LEFT JOIN locations l ON i.location_id = l.id "
             f"{where} ORDER BY {order_clause} LIMIT ? OFFSET ?",
             [get_overdue_days(db)] + params + [per_page, offset],
@@ -1029,7 +921,7 @@ async def search_items(
         # same where-clause with its own filter excluded, so the number beside
         # an option says what selecting it would yield. Shared with /browse so
         # the two routes cannot disagree.
-        counts = items_common.filter_counts(db, values, total) if page <= 1 else None
+        counts = browse_counts.filter_counts(db, values, total) if page <= 1 else None
 
     has_more = (offset + per_page) < total
 
@@ -1078,7 +970,7 @@ async def bulk_update(request: Request, _=Depends(require_role("admin"))):
     except (ValueError, TypeError):
         return {"ok": False, "message": "Invalid item IDs"}
 
-    allowed = {"media_type", "location_id", "reading_status", "owned", "series_name"}
+    allowed = {"media_type", "location_id", "reading_status", "owned", "wishlisted", "series_name"}
     filtered = {k: v for k, v in updates.items() if k in allowed}
     if not filtered:
         return {"ok": False, "message": "No valid fields to update"}
@@ -1096,12 +988,24 @@ async def bulk_update(request: Request, _=Depends(require_role("admin"))):
         if "series_name" in filtered:
             old_series_names = [
                 r["series_name"] for r in db.execute(
-                    f"SELECT DISTINCT series_name FROM items WHERE id IN ({placeholders})",
+                    f"SELECT DISTINCT series_name FROM items_live WHERE id IN ({placeholders})",
                     item_ids,
                 ).fetchall()
             ]
 
         try:
+            if "owned" in filtered:
+                # Same coercion the funnel applies to "owned" itself (issue
+                # #125) — an invalid value raises InvalidOwned here, caught
+                # below exactly as it would be if raised inside the funnel,
+                # so the error contract is unchanged. A submitted
+                # "wishlisted" is passed straight through to the funnel
+                # rather than derived from "owned" — `_pop_wishlisted`
+                # judges it and `_refuse_owned_wishlist` refuses the
+                # combination (and a wishlisted=true over a selection that
+                # includes an owned row) whole, before any write (G96).
+                coerced = item_write._coerce_owned(filtered["owned"])
+                filtered["owned"] = coerced
             update_items_fields(db, item_ids, filtered)
         except ItemValueError as e:
             return {"ok": False, "message": str(e)}
@@ -1125,15 +1029,42 @@ async def merge_items(request: Request, _=Depends(require_role("admin"))):
     if not keep_id or not merge_ids:
         return {"ok": False, "message": "Specify keep_id and merge_ids"}
 
+    # Drop the kept row and repeats before anything is written. Both end in
+    # `DELETE FROM items WHERE id = keep_id` further down, destroying the row
+    # the caller asked to keep (#86).
+    targets = list(dict.fromkeys(mid for mid in merge_ids if mid != keep_id))
+    if not targets:
+        return {"ok": False, "message": "Cannot merge an item into itself"}
+
     with get_db() as db:
-        primary = db.execute("SELECT * FROM items WHERE id = ?", (keep_id,)).fetchone()
+        primary = db.execute("SELECT * FROM items_live WHERE id = ?", (keep_id,)).fetchone()
         if not primary:
             return {"ok": False, "message": "Primary item not found"}
 
+        # Refuse before writing anything: the merge is one transaction, and a
+        # kept row holding two open loans is a state no surface can show.
+        on_loan = item_merge.active_loan_ids(db, [keep_id, *targets])
+        if len(on_loan) > 1:
+            titles = [
+                row["title"]
+                for row in db.execute(
+                    "SELECT title FROM items_live WHERE id IN "
+                    f"({','.join('?' for _ in on_loan)}) ORDER BY id",
+                    sorted(on_loan),
+                ).fetchall()
+            ]
+            return {
+                "ok": False,
+                "message": "Cannot merge items that are both on loan: "
+                           + ", ".join(f'"{t}"' for t in titles)
+                           + ". Check one in first.",
+            }
+
+        merged = 0
         _MERGE_FILLABLE = frozenset(["subtitle", "authors", "publisher", "publish_year", "page_count",
                                       "description", "series_name", "narrator", "isbn"])
-        for mid in merge_ids:
-            other = db.execute("SELECT * FROM items WHERE id = ?", (mid,)).fetchone()
+        for mid in targets:
+            other = db.execute("SELECT * FROM items_live WHERE id = ?", (mid,)).fetchone()
             if not other:
                 continue
             fill = {f: other[f] for f in _MERGE_FILLABLE if not primary[f] and other[f]}
@@ -1145,6 +1076,11 @@ async def merge_items(request: Request, _=Depends(require_role("admin"))):
                 # would refuse the copy.
                 try:
                     fill = validate_item_fields(db, fill)
+                    # Collision preflight here, not at the write below: that
+                    # runs after the DELETE, so a refusal there would arrive
+                    # with the husk gone and roll the merge back. The husk is
+                    # live, so only a third, trashed row can collide.
+                    item_write.refuse_trash_collision(db, "id = ?", [keep_id], fill)
                 except ItemValueError as e:
                     # Name the row: the loop stops on the first bad one, and a
                     # multi-row merge otherwise reports a value with no way to
@@ -1155,14 +1091,19 @@ async def merge_items(request: Request, _=Depends(require_role("admin"))):
                         "item_id": mid,
                     }
 
-            db.execute("UPDATE scan_log SET item_id = ? WHERE item_id = ?", (keep_id, mid))
-            db.execute("UPDATE reading_log SET item_id = ? WHERE item_id = ?", (keep_id, mid))
+            # Every child table of `items` is ON DELETE CASCADE, so this has to
+            # happen before the DELETE or the cascade takes the merged row's
+            # loans, tags, links and physical copies with it (#86).
+            item_merge.reparent_children(db, keep_id, mid)
             db.execute("DELETE FROM items WHERE id = ?", (mid,))
+            merged += 1
             if fill:
                 update_item_fields(db, keep_id, fill)
-                primary = db.execute("SELECT * FROM items WHERE id = ?", (keep_id,)).fetchone()
+                primary = db.execute("SELECT * FROM items_live WHERE id = ?", (keep_id,)).fetchone()
 
-    return {"ok": True, "merged": len(merge_ids)}
+    # The count is what was actually merged, not what was asked for: an id that
+    # named no row used to be reported as a success.
+    return {"ok": True, "merged": merged}
 
 
 @router.post("/items/{item_id}")
@@ -1176,20 +1117,30 @@ async def update_item(request: Request, item_id: int, _=Depends(require_role("ed
     # code — G58). Nothing is saved on any refusal.
     edit_url = f"/item/{item_id}/edit" + (f"?from={back_key}" if back_key else "")
 
-    def _refused(code):
-        return RedirectResponse(url=f"{edit_url}{'&' if '?' in edit_url else '?'}error={code}",
-                                status_code=303)
+    def _refused(code, **extra):
+        url = f"{edit_url}{'&' if '?' in edit_url else '?'}error={code}"
+        # `trashed=<id>` only: the template resolves the title itself, so no
+        # user text is ever echoed back through the query string (G58).
+        for key, value in extra.items():
+            url += f"&{key}={value}"
+        return RedirectResponse(url=url, status_code=303)
 
     fields = {}
     try:
-        for key in ("title", "subtitle", "authors", "isbn", "media_type", "publisher",
+        for key in ("title", "subtitle", "authors", "isbn", "upc", "media_type", "publisher",
                     "publish_year", "page_count", "description", "series_name",
                     "series_position", "narrator", "duration_mins", "location_id", "notes",
-                    "reading_status", "date_started", "date_finished", "owned", "platform",
-                    "manual_value", "language"):
+                    "reading_status", "date_started", "date_finished", "owned", "wishlisted",
+                    "platform", "manual_value", "language"):
             val = form.get(key)
             if val is not None:
-                if val == "" and key != "owned":
+                if key == "wishlisted":
+                    # Independent of `owned` (#125): the form posts it on its
+                    # own, and an absent key leaves membership alone (G87).
+                    if val not in ("0", "1"):
+                        return _refused("invalid_wishlisted")
+                    fields[key] = val == "1"
+                elif val == "" and key != "owned":
                     fields[key] = None
                 elif key in ("publish_year", "page_count", "duration_mins", "location_id"):
                     fields[key] = int(val) if val else None
@@ -1216,19 +1167,77 @@ async def update_item(request: Request, item_id: int, _=Depends(require_role("ed
         return RedirectResponse(url=redirect_url, status_code=303)
 
     with get_db() as db:
-        old_series_name = None
-        if "series_name" in fields:
-            row = db.execute(
-                "SELECT series_name FROM items WHERE id = ?", (item_id,)
+        row = db.execute(
+            "SELECT isbn, upc, media_type, series_name FROM items_live WHERE id = ?",
+            (item_id,),
+        ).fetchone()
+        # Missing or in Trash — a stale edit form must not write to either.
+        if row is None:
+            return HTMLResponse("Not found", status_code=404)
+        old_series_name = row["series_name"]
+
+        # #87: the edit form re-posts every named control on every save,
+        # including a stored ISBN/UPC that predates the validator — which
+        # otherwise bounces *every* save on that row, even a title-only fix.
+        # Exempt an identifier from validation only when it is BOTH
+        # unchanged from the stored value AND the validator would refuse
+        # it. Plain "unchanged" is too broad: a valid-but-unchanged ISBN
+        # still has to reach the funnel below, because canonical_isbn_pair
+        # rewrites isbn10 from isbn, and 8 rows in the real DB hold a valid
+        # isbn13 with a stale/wrong stored isbn10 that this repairs. Only
+        # dropping the key when the value is also refused keeps that repair
+        # intact. Dropping the key here also means the upc_conflict lookup
+        # and the funnel's UNIQUE(isbn, media_type) path never see it —
+        # correct, since an unchanged identifier cannot newly collide, but
+        # worth re-reading if a future branch is added below this guard
+        # that answers the same "did this identifier change" question (G68).
+        if (fields.get("isbn") is not None and fields["isbn"] == row["isbn"]
+                and isbn_svc.canonical_isbn_pair(fields["isbn"]) is None):
+            del fields["isbn"]
+        if (fields.get("upc") is not None and fields["upc"] == row["upc"]
+                and not upc_svc.canonical_retail_barcode(fields["upc"])[0]):
+            del fields["upc"]
+
+        if not fields:
+            return RedirectResponse(url=redirect_url, status_code=303)
+
+        # Retail barcodes are normal edit fields, but their storage identity is
+        # canonical EAN-13. Bookland 978/979 carriers remain ISBN-only.
+        if "upc" in fields:
+            valid_upc, canonical_upc = upc_svc.canonical_retail_barcode(fields["upc"])
+            if not valid_upc:
+                return _refused("invalid_upc")
+            fields["upc"] = canonical_upc
+
+        if fields.get("media_type"):
+            fields["media_type"] = canonical_media_type(fields["media_type"])
+
+        # Keep the same duplicate identity rule used by normal scan/add:
+        # a retail barcode may repeat across media types, never within one.
+        if fields.get("upc"):
+            effective_media_type = fields.get("media_type")
+            if effective_media_type is None:
+                effective_media_type = row["media_type"]
+            conflict = db.execute(
+                "SELECT id FROM items_live WHERE upc = ? AND media_type = ? AND id != ? LIMIT 1",
+                (fields["upc"], effective_media_type, item_id),
             ).fetchone()
-            old_series_name = row["series_name"] if row else None
+            if conflict:
+                return _refused("upc_conflict")
 
         # The form posts `isbn` every time, so an edit that changes it now
         # rewrites isbn10 too — #54's second half.
         try:
             update_item_fields(db, item_id, fields)
+        except IdentifierInTrash as e:
+            return _refused(e.code, trashed=e.item_id)
         except ItemValueError as e:
             return _refused(e.code)
+        except sqlite3.IntegrityError:
+            # Close the race between the explicit duplicate lookup and write.
+            if "upc" in fields:
+                return _refused("upc_conflict")
+            raise
 
         # Guarded: `fields` only carries series_name when the form submitted it
         # (a cover-only or partial POST omits it entirely).
@@ -1249,7 +1258,7 @@ async def set_reading_status(request: Request, item_id: int, status: str = Form(
     now_date = None
 
     with get_db() as db:
-        old = db.execute("SELECT reading_status, date_started FROM items WHERE id = ?", (item_id,)).fetchone()
+        old = db.execute("SELECT reading_status, date_started FROM items_live WHERE id = ?", (item_id,)).fetchone()
         if not old:
             return HTMLResponse("Not found", status_code=404)
 
@@ -1281,7 +1290,7 @@ async def set_reading_status(request: Request, item_id: int, status: str = Form(
             return HTMLResponse(str(e), status_code=400)
 
         item = db.execute(
-            "SELECT i.*, l.name as location_name FROM items i "
+            "SELECT i.*, l.name as location_name FROM items_live i "
             "LEFT JOIN locations l ON i.location_id = l.id WHERE i.id = ?",
             (item_id,),
         ).fetchone()
@@ -1311,7 +1320,7 @@ async def _push_status_to_hardcover(item_id: int, status: str):
         with get_db() as db:
             token = get_setting(db, "hardcover_token") or None
             item = db.execute(
-                "SELECT hardcover_user_book_id, hardcover_book_id FROM items WHERE id = ?", (item_id,)
+                "SELECT hardcover_user_book_id, hardcover_book_id FROM items_live WHERE id = ?", (item_id,)
             ).fetchone()
         if not token or not item or not item["hardcover_user_book_id"]:
             return
@@ -1340,7 +1349,7 @@ async def fetch_synopsis(item_id: int, _=Depends(require_role("editor"))):
     """Look up a description for an item that's missing one."""
     with get_db() as db:
         item = db.execute(
-            "SELECT isbn, title, authors FROM items WHERE id = ?", (item_id,)
+            "SELECT isbn, title, authors FROM items_live WHERE id = ?", (item_id,)
         ).fetchone()
         hc_token = get_setting(db, "hardcover_token")
         google_api_key = get_setting(db, "google_books_api_key")
@@ -1365,13 +1374,13 @@ async def fetch_synopsis(item_id: int, _=Depends(require_role("editor"))):
 @router.get("/synopses/backfill/stream")
 async def backfill_synopses_stream(request: Request, _=Depends(require_role("admin"))):
     """SSE endpoint: fetch descriptions for all book-family items missing one."""
-    placeholders = ",".join("?" * len(synopsis_svc.BOOK_MEDIA_TYPES))
+    placeholders = ",".join("?" * len(synopsis_svc.SYNOPSIS_MEDIA_TYPES))
     with get_db() as db:
         items = db.execute(
-            f"SELECT id, isbn, title, authors FROM items "
+            f"SELECT id, isbn, title, authors FROM items_live "
             f"WHERE (description IS NULL OR description = '') "
             f"AND media_type IN ({placeholders}) ORDER BY id",
-            synopsis_svc.BOOK_MEDIA_TYPES,
+            synopsis_svc.SYNOPSIS_MEDIA_TYPES,
         ).fetchall()
         hc_token = get_setting(db, "hardcover_token")
         google_api_key = get_setting(db, "google_books_api_key")
@@ -1434,45 +1443,16 @@ async def backfill_synopses_stream(request: Request, _=Depends(require_role("adm
 
 @router.delete("/items/{item_id}")
 async def delete_item(item_id: int, _=Depends(require_role("editor"))):
+    """Move one item to Trash. Reversible from the Trash page: its copies,
+    loans, tags, links and scan history stay attached and return with it.
+    A second call on the same id is a no-op and still answers 200."""
     with get_db() as db:
-        row = db.execute("SELECT title FROM items WHERE id = ?", (item_id,)).fetchone()
+        row = db.execute("SELECT title FROM items_live WHERE id = ?", (item_id,)).fetchone()
         title = row["title"] if row else "Item"
-        # Clear scan_log FK (no ON DELETE CASCADE on that table)
-        db.execute("UPDATE scan_log SET item_id = NULL WHERE item_id = ?", (item_id,))
-        db.execute("DELETE FROM items WHERE id = ?", (item_id,))
+        item_write.trash_item(db, item_id)
     resp = HTMLResponse('{"ok": true}', headers={"Content-Type": "application/json"})
-    resp.headers["HX-Trigger"] = items_common._toast_header(f"Deleted: {title[:50]}")
+    resp.headers["HX-Trigger"] = items_common._toast_header(f"Moved to Trash: {title[:50]}")
     return resp
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 
 
 @router.get("/recent-scans")
@@ -1485,8 +1465,8 @@ async def recent_scans(
     templates = request.app.state.templates
     with get_db() as db:
         scans = db.execute(
-            "SELECT sl.*, i.title, i.authors, i.cover_path "
-            "FROM scan_log sl LEFT JOIN items i ON sl.item_id = i.id "
+            "SELECT sl.*, i.id AS live_item_id, i.title, i.authors, i.cover_path "
+            "FROM scan_log sl LEFT JOIN items_live i ON sl.item_id = i.id "
             "WHERE sl.mode = ? ORDER BY sl.created_at DESC LIMIT 20",
             (mode,),
         ).fetchall()
@@ -1511,9 +1491,27 @@ async def inventory_missing(
     with get_db() as db:
         loc = db.execute("SELECT name FROM locations WHERE id = ?", (location_id,)).fetchone()
         loc_name = loc["name"] if loc else "Unknown"
+        # item_copies is the source of truth for what is expected on a shelf —
+        # a copy there is expected whether or not it is the primary (issue
+        # #116), and a copy elsewhere is not expected here even when the
+        # items.location_id seam still says it is.
+        #
+        # The fallback arm is for items with no copy row at all, which is a
+        # real state and not only a test artefact: migration 26 and
+        # backfill_legacy_locations both create copies for `owned = 1` rows
+        # only, deliberately, so an upgraded database's *wishlist* item with
+        # a location has none. The audit has never filtered on `owned`, so an
+        # inner join alone would silently drop those rows from every audit.
+        # For an item with no copies the seam is the only answer there is.
         items = db.execute(
-            "SELECT id, title, authors, cover_path FROM items WHERE location_id = ? ORDER BY title",
-            (location_id,),
+            "SELECT i.id, i.title, i.authors, i.cover_path, COUNT(c.id) AS copy_count "
+            "FROM items_live i LEFT JOIN copies_live c "
+            "  ON c.item_id = i.id AND c.location_id = ? "
+            "WHERE c.id IS NOT NULL "
+            "   OR (i.location_id = ? "
+            "       AND NOT EXISTS (SELECT 1 FROM copies_live c2 WHERE c2.item_id = i.id)) "
+            "GROUP BY i.id ORDER BY i.title",
+            (location_id, location_id),
         ).fetchall()
 
     missing = [dict(i) for i in items if i["id"] not in scanned]
@@ -1531,10 +1529,11 @@ async def inventory_missing(
             cover = f'<img src="/covers/{item["id"]}.jpg" class="w-10 h-14 object-cover rounded" alt="">' if item["cover_path"] else '<div class="w-10 h-14 bg-shelf-hover rounded flex items-center justify-center text-shelf-muted text-xs">?</div>'
             title = item["title"] or "Untitled"
             authors = f'<p class="text-xs text-shelf-muted truncate">{item["authors"]}</p>' if item.get("authors") else ""
+            copy_count = f' <span class="text-xs text-shelf-muted">({item["copy_count"]} copies)</span>' if item["copy_count"] > 1 else ""
             html_parts.append(
                 f'<div class="bg-shelf-card rounded-lg border border-shelf-border p-3 flex items-center gap-3">'
                 f'{cover}<div class="flex-1 min-w-0"><p class="font-medium text-sm truncate">'
-                f'<a href="/item/{item["id"]}" class="hover:text-shelf-accent2">{title}</a></p>{authors}</div>'
+                f'<a href="/item/{item["id"]}" class="hover:text-shelf-accent2">{title}</a>{copy_count}</p>{authors}</div>'
                 f'<span class="text-xs px-2 py-1 rounded-full shrink-0 bg-shelf-error/20 text-shelf-error">missing</span></div>'
             )
 
@@ -1556,6 +1555,5 @@ async def test_igdb_key(request: Request, _=Depends(require_role("admin"))):
         return {"ok": False, "message": "Both Client ID and Client Secret are required"}
     async with httpx.AsyncClient(timeout=HTTP_TIMEOUT) as client:
         return await igdb.test_credentials(client_id, client_secret, client)
-
 
 

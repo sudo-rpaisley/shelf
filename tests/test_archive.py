@@ -5,6 +5,7 @@ import json
 import os
 import re
 import shutil
+import sqlite3
 import time
 import zipfile
 
@@ -13,6 +14,8 @@ import pytest
 from app import config
 from app.database import get_db
 from app.services import archive as archive_svc
+from app.services import item_copies
+from app.services import lists
 from app.services.archive import (
     ArchiveError,
     apply_plan,
@@ -71,6 +74,15 @@ def _seed_full_library(db):
     db.execute("INSERT INTO tags (name) VALUES ('sci-fi')")
     tag_id = db.execute("SELECT id FROM tags WHERE name = 'sci-fi'").fetchone()["id"]
     db.execute("INSERT INTO item_tags (item_id, tag_id) VALUES (?, ?)", (item_id, tag_id))
+
+    # Mirrors what app.services.item_copies.sync_primary_location creates for
+    # any item inserted through the real write funnel with a location_id set
+    # — _insert_item here is a raw INSERT that bypasses the funnel, so this
+    # keeps the fixture's item_copies state consistent with production rather
+    # than leaving it artificially copy-less.
+    item_copies.insert_copy(db, {
+        "item_id": item_id, "copy_number": 1, "location_id": loc_id, "is_primary": 1,
+    })
 
     config.COVERS_DIR.mkdir(parents=True, exist_ok=True)
     cover_path = config.COVERS_DIR / f"{item_id}.jpg"
@@ -138,6 +150,12 @@ class TestBuildArchive:
         assert item["location"] == "Living Room"
         assert item["tags"] == ["sci-fi"]
         assert item["cover"] == "covers/1.jpg"
+        assert item["copies"] == [{
+            "copy_number": 1, "location": "Living Room", "is_primary": 1,
+            "position_order": None, "condition": None, "acquired_date": None,
+            "acquisition_source": None, "acquisition_price": None,
+            "provenance": None, "notes": None, "copy_barcode": None,
+        }]
         for forbidden in ("abs_id", "abs_library_id", "location_id", "cover_path"):
             assert forbidden not in item
 
@@ -146,7 +164,9 @@ class TestBuildArchive:
 
         # locations/tags/borrowers by name
         assert library["locations"] == [{"name": "Living Room", "sort_order": 0}]
-        assert library["tags"] == [{"name": "sci-fi"}]
+        # `media_type` rides on every tag, null for a global one — absent
+        # and null are deliberately one answer here (the scope is advisory).
+        assert library["tags"] == [{"name": "sci-fi", "media_type": None}]
         assert library["borrowers"] == [{"name": "Alex"}]
 
         # series
@@ -215,6 +235,85 @@ class TestBuildArchive:
         assert len(library["items"]) == 2
         # sanity: the file actually changed (not stale content)
         assert path2.stat().st_size != size1 or len(library["items"]) == 2
+
+    def test_item_with_two_copies_exports_both(self, db):
+        """A merged item legitimately has copies in two rooms — the export
+        must not collapse to the single legacy `location` name."""
+        item_id = _insert_item(db, title="Foundation", isbn="9780553293357")
+        loc_a = _insert_location(db, name="Living Room")
+        loc_b = _insert_location(db, name="Office")
+        item_copies.insert_copy(db, {
+            "item_id": item_id, "copy_number": 1, "location_id": loc_a,
+            "is_primary": 1, "position_order": 3, "condition": "Good",
+            "acquired_date": "2020-01-01", "acquisition_source": "Gift",
+            "acquisition_price": 12.5, "provenance": "From Grandma",
+            "notes": "First copy", "copy_barcode": "ASSET-001",
+        })
+        item_copies.insert_copy(db, {
+            "item_id": item_id, "copy_number": 2, "location_id": loc_b,
+            "is_primary": 0, "position_order": 1, "condition": "Fair",
+            "acquired_date": "2021-06-15", "acquisition_source": "Used bookstore",
+            "acquisition_price": 4.0, "provenance": None,
+            "notes": "Second copy", "copy_barcode": "ASSET-002",
+        })
+        db.execute("COMMIT")
+
+        path = build_archive(db)
+        with zipfile.ZipFile(path) as zf:
+            library = json.loads(zf.read("library.json"))
+
+        copies = library["items"][0]["copies"]
+        assert [c["copy_number"] for c in copies] == [1, 2]
+        assert copies[0] == {
+            "copy_number": 1, "location": "Living Room", "is_primary": 1,
+            "position_order": 3, "condition": "Good",
+            "acquired_date": "2020-01-01", "acquisition_source": "Gift",
+            "acquisition_price": 12.5, "provenance": "From Grandma",
+            "notes": "First copy", "copy_barcode": "ASSET-001",
+        }
+        assert copies[1] == {
+            "copy_number": 2, "location": "Office", "is_primary": 0,
+            "position_order": 1, "condition": "Fair",
+            "acquired_date": "2021-06-15", "acquisition_source": "Used bookstore",
+            "acquisition_price": 4.0, "provenance": None,
+            "notes": "Second copy", "copy_barcode": "ASSET-002",
+        }
+
+    def test_item_with_no_copies_exports_empty_list(self, db):
+        """Absence of the `copies` key is what T8's back-compat branch must
+        detect (every archive taken before this ships) — an item that was
+        exported by this code but simply owns no copies must be
+        distinguishable from that: `[]`, not a missing key."""
+        _insert_item(db, title="No Copies", isbn="9780000000132")
+        db.execute("COMMIT")
+
+        path = build_archive(db)
+        with zipfile.ZipFile(path) as zf:
+            library = json.loads(zf.read("library.json"))
+
+        item = library["items"][0]
+        assert "copies" in item
+        assert item["copies"] == []
+
+    def test_copies_query_runs_once_not_per_item(self, db, monkeypatch):
+        """`_copies_by_item` is one grouped query for the whole export — an
+        N+1 over item_copies would call it once per item instead of once
+        for the entire run, however many items are exported."""
+        for i in range(3):
+            item_id = _insert_item(db, title=f"Book {i}", isbn=f"97800000001{i:02d}")
+            item_copies.insert_copy(db, {"item_id": item_id, "copy_number": 1})
+        db.execute("COMMIT")
+
+        calls = []
+        original = archive_svc._copies_by_item
+
+        def spy(db_arg):
+            calls.append(db_arg)
+            return original(db_arg)
+
+        monkeypatch.setattr(archive_svc, "_copies_by_item", spy)
+        build_archive(db)
+        assert len(calls) == 1
 
 
 class TestExportArchiveEndpoint:
@@ -631,6 +730,78 @@ class TestRoundTripDuplicateDedupeKeys:
         # a duplicate pair is unrepresentable there. This is the only path
         # where one dedupe key can cover two rows.
         db.execute("COMMIT")
+
+    def test_round_trip_preserves_a_cover_review_dismissal(self, db):
+        """A "Not available" verdict survives export -> wipe -> import.
+
+        `_ITEM_COLUMNS` is a whitelist, so a column absent from it is silently
+        dropped on export and reset on import — which would resurrect every
+        item the user had dismissed, the exact non-convergence the column
+        exists to end.
+        """
+        item_id = _insert_item(db, title="Obscure Self-Published Thing",
+                               media_type="book")
+        db.execute("UPDATE items SET cover_review_dismissed = 1 WHERE id = ?",
+                   (item_id,))
+        db.execute("COMMIT")
+
+        path = build_archive(db)
+        with zipfile.ZipFile(path) as zf:
+            library = json.loads(zf.read("library.json"))
+        assert library["items"][0]["cover_review_dismissed"] == 1
+
+        _wipe_library(db)
+
+        with read_archive(path) as reader:
+            report = merge_archive(db, reader, mode="skip")
+        db.execute("COMMIT")
+        assert report["errors"] == []
+
+        restored = db.execute(
+            "SELECT cover_review_dismissed FROM items "
+            "WHERE title = 'Obscure Self-Published Thing'"
+        ).fetchone()
+        assert restored["cover_review_dismissed"] == 1
+
+    def test_an_archive_predating_the_dismissal_column_still_imports(self, db):
+        """Every archive written before migration 32 lacks the key entirely.
+
+        The import builds its field dict from `_ITEM_COLUMNS` with `.get()`, so
+        an absent key becomes an explicit NULL — and the column is NOT NULL, so
+        without coercion the whole import dies on an IntegrityError rather than
+        on anything the user could act on. This is the regression pin for that.
+        """
+        _insert_item(db, title="Written Before The Column", media_type="book")
+        db.execute("COMMIT")
+        path = build_archive(db)
+
+        # Rewrite library.json exactly as an older Shelf would have emitted it:
+        # with no cover_review_dismissed key on any item.
+        with zipfile.ZipFile(path) as zf:
+            names = zf.namelist()
+            blobs = {n: zf.read(n) for n in names}
+        library = json.loads(blobs["library.json"])
+        for item in library["items"]:
+            item.pop("cover_review_dismissed", None)
+        assert "cover_review_dismissed" not in library["items"][0]
+        blobs["library.json"] = json.dumps(library).encode()
+        with zipfile.ZipFile(path, "w") as zf:
+            for n in names:
+                zf.writestr(n, blobs[n])
+
+        _wipe_library(db)
+
+        with read_archive(path) as reader:
+            report = merge_archive(db, reader, mode="skip")
+        db.execute("COMMIT")
+
+        assert report["errors"] == []
+        assert report["imported"] == 1
+        restored = db.execute(
+            "SELECT cover_review_dismissed FROM items "
+            "WHERE title = 'Written Before The Column'"
+        ).fetchone()
+        assert restored["cover_review_dismissed"] == 0
 
     def test_duplicates_survive_fresh_instance_restore(self, db):
         self._seed_pair(db)
@@ -2135,3 +2306,901 @@ class TestPlanAndApplyAgreeOnABadIsbn:
         assert row["isbn"] is None
         assert row["publisher"] == "Ace"
         assert any("B00EXAMPLE" in e for e in report["errors"])
+
+
+class TestArchiveCopiesImport:
+    """The import half of issue #116. Four rules, plus the one that matters
+    most for an untrusted input: a rejected item leaves nothing behind."""
+
+    @staticmethod
+    def _archive(tmp_path, items, name="copies.zip"):
+        """Hand-build an archive rather than deleting keys from a fresh
+        export — the no-`copies`-key case has to be built, not derived, or
+        the test is only asserting that a deletion worked."""
+        return _write_zip(
+            tmp_path / name, [],
+            library=json.dumps({"items": items}),
+        )
+
+    @staticmethod
+    def _import(db, path, mode="skip"):
+        with read_archive(path) as reader:
+            report = merge_archive(db, reader, mode=mode)
+        try:
+            db.execute("COMMIT")
+        except sqlite3.OperationalError as e:
+            # "no transaction is active" is the *expected* state when every
+            # item in the archive was rejected before its first write — which
+            # is exactly what the rejection tests below assert. Anything else
+            # is a real failure and still raises.
+            if "no transaction is active" not in str(e):
+                raise
+        return report
+
+    @staticmethod
+    def _copies(db, title):
+        return db.execute(
+            "SELECT c.copy_number, c.is_primary, c.position_order, c.condition, "
+            "c.acquisition_price, c.copy_barcode, l.name AS location "
+            "FROM item_copies c JOIN items i ON i.id = c.item_id "
+            "LEFT JOIN locations l ON l.id = c.location_id "
+            "WHERE i.title = ? ORDER BY c.copy_number",
+            (title,),
+        ).fetchall()
+
+    def test_a_round_trip_preserves_every_copy_and_its_detail(self, db):
+        item_id = _insert_item(db, title="Foundation", isbn="9780553293357")
+        office = _insert_location(db, name="Office")
+        loft = _insert_location(db, name="Loft")
+        item_copies.insert_copy(db, {
+            "item_id": item_id, "copy_number": 1, "location_id": office,
+            "is_primary": 1, "position_order": 3, "condition": "Good",
+            "acquired_date": "2020-01-01", "acquisition_source": "Gift",
+            "acquisition_price": 12.5, "provenance": "From Grandma",
+            "notes": "First", "copy_barcode": "ASSET-001",
+        })
+        item_copies.insert_copy(db, {
+            "item_id": item_id, "copy_number": 2, "location_id": loft,
+            "is_primary": 0, "position_order": 1, "condition": "Fair",
+            "acquisition_price": 4.0, "notes": "Second",
+            "copy_barcode": "ASSET-002",
+        })
+        db.execute("COMMIT")
+        path = build_archive(db)
+
+        _wipe_library(db)
+        report = self._import(db, path)
+
+        assert report["errors"] == []
+        rows = [dict(r) for r in self._copies(db, "Foundation")]
+        assert [r["copy_number"] for r in rows] == [1, 2]
+        assert [r["location"] for r in rows] == ["Office", "Loft"]
+        assert [r["is_primary"] for r in rows] == [1, 0]
+        assert [r["position_order"] for r in rows] == [3, 1]
+        assert [r["condition"] for r in rows] == ["Good", "Fair"]
+        assert [r["acquisition_price"] for r in rows] == [12.5, 4.0]
+        assert [r["copy_barcode"] for r in rows] == ["ASSET-001", "ASSET-002"]
+
+    def test_an_archive_with_no_copies_key_imports_as_one_primary_copy(
+        self, db, tmp_path
+    ):
+        """Every archive taken before this ships. The branch must be reached
+        by the key's absence, never by an empty list."""
+        path = self._archive(tmp_path, [{
+            "id": 1, "title": "Old Export", "media_type": "book",
+            "owned": 1, "source": "manual", "location": "Shelf A",
+        }])
+
+        report = self._import(db, path)
+
+        assert report["imported"] == 1
+        assert report["errors"] == []
+        rows = [dict(r) for r in self._copies(db, "Old Export")]
+        assert len(rows) == 1
+        assert rows[0]["copy_number"] == 1
+        assert rows[0]["is_primary"] == 1
+        assert rows[0]["location"] == "Shelf A"
+
+    def test_a_matched_existing_item_keeps_its_own_copies(self, db, tmp_path):
+        """G27's precedent: the archive already matches-and-skips dependent
+        rows for existing items, because attaching them would duplicate on
+        every repeat import. Copies are the same argument."""
+        here = _insert_location(db, name="Here")
+        item_id = _insert_item(db, title="Local", isbn="9780553293357",
+                               location_id=here)
+        item_copies.insert_copy(db, {
+            "item_id": item_id, "copy_number": 1, "location_id": here,
+            "is_primary": 1, "condition": "Mine",
+        })
+        db.execute("COMMIT")
+
+        path = self._archive(tmp_path, [{
+            "id": 1, "title": "Local", "isbn": "9780553293357",
+            "media_type": "book", "owned": 1, "source": "manual",
+            "location": "Elsewhere",
+            "copies": [
+                {"copy_number": 1, "location": "Elsewhere", "is_primary": 1,
+                 "condition": "Theirs"},
+                {"copy_number": 2, "location": "Elsewhere", "is_primary": 0},
+            ],
+        }])
+        report = self._import(db, path, mode="update")
+
+        assert report["updated"] == 1
+        rows = [dict(r) for r in self._copies(db, "Local")]
+        assert len(rows) == 1
+        assert rows[0]["condition"] == "Mine"
+        # The copy must not have MOVED either. The archive's own `location`
+        # used to reach update_item_fields, which routes a location change
+        # into sync_primary_location and dragged the local primary to the
+        # archive's shelf — a silent relocation on every re-import (B1).
+        assert rows[0]["location"] == "Here"
+        seam = db.execute(
+            "SELECT l.name AS location FROM items i "
+            "LEFT JOIN locations l ON l.id = i.location_id WHERE i.id = ?",
+            (item_id,),
+        ).fetchone()
+        assert seam["location"] == "Here"
+        # And the archive's location is not created as a side effect.
+        assert db.execute(
+            "SELECT COUNT(*) AS n FROM locations WHERE name = 'Elsewhere'"
+        ).fetchone()["n"] == 0
+
+    def test_a_colliding_copy_barcode_is_imported_without_it_and_reported(
+        self, db, tmp_path
+    ):
+        """`copy_barcode` is UNIQUE collection-wide. Losing the barcode is a
+        far smaller loss than losing the copy."""
+        here = _insert_location(db, name="Here")
+        holder = _insert_item(db, title="Barcode Holder", isbn="9780441013593",
+                              location_id=here)
+        item_copies.insert_copy(db, {
+            "item_id": holder, "copy_number": 1, "location_id": here,
+            "is_primary": 1, "copy_barcode": "ASSET-001",
+        })
+        db.execute("COMMIT")
+
+        path = self._archive(tmp_path, [{
+            "id": 1, "title": "Newcomer", "media_type": "book", "owned": 1,
+            "source": "manual", "location": "Shelf A",
+            "copies": [{"copy_number": 1, "location": "Shelf A",
+                        "is_primary": 1, "copy_barcode": "ASSET-001"}],
+        }])
+        report = self._import(db, path)
+
+        assert report["imported"] == 1
+        rows = [dict(r) for r in self._copies(db, "Newcomer")]
+        assert len(rows) == 1
+        assert rows[0]["copy_barcode"] is None
+        assert len(report["errors"]) == 1
+        assert "ASSET-001" in report["errors"][0]
+        assert str(holder) in report["errors"][0]
+
+    def test_two_primary_entries_import_without_raising(self, db, tmp_path):
+        """`idx_item_copies_one_primary` is a partial unique index. An archive
+        is untrusted input and must not be able to raise IntegrityError out of
+        an import — the first entry in copy_number order wins."""
+        path = self._archive(tmp_path, [{
+            "id": 1, "title": "Two Primaries", "media_type": "book",
+            "owned": 1, "source": "manual", "location": "Shelf A",
+            "copies": [
+                {"copy_number": 2, "location": "Shelf B", "is_primary": 1},
+                {"copy_number": 1, "location": "Shelf A", "is_primary": 1},
+            ],
+        }])
+        report = self._import(db, path)
+
+        assert report["imported"] == 1
+        assert report["errors"] == []
+        rows = [dict(r) for r in self._copies(db, "Two Primaries")]
+        assert [(r["copy_number"], r["is_primary"]) for r in rows] == [(1, 1), (2, 0)]
+
+    def test_no_primary_entry_still_yields_exactly_one(self, db, tmp_path):
+        path = self._archive(tmp_path, [{
+            "id": 1, "title": "No Primary", "media_type": "book",
+            "owned": 1, "source": "manual", "location": "Shelf A",
+            "copies": [
+                {"copy_number": 1, "location": "Shelf A", "is_primary": 0},
+                {"copy_number": 2, "location": "Shelf B", "is_primary": 0},
+            ],
+        }])
+        report = self._import(db, path)
+
+        assert report["errors"] == []
+        rows = [dict(r) for r in self._copies(db, "No Primary")]
+        assert [(r["copy_number"], r["is_primary"]) for r in rows] == [(1, 1), (2, 0)]
+
+    def test_a_valid_non_first_primary_is_preserved(self, db, tmp_path):
+        """Exactly one primary is not a malformed array, so it must survive as
+        given. Forcing it onto copy 1 moved the physical primary away from the
+        shelf `items.location_id` still named, so the item page and the item
+        seam disagreed the moment the import succeeded — the very reader
+        disagreement #116 exists to remove (B2)."""
+        path = self._archive(tmp_path, [{
+            "id": 1, "title": "Second Is Primary", "media_type": "book",
+            "owned": 1, "source": "manual", "location": "Shelf B",
+            "copies": [
+                {"copy_number": 1, "location": "Shelf A", "is_primary": 0,
+                 "condition": "Spare"},
+                {"copy_number": 2, "location": "Shelf B", "is_primary": 1,
+                 "condition": "Reading"},
+            ],
+        }])
+
+        report = self._import(db, path)
+
+        assert report["imported"] == 1
+        assert report["errors"] == []
+        rows = [dict(r) for r in self._copies(db, "Second Is Primary")]
+        assert [(r["copy_number"], r["is_primary"], r["location"]) for r in rows] == [
+            (1, 0, "Shelf A"), (2, 1, "Shelf B"),
+        ]
+        assert [r["condition"] for r in rows] == ["Spare", "Reading"]
+        seam = db.execute(
+            "SELECT l.name AS location FROM items i "
+            "LEFT JOIN locations l ON l.id = i.location_id "
+            "WHERE i.title = 'Second Is Primary'"
+        ).fetchone()
+        assert seam["location"] == "Shelf B"
+
+    def test_an_explicit_empty_copies_array_imports_no_copy(self, db, tmp_path):
+        """A located item with zero copy rows is real — an upgraded database's
+        wishlist item, the state G86 names — and the archive can say so. The
+        empty array used to collapse onto the missing-key branch, so
+        insert_item's placeholder primary survived and the round trip was not
+        exact (B3). The item keeps its location; only the copy goes."""
+        path = self._archive(tmp_path, [{
+            "id": 1, "title": "Wanted", "media_type": "book",
+            "owned": 0, "source": "manual", "location": "Wishlist Shelf",
+            "copies": [],
+        }])
+
+        report = self._import(db, path)
+
+        assert report["imported"] == 1
+        assert report["errors"] == []
+        assert self._copies(db, "Wanted") == []
+        seam = db.execute(
+            "SELECT l.name AS location FROM items i "
+            "LEFT JOIN locations l ON l.id = i.location_id "
+            "WHERE i.title = 'Wanted'"
+        ).fetchone()
+        assert seam["location"] == "Wishlist Shelf"
+
+    def test_a_located_zero_copy_item_survives_its_own_round_trip(self, db, tmp_path):
+        """The export half of B3: what `_build_items` writes for a located
+        item with no copies must import back to the same thing."""
+        _insert_item(db, title="Round Trip Wishlist", owned=0, wishlisted=True,
+                     location_id=_insert_location(db, name="Wishlist Shelf"))
+        db.execute("DELETE FROM item_copies")
+        db.execute("COMMIT")
+
+        with zipfile.ZipFile(build_archive(db)) as zf:
+            exported = json.loads(zf.read("library.json"))
+        item = next(i for i in exported["items"] if i["title"] == "Round Trip Wishlist")
+        assert item["copies"] == []
+
+        db.execute("DELETE FROM items")
+        db.execute("COMMIT")
+        report = self._import(db, self._archive(tmp_path, [item], name="rt.zip"))
+
+        assert report["imported"] == 1
+        assert self._copies(db, "Round Trip Wishlist") == []
+
+    @pytest.mark.parametrize("bad_copies, fragment", [
+        ([{"copy_number": 1, "location": "Shelf A"},
+          {"copy_number": 1, "location": "Shelf B"}], "duplicate copy_number"),
+        ([{"copy_number": 1, "location": "Shelf A", "acquisition_price": -5}],
+         "negative"),
+        # B4: every value that later reaches `.strip()` or a TEXT column. Each
+        # of these used to pass validation, so the item, its primary copy and
+        # its location were already committed when the resolver raised
+        # AttributeError — a half-import reported as zero imported.
+        ([{"copy_number": 1, "location": {}}], "location"),
+        ([{"copy_number": 1, "location": "Shelf A", "copy_barcode": ["A"]}],
+         "copy_barcode"),
+        ([{"copy_number": 1, "location": "Shelf A", "condition": 7}],
+         "condition"),
+        ([{"copy_number": 1, "location": "Shelf A", "notes": {"a": 1}}],
+         "notes"),
+        ([{"copy_number": 1, "location": "Shelf A", "position_order": "third"}],
+         "position_order"),
+    ], ids=["duplicate-copy-number", "negative-price", "location-not-a-string",
+            "barcode-not-a-string", "condition-not-a-string",
+            "notes-not-a-string", "position-not-an-integer"])
+    def test_a_rejected_item_leaves_nothing_behind(
+        self, db, tmp_path, bad_copies, fragment
+    ):
+        """The whole reason validation runs before the first write.
+        `apply_plan` catches a per-item exception into `errors` and returns
+        normally, so `get_db()` commits everything written up to the raise.
+        The item, its tags, its copies and the location it alone would have
+        created must all be absent."""
+        path = self._archive(tmp_path, [{
+            "id": 1, "title": "Malformed", "media_type": "book", "owned": 1,
+            "source": "manual", "location": "Only For This Item",
+            "tags": ["only-for-this-item"],
+            "copies": bad_copies,
+        }], name=f"bad-{fragment.split()[0]}.zip")
+
+        report = self._import(db, path)
+
+        assert report["imported"] == 0
+        assert len(report["errors"]) == 1
+        assert fragment in report["errors"][0]
+
+        assert db.execute(
+            "SELECT COUNT(*) AS n FROM items WHERE title = 'Malformed'"
+        ).fetchone()["n"] == 0
+        assert db.execute("SELECT COUNT(*) AS n FROM item_copies").fetchone()["n"] == 0
+        assert db.execute("SELECT COUNT(*) AS n FROM item_tags").fetchone()["n"] == 0
+        assert db.execute(
+            "SELECT COUNT(*) AS n FROM locations WHERE name = 'Only For This Item'"
+        ).fetchone()["n"] == 0
+        assert db.execute(
+            "SELECT COUNT(*) AS n FROM tags WHERE name = 'only-for-this-item'"
+        ).fetchone()["n"] == 0
+
+
+def _one_item_archive(tmp_path, item, *, name="wl.zip"):
+    """A minimal archive carrying exactly one item dict, verbatim.
+
+    The item is written as given — no normalisation — so a test can put an
+    absent key, a present null or an outright invalid value into the file and
+    see what the importer makes of it.
+    """
+    library = json.dumps({"locations": [], "tags": [], "borrowers": [],
+                          "series": [], "items": [item]})
+    return _write_zip(tmp_path / name, [], library=library)
+
+
+class TestWishlistMembershipRoundTrip:
+    """`wishlisted` travels in the archive as its own boolean (#125)."""
+
+    def test_a_wishlist_item_exports_true_and_imports_as_a_member(self, db):
+        _insert_item(db, title="Wanted Book", isbn="9780000000019", owned=0, wishlisted=True)
+        db.execute("COMMIT")
+
+        path = build_archive(db)
+        with zipfile.ZipFile(path) as zf:
+            library = json.loads(zf.read("library.json"))
+        assert library["items"][0]["wishlisted"] is True
+
+        _wipe_library(db)
+        with read_archive(path) as reader:
+            report = merge_archive(db, reader, mode="skip")
+        db.execute("COMMIT")
+        assert report["errors"] == []
+
+        row = db.execute(
+            "SELECT id, owned FROM items WHERE title = 'Wanted Book'"
+        ).fetchone()
+        assert row["owned"] == 0
+        assert lists.is_member(db, lists.WISHLIST, row["id"])
+
+    def test_an_owned_item_exports_false(self, db):
+        _insert_item(db, title="Owned Book", isbn="9780000000033", owned=1)
+        db.execute("COMMIT")
+        path = build_archive(db)
+        with zipfile.ZipFile(path) as zf:
+            library = json.loads(zf.read("library.json"))
+        assert library["items"][0]["wishlisted"] is False
+
+    def test_a_matched_item_is_overwritten_in_both_directions(self, db):
+        """G27: an overwrite, not an undo — membership follows `owned`
+        exactly as `owned` itself always overwrites."""
+        owned_id = _insert_item(db, title="Flip Me", isbn="9780000000040", owned=1)
+        db.execute("COMMIT")
+
+        path = _one_item_archive(
+            config.DATA_DIR,
+            {"id": 1, "title": "Flip Me", "isbn": "9780000000040",
+             "media_type": "book", "owned": 0, "wishlisted": True},
+        )
+        with read_archive(path) as reader:
+            report = merge_archive(db, reader, mode="update")
+        db.execute("COMMIT")
+        assert report["errors"] == []
+
+        row = db.execute("SELECT owned FROM items WHERE id = ?", (owned_id,)).fetchone()
+        assert row["owned"] == 0
+        assert lists.is_member(db, lists.WISHLIST, owned_id)
+
+        back = _one_item_archive(
+            config.DATA_DIR,
+            {"id": 1, "title": "Flip Me", "isbn": "9780000000040",
+             "media_type": "book", "owned": 1, "wishlisted": False},
+            name="back.zip",
+        )
+        with read_archive(back) as reader:
+            report = merge_archive(db, reader, mode="update")
+        db.execute("COMMIT")
+        assert report["errors"] == []
+        assert not lists.is_member(db, lists.WISHLIST, owned_id)
+
+
+class TestWishlistedKeyPresence:
+    """G87: an absent key and a present-but-invalid one are different answers.
+
+    A missing `wishlisted` means "this archive predates the key — derive it
+    from owned". A present one belongs to the boolean contract. Collapsing
+    the two is the bug this file already shipped once, on `copies` (#116),
+    and one test covering "absent or empty" would pass under that bug.
+    """
+
+    @pytest.mark.parametrize("owned,expect_member", [(0, True), (1, False)])
+    def test_an_absent_key_is_derived_from_owned(self, db, owned, expect_member):
+        path = _one_item_archive(
+            config.DATA_DIR,
+            {"id": 1, "title": "Legacy Row", "media_type": "book", "owned": owned},
+            name=f"legacy-{owned}.zip",
+        )
+        with read_archive(path) as reader:
+            report = merge_archive(db, reader, mode="skip")
+        db.execute("COMMIT")
+        assert report["errors"] == []
+
+        row = db.execute("SELECT id FROM items WHERE title = 'Legacy Row'").fetchone()
+        assert lists.is_member(db, lists.WISHLIST, row["id"]) is expect_member
+
+    @pytest.mark.parametrize("bad", [None, "false", "true", [], {}, 2, "yes"])
+    def test_a_present_invalid_value_is_an_item_error(self, db, bad):
+        """Each of these would be silently truth-coerced by `bool(...)`:
+        `"false"` and `{}` to True, `[]` and `None` to False."""
+        before = db.execute("SELECT COUNT(*) AS c FROM items").fetchone()["c"]
+        path = _one_item_archive(
+            config.DATA_DIR,
+            {"id": 1, "title": "Bad Wishlisted", "media_type": "book",
+             "owned": 0, "wishlisted": bad},
+            name=f"bad-{type(bad).__name__}-{bad!r}.zip".replace("/", "_"),
+        )
+        with read_archive(path) as reader:
+            report = merge_archive(db, reader, mode="skip")
+        db.commit()
+
+        assert report["errors"], f"{bad!r} was accepted silently"
+        assert db.execute(
+            "SELECT COUNT(*) AS c FROM items"
+        ).fetchone()["c"] == before
+
+
+class TestArchiveRefusesTheContradiction:
+    """G85: apply_plan catches per-item exceptions and carries on inside one
+    transaction, so a refusal raised *after* a write would leave the record
+    half-imported while the report said it failed. The funnel refuses before
+    writing; this is the pin that fails if that ordering is ever undone.
+    """
+
+    def test_owned_and_wishlisted_leaves_nothing_behind(self, db):
+        loc_before = db.execute("SELECT COUNT(*) AS c FROM locations").fetchone()["c"]
+        path = _one_item_archive(
+            config.DATA_DIR,
+            {"id": 1, "title": "Contradiction", "media_type": "book",
+             "owned": 1, "wishlisted": True,
+             "location": "Nowhere Shelf", "tags": ["sci-fi"]},
+            name="contradiction.zip",
+        )
+        with read_archive(path) as reader:
+            report = merge_archive(db, reader, mode="skip")
+        db.commit()
+
+        assert report["errors"], "the contradiction was imported silently"
+        assert db.execute(
+            "SELECT COUNT(*) AS c FROM items WHERE title = 'Contradiction'"
+        ).fetchone()["c"] == 0
+        assert db.execute("SELECT COUNT(*) AS c FROM item_copies").fetchone()["c"] == 0
+        assert db.execute("SELECT COUNT(*) AS c FROM list_items").fetchone()["c"] == 0
+        assert db.execute("SELECT COUNT(*) AS c FROM item_tags").fetchone()["c"] == 0
+        # The get-or-create caches run before the item write, so the location
+        # may exist; what must not exist is a half-written *item*.
+        assert db.execute(
+            "SELECT COUNT(*) AS c FROM locations"
+        ).fetchone()["c"] >= loc_before
+
+
+class TestWishlistRoundTripFidelity:
+    def test_round_trip_preserves_wishlist_membership(self, db):
+        """Full-fidelity re-export comparison with a wishlist item present.
+
+        `_seed_full_library`'s item is owned, so the existing round trip only
+        ever compares `wishlisted: false`. Seeding the wishlist case into that
+        shared helper would change the item count for seventeen call sites
+        (one asserts `len(items) == 1`), so it gets its own seed here instead.
+        """
+        # isbn10 is seeded explicitly for the same reason _seed_full_library
+        # does it: a raw seed leaves it NULL, while the importer derives the
+        # canonical pair — an unrelated difference that would otherwise show
+        # up in this comparison and read as a wishlist defect.
+        _insert_item(db, title="Wanted Book", isbn="9780000000019",
+                     isbn10="0000000019", owned=0, wishlisted=True)
+        _insert_item(db, title="Owned Book", isbn="9780000000033",
+                     isbn10="0000000035", owned=1)
+        db.execute("COMMIT")
+
+        original_path = build_archive(db)
+        with zipfile.ZipFile(original_path) as zf:
+            original_library = json.loads(zf.read("library.json"))
+        by_title = {i["title"]: i for i in original_library["items"]}
+        assert by_title["Wanted Book"]["wishlisted"] is True
+        assert by_title["Owned Book"]["wishlisted"] is False
+
+        _wipe_library(db)
+        with read_archive(original_path) as reader:
+            report = merge_archive(db, reader, mode="skip")
+        db.execute("COMMIT")
+        assert report["errors"] == []
+
+        reimport_path = build_archive(db)
+        with zipfile.ZipFile(reimport_path) as zf:
+            new_library = json.loads(zf.read("library.json"))
+        assert _normalize_library(original_library) == _normalize_library(new_library)
+
+        restored = db.execute(
+            "SELECT id FROM items WHERE title = 'Wanted Book'"
+        ).fetchone()
+        assert lists.is_member(db, lists.WISHLIST, restored["id"])
+
+
+def _rewrite_library(path, mutate):
+    """Rewrite an archive's library.json through `mutate`, in place.
+
+    The pattern `test_an_archive_predating_the_dismissal_column_still_imports`
+    uses, factored out so the kids_book and scope tests can each hand-build
+    the shape an older Shelf would have written.
+    """
+    with zipfile.ZipFile(path) as zf:
+        names = zf.namelist()
+        blobs = {n: zf.read(n) for n in names}
+    library = json.loads(blobs["library.json"])
+    mutate(library)
+    blobs["library.json"] = json.dumps(library).encode()
+    with zipfile.ZipFile(path, "w") as zf:
+        for n in names:
+            zf.writestr(n, blobs[n])
+    return path
+
+
+class TestTagScopeRoundTrip:
+    def test_a_scoped_tag_survives_export_and_import(self, db):
+        item_id = _insert_item(db, title="Scoped", isbn=None, media_type="book")
+        db.execute("INSERT INTO tags (name, media_type) VALUES ('Cookbook', 'book')")
+        tag_id = db.execute("SELECT id FROM tags WHERE name = 'Cookbook'").fetchone()["id"]
+        db.execute("INSERT INTO item_tags (item_id, tag_id) VALUES (?, ?)", (item_id, tag_id))
+        db.execute("COMMIT")
+        path = build_archive(db)
+        _wipe_library(db)
+
+        with read_archive(path) as reader:
+            merge_archive(db, reader, mode="skip")
+        db.execute("COMMIT")
+
+        assert db.execute(
+            "SELECT media_type FROM tags WHERE name = 'Cookbook'"
+        ).fetchone()["media_type"] == "book"
+
+    def test_an_existing_tags_scope_is_not_overwritten(self, db):
+        """`_get_or_create_by_name` never touches an existing row's other
+        columns, and the archive's scope must not be an exception."""
+        item_id = _insert_item(db, title="Scoped", isbn=None, media_type="book")
+        db.execute("INSERT INTO tags (name, media_type) VALUES ('Cookbook', 'book')")
+        tag_id = db.execute("SELECT id FROM tags WHERE name = 'Cookbook'").fetchone()["id"]
+        db.execute("INSERT INTO item_tags (item_id, tag_id) VALUES (?, ?)", (item_id, tag_id))
+        db.execute("COMMIT")
+        path = build_archive(db)
+
+        # The local tag is global; the archive says `book`. Local wins.
+        db.execute("UPDATE tags SET media_type = NULL WHERE id = ?", (tag_id,))
+        db.execute("COMMIT")
+
+        with read_archive(path) as reader:
+            merge_archive(db, reader, mode="update")
+        db.execute("COMMIT")
+
+        assert db.execute(
+            "SELECT media_type FROM tags WHERE name = 'Cookbook'"
+        ).fetchone()["media_type"] is None
+
+    def test_an_archive_without_the_scope_key_still_imports(self, db):
+        """Every archive written before this release lacks it entirely."""
+        item_id = _insert_item(db, title="Old Archive", isbn=None, media_type="book")
+        db.execute("INSERT INTO tags (name) VALUES ('sci-fi')")
+        tag_id = db.execute("SELECT id FROM tags WHERE name = 'sci-fi'").fetchone()["id"]
+        db.execute("INSERT INTO item_tags (item_id, tag_id) VALUES (?, ?)", (item_id, tag_id))
+        db.execute("COMMIT")
+        path = build_archive(db)
+
+        def strip_scope(library):
+            for tag in library["tags"]:
+                tag.pop("media_type", None)
+            assert "media_type" not in library["tags"][0]
+
+        _rewrite_library(path, strip_scope)
+        _wipe_library(db)
+
+        with read_archive(path) as reader:
+            report = merge_archive(db, reader, mode="skip")
+        db.execute("COMMIT")
+
+        assert report["errors"] == []
+        row = db.execute("SELECT media_type FROM tags WHERE name = 'sci-fi'").fetchone()
+        assert row is not None and row["media_type"] is None
+
+    def test_an_unknown_scope_value_imports_as_global(self, db):
+        item_id = _insert_item(db, title="Odd Scope", isbn=None, media_type="book")
+        db.execute("INSERT INTO tags (name) VALUES ('sci-fi')")
+        tag_id = db.execute("SELECT id FROM tags WHERE name = 'sci-fi'").fetchone()["id"]
+        db.execute("INSERT INTO item_tags (item_id, tag_id) VALUES (?, ?)", (item_id, tag_id))
+        db.execute("COMMIT")
+        path = build_archive(db)
+
+        def bad_scope(library):
+            for tag in library["tags"]:
+                tag["media_type"] = "not_a_media_type"
+
+        _rewrite_library(path, bad_scope)
+        _wipe_library(db)
+
+        with read_archive(path) as reader:
+            report = merge_archive(db, reader, mode="skip")
+        db.execute("COMMIT")
+
+        assert report["errors"] == []
+        assert db.execute(
+            "SELECT media_type FROM tags WHERE name = 'sci-fi'"
+        ).fetchone()["media_type"] is None
+
+
+class TestTheRetiredKidsBookAliasInAnArchive:
+    """An archive written by an older Shelf can still say `kids_book`."""
+
+    def _aged(self, db, *, media_type="kids_book", tags=None, **kw):
+        """Build an archive, then rewrite one item to the retired type."""
+        _insert_item(db, title="The Kids Book", media_type="book", **kw)
+        if tags:
+            item_id = db.execute(
+                "SELECT id FROM items WHERE title = 'The Kids Book'"
+            ).fetchone()["id"]
+            for name in tags:
+                db.execute("INSERT OR IGNORE INTO tags (name) VALUES (?)", (name,))
+                tid = db.execute("SELECT id FROM tags WHERE name = ?", (name,)).fetchone()["id"]
+                db.execute(
+                    "INSERT OR IGNORE INTO item_tags (item_id, tag_id) VALUES (?, ?)",
+                    (item_id, tid),
+                )
+        db.execute("COMMIT")
+        path = build_archive(db)
+
+        def age(library):
+            for item in library["items"]:
+                if item["title"] == "The Kids Book":
+                    item["media_type"] = media_type
+
+        _rewrite_library(path, age)
+        return path
+
+    def test_it_is_planned_and_applied_as_book_plus_kids(self, db):
+        path = self._aged(db, isbn="9789000040018")
+        _wipe_library(db)
+
+        with read_archive(path) as reader:
+            plan = plan_archive(db, reader, mode="skip")
+            verdicts = {r["title"]: r["verdict"] for r in plan["items"]}
+            assert verdicts["The Kids Book"] == "create"
+            apply_plan(db, reader, plan)
+        db.execute("COMMIT")
+
+        row = db.execute(
+            "SELECT id, media_type FROM items WHERE title = 'The Kids Book'"
+        ).fetchone()
+        assert row["media_type"] == "book"
+        names = {
+            r["name"] for r in db.execute(
+                "SELECT t.name FROM tags t JOIN item_tags it ON it.tag_id = t.id "
+                "WHERE it.item_id = ?", (row["id"],)
+            )
+        }
+        assert "Kids" in names
+
+    def test_an_item_already_tagged_kids_gets_one_association(self, db):
+        """The create path inserts associations; two spellings of one tag
+        would collide on the primary key and leave a half-written record."""
+        path = self._aged(db, isbn="9789000040025", tags=["kids"])
+        _wipe_library(db)
+
+        with read_archive(path) as reader:
+            report = merge_archive(db, reader, mode="skip")
+        db.execute("COMMIT")
+
+        assert report["errors"] == []
+        item_id = db.execute(
+            "SELECT id FROM items WHERE title = 'The Kids Book'"
+        ).fetchone()["id"]
+        assert db.execute(
+            "SELECT COUNT(*) AS c FROM item_tags WHERE item_id = ?", (item_id,)
+        ).fetchone()["c"] == 1
+
+    def _twin_archive(self, db, *, isbn=None, upc=None):
+        """An archive holding `kids_book` X *and* `book` X — the shape an
+        older Shelf could legitimately have written."""
+        _insert_item(db, title="The Book", isbn=isbn, upc=upc, media_type="book")
+        _insert_item(db, title="The Kids Book", isbn=None, upc=None, media_type="book")
+        db.execute("COMMIT")
+        path = build_archive(db)
+
+        def age(library):
+            for item in library["items"]:
+                if item["title"] == "The Kids Book":
+                    item["media_type"] = "kids_book"
+                    item["isbn"] = isbn
+                    item["upc"] = upc
+
+        _rewrite_library(path, age)
+        return path
+
+    @pytest.mark.parametrize(
+        "kwargs", [{"isbn": "9789000040032"}, {"upc": "0012345678905"}]
+    )
+    def test_an_intra_archive_twin_is_refused_in_plan_and_apply(self, db, kwargs):
+        """Canonicalised, both members occupy one identity slot. The dedupe
+        lookup is bounded to pre-import rows, so the second insert would
+        raise — after the location get-or-create had already written."""
+        path = self._twin_archive(db, **kwargs)
+        _wipe_library(db)
+
+        with read_archive(path) as reader:
+            plan = plan_archive(db, reader, mode="skip")
+            planned_titles = {r["title"] for r in plan["items"]}
+            assert "The Kids Book" not in planned_titles
+            assert "The Book" in planned_titles
+            assert any("The Kids Book" in e for e in plan["summary"]["errors"])
+
+            report = apply_plan(db, reader, plan)
+        db.execute("COMMIT")
+
+        assert any("The Kids Book" in e for e in report["errors"])
+        # Assert on the database, not the response: nothing of the refused
+        # record may be left behind.
+        assert db.execute(
+            "SELECT COUNT(*) AS c FROM items WHERE title = 'The Kids Book'"
+        ).fetchone()["c"] == 0
+        assert db.execute(
+            "SELECT COUNT(*) AS c FROM items WHERE title = 'The Book'"
+        ).fetchone()["c"] == 1
+
+    def test_a_string_id_pair_is_refused_without_taking_down_the_plan(
+        self, db, tmp_path
+    ):
+        """A hand-made archive numbers its items however it likes — `_ref_key`
+        says so. The collision pre-scan must key on that, not on `int()`,
+        which raises outside the per-item `try` and turns one bad record into
+        a failed import."""
+        library = {"items": [
+            {"id": "kid-1", "title": "The Kids Book",
+             "isbn": "9789000041008", "media_type": "kids_book"},
+            {"id": "book-1", "title": "The Book",
+             "isbn": "9789000041008", "media_type": "book"},
+        ]}
+        path = _zip_for(tmp_path, library)
+
+        with read_archive(path) as reader:
+            plan = plan_archive(db, reader, mode="skip")
+            assert {r["title"] for r in plan["items"]} == {"The Book"}
+            assert any("The Kids Book" in e for e in plan["summary"]["errors"])
+            report = apply_plan(db, reader, plan)
+        db.execute("COMMIT")
+
+        assert any("The Kids Book" in e for e in report["errors"])
+        assert db.execute(
+            "SELECT COUNT(*) AS c FROM items WHERE title = 'The Book'"
+        ).fetchone()["c"] == 1
+        assert db.execute(
+            "SELECT COUNT(*) AS c FROM items WHERE title = 'The Kids Book'"
+        ).fetchone()["c"] == 0
+
+    def test_string_ids_with_no_collision_still_import(self, db, tmp_path):
+        """Nothing about the pre-scan may narrow what a string-id archive can
+        do: with no aliased pair it refuses nothing at all, and both rows land.
+
+        `report["errors"]` is deliberately not asserted empty. `apply_plan`
+        still writes `id_map[int(archive_id)]`, which raises on a string id
+        and is caught per item — a **pre-existing** seam (identical on
+        `main`), unrelated to the retired-type pre-scan this class covers.
+        Its only effect is that such an item's reading log and checkouts do
+        not re-attach; the item itself imports.
+        """
+        library = {"items": [
+            {"id": "a", "title": "One", "isbn": "9789000041008",
+             "media_type": "book"},
+            {"id": "b", "title": "Two", "isbn": "9789000041015",
+             "media_type": "kids_book"},
+        ]}
+        with read_archive(_zip_for(tmp_path, library)) as reader:
+            plan = plan_archive(db, reader, mode="skip")
+            assert {r["title"] for r in plan["items"]} == {"One", "Two"}
+            assert plan["summary"]["errors"] == []
+            apply_plan(db, reader, plan)
+        db.execute("COMMIT")
+
+        # Both landed, and the aliased one still became a book with the tag.
+        assert db.execute(
+            "SELECT COUNT(*) AS c FROM items"
+        ).fetchone()["c"] == 2
+        assert db.execute(
+            "SELECT media_type FROM items WHERE title = 'Two'"
+        ).fetchone()["media_type"] == "book"
+
+    def test_a_float_id_is_not_the_same_slot_as_the_int_beside_it(
+        self, db, tmp_path
+    ):
+        """`int(1.0) == int(1)`, so keying the refusal by `int()` would refuse
+        the keeper along with the aliased member and import nothing."""
+        library = {"items": [
+            {"id": 1.0, "title": "The Kids Book",
+             "isbn": "9789000041008", "media_type": "kids_book"},
+            {"id": 1, "title": "The Book",
+             "isbn": "9789000041008", "media_type": "book"},
+        ]}
+        with read_archive(_zip_for(tmp_path, library)) as reader:
+            plan = plan_archive(db, reader, mode="skip")
+            assert {r["title"] for r in plan["items"]} == {"The Book"}
+            apply_plan(db, reader, plan)
+        db.execute("COMMIT")
+
+        assert db.execute(
+            "SELECT COUNT(*) AS c FROM items WHERE title = 'The Book'"
+        ).fetchone()["c"] == 1
+
+    def test_a_plain_duplicate_pair_is_left_alone(self, db):
+        """Two `book` rows sharing an identity are not this plan's doing, and
+        the archive is a faithful copy rather than a de-duplicator."""
+        _insert_item(db, title="First", isbn="9789000040049", media_type="book")
+        db.execute("COMMIT")
+        path = build_archive(db)
+
+        def twin(library):
+            clone = dict(library["items"][0])
+            clone["id"] = 9999
+            clone["title"] = "Second"
+            library["items"].append(clone)
+
+        _rewrite_library(path, twin)
+        _wipe_library(db)
+
+        with read_archive(path) as reader:
+            plan = plan_archive(db, reader, mode="skip")
+
+        titles = {r["title"] for r in plan["items"]}
+        assert {"First", "Second"} <= titles
+
+    def test_plan_and_apply_classify_an_aliased_item_identically(self, db):
+        """The parity contract: the archive has no pydantic model for this,
+        so plan and apply must read the media type through one helper.
+
+        With a matching `book` row already present, a plan that classified on
+        the *raw* `kids_book` finds no match and says `create`, while apply
+        canonicalises first and finds one — the two stages then disagree
+        about the same item, which is the drift the shared helper prevents.
+        """
+        isbn = "9789000040056"
+        path = self._aged(db, isbn=isbn)
+        _wipe_library(db)
+        # The row the archive's item canonicalises onto, already here.
+        _insert_item(db, title="The Book", isbn=isbn, media_type="book")
+        db.execute("COMMIT")
+
+        with read_archive(path) as reader:
+            plan = plan_archive(db, reader, mode="skip")
+            verdicts = {r["title"]: r["verdict"] for r in plan["items"]}
+            assert verdicts["The Kids Book"] == "skip", (
+                "the plan must see the existing book row — it can only do "
+                "that if it canonicalised the archive's media type first"
+            )
+            report = apply_plan(db, reader, plan)
+        # db.commit(), not COMMIT: a skip-only apply writes nothing, so there
+        # may be no transaction open to commit.
+        db.commit()
+
+        assert report["errors"] == []
+        assert db.execute(
+            "SELECT COUNT(*) AS c FROM items WHERE isbn = ?", (isbn,)
+        ).fetchone()["c"] == 1, "no second row may be created"

@@ -19,6 +19,7 @@ Set these in your `.env` file next to `docker-compose.yml`, or with `-e` on
 | `SHELF_ENCRYPTION_KEY` | *(auto)* | Key for API credentials stored in the database. If unset, generated at `data/encryption.key`. Set it (`openssl rand -hex 32`) so the data directory alone can't decrypt credentials |
 | `DATA_DIR` | `/data` | Where the database, covers and certs live. Only relevant outside Docker |
 | `SHELF_DISABLE_RATE_LIMIT` | *(unset)* | Turns off per-IP rate limiting. For tests and local development only |
+| `SHELF_UPC_LOOKUP_URL` | *(unset)* | Overrides the UPC Item DB lookup endpoint. For the test suite only — the E2E gate points it at a local stub. Leave it unset in production; the trial endpoint is used and paced when it is |
 
 ### Credential overrides
 
@@ -75,6 +76,7 @@ lives:
 | **Borrowers** | People you lend to. Deleting a borrower keeps their loan history |
 | **Game Platforms** | The platform list used for video games — 30 built in, add your own |
 | **Lending** | "Overdue after N days" for loans without a due date (0 disables). Notification URL (ntfy topic or JSON webhook) for the daily overdue digest, with a **Send test** button |
+| **Trash** | "Prompt to empty Trash after N days" (`trash_retention_days`, default 180; 0 never prompts). Past the window, admins see a dismissable banner linking to the expired rows; nothing is deleted automatically. See [Trash](user-guide/items.md#trash) |
 
 ### Integrations
 
@@ -87,6 +89,7 @@ lives:
 | **Movie Database (TMDb)** | API key for DVD / Blu-ray lookups, for **Find cover** on a DVD, and for the lookup a Photo Intake row typed DVD runs when you confirm it |
 | **Photo Intake (Vision)** | Provider: Anthropic (API key + model), OpenAI-compatible (base URL, optional key, model, ingest long-edge), or Ollama (URL, model, ingest long-edge) |
 | **IGDB (Video Games)** | Twitch client ID + secret, for game lookups, for **Find cover** on a video game, and for the lookup a Photo Intake row typed Video Game runs when you confirm it |
+| **Discogs** | Personal access token, for the optional Discogs music lookup. Nothing uses it yet: the lookup arrives in a later release, and MusicBrainz stays the source of a music release's identity |
 
 Each card has a short inline setup guide for obtaining its credential. Keys
 are **write-only** — once saved you see a masked placeholder and a "clear"
@@ -96,11 +99,11 @@ checkbox, never the value. See [Integrations](user-guide/integrations.md).
 
 | Card | Options |
 |---|---|
-| **Maintenance** | Retry missing covers, backfill synopses, re-run value lookups — each with a live progress stream |
+| **Maintenance** | Retry missing covers (book-shaped rows only), **Review covers needing attention** (the manual queue, every media type), backfill synopses, re-run value lookups — the sweeps each with a live progress stream |
 | **Import / Export** | CSV export; CSV / Goodreads / StoryGraph import with "fetch covers" and "to-read → wishlist" options |
 | **Sharing** | Create and revoke public read-only wishlist / collection links |
 | **Backup & Restore** | Download a database backup (optionally passphrase-encrypted), restore from one |
-| **Portable archive** | Export the whole library as a zip including covers; import with a preview step |
+| **Portable archive** | Export the whole library as a zip including physical copies and covers; import with a preview step |
 
 ### Users
 
@@ -114,12 +117,17 @@ the account menu — not from Settings.
 ## Where things are *not* configurable
 
 - Metadata source order (a national bibliography where one covers the ISBN —
-  DNB for German ISBNs, SBN for Italian ones → Open Library → Hardcover →
-  Google Books) is fixed; see [Architecture](architecture.md). National
+  DNB for German ISBNs, SBN for Italian ones, KB for Dutch ones → Open Library →
+  Hardcover → Google Books) is fixed; see [Architecture](architecture.md). National
   routing follows the ISBN's registration group and has no on/off switch, for
-  SBN or for DNB.
+  SBN, DNB or KB.
 - Outbound API pacing per host is fixed to each provider's published limit.
-- Media types are a fixed list: book, kids book, audiobook, eBook, DVD /
-  Blu-ray, CD, comic / graphic novel, video game. The scan tab's **Auto** is a
-  choice about how to scan, not a ninth type — it is never stored on an item;
-  see [Scanning → Media types](user-guide/scanning.md#media-types).
+- Media types are a fixed list: book, audiobook, eBook, magazine,
+  DVD / Blu-ray, vinyl, cassette, CD, digital music, comic / graphic novel,
+  Manga, video game. A kids' book is a **book carrying a `Kids` tag**, not a
+  media type of its own — see [Items → Tags](user-guide/items.md).
+  `kids_book` is still accepted on *input* (a CSV, an archive, or a device
+  whose cached form still offers it) and is stored as `book`; from a CSV or
+  an archive it also adds the `Kids` tag. The scan tab's **Auto** is a choice about how to scan,
+  not a stored media type — it is never stored on an item; see
+  [Scanning → Media types](user-guide/scanning.md#media-types).

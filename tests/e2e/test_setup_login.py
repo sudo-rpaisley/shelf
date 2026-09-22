@@ -33,7 +33,7 @@ def test_setup_wizard_redirects_when_no_users(live_server, browser):
 
 
 def test_login_success(live_server, browser, setup_admin):
-    """Valid credentials redirect to /browse."""
+    """Valid credentials redirect to Home."""
     ctx = browser.new_context()
     pg = attach_page_guard(ctx.new_page())
     try:
@@ -42,8 +42,8 @@ def test_login_success(live_server, browser, setup_admin):
         pg.fill("input[name=username]", setup_admin["username"])
         pg.fill("input[name=password]", setup_admin["password"])
         pg.click("button[type=submit]")
-        pg.wait_for_url(f"{live_server['url']}/browse", timeout=10_000)
-        expect(pg).to_have_url(f"{live_server['url']}/browse")
+        pg.wait_for_url(f"{live_server['url']}/", timeout=10_000)
+        expect(pg).to_have_url(f"{live_server['url']}/")
         assert_page_clean(pg)
     finally:
         ctx.close()
@@ -57,8 +57,8 @@ def test_login_invalid_credentials(live_server, browser, setup_admin):
         pg.goto(f"{live_server['url']}/login")
         pg.fill("input[name=username]", setup_admin["username"])
         pg.fill("input[name=password]", "wrongpassword")
-        pg.click("button[type=submit]")
-        pg.wait_for_load_state("networkidle")
+        with pg.expect_navigation():
+            pg.click("button[type=submit]")
         expect(pg).to_have_url(f"{live_server['url']}/login")
         expect(pg.locator("body")).to_contain_text("Invalid")
         assert_page_clean(pg)
@@ -83,10 +83,8 @@ def test_logout(live_server, authed_page):
     """Logout clears session and redirects to /login."""
     authed_page.goto(f"{live_server['url']}/browse")
     authed_page.wait_for_load_state("networkidle")
-    authed_page.locator('[data-testid="account-menu-button"]').click()
-    panel = authed_page.locator('[data-testid="account-menu-panel"]')
-    expect(panel).to_be_visible()
-    panel.locator("form[action='/logout'] button").click()
+    authed_page.get_by_test_id("account-menu-button").click()
+    authed_page.get_by_test_id("account-menu-logout").click()
     authed_page.wait_for_url(f"{live_server['url']}/login", timeout=5_000)
     expect(authed_page).to_have_url(f"{live_server['url']}/login")
 

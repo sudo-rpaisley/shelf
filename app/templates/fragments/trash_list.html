@@ -1,0 +1,159 @@
+{# The Trash list. Every T2/T3 action route renders THIS fragment as its
+   whole response (app/routers/trash.py `_render_list`), and this div is the
+   complete `#trash-list` wrapper — not just its contents (rev 1 R1). Every
+   control below carries its own `hx-target="#trash-list" hx-swap="outerHTML"`
+   (G54): nothing outside this fragment is an ancestor of it once it has been
+   swapped in once, so a target declared anywhere else would not be inherited
+   by a second action fired from inside it.
+
+   Every sentence a route's `notice`/`purged` state selects lives here, not
+   in the router (G58) — the router only ever hands over which arm to render. #}
+<div id="trash-list">
+    <div class="flex items-center justify-between flex-wrap gap-3 mb-4">
+        {% if expired_only %}
+        <a href="/trash" data-testid="trash-filter-all"
+           class="text-sm text-shelf-accent2 hover:underline">Show all</a>
+        {% else %}
+        <a href="/trash?expired=1" data-testid="trash-filter-expired"
+           class="text-sm text-shelf-accent2 hover:underline">Show expired only</a>
+        {% endif %}
+
+        {% if user and user.role == 'admin' and expired_count > 0 %}
+        <button type="button" data-testid="trash-empty-expired"
+                hx-post="/api/trash/empty-expired"
+                hx-target="#trash-list" hx-swap="outerHTML"
+                hx-confirm="Delete {{ expired_count }} expired items and copies permanently?"
+                class="px-3 py-1.5 bg-shelf-error/20 text-shelf-error rounded-lg text-xs hover:bg-shelf-error/30 transition-colors">
+            Empty expired ({{ expired_count }})
+        </button>
+        {% endif %}
+    </div>
+
+    {% if purged is defined %}
+    <div data-testid="trash-purged-notice" role="status"
+         class="mb-4 rounded-lg border border-shelf-success/40 bg-shelf-success/10 px-4 py-3 text-sm text-shelf-success">
+        Permanently deleted {{ purged }} row{{ '' if purged == 1 else 's' }}.
+    </div>
+    {% endif %}
+
+    {% if notice == 'not_found' %}
+    <div data-testid="trash-notice-not-found" role="alert"
+         class="mb-4 rounded-lg border border-shelf-error/40 bg-shelf-error/10 px-4 py-3 text-sm text-shelf-error">
+        That row is not in Trash anymore.
+    </div>
+    {% elif notice == 'restore_item_first' %}
+    <div data-testid="trash-notice-restore-item-first" role="alert"
+         class="mb-4 rounded-lg border border-shelf-warning/40 bg-shelf-warning/10 px-4 py-3 text-sm text-shelf-warning">
+        This copy's item is in Trash too — restore the item and its copies come back with it.
+    </div>
+    {% endif %}
+
+    {% if items %}
+    <div class="space-y-2 mb-6" data-testid="trash-items">
+        {% for row in items %}
+        <div class="flex flex-wrap items-center gap-3 bg-shelf-bg rounded-lg px-4 py-3" data-testid="trash-item-row-{{ row.id }}">
+            <div class="w-10 h-14 shrink-0">
+                {% if row.cover_path %}
+                <img src="/{{ row.cover_path }}" alt="" class="w-full h-full object-cover rounded">
+                {% else %}
+                <div class="w-full h-full bg-shelf-hover rounded flex items-center justify-center">
+                    <svg class="w-4 h-4 text-shelf-muted" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M12 6.253v13m0-13C10.832 5.477 9.246 5 7.5 5S4.168 5.477 3 6.253v13C4.168 18.477 5.754 18 7.5 18s3.332.477 4.5 1.253m0-13C13.168 5.477 14.754 5 16.5 5c1.747 0 3.332.477 4.5 1.253v13C19.832 18.477 18.247 18 16.5 18c-1.746 0-3.332.477-4.5 1.253"/></svg>
+                </div>
+                {% endif %}
+            </div>
+            <div class="min-w-0 basis-full sm:flex-1">
+                <div class="flex items-center gap-2 flex-wrap">
+                    <span class="text-shelf-text text-sm font-medium truncate">{{ row.title }}</span>
+                    {% if row.has_open_loan %}
+                    <span data-testid="trash-loaned-{{ row.id }}"
+                          class="px-1.5 py-0.5 rounded text-[10px] font-medium bg-orange-500/90 text-white shrink-0">Loaned</span>
+                    {% endif %}
+                    {% if row.expired %}
+                    <span data-testid="trash-expired-{{ row.id }}"
+                          class="px-1.5 py-0.5 rounded text-[10px] font-medium bg-shelf-error/20 text-shelf-error shrink-0">Expired</span>
+                    {% endif %}
+                </div>
+                <p class="text-xs text-shelf-muted mt-0.5">Deleted {{ row.deleted_at[:10] }}</p>
+            </div>
+            <div class="flex items-center gap-2 shrink-0">
+                <button type="button" data-testid="trash-restore-item-{{ row.id }}"
+                        hx-post="/api/trash/items/{{ row.id }}/restore"
+                        hx-target="#trash-list" hx-swap="outerHTML"
+                        class="px-3 py-1.5 bg-shelf-accent/20 text-shelf-accent2 rounded-lg text-xs hover:bg-shelf-accent/30 transition-colors">
+                    Restore
+                </button>
+                {% if user and user.role == 'admin' %}
+                <button type="button" data-testid="trash-delete-item-{{ row.id }}"
+                        hx-delete="/api/trash/items/{{ row.id }}"
+                        hx-target="#trash-list" hx-swap="outerHTML"
+                        hx-confirm="Delete '{{ row.title }}' permanently? This cannot be undone."
+                        class="px-3 py-1.5 bg-shelf-error/20 text-shelf-error rounded-lg text-xs hover:bg-shelf-error/30 transition-colors">
+                    Delete permanently
+                </button>
+                {% endif %}
+            </div>
+        </div>
+        {% endfor %}
+    </div>
+    {% endif %}
+
+    {% if copy_groups %}
+    <div class="space-y-4" data-testid="trash-copy-groups">
+        {% for group in copy_groups %}
+        <div class="bg-shelf-bg rounded-lg px-4 py-3" data-testid="trash-copy-group-{{ group.item_id }}">
+            <h3 class="text-sm font-medium mb-2">
+                {% if group.item_live %}
+                <a href="/item/{{ group.item_id }}" data-testid="trash-copy-group-link-{{ group.item_id }}"
+                   class="text-shelf-accent2 hover:underline">{{ group.item_title }}</a>
+                {% else %}
+                <span data-testid="trash-copy-group-title-{{ group.item_id }}" class="text-shelf-text">{{ group.item_title }}</span>
+                {% endif %}
+            </h3>
+            <div class="space-y-2">
+                {% for copy in group.copies %}
+                <div class="flex flex-wrap items-center gap-3" data-testid="trash-copy-row-{{ copy.id }}">
+                    <div class="min-w-0 basis-full sm:flex-1">
+                        <p class="text-sm text-shelf-text flex items-center gap-2 flex-wrap">
+                            <span>Copy #{{ copy.copy_number }}</span>
+                            {% if copy.expired %}
+                            <span data-testid="trash-expired-copy-{{ copy.id }}"
+                                  class="px-1.5 py-0.5 rounded text-[10px] font-medium bg-shelf-error/20 text-shelf-error">Expired</span>
+                            {% endif %}
+                        </p>
+                        <p class="text-xs text-shelf-muted mt-0.5">{{ copy.location_name or 'No location' }} · Deleted {{ copy.deleted_at[:10] }}</p>
+                    </div>
+                    <div class="flex items-center gap-2 shrink-0">
+                        <button type="button" data-testid="trash-restore-copy-{{ copy.id }}"
+                                hx-post="/api/trash/copies/{{ copy.id }}/restore"
+                                hx-target="#trash-list" hx-swap="outerHTML"
+                                class="px-3 py-1.5 bg-shelf-accent/20 text-shelf-accent2 rounded-lg text-xs hover:bg-shelf-accent/30 transition-colors">
+                            Restore
+                        </button>
+                        {% if user and user.role == 'admin' %}
+                        <button type="button" data-testid="trash-delete-copy-{{ copy.id }}"
+                                hx-delete="/api/trash/copies/{{ copy.id }}"
+                                hx-target="#trash-list" hx-swap="outerHTML"
+                                hx-confirm="Delete copy #{{ copy.copy_number }} of '{{ group.item_title }}' permanently? This cannot be undone."
+                                class="px-3 py-1.5 bg-shelf-error/20 text-shelf-error rounded-lg text-xs hover:bg-shelf-error/30 transition-colors">
+                            Delete permanently
+                        </button>
+                        {% endif %}
+                    </div>
+                </div>
+                {% endfor %}
+            </div>
+        </div>
+        {% endfor %}
+    </div>
+    {% endif %}
+
+    {% if not items and not copy_groups %}
+    <div data-testid="trash-empty" class="text-shelf-muted text-sm py-8 text-center">
+        {% if expired_only %}
+        Nothing in Trash has passed the retention window yet.
+        {% else %}
+        Trash is empty.
+        {% endif %}
+    </div>
+    {% endif %}
+</div>

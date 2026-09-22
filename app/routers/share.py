@@ -11,6 +11,7 @@ from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 
 from app.auth import require_role
 from app.database import get_db
+from app.services import lists
 
 router = APIRouter()
 
@@ -29,13 +30,19 @@ async def share_page(request: Request, token: str):
             return HTMLResponse("Not found", status_code=404,
                                 headers={"X-Robots-Tag": "noindex"})
 
-        owned = 0 if link["scope"] == "wishlist" else 1
+        # The scope is a WHERE string, not a bound parameter: "wishlist" now
+        # means list membership (#125), which is an EXISTS subquery, while
+        # "collection" is still possession. Neither binds a value, so the cap
+        # stays the only parameter.
+        scope_where = (
+            lists.WISHLISTED_SQL if link["scope"] == "wishlist" else "i.owned = 1"
+        )
         # Minimal field set on purpose — see the plan doc's exposure rules
         items = db.execute(
             "SELECT title, authors, cover_path, media_type, publish_year, "
-            "series_name, series_position FROM items WHERE owned = ? "
+            f"series_name, series_position FROM items_live i WHERE {scope_where} "
             "ORDER BY title COLLATE NOCASE LIMIT ?",
-            (owned, SHARE_ITEM_CAP),
+            (SHARE_ITEM_CAP,),
         ).fetchall()
 
     resp = templates.TemplateResponse(

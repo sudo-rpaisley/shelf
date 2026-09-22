@@ -1,15 +1,15 @@
 """MusicBrainz and Cover Art Archive integration for Shelf music releases.
 
-MusicBrainz is the canonical identity source for music in Shelf.  A Shelf
-``items`` row is the owned copy; ``music_releases`` stores the exact
-MusicBrainz Release and its Release Group.  That distinction is intentional:
-several owned formats/pressings can point at the same release group while
-retaining their own barcode, label, catalogue number, media and track list.
+MusicBrainz is the canonical identity source for music in Shelf. A Shelf
+``items`` row represents an exact catalogued release; ``music_releases`` stores
+that release's MusicBrainz identity and Release Group. Multiple physical or
+digital formats can therefore share a Release Group while retaining distinct
+release metadata and track lists.
 
-All public requests use ``app.services.outbound``.  MusicBrainz requires a
+All public requests use ``app.services.outbound``. MusicBrainz requires a
 meaningful User-Agent and no more than one request per second for ordinary
-clients; the identifying header lives here and the host interval lives in
-``app.config.HOST_RATE_LIMITS``.
+clients; the identifying header lives here and the host interval is supplied
+through Shelf's normal outbound rate-limit configuration.
 """
 
 from __future__ import annotations
@@ -25,23 +25,16 @@ logger = logging.getLogger(__name__)
 
 MUSICBRAINZ_BASE = "https://musicbrainz.org/ws/2"
 COVER_ART_BASE = "https://coverartarchive.org"
-USER_AGENT = "Shelf/1.0 (https://github.com/sudo-rpaisley/shelf)"
+USER_AGENT = "Shelf/1.0 (https://github.com/dgahagan/shelf)"
 
-# A release lookup with recordings returns the hierarchy Shelf persists:
-# release -> media -> tracks.  release-groups supplies the work-level identity
-# used to link alternate formats; labels supplies label/catalogue data.
 _RELEASE_INCLUDES = "artist-credits+labels+recordings+release-groups"
 
 
 def _headers() -> dict[str, str]:
-    return {
-        "User-Agent": USER_AGENT,
-        "Accept": "application/json",
-    }
+    return {"User-Agent": USER_AGENT, "Accept": "application/json"}
 
 
 def _artist_credit(value: Any) -> str | None:
-    """Flatten MusicBrainz artist-credit while preserving join phrases."""
     if not isinstance(value, list):
         return None
     parts: list[str] = []
@@ -61,8 +54,7 @@ def _artist_credit(value: Any) -> str | None:
 
 
 def _first_label(release: dict) -> tuple[str | None, str | None]:
-    label_info = release.get("label-info") or []
-    for entry in label_info:
+    for entry in release.get("label-info") or []:
         if not isinstance(entry, dict):
             continue
         label = entry.get("label") or {}
@@ -94,8 +86,7 @@ def _normalise_medium(medium: dict, fallback_position: int) -> dict:
         recording = track.get("recording") or {}
         tracks.append({
             "position": index,
-            # Number is deliberately text: vinyl uses A1/B2 and multi-disc
-            # releases can use provider-specific strings rather than integers.
+            # Text deliberately preserves vinyl positions such as A1/B2.
             "number": str(track.get("number") or index),
             "title": track.get("title") or recording.get("title") or "Untitled",
             "artist_credit": _artist_credit(track.get("artist-credit"))
@@ -144,7 +135,6 @@ def normalise_release(release: dict) -> dict:
 
 
 def _search_summary(release: dict) -> dict:
-    """Compact release data for the human release picker."""
     normalised = normalise_release(release)
     return {
         key: normalised.get(key)
@@ -181,9 +171,6 @@ async def _request_json(
 
     classified = provider_result.classify_response(provider, resp)
     if classified is not None:
-        # MusicBrainz uses 503 for service-wide/IP throttling rather than 429.
-        # provider_result deliberately treats 503 as transport/service failure,
-        # not quota; preserve that vocabulary here.
         if resp.status_code == 503:
             return provider_result.transport_failed(provider)
         return classified
@@ -202,12 +189,7 @@ async def search_releases(
     catalog_number: str | None = None,
     limit: int = 15,
 ) -> provider_result.ProviderResult:
-    """Search exact MusicBrainz *releases*, not release groups.
-
-    ``query`` is a human album/release title.  Barcode and catalogue-number
-    searches use MusicBrainz's dedicated indexed fields, which is important
-    for distinguishing pressings whose visible titles are identical.
-    """
+    """Search exact MusicBrainz releases, not Release Groups."""
     clauses: list[str] = []
     if barcode:
         clauses.append(f'barcode:"{barcode.strip()}"')
@@ -258,7 +240,6 @@ async def search_by_catalog_number(
 async def lookup_release(
     release_id: str, client: httpx.AsyncClient
 ) -> provider_result.ProviderResult:
-    """Fetch one exact release including media and track recordings."""
     release_id = (release_id or "").strip()
     if not release_id:
         return provider_result.no_match("musicbrainz")
@@ -287,7 +268,6 @@ async def cover_art(
         provider="coverartarchive",
     )
     if not result.found:
-        # CAA uses 404 to mean the release has no submitted artwork.
         if result.status == 404:
             return provider_result.found("coverartarchive", [], status=404)
         return result
@@ -302,16 +282,14 @@ async def cover_art(
         thumb = thumbnails.get("500") or thumbnails.get("250") or full
         if not full:
             continue
-        types = image.get("types") or []
         candidates.append({
             "url": full,
             "thumbnail": thumb,
             "front": bool(image.get("front")),
             "back": bool(image.get("back")),
-            "types": [str(v) for v in types],
+            "types": [str(v) for v in image.get("types") or []],
             "comment": image.get("comment") or "",
             "source": "Cover Art Archive",
         })
-    # Front artwork first, without discarding back/booklet/media scans.
     candidates.sort(key=lambda c: (not c["front"], c["back"]))
     return result.with_payload(candidates)

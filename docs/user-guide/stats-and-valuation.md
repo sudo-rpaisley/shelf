@@ -21,13 +21,21 @@ fills in retroactively.
 Settings → Integrations → **Collection Valuation** takes an
 [ISBNdb](https://isbndb.com) API key (paid; the basic tier suffices). Then:
 
-- **Valuate all** walks every item with an ISBN and records the list price.
+- **Valuate all** walks every owned item with an ISBN and records the list price.
   It respects ISBNdb's pacing, so a large library takes a few minutes; a
   live progress stream shows where it is.
 - Per item, the page gets a **Valuate** button and shows the price and when
   it was fetched.
 - **Manual value** on any item overrides the estimate — for signed copies,
   items without ISBNs, games and discs.
+
+The valuation counts **what you own**: the sweep only prices owned items,
+and the collection total, the Stats page's **Est. Value** and the insurance
+report leave out wishlist items and items you track without owning. If your
+wishlist items had values, totals and reports taken after upgrading are
+lower than earlier ones by that amount; the value-over-time chart keeps the
+earlier points as they were recorded. **Valuate** on a single item still
+works whether you own it or not.
 
 What you get is **list price**, not used-market price. It is the right number
 for insurance replacement cost and the wrong number for "what could I sell
@@ -36,7 +44,7 @@ this for".
 ## The insurance report
 
 **Stats → Valuation report** (or `/valuation/report`) is a print-ready page
-grouping every item by location with per-location subtotals and a grand
+grouping every owned item by location with per-location subtotals and a grand
 total — what exists, where it is, what it would cost to replace. Items
 without a value are listed too (a documentation report needs them),
 flagged **Missing Value**. The **Print** button on the page opens the browser's

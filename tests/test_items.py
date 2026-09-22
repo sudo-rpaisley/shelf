@@ -19,7 +19,12 @@ from app.database import (
     init_db,
 )
 from app.services import provider_result
-from tests.conftest import _insert_item, _insert_borrower, _insert_location
+from tests.conftest import (
+    _insert_item,
+    _insert_borrower,
+    _insert_location,
+    bootstrap_sql_before,
+)
 
 
 class TestDeleteItem:
@@ -29,7 +34,7 @@ class TestDeleteItem:
         resp = admin_client.delete(f"/api/items/{item_id}")
         assert resp.status_code == 200
         with get_db() as check_db:
-            row = check_db.execute("SELECT id FROM items WHERE id = ?", (item_id,)).fetchone()
+            row = check_db.execute("SELECT id FROM items_live WHERE id = ?", (item_id,)).fetchone()
         assert row is None
 
     def test_editor_can_delete(self, editor_client, db):
@@ -38,7 +43,7 @@ class TestDeleteItem:
         resp = editor_client.delete(f"/api/items/{item_id}")
         assert resp.status_code == 200
         with get_db() as check_db:
-            row = check_db.execute("SELECT id FROM items WHERE id = ?", (item_id,)).fetchone()
+            row = check_db.execute("SELECT id FROM items_live WHERE id = ?", (item_id,)).fetchone()
         assert row is None
 
     def test_viewer_cannot_delete(self, client, viewer_user):
@@ -52,7 +57,9 @@ class TestDeleteItem:
         assert resp.status_code in (401, 403)
 
     def test_delete_with_scan_log_entries(self, admin_client, db):
-        """Items with scan_log entries should delete cleanly (FK nullified)."""
+        """Delete moves the item to Trash and leaves its scan history linked,
+        so a restore finds it; the recent-scans strip renders the row unlinked
+        meanwhile, because it joins items_live."""
         item_id = _insert_item(db, title="Scanned Book", isbn="9780000002037")
         db.execute(
             "INSERT INTO scan_log (isbn, media_type, result, item_id, mode) VALUES (?, ?, ?, ?, ?)",
@@ -64,14 +71,36 @@ class TestDeleteItem:
 
         # Verify item is gone but scan_log entry remains with null item_id
         with get_db() as check_db:
-            item = check_db.execute("SELECT id FROM items WHERE id = ?", (item_id,)).fetchone()
+            item = check_db.execute("SELECT id FROM items_live WHERE id = ?", (item_id,)).fetchone()
             assert item is None
             log = check_db.execute("SELECT item_id FROM scan_log WHERE isbn = '9780000002037'").fetchone()
             assert log is not None
-            assert log["item_id"] is None
+            assert log["item_id"] == item_id
+        # The strip still lists the scan, unlinked: its item is in Trash.
+        strip = admin_client.get("/api/recent-scans", params={"mode": "add"}).text
+        assert "9780000002037" in strip
+        assert f'href="/item/{item_id}"' not in strip
 
-    def test_delete_with_checkout_cascades(self, admin_client, db):
-        """Deleting an item with checkouts should cascade delete them."""
+    def test_delete_moves_the_row_to_trash(self, admin_client, db):
+        item_id = _insert_item(db, title="Trash Bound", isbn="9780000002051")
+        db.commit()
+        resp = admin_client.delete(f"/api/items/{item_id}")
+        assert resp.status_code == 200
+        assert "Moved to Trash: Trash Bound" in resp.headers["HX-Trigger"]
+        with get_db() as check_db:
+            row = check_db.execute(
+                "SELECT deleted_at FROM items WHERE id = ?", (item_id,)
+            ).fetchone()
+            assert row is not None and row["deleted_at"] is not None
+            assert check_db.execute(
+                "SELECT 1 FROM items_live WHERE id = ?", (item_id,)
+            ).fetchone() is None
+        # A second delete is a no-op, not an error.
+        assert admin_client.delete(f"/api/items/{item_id}").status_code == 200
+
+    def test_delete_keeps_the_loan_hidden_and_restore_brings_it_back(self, admin_client, db):
+        """Delete no longer cascades: the loan survives, hidden from every
+        lent-out count, and returns with the item."""
         item_id = _insert_item(db, title="Checked Out", isbn="9780000002044")
         bid = _insert_borrower(db, "Test")
         db.execute(
@@ -82,9 +111,20 @@ class TestDeleteItem:
         resp = admin_client.delete(f"/api/items/{item_id}")
         assert resp.status_code == 200
 
+        from app.services import item_write
+        from app.services.home_dashboard import dashboard_summary
+
         with get_db() as check_db:
             checkout = check_db.execute("SELECT id FROM checkouts WHERE item_id = ?", (item_id,)).fetchone()
-            assert checkout is None
+            assert checkout is not None
+            assert dashboard_summary(check_db)["lent_out_count"] == 0
+        browse = admin_client.get("/api/search", params={"lent_out": "1"}).text
+        assert "Checked Out" not in browse
+
+        with get_db() as check_db:
+            assert item_write.restore_item(check_db, item_id)
+        with get_db() as check_db:
+            assert dashboard_summary(check_db)["lent_out_count"] == 1
 
 
 class TestBrowseLentOutFilter:
@@ -479,7 +519,7 @@ class TestManualValueMigration:
                 "INSERT INTO schema_version (version, description) VALUES (?, ?)",
                 (version, description),
             )
-        conn.executescript(MIGRATION_TABLES)
+        conn.executescript(bootstrap_sql_before(14))
         conn.commit()
 
         # Simulate the interrupted upgrade: the ALTER landed, its
@@ -686,7 +726,7 @@ class TestLanguageMigrations:
                 "INSERT INTO schema_version (version, description) VALUES (?, ?)",
                 (version, description),
             )
-        conn.executescript(MIGRATION_TABLES)
+        conn.executescript(bootstrap_sql_before(21))
         conn.commit()
         return conn
 
@@ -1615,6 +1655,15 @@ def _rendered_form(client, item_id):
         fields[m.group(1)] = sel.group(1) if sel else ""
     # owned: hidden 0 + checkbox 1 (checked or not)
     fields["owned"] = "1" if re.search(r'name="owned" value="1"[^>]*checked', html) else "0"
+    # wishlisted: the same pair; a disabled box does not submit, so the
+    # hidden 0 is what the browser sends (G90).
+    wish = re.search(r'<input type="checkbox" name="wishlisted" value="1"([^>]*)>', html)
+    assert wish, "the edit form must render the wishlist checkbox"
+    # Bare attributes only: drop quoted values (the class list carries
+    # `disabled:opacity-50`) and bound ones (`:disabled="owned"`).
+    attrs = re.sub(r'\s[:@]?[\w:.-]+="[^"]*"', " ", wish.group(1)).split()
+    checked = "checked" in attrs and "disabled" not in attrs
+    fields["wishlisted"] = "1" if checked else "0"
     return fields, html
 
 
@@ -1666,6 +1715,7 @@ class TestEditFormValueFunnel:
         ({"platform": "ps9"}, "unknown_platform"),
         ({"reading_status": "done"}, "invalid_reading_status"),
         ({"owned": "2"}, "invalid_owned"),
+        ({"wishlisted": "2"}, "invalid_wishlisted"),
         ({"publish_year": "abc"}, "invalid_number"),
     ])
     def test_each_refusal_redirects_with_its_code_and_leaves_the_row(self, editor_client, db, change, code):
@@ -1681,6 +1731,31 @@ class TestEditFormValueFunnel:
         assert after == before
         banner = editor_client.get(resp.headers["location"]).text
         assert 'data-testid="edit-error"' in banner
+
+    def test_wishlist_state_round_trips_through_the_rendered_form(self, editor_client, db):
+        """G36: the edit page renders a wishlisted row's box checked, and
+        posting the form back unchanged leaves the membership alone."""
+        from app.services import lists
+
+        item_id = _insert_item(db, title="Round Trip Wish", isbn="9780000000026", owned=0,
+                               wishlisted=True)
+        neither_id = _insert_item(db, title="Round Trip Neither", isbn="9780000000033", owned=0)
+        db.commit()
+
+        fields, html = _rendered_form(editor_client, item_id)
+        assert fields["wishlisted"] == "1"
+        assert fields["owned"] == "0"
+        resp = self._post(editor_client, item_id)
+        assert resp.status_code == 303
+        assert lists.is_member(db, lists.WISHLIST, item_id)
+        assert self._row(item_id, "owned")["owned"] == 0
+
+        fields, _ = _rendered_form(editor_client, neither_id)
+        assert fields["wishlisted"] == "0"
+        resp = self._post(editor_client, neither_id)
+        assert resp.status_code == 303
+        assert not lists.is_member(db, lists.WISHLIST, neither_id)
+        assert self._row(neither_id, "owned")["owned"] == 0
 
     def test_refusal_keeps_the_from_key(self, editor_client, db):
         item_id = _insert_item(db, title="From Key", isbn="9780000000026")
@@ -1711,16 +1786,22 @@ class TestEditFormValueFunnel:
         before.pop("updated_at"); after.pop("updated_at")
         assert after == before
 
-    def test_legacy_junk_isbn_must_be_cleared_before_the_form_saves(self, editor_client, db):
-        """Older Audiobookshelf syncs stored ASINs in `isbn`. The form posts
-        every field, so the junk is refused as rendered — and saves once
-        cleared, with isbn10 cleared alongside (the docs sentence)."""
+    def test_legacy_junk_isbn_is_left_alone_until_the_field_is_touched(self, editor_client, db):
+        """Older Audiobookshelf syncs stored ASINs in `isbn`. #87: reposting
+        the form unchanged no longer bounces on the stale ASIN (it is
+        unchanged *and* refused, so it is exempt) — the row only actually
+        clears once you touch the field yourself, with isbn10 cleared
+        alongside (the docs sentence)."""
         item_id = _insert_item(db, title="ASIN Row", isbn="B00EXAMPLE", isbn10="junk10")
         db.commit()
         resp = self._post(editor_client, item_id)
         assert resp.status_code == 303
-        assert resp.headers["location"].endswith("error=invalid_isbn")
-        assert self._row(item_id, "isbn")["isbn"] == "B00EXAMPLE"
+        # Not `startswith("/item/<id>")` — the refusal URL satisfies that too
+        # (`/item/<id>/edit?error=…`), so the pin would survive the bug.
+        assert resp.headers["location"] == f"/item/{item_id}"
+        row = self._row(item_id, "isbn", "isbn10")
+        assert row["isbn"] == "B00EXAMPLE"
+        assert row["isbn10"] == "junk10"
 
         resp = self._post(editor_client, item_id, isbn="")
         assert resp.status_code == 303
@@ -1728,6 +1809,139 @@ class TestEditFormValueFunnel:
         row = self._row(item_id, "isbn", "isbn10")
         assert row["isbn"] is None
         assert row["isbn10"] is None
+
+    # #87: the edit form re-posts the stored `isbn`/`upc` verbatim on every
+    # save, so a row whose identifier predates the validator used to bounce
+    # on *every* edit, even one that never touches the field. INVALID_ISBN
+    # is the tree's sanctioned checksum-invalid ISBN-13 literal (G71,
+    # already used by the negative pins at lines 1526, 1574 and 1655).
+    # INVALID_ISBN_2 and INVALID_UPC/INVALID_UPC_2 are shaped the same way:
+    # 13 digits, checksum-invalid, and (for the UPC pair) not a 978/979
+    # Bookland prefix.
+    INVALID_ISBN = "9780441172710"
+    INVALID_ISBN_2 = "9780547928220"
+    INVALID_UPC = "1234567890120"
+    INVALID_UPC_2 = "1234567890129"
+
+    def test_unchanged_legacy_isbn_does_not_block_an_unrelated_edit(self, editor_client, db):
+        """The exemption fires: unchanged AND refused."""
+        item_id = _insert_item(db, title="Legacy ISBN Row", isbn=self.INVALID_ISBN)
+        db.commit()
+        resp = self._post(editor_client, item_id, title="Legacy ISBN Row Renamed")
+        assert resp.status_code == 303
+        assert resp.headers["location"] == f"/item/{item_id}"
+        row = self._row(item_id, "title", "isbn", "isbn10")
+        assert row["title"] == "Legacy ISBN Row Renamed"
+        assert row["isbn"] == self.INVALID_ISBN
+        assert row["isbn10"] is None
+
+    def test_legacy_isbn_row_actually_touching_the_field_is_still_judged(self, editor_client, db):
+        """The rule is narrow: it only exempts the *unchanged* value.
+        Changing it — even to another invalid value — goes through the
+        funnel exactly like any other edit."""
+        item_id = _insert_item(db, title="Legacy ISBN Row", isbn=self.INVALID_ISBN)
+        db.commit()
+
+        # A different invalid value: refused, nothing stored.
+        resp = self._post(editor_client, item_id, isbn=self.INVALID_ISBN_2)
+        assert resp.status_code == 303
+        assert resp.headers["location"] == f"/item/{item_id}/edit?error=invalid_isbn"
+        row = self._row(item_id, "isbn", "isbn10")
+        assert row["isbn"] == self.INVALID_ISBN
+        assert row["isbn10"] is None
+
+        # A valid ISBN-10: the canonical pair is stored.
+        resp = self._post(editor_client, item_id, isbn="054792822X")
+        assert resp.status_code == 303
+        assert resp.headers["location"].startswith(f"/item/{item_id}")
+        row = self._row(item_id, "isbn", "isbn10")
+        assert (row["isbn"], row["isbn10"]) == ("9780547928227", "054792822X")
+
+        # Cleared: both columns NULL, and an unrelated title change still lands.
+        resp = self._post(editor_client, item_id, isbn="", title="Legacy ISBN Row Cleared")
+        assert resp.status_code == 303
+        assert resp.headers["location"].startswith(f"/item/{item_id}")
+        row = self._row(item_id, "title", "isbn", "isbn10")
+        assert row["title"] == "Legacy ISBN Row Cleared"
+        assert row["isbn"] is None
+        assert row["isbn10"] is None
+
+    def test_valid_isbn_with_stale_isbn10_still_gets_repaired(self, editor_client, db):
+        """G71: valid is not consistent — a row can hold a genuinely valid
+        ISBN-13 with a stale, wrong `isbn10` (8 such rows in the real DB).
+        The ISBN here is NOT refused, so the exemption never fires and an
+        unrelated edit still reaches the funnel, which repairs isbn10 from
+        the canonical pair."""
+        item_id = _insert_item(db, title="Repair Row", isbn="9780547928227", isbn10="0000000000")
+        db.commit()
+        resp = self._post(editor_client, item_id, title="Repair Row Renamed")
+        assert resp.status_code == 303
+        assert resp.headers["location"].startswith(f"/item/{item_id}")
+        row = self._row(item_id, "title", "isbn", "isbn10")
+        assert row["title"] == "Repair Row Renamed"
+        assert (row["isbn"], row["isbn10"]) == ("9780547928227", "054792822X")
+
+    def test_unchanged_legacy_upc_does_not_block_an_unrelated_edit(self, editor_client, db):
+        """Same #87 exemption, on the UPC side."""
+        item_id = _insert_item(db, title="Legacy UPC Row", isbn=None, upc=self.INVALID_UPC)
+        db.commit()
+        resp = self._post(editor_client, item_id, title="Legacy UPC Row Renamed")
+        assert resp.status_code == 303
+        assert resp.headers["location"] == f"/item/{item_id}"
+        row = self._row(item_id, "title", "upc")
+        assert row["title"] == "Legacy UPC Row Renamed"
+        assert row["upc"] == self.INVALID_UPC
+
+        # Changed to another invalid UPC: refused, nothing stored (the
+        # narrow rule — touching the field re-enters the validator).
+        resp = self._post(editor_client, item_id, upc=self.INVALID_UPC_2)
+        assert resp.status_code == 303
+        assert resp.headers["location"] == f"/item/{item_id}/edit?error=invalid_upc"
+        row = self._row(item_id, "upc")
+        assert row["upc"] == self.INVALID_UPC
+
+
+class TestEditFormLegacyInvalidIdentifierNote:
+    """#87 T2: the edit form marks a stored isbn/upc that the T1 exemption
+    keeps as-is, so the silent pass-through is visible to the editor."""
+
+    def test_isbn_note_renders_for_a_legacy_invalid_isbn(self, editor_client, db):
+        item_id = _insert_item(db, title="Legacy ISBN Note",
+                               isbn=TestEditFormValueFunnel.INVALID_ISBN)
+        db.commit()
+        html = editor_client.get(f"/item/{item_id}/edit").text
+        assert 'data-testid="isbn-stored-invalid"' in html
+
+    def test_isbn_note_absent_for_a_valid_isbn(self, editor_client, db):
+        item_id = _insert_item(db, title="Valid ISBN Note", isbn="9780547928227")
+        db.commit()
+        html = editor_client.get(f"/item/{item_id}/edit").text
+        assert 'data-testid="isbn-stored-invalid"' not in html  # the element, not the words (G69)
+
+    def test_isbn_note_absent_for_an_empty_isbn(self, editor_client, db):
+        item_id = _insert_item(db, title="Empty ISBN Note", isbn=None)
+        db.commit()
+        html = editor_client.get(f"/item/{item_id}/edit").text
+        assert 'data-testid="isbn-stored-invalid"' not in html
+
+    def test_upc_note_renders_for_a_legacy_invalid_upc(self, editor_client, db):
+        item_id = _insert_item(db, title="Legacy UPC Note", isbn=None,
+                               upc=TestEditFormValueFunnel.INVALID_UPC)
+        db.commit()
+        html = editor_client.get(f"/item/{item_id}/edit").text
+        assert 'data-testid="upc-stored-invalid"' in html
+
+    def test_upc_note_absent_for_a_valid_upc(self, editor_client, db):
+        item_id = _insert_item(db, title="Valid UPC Note", isbn=None, upc="078073003501")
+        db.commit()
+        html = editor_client.get(f"/item/{item_id}/edit").text
+        assert 'data-testid="upc-stored-invalid"' not in html
+
+    def test_upc_note_absent_for_an_empty_upc(self, editor_client, db):
+        item_id = _insert_item(db, title="Empty UPC Note", isbn=None, upc=None)
+        db.commit()
+        html = editor_client.get(f"/item/{item_id}/edit").text
+        assert 'data-testid="upc-stored-invalid"' not in html
 
 
 class TestBulkUpdateValueFunnel:
@@ -1814,3 +2028,97 @@ class TestReadingStatusValueFunnel:
         row = db.execute("SELECT reading_status, date_started FROM items WHERE id = ?", (item_id,)).fetchone()
         assert row["reading_status"] is None
         assert row["date_started"] is None
+
+
+class TestManualAddEntryPoints:
+    """T7 — links to the /scan?add=manual panel from Home and the item page."""
+
+    def test_home_offers_add_by_hand_for_admin(self, admin_client):
+        html = admin_client.get("/").text
+        assert 'href="/scan?add=manual"' in html
+        assert "Add by hand" in html
+
+    def test_home_offers_add_by_hand_for_editor(self, editor_client):
+        html = editor_client.get("/").text
+        assert 'href="/scan?add=manual"' in html
+        assert "Add by hand" in html
+
+    def test_home_does_not_offer_add_by_hand_for_viewer(self, viewer_client):
+        html = viewer_client.get("/").text
+        assert "Add by hand" not in html
+        assert 'href="/scan?add=manual"' not in html
+
+    def test_item_page_offers_add_another_like_this_for_editor(self, editor_client, db):
+        item_id = _insert_item(db, title="Manual Add Entry Point Book", isbn="9789000011124")
+        db.commit()
+
+        resp = editor_client.get(f"/item/{item_id}")
+        assert resp.status_code == 200
+        assert f'href="/scan?add=manual&from={item_id}"' in resp.text
+        assert "Add another like this" in resp.text
+
+    def test_item_page_does_not_offer_add_another_like_this_for_viewer(self, viewer_client, db):
+        item_id = _insert_item(db, title="Manual Add Entry Point Viewer Book", isbn="9789000011131")
+        db.commit()
+
+        resp = viewer_client.get(f"/item/{item_id}")
+        assert resp.status_code == 200
+        assert "Add another like this" not in resp.text
+        assert "/scan?add=manual" not in resp.text
+
+    def test_home_and_item_page_never_say_add_a_copy(self, admin_client, db):
+        item_id = _insert_item(db, title="Add A Copy Wording Book", isbn="9789000011148")
+        db.commit()
+
+        assert "Add a copy" not in admin_client.get("/").text
+        assert "Add a copy" not in admin_client.get(f"/item/{item_id}").text
+
+
+class TestTheRetiredKidsBookAliasOnEdit:
+    """The edit route canonicalises before its UPC-conflict read, which keys
+    on `media_type`. A raw retired value would miss a conflicting row stored
+    under `book` and hand the collision to the database.
+
+    Both pins here are on the **outcome**, and both stay green with the
+    canonicalisation removed: the write funnel canonicalises anyway, and
+    this route already catches the resulting IntegrityError as a handled
+    refusal. What the earlier canonicalisation buys is the *right* refusal —
+    the conflict card naming the row — instead of the race handler. The
+    discriminating pin for the alias being wired at all is in
+    `tests/test_manual_add_boundaries.py`, on a route with no such net.
+    """
+
+    def test_editing_to_kids_book_stores_a_book(self, editor_client, db):
+        item_id = _insert_item(db, title="A Book", isbn="9789000030019")
+        db.execute("COMMIT")
+
+        resp = editor_client.post(
+            f"/api/items/{item_id}", data={"media_type": "kids_book"}
+        )
+
+        assert resp.status_code in (200, 303)
+        assert db.execute(
+            "SELECT media_type FROM items WHERE id = ?", (item_id,)
+        ).fetchone()["media_type"] == "book"
+
+    def test_the_upc_conflict_guard_sees_the_canonical_type(
+        self, editor_client, db
+    ):
+        upc = "0012345678905"
+        _insert_item(db, title="Owner Of The Barcode", isbn=None, upc=upc,
+                     media_type="book")
+        item_id = _insert_item(db, title="Editing This", isbn="9789000030026")
+        db.execute("COMMIT")
+
+        resp = editor_client.post(
+            f"/api/items/{item_id}",
+            data={"media_type": "kids_book", "upc": upc},
+        )
+
+        assert resp.status_code in (200, 303)
+        assert db.execute(
+            "SELECT COUNT(*) AS c FROM items WHERE upc = ? AND media_type = 'book'",
+            (upc,),
+        ).fetchone()["c"] == 1, (
+            "the conflict must be caught, leaving the original owner alone"
+        )

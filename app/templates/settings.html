@@ -1,47 +1,21 @@
 {% extends "base.html" %}
 {% block title %}Settings — Shelf{% endblock %}
-{% block head %}
-<script src="/static/js/komga-library-types.js"></script>
-{% endblock %}
 {% block content %}
 <div class="max-w-7xl mx-auto" x-data="settingsTabs">
     {% include "fragments/settings/page_header.html" %}
 
-    {# Known codes only: never reflect arbitrary query-string text. #}
-    {% set location_error = request.query_params.get('location_error') %}
-    {% if location_error in ('blank', 'duplicate', 'missing') %}
-    <div data-testid="location-error-banner"
-         class="bg-shelf-bg text-shelf-error border border-shelf-border rounded-lg px-4 py-2 text-sm mb-6">
-        {% if location_error == 'blank' %}
-        Location name is required.
-        {% elif location_error == 'duplicate' %}
-        A location with that name already exists.
-        {% else %}
-        That location no longer exists.
-        {% endif %}
-    </div>
-    {% endif %}
-
-    <div class="flex flex-col lg:flex-row gap-6">
+    <div class="flex flex-col lg:flex-row gap-6 lg:gap-8 items-start">
         {% include "fragments/settings/sidebar.html" %}
 
-        <section class="min-w-0 flex-1">
-            {% include "fragments/settings/section_headers.html" %}
-
+        <div class="min-w-0 flex-1 w-full" data-testid="settings-section-content">
             {% include "fragments/settings/library.html" %}
-
-            <div x-show="tab === 'integrations'">
-                {% include "fragments/settings/integration_index.html" %}
-            </div>
             {% include "fragments/settings/integrations.html" %}
-
+            {% include "fragments/settings/romm.html" %}
+            {% include "fragments/settings/komga.html" %}
+            {% include "fragments/settings/discogs.html" %}
             {% include "fragments/settings/data.html" %}
-            <div x-show="tab === 'data'" class="mt-8">
-                {% include "fragments/settings/connection_rebuild.html" %}
-            </div>
-
             {% include "fragments/settings/users.html" %}
-        </section>
+        </div>
     </div>
 </div>
 {% endblock %}

@@ -25,6 +25,13 @@ and the rest in its navigation.
 Most of the groups below arrive switched off behind this, which is why it comes
 early.
 
+**A navigation rework goes with it.** The tab bar has grown one tab at a time
+and is now long enough that the next feature makes it worse. The plan is to
+group the tabs by what you are actually doing — the views onto your collection
+in one place, the scanner-and-camera tools in another — rather than keep adding
+to a single row. Turning feature areas off and grouping what is left are two
+halves of the same problem, so they are being designed together.
+
 ## Homelab integration
 
 **Planned.** Shelf should behave like the rest of your stack.
@@ -70,9 +77,6 @@ Library, and thinner otherwise.
   countries deserve the same.
 - **A translated interface.** The UI is English-only today. Translating the
   templates and letting the browser or a per-user setting pick the language.
-- **Music** ([#81](https://github.com/dgahagan/shelf/issues/81)) — CDs and records
-  can be catalogued now, but nothing looks them up, because Shelf has no music
-  metadata provider. MusicBrainz and the Cover Art Archive would fix that.
 
 ## Import and migration
 
@@ -84,9 +88,9 @@ without retyping it. Shelf stores the catalogue record, never the audio.
 ## Collectors and inventory
 
 **Planned.** For collections where the individual copy matters, not just the
-title: per-copy condition, edition and provenance fields, printable accession
-labels, a reconciliation report for a shelf audit, and a duplicate audit across
-the whole collection.
+title: printable accession labels, a reconciliation report for a shelf audit,
+and a duplicate audit across the whole collection. Per-copy condition,
+acquisition and provenance fields have shipped — see the item page.
 
 ## Reading life
 
@@ -110,15 +114,19 @@ anything, so it follows the households work.
 
 ## Recently shipped
 
-The last five releases. Full detail in the [changelog](../CHANGELOG.md).
+The last five releases that changed something you can see. Some releases change
+only the foundations — 0.42.4 and 0.42.5 rearranged how Shelf reads its own
+data, ahead of a Trash you can restore from — and those are left out here
+rather than listed as "nothing visible". Full detail on every release, visible
+or not, is in the [changelog](../CHANGELOG.md).
 
 | Version | What landed |
 |---|---|
-| [0.34.0](https://github.com/dgahagan/shelf/releases/tag/v0.34.0) | An optional browser URL for Audiobookshelf, so **Listen** and **Read** links work when Shelf reaches your server at a different address than your browser does |
-| [0.33.1](https://github.com/dgahagan/shelf/releases/tag/v0.33.1) | Adding the same item twice at once reports the duplicate instead of filing it twice |
-| [0.33.0](https://github.com/dgahagan/shelf/releases/tag/v0.33.0) | CSV import recognises a book it already holds whatever form the ISBN is written in, and refuses an import mode it does not know instead of overwriting |
-| [0.32.0](https://github.com/dgahagan/shelf/releases/tag/v0.32.0) | Legacy Scholastic price-point book barcodes scan properly instead of filing whatever product shares the code |
-| [0.31.0](https://github.com/dgahagan/shelf/releases/tag/v0.31.0) | Photo Intake looks up DVDs and video games, not just books |
+| [0.45.0](https://github.com/dgahagan/shelf/releases/tag/v0.45.0) | Browse can tell you where a row came from. A **Source** filter sits in the filter bar beside the others, cross-filtered the same way and listing only the sources your library actually holds — a RomM, Komga or Audiobookshelf sync, a metadata provider, a CSV import, Photo Intake, or by hand. RomM games also get a **RomM ↗** badge on the card that opens the game where it lives. Settings moves its four sections into a sidebar, and a Komga series that arrived split into one series per volume is repaired by the next sync |
+| [0.44.0](https://github.com/dgahagan/shelf/releases/tag/v0.44.0) | A novel, its audiobook and the film made from it stay three records, but you can now say they belong together. Link an item to another as a Format, a Related item or an Adaptation, and every item in the group shows the whole group — including the ones it reaches only through a third item. Editors build the links by hand from a panel on the item page; Shelf never guesses from similar titles. The account menu also says who you are, and groups what it holds |
+| [0.43.0](https://github.com/dgahagan/shelf/releases/tag/v0.43.0) | Kids books are no longer a media type of their own. Every one becomes an ordinary book carrying a `Kids` tag on the first boot after the upgrade, so a filter for books finally finds all of them, and one that shares an ISBN or barcode with a book you already own is merged into it rather than left beside it. Tags now travel through the CSV export and the portable archive, so the label survives a backup. The conversion is one-way — read the upgrade note first |
+| [0.42.3](https://github.com/dgahagan/shelf/releases/tag/v0.42.3) | An older children's paperback is no longer catalogued as a DVD. Scholastic-era books carry a price-point barcode shared across a whole price band, with the title in a separate five-digit block beside it; scanners that read only the first part used to send it down the retail path, where the shared code looks like a disc. Shelf now stops the scan and asks you to type the five digits |
+| [0.42.2](https://github.com/dgahagan/shelf/releases/tag/v0.42.2) | An item whose stored ISBN or UPC is not valid — usually an ASIN an older Audiobookshelf sync left behind — can be edited again. A stored identifier you do not touch is left alone and marked on the form, so changing the title or the location no longer means fixing an identifier first |
 
 ---
 

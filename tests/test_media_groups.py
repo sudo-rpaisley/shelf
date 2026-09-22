@@ -1,153 +1,88 @@
+"""Tests for related-media groups built from the existing item_links graph."""
+
+import pytest
+
 from app.services import media_groups
 from app.services.item_write import insert_item
-from tests.conftest import _insert_item
 
 
-def test_related_items_are_transitive(db):
-    a = _insert_item(db, title="Work", isbn=None, media_type="book")
-    b = _insert_item(db, title="Work", isbn=None, media_type="ebook")
-    c = _insert_item(db, title="Work", isbn=None, media_type="audiobook")
-    media_groups.link_items(db, a, b, "format")
-    media_groups.link_items(db, b, c, "format")
+def test_link_is_undirected_and_idempotent(db):
+    a = insert_item(db, title="Dune", media_type="book")
+    b = insert_item(db, title="Dune", media_type="dvd")
+
+    assert media_groups.link_items(db, b, a, link_type="adaptation") is True
+    assert media_groups.link_items(db, a, b, link_type="adaptation") is False
+
+    row = db.execute("SELECT item_a_id, item_b_id, link_type FROM item_links").fetchone()
+    assert tuple(row) == (min(a, b), max(a, b), "adaptation")
+
+
+def test_self_links_and_missing_items_are_not_created(db):
+    item_id = insert_item(db, title="One")
+    assert media_groups.link_items(db, item_id, item_id) is False
+    assert media_groups.link_items(db, item_id, 999999) is False
+    assert db.execute("SELECT COUNT(*) AS c FROM item_links").fetchone()["c"] == 0
+
+
+def test_unknown_link_type_is_rejected(db):
+    a = insert_item(db, title="A")
+    b = insert_item(db, title="B")
+    with pytest.raises(ValueError, match="Unknown related-media"):
+        media_groups.link_items(db, a, b, link_type="guess")
+
+
+def test_group_is_full_transitive_connected_component(db):
+    a = insert_item(db, title="A")
+    b = insert_item(db, title="B")
+    c = insert_item(db, title="C")
+    d = insert_item(db, title="D")
+
+    media_groups.link_items(db, a, b, link_type="format")
+    media_groups.link_items(db, b, c, link_type="related")
 
     assert media_groups.related_ids(db, a) == [b, c]
     assert media_groups.related_ids(db, c) == [a, b]
+    assert media_groups.related_ids(db, b, include_self=True) == [a, b, c]
+    assert media_groups.related_ids(db, d) == []
 
 
-def test_book_family_groups_formats_and_multiple_audiobook_editions(db):
-    book = _insert_item(
-        db, title="Harry Potter and the Philosopher's Stone", isbn="9780747532699",
-        media_type="book", authors="J. K. Rowling", publish_year=1997,
-    )
-    ebook = _insert_item(
-        db, title="Harry Potter and the Philosopher’s Stone", isbn="9781781100219",
-        media_type="ebook", authors="J. K. Rowling", publish_year=2015,
-    )
-    audio_one = _insert_item(
-        db, title="Harry Potter and the Philosopher's Stone", isbn="9781855496700",
-        media_type="audiobook", authors="J. K. Rowling", narrator="Stephen Fry", publish_year=1999,
-    )
-    audio_two = _insert_item(
-        db, title="Harry Potter and the Philosopher's Stone", isbn="9781781102367",
-        media_type="audiobook", authors="J. K. Rowling", narrator="Jim Dale", publish_year=2016,
-    )
+def test_direct_links_preserve_relationship_type(db):
+    book = insert_item(db, title="Dune", media_type="book")
+    ebook = insert_item(db, title="Dune eBook", media_type="ebook")
+    film = insert_item(db, title="Dune Film", media_type="dvd")
 
-    media_groups.auto_link_family(db, "book")
+    media_groups.link_items(db, book, ebook, link_type="format")
+    media_groups.link_items(db, book, film, link_type="adaptation")
 
-    assert set(media_groups.related_ids(db, book)) == {ebook, audio_one, audio_two}
+    links = media_groups.direct_links(db, book)
+    assert [(row["title"], row["link_type"]) for row in links] == [
+        ("Dune eBook", "format"),
+        ("Dune Film", "adaptation"),
+    ]
 
 
-def test_game_family_groups_platform_versions_across_release_years(db):
-    snes = _insert_item(
-        db, title="Example Quest", isbn=None, media_type="digital_game",
-        platform="snes", publish_year=1994,
-    )
-    gba = _insert_item(
-        db, title="Example Quest", isbn=None, media_type="digital_game",
-        platform="gba", publish_year=2001,
-    )
-    pc = _insert_item(
-        db, title="Example Quest", isbn=None, media_type="video_game",
-        platform="pc", publish_year=2004,
-    )
-    later_port = _insert_item(
-        db, title="Example Quest", isbn=None, media_type="digital_game",
-        platform="ps5", publish_year=2025,
-    )
+def test_unlink_can_split_a_component(db):
+    a = insert_item(db, title="A")
+    b = insert_item(db, title="B")
+    c = insert_item(db, title="C")
+    media_groups.link_items(db, a, b)
+    media_groups.link_items(db, b, c)
 
-    media_groups.auto_link_family(db, "game")
-
-    assert set(media_groups.related_ids(db, snes)) == {gba, pc, later_port}
+    assert media_groups.unlink_items(db, b, c) is True
+    assert media_groups.related_ids(db, a) == [b]
+    assert media_groups.related_ids(db, c) == []
 
 
-def test_game_family_keeps_distinct_subtitles_separate(db):
-    ocarina = _insert_item(
-        db, title="The Legend of Zelda: Ocarina of Time", isbn=None,
-        media_type="digital_game", platform="n64",
-    )
-    majora = _insert_item(
-        db, title="The Legend of Zelda: Majora's Mask", isbn=None,
-        media_type="digital_game", platform="n64",
-    )
+def test_search_excludes_every_item_already_in_the_group(db):
+    anchor = insert_item(db, title="The Hobbit", authors="J. R. R. Tolkien")
+    ebook = insert_item(db, title="The Hobbit eBook", authors="J. R. R. Tolkien", media_type="ebook")
+    candidate = insert_item(db, title="The Hobbit Film", media_type="dvd")
+    unrelated = insert_item(db, title="Dune", media_type="book")
+    media_groups.link_items(db, anchor, ebook, link_type="format")
 
-    media_groups.auto_link_family(db, "game")
-
-    assert majora not in media_groups.related_ids(db, ocarina)
-
-
-def test_manual_link_can_join_different_media_families(db):
-    book = _insert_item(
-        db, title="Harry Potter and the Philosopher's Stone", isbn=None, media_type="book"
-    )
-    game = _insert_item(
-        db, title="Harry Potter and the Philosopher's Stone", isbn=None,
-        media_type="video_game", platform="pc",
-    )
-
-    assert media_groups.link_items(db, book, game, "related") is True
-    assert media_groups.related_ids(db, book) == [game]
-    assert media_groups.has_manual_group_edge(db, book, game) is True
-
-    assert media_groups.remove_manual_group_edges(db, book, game) == 1
-    assert media_groups.related_ids(db, book) == []
-
-
-def test_search_candidates_excludes_current_connected_group(db):
-    book = _insert_item(db, title="Dune", isbn=None, media_type="book", authors="Frank Herbert")
-    audio = _insert_item(db, title="Dune", isbn=None, media_type="audiobook", authors="Frank Herbert")
-    game = _insert_item(db, title="Dune", isbn=None, media_type="video_game", platform="pc")
-    other = _insert_item(db, title="Dune Messiah", isbn=None, media_type="book", authors="Frank Herbert")
-    media_groups.link_items(db, book, audio, "format")
-
-    blank = media_groups.search_candidates(db, book, "")
-    assert [row["id"] for row in blank] == [game]
-
-    searched = media_groups.search_candidates(db, book, "Dune")
-    ids = [row["id"] for row in searched]
-    assert audio not in ids
-    assert game in ids
-    assert other in ids
-
-
-def test_normal_insert_joins_existing_same_work_group_immediately(db):
-    book = insert_item(
-        db,
-        title="Dune",
-        authors="Frank Herbert",
-        media_type="book",
-        isbn="9780441172719",
-        source="manual",
-    )
-    audio = insert_item(
-        db,
-        title="Dune",
-        authors="Frank Herbert",
-        media_type="audiobook",
-        isbn="9781427201430",
-        source="manual",
-    )
-
-    assert media_groups.related_ids(db, book) == [audio]
-
-
-def test_provider_batch_insert_defers_grouping_until_batch_end(db):
-    book = insert_item(
-        db,
-        title="Dune",
-        authors="Frank Herbert",
-        media_type="book",
-        isbn="9780441172719",
-        source="manual",
-    )
-    audio = insert_item(
-        db,
-        title="Dune",
-        authors="Frank Herbert",
-        media_type="audiobook",
-        isbn="9781427201430",
-        source="audiobookshelf",
-    )
-
-    assert media_groups.related_ids(db, book) == []
-    media_groups.auto_link_family(db, "book")
-    assert media_groups.related_ids(db, book) == [audio]
+    results = media_groups.search_candidates(db, anchor, "Hobbit")
+    ids = [row["id"] for row in results]
+    assert candidate in ids
+    assert anchor not in ids
+    assert ebook not in ids
+    assert unrelated not in ids

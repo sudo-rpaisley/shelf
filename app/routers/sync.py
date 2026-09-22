@@ -10,7 +10,7 @@ from starlette.responses import StreamingResponse
 from app.auth import require_role
 from app.config import HTTP_TIMEOUT
 from app.database import get_db, get_setting
-from app.services import audiobookshelf, sync_jobs
+from app.services import audiobookshelf, item_write
 
 logger = logging.getLogger(__name__)
 
@@ -78,30 +78,6 @@ async def test_audiobookshelf(request: Request):
         return {"ok": False, "message": "Connection failed — check URL and network"}
 
 
-@router.post("/audiobookshelf/public-url")
-async def save_abs_public_url(abs_public_url: str = Form("")):
-    """Save the browser-facing ABS root used for item deep links.
-
-    Sync and API traffic deliberately continue to use ``abs_url``. This
-    separate value is for deployments where Shelf reaches Audiobookshelf via
-    an internal Docker/LAN address while users reach it through a public or
-    reverse-proxy hostname.
-    """
-    public_url = abs_public_url.strip().rstrip("/")
-    if public_url and _validate_abs_url(public_url):
-        return RedirectResponse(
-            url="/settings?abs_public_url_error=invalid", status_code=303
-        )
-
-    with get_db() as db:
-        db.execute(
-            "INSERT INTO settings (key, value) VALUES ('abs_public_url', ?) "
-            "ON CONFLICT(key) DO UPDATE SET value = ?",
-            (public_url, public_url),
-        )
-    return RedirectResponse(url="/settings", status_code=303)
-
-
 @router.get("/audiobookshelf/libraries")
 async def list_abs_libraries():
     """List ABS libraries with their current include/exclude state."""
@@ -154,7 +130,7 @@ async def save_abs_libraries(request: Request):
 
 @router.post("/audiobookshelf/libraries/cleanup")
 async def cleanup_excluded_libraries():
-    """Delete Shelf items that came from ABS libraries now marked excluded.
+    """Move to Trash the Shelf items that came from ABS libraries now excluded.
 
     Matches items two ways: by stamped abs_library_id (items synced after
     the column existed) and by live ABS listing of each excluded library
@@ -190,52 +166,26 @@ async def cleanup_excluded_libraries():
     with get_db() as db:
         lib_placeholders = ",".join("?" * len(excluded))
         rows = db.execute(
-            f"SELECT id FROM items WHERE abs_library_id IN ({lib_placeholders})",
+            f"SELECT id FROM items_live WHERE abs_library_id IN ({lib_placeholders})",
             tuple(excluded),
         ).fetchall()
         ids = {r["id"] for r in rows}
         if abs_ids:
             id_placeholders = ",".join("?" * len(abs_ids))
             rows = db.execute(
-                f"SELECT id FROM items WHERE abs_id IN ({id_placeholders})",
+                f"SELECT id FROM items_live WHERE abs_id IN ({id_placeholders})",
                 tuple(abs_ids),
             ).fetchall()
             ids.update(r["id"] for r in rows)
 
+        # Soft: each row keeps its scan history and returns intact from
+        # Trash. `deleted` counts rows this call actually moved.
         for item_id in ids:
-            db.execute("UPDATE scan_log SET item_id = NULL WHERE item_id = ?", (item_id,))
-            db.execute("DELETE FROM items WHERE id = ?", (item_id,))
-            deleted += 1
+            if item_write.trash_item(db, item_id):
+                deleted += 1
 
-    logger.info("Removed %d items from %d excluded ABS libraries", deleted, len(excluded))
+    logger.info("Moved %d items from %d excluded ABS libraries to Trash", deleted, len(excluded))
     return {"ok": True, "deleted": deleted}
-
-
-@router.get("/audiobookshelf/job")
-async def audiobookshelf_job_status():
-    """Return the current/most recent detached Audiobookshelf sync job."""
-    return sync_jobs.get_status("audiobookshelf")
-
-
-@router.post("/audiobookshelf/job")
-async def start_audiobookshelf_job():
-    """Start ABS sync on the server and return without holding the browser open."""
-    with get_db() as db:
-        abs_url_val = get_setting(db, "abs_url")
-        abs_token_val = get_setting(db, "abs_token")
-
-    if not abs_url_val or not abs_token_val:
-        return {"state": "error", "error": "Audiobookshelf URL and API token must be configured in Settings"}
-    url_err = _validate_abs_url(abs_url_val)
-    if url_err:
-        return {"state": "error", "error": url_err}
-
-    async def runner(on_progress):
-        return await audiobookshelf.sync(
-            abs_url_val, abs_token_val, on_progress=on_progress
-        )
-
-    return sync_jobs.start("audiobookshelf", runner, source="manual")
 
 
 @router.post("/audiobookshelf")

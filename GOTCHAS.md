@@ -83,8 +83,31 @@ into subagent prompts).
   expect red from a bare second connection, and expect a **stopwatch** from
   anything routed through `logging`. If your only pin is "the test still
   passes", you have not checked G3 at all.
+- **The lock is released by `rollback()`/`commit()`, not by leaving the
+  `with` block** — so on a *refusal* path the rule is **roll back, then log**.
+  Moving the log outside the block is the legible form of that and is worth
+  doing, but a log emitted after an explicit `db.rollback()` and still inside
+  the block is already fast and its record still lands. Knowing which of the
+  two edits is load-bearing matters when you mutation-check the fix: reverting
+  "log outside the block" while leaving the rollback in place changes nothing
+  and looks like a toothless pin, when in fact the pin is fine and the
+  mutation was the wrong one. Restore the *original* shape — log inside, no
+  rollback before it — or you have not tested the trap.
 - **Evidence:** `7f4c645` (2026-08-18, found in the 0.5.0 manual pass).
   The logging-is-silent half: `af6b7a7` and `6def115` (2026-09-05, issue #83).
+  Fourth instance, and the one that says the trap is not only a migration
+  problem: `1ee23b9` (2026-09-11, plan `item-copies-surface`), found by the
+  Antigravity diff review (`gemini-B1`) against a branch whose impl plan had
+  tagged G18 on the same routes and **not** G3 — the `BEGIN IMMEDIATE` the
+  plan correctly required is exactly what makes an in-block `logger.warning`
+  a five-second stall. **When a plan adds `BEGIN IMMEDIATE` to a route, G3
+  becomes live on that route**; the two entries travel together and a plan
+  that cites one should be read for the other. Measured on the unfixed path:
+  `POST /api/items/{id}/copies` with an unknown `location_id` answered 400
+  after **5.01s** with **zero** rows in `log_entries`; after the fix, 0.01s
+  and one row. Pinned by both properties in
+  `tests/test_item_copies_routes.py::TestRefusalsDoNotLogUnderTheWriteLock` —
+  the landed record is the deterministic half, the stopwatch names the cost.
 - **Verify:** on a scratch DB, a `log_entries` insert on a second connection
   while a write transaction is open must still wait out the busy timeout
   (~5s) and fail — "no lock" means the contention behavior changed and this
@@ -286,6 +309,13 @@ grep -n "htmx.process" static/js/browse.js                  # expect >= 1, in th
   `cdf32ca` (2026-08-19, nav cache wired into the same resets);
   `03b93f0` (2026-08-24, issue #36 — `igdb._token_cache`, a cache that had
   been leaking across tests on `main` since IGDB was added).
+- **A cache its writers invalidate is blind to a raw write.** An E2E test
+  that backdates or inserts through sqlite directly, after the server has
+  already populated a module cache, reads the stale value until the TTL
+  lapses — `trash.expired_count()` holds for an hour. Seed before the first
+  render that fills the cache, or trigger an invalidation through the app
+  (`tests/e2e/test_trash.py` posts the unchanged retention setting;
+  `a41b16d`, 2026-09-21). The unit suite's per-test reset hides this.
 - **Verify:** the isolation suite still passes and the known caches are
   reset: `python -m pytest tests/test_conftest_isolation.py -q` and
   `grep -c "_cached\|_token_cache" tests/conftest.py` (expect ≥ 4). The
@@ -440,6 +470,11 @@ PY
   then deletes takes its write lock only at the DELETE, and anything committed
   in that window is acted on blind. `db.execute("BEGIN IMMEDIATE")` must be
   the **first** statement in the `with get_db()` block, above the guard query.
+- **"Already holds the lock" is a claim to grep, not to trust.** Issue #125's
+  design said `manual_add` "already holds the lock across its guard"; the
+  route had no `BEGIN IMMEDIATE` at all, and adding a promotion write there
+  would have created exactly this shape. `grep -n "BEGIN IMMEDIATE"` the file
+  before filing a site as compliant (`6bd583a`, 2026-09-16).
 - **Why:** `_run_migrations` samples `applied` once before its loop. Two
   overlapping runners both saw the same pending set; the one that lost the
   `BEGIN IMMEDIATE` race then tolerated the winner's duplicate column and
@@ -527,6 +562,8 @@ python -m pytest tests/test_catalogue_add_boundaries.py tests/test_hardcover_isb
   failing where it is written. Poll from Python with `page.evaluate` in a
   loop. Exactly one call site is exempt: the service-worker wait, which has to
   run in the page.
+- **Sibling:** **G83** governs *what* to wait for after a click, where this
+  governs *how* to poll page state under the CSP. Same script enforces both.
 - **Status:** linted — `make check-tests`.
 
 ## G22 — When comparing an author name against a metadata source's author
@@ -791,19 +828,77 @@ grep -rn 'on("dialog"\|once("dialog"' tests/e2e/
 
 ```bash
 python -c "from app.services.authors import matches; assert matches(None, 'Anyone')"
-grep -n "cover_path IS NULL" app/routers/*.py app/services/*.py | grep -E 'SELECT|UPDATE'
-# 4 hits as of 2026-08-25; each must be book-filtered or admin-invoked
+grep -n "cover_path IS NULL" app/routers/*.py app/services/*.py
+# 7 hits as of 2026-09-09. Read each: it is a query, prose about a query, or a
+# predicate held in a constant. Every *query* must be book-filtered,
+# admin-invoked, or human-decided (the fifth kind, added below).
 ```
 
+  **Do NOT re-add the `| grep -E 'SELECT|UPDATE'` second stage this line used to
+  carry.** It was there to drop prose, and it also drops any sweep whose
+  predicate does not share a line with its verb — which is what
+  `app/routers/cover_review.py:74` does:
+
+  ```python
+  _QUEUE_PREDICATE = "i.cover_path IS NULL AND i.cover_review_dismissed = 0"
+  ```
+
+  Extracting a predicate into a named constant is *good practice*, and it made
+  the newest `cover_path IS NULL` sweep in the codebase **completely invisible
+  to this guard**. Measured 2026-09-09 while adding that very sweep: the
+  two-stage grep reported 4 hits and the bare grep reports 7.
+
+  **It was hiding two sweeps, not one.** `app/services/home_dashboard.py:27`
+  has been invisible to this Verify line for as long as it has existed, for a
+  different reason with the same shape — its predicate sits on a `"WHERE …"`
+  continuation line while the `SELECT` is on the line above:
+
+  ```python
+  "WHERE cover_path IS NULL OR TRIM(cover_path) = ''"
+  ```
+
+  So the filter did not merely fail on a new style of code; it had already
+  failed on ordinary wrapped SQL and nobody noticed, because a guard that
+  under-reports looks exactly like a guard that is passing. A guard that
+  silently stops covering the thing it exists to cover is worse than no guard,
+  so the filter is gone and the cost is that you must read the hits.
+
+  (`home_dashboard.py` is a dashboard statistic rather than a sweep — it hands
+  its rows to nobody — so it was never a violation. That it went unread for
+  months is the point.)
+
   **The bare grep matches prose, not only SQL** (G53's shape, in a Verify line
-  rather than a guard). `feat/cover-picker` added a docstring at the new
+  rather than a guard). `feat/cover-picker` added a docstring at the
   `cover-remove` route explaining that removal re-arms this very requeue — a
   correct comment, and a hit that is neither book-filtered nor admin-invoked
-  because it is not a query at all. Filtering on `SELECT|UPDATE` is what drops
-  it; filtering on `#` does **not**, because the offending line is inside a
-  docstring. Read any surviving hit before filing it as a violation.
+  because it is not a query at all. Filtering on `#` does **not** drop it,
+  because the offending line is inside a docstring. Read any surviving hit
+  before filing it as a violation.
 
-- **Status:** documented.
+  **The fifth kind of legal sweep: human-decided.** The cover review queue
+  (`app/routers/cover_review.py`) selects on `cover_path IS NULL` with **no
+  media-type filter at all** — deliberately, because that is the whole point of
+  it: Retry Missing Covers cannot reach a DVD, a game or a CD, and those are
+  the items the automatic chain is worst at. It is legal here because the rows
+  are rendered for a person who chooses from `covers.search_covers` (which
+  dispatches by media type), and **nothing in that module reaches
+  `resolve_missing_cover` or `_search_isbn_for_item`** — the property this
+  entry actually cares about. That is enforced by a test asserting the module's
+  source contains no call to either, plus a database-level pin that picking a
+  cover for an ISBN-less DVD leaves `isbn` NULL. **Adding a "retry
+  automatically" button to that page reintroduces the Dune defect**, and the
+  unfiltered predicate is what would make it worse than the original.
+
+  Two sweeps gained a `cover_review_dismissed = 0` clause at the same time:
+  `cover_queue.requeue_recent_missing` (so a human's "not available" verdict is
+  not overridden on every boot) and `pages.py`'s Settings count. The two bulk
+  Retry Missing Covers queries deliberately did **not** — see that decision in
+  the cover-attention-queue plan; the short version is that with no un-dismiss
+  path in the UI, the sweep is the only way an accidental dismissal comes back.
+
+- **Status:** documented. The Verify grep is a candidate for promotion to a
+  lint, and the constant-predicate blind spot above is the reason it should be:
+  a grep that a routine refactor can defeat wants to be a test.
 
 ## G30 — When setting or "tidying" anything that paces Open Library
 
@@ -864,6 +959,32 @@ python -c "from app.services.openlibrary import USER_AGENT as U; assert 'http' i
     because the now-unused `AsyncMock` returned a non-200, which happened to
     be the expected reject. Its sibling failed outright, which is the only
     reason anyone looked.
+  **`git stash` is the wrong revert tool once the change is committed.**
+  `git stash push -- <file>` on a file with no working-tree diff stashes
+  nothing, the test runs against the *fixed* code, passes, and `git stash pop`
+  answers `No stash entries found` — which is the only sign anything went
+  wrong, and it is easy to read as noise. Use `git checkout <base-sha> --
+  <file>`, run, then `git checkout HEAD -- <file>`. Hit twice on 2026-09-08
+  (issue #116 T10), independently, by the orchestrator and by the task's own
+  subagent. Stashing is still correct *before* the task's commit, which is why
+  it works most of the time and fails exactly when a later task re-checks an
+  earlier one's pin.
+
+  **And `git checkout` is the wrong revert tool while the work is still
+  uncommitted — the exact mirror of the above, and it destroys more.** The
+  paragraph above prescribes `git checkout HEAD -- <file>` to undo a mutation,
+  which is right *after* the task has committed. Run the same command during a
+  task whose changes are not committed yet and it discards **the whole task's
+  work in that file**, not just the mutation — silently, with no stash to pop
+  and nothing to say it happened beyond a file that suddenly reads like `main`.
+  Before the commit, copy the file aside first (`cp <file> /tmp/<file>.bak`) and
+  restore from the copy. Hit 2026-09-19 on `feat/pr-generated-assets` T2 by the
+  orchestrator, one task after reading this entry: the subagent's finished,
+  reviewed, unstaged edits to `scripts/stamp_sw_version.py` were wiped by the
+  restore step of a mutation pass and had to be reconstructed from the diff in
+  the review. **The rule is: pick the revert tool by whether the work is
+  committed, not by which command the entry you last read happened to name.**
+
   A cheap corollary: when a test mocks a transport by method name
   (`client.get`), changing which method the code calls silently detaches it
   rather than failing it.
@@ -875,6 +996,10 @@ python -c "from app.services.openlibrary import USER_AGENT as U; assert 'http' i
     fallback and the row passed. Ask which *branch* of the implementation
     your pin actually lands in, not just which behaviour it describes; the
     fix was a second row whose damage is large enough to miss the fallback.
+    The same shape turned up in `authors.join_names` (2026-09-17, `e1b1f1b`):
+    without the blank filter, an all-blank input still returns `None`,
+    because `", ".join([""]) or None` is `None`. Only a row that mixes blanks
+    with real names pins the filter.
   - **A duplicated handler needs one pin each.** Intake classifies
     `IntegrityError` on two insert paths (weak-path INSERT, `_save_item`).
     Deleting the classification from the strong path left the whole suite
@@ -1042,6 +1167,20 @@ python -c "from app.services.openlibrary import USER_AGENT as U; assert 'http' i
     commit the fix first and let `git checkout` mean what the recipe assumes,
     or `cp` the fixed file aside before the first mutation and restore from
     that copy. A plan that writes the recipe should say which.
+    **It happened again on `feat/alpine-component-load-failure` (2026-09-06),
+    to an orchestrator that had read this bullet the same session.** T3's
+    mutation check moved `base.html`'s Alpine tag, and the restore was
+    `git checkout -- shelf/app/templates/base.html` — which took the whole
+    `<head>` comment that task had just written, because the comment was
+    working-tree-only. The lint stayed green either way, so nothing announced
+    it; it was noticed by eye in the next diff. Like **G63**, this rule
+    survives being known and does not survive being convenient, and for the
+    same reason: `git checkout` is the shorter command. **The habit with a
+    default is `cp <file> /tmp/<file>.bak` before the first mutation, every
+    time** — correct whether or not the fix is committed, so there is no
+    judgement call left to get wrong. In the same session the *committed* case
+    (T2's guard file) and the *uncommitted* case (T3's template) sat one task
+    apart, which is exactly the discrimination not worth making under pressure.
 
   One more, found while orchestrating `feat/issue-50-blank-scan-toast`
   (2026-08-28) — the "fallback branch absorbs it" bullet again, but the
@@ -1118,12 +1257,60 @@ python -c "from app.services.openlibrary import USER_AGENT as U; assert 'http' i
     this is the entry's "which branch does your pin land in" moved one call
     earlier, into the stub itself.
 
+  Two more, both found while proving the class waiters on
+  `feat/e2e-wait-discipline` (2026-09-06), and both about the **instrument**
+  rather than the pin:
+  - **`expect()` auto-retries, so it rescues the broken shape.** Proving a
+    Playwright waiter real means measuring what is true *at the instant the
+    waiter returns*. Every `expect(...)` assertion polls to its own deadline,
+    so a probe written with one reports green against the broken waiter and
+    tells you nothing — the retry did the waiting the waiter failed to do. Read
+    the DOM, the URL or the DB **directly** at that instant; keep `expect()` in
+    the shipped test, where the retry is a feature, and out of the mutation
+    check, where it is a blindfold. Measured at class D: read through
+    `expect()`, both shapes green; read `#item-grid` directly, the old shape
+    returns in 10 ms with the pre-swap grid.
+  - **Induce the latency on the side of the race you are testing.** The obvious
+    knob — a `page.route` handler that sleeps before continuing — delays the
+    **response**, and the request is already in flight by then, so
+    `wait_for_load_state("networkidle")` observes it and waits. That leaves the
+    broken shape **green** and looks like a passing proof. The defect was about
+    the **issuance** ("the request the click starts may not have been issued
+    yet"), so the delay has to go there: wrap `window.fetch` *and*
+    `XMLHttpRequest.send` in an init script. Class C read green under the
+    response delay (1.548 s, correct result) and red under the issuance delay
+    (29 ms, wrong result) — same site, same test, opposite verdicts. Ask which
+    edge of the race your instrument actually moves.
+  - A corollary worth stating once: **an assertion that cannot fail cannot be
+    mutation-checked at all.** `test_item_delete`'s post-delete tail is an
+    `if/else` whose branches are `assert True` and
+    `assert body.inner_text() != ""`. No waiter, however broken, reddens it. If
+    a mutation check comes back green, read the assertion before you trust the
+    code — it may not be asserting anything.
+
+  Two more, both from issue #125 plan 2 (2026-09-16), where one boolean became
+  a three-state partition:
+  - **Seed every state, or the old arithmetic still adds up.** The series page
+    printed `items − owned` as "wishlisted". With only an owned and a
+    wishlisted row seeded, that subtraction equals the true wishlist count, so
+    the pin passed against the reverted template. It went red only once a
+    *neither* row joined the series (`377ae3e`). When a derivation is replaced
+    by a direct count, seed the state the derivation miscounts.
+  - **A later key can overwrite the mutation.** The edit route's restored
+    `wishlisted = (owned == 0)` derivation ran *before* the `wishlisted` key in
+    the same loop, so every planned pin (all of which posted `wishlisted`)
+    stayed green. The pin that reddens it posts `owned` alone (`85fec05`).
+    When a mutation restores a derived value, ask whether anything later in
+    the request writes the same field.
+
 - **Evidence:** `ce1003c`, `8ba5853`, `10caf32` (2026-08-21, issue #27). The
   queue's requeue-filter and head-of-line pins were mutation-checked the same
   way and did fail correctly (`[1,2,3,4] == [1]`, `[20.0] == [5.0]`).
-  `dedaa87` and `51745df` (2026-09-03, plan `signing-key-keyfile`) are the two
-  additions above — the first caught in orchestrator review of a subagent's
-  diff, the second while writing the pin.
+  `dedaa87` and `51745df` (2026-09-03, plan `signing-key-keyfile`) are two of
+  the additions above — the first caught in orchestrator review of a subagent's
+  diff, the second while writing the pin. The instrument pair is from
+  `feat/e2e-wait-discipline` (2026-09-06); raw output in that plan's probes
+  folder, and **G83** is the rule they were proving.
 - **Verify:** judgement, not a grep — this one cannot be linted. When
   reviewing such a test, ask what implementation change would make it fail.
 - **Status:** documented. Not a lint candidate.
@@ -1179,7 +1366,11 @@ grep -rn "SHELF_DISABLE_COVER_ENRICH" tests/ app/
 
 - **Status:** documented. Not a lint candidate.
 
-## G34 — When an E2E test asserts membership in a capped or sampled list
+## G34 — When an E2E test asserts against a list built from the whole table
+
+(Formerly "…membership in a capped or sampled list". Widened 2026-09-09 — the
+second face below is not capped or sampled at all, and a reader whose page has
+no cap would not have found this entry under the old title.)
 
 - **Rule:** `live_server` is session-scoped (`tests/e2e/conftest.py`) and
   `make test-e2e` runs serially, so every row every earlier file seeded is
@@ -1194,6 +1385,20 @@ grep -rn "SHELF_DISABLE_COVER_ENRICH" tests/ app/
   alphabetically-early titles — which reads as a feature regression in code
   nobody touched. Same family as G31: a test that looks like coverage and
   defends nothing (or defends the wrong thing).
+- **Second face, and the sharper one: a page whose entire content is an
+  unfiltered query over the table.** The cover review queue (`/cover-review`)
+  selects every cover-less item with no media-type filter *by design*, so on
+  the session-scoped `live_server` it renders every cover-less row that any
+  earlier E2E file happened to leave behind. There is no cap to sort inside
+  and no sampling to defeat: the remedy above does not apply. Measured
+  2026-09-09 while writing `tests/e2e/test_cover_review.py` — the queue's
+  "3 of 3" premise broke because `test_component_load_guard.py`'s "Guard
+  Control Item" is cover-less and outranked the seeded rows in the queue's
+  newest-first order. **Use the function-scoped `server_factory` instead**
+  (the pattern in `tests/e2e/test_stats.py`), which gives the test a genuinely
+  empty database. The general rule: the more *inclusive* the page's query, the
+  less usable the shared server is — a page that shows everything cannot be
+  driven against a database that holds everything.
 - **Evidence:** caught on paper by the issue-31 `/plan-review` (R2,
   2026-08-21). The plan's `E2E Unassigned Book` already had at least eight
   earlier-sorting seriesless titles ahead of it (`1984`, `Book To Delete`,
@@ -1580,6 +1785,17 @@ python -m pytest tests/e2e/test_responsive.py -m e2e -q
   widens the set of places a list can be handed to code expecting a dict. The
   Verify greps below are what tell you where the boundary currently sits;
   read them rather than trusting any list written into this Rule.
+- **Updated 2026-09-17** (plan `issue-117a-author-loss-at-ingest`): the trap
+  was closed *at the helper* for the first time. `authors.join_names` raises
+  `TypeError` on a bare string, and the one client whose payload can be either
+  shape (`hardcover.search_books`) wraps the string at its call site. A helper
+  that raises on purpose moves the question to **every** caller: is there a
+  handler above it? The plan said the raise "surfaces inside `lookup`'s
+  existing parse guard" for both Google Books sites. One of them was in
+  `search_by_title_author`, which had no guard, and its only caller catches
+  `httpx.HTTPError` alone, so `fetch-synopsis` would have answered 500.
+  Cross-vendor plan review caught it before any code existed (`da58115`).
+  List the enclosing function of each call site, not only the module.
 - **Why:** the failure is invisible on paper and total at runtime. Issue #36's
   implementation plan specified one search ladder for the film and game paths
   and asserted the save tail was unchanged — correct for TMDb, wrong for IGDB,
@@ -2192,8 +2408,10 @@ grep -n "^async def\|^def " app/services/tmdb.py app/services/igdb.py
   grow. `9fd9425` (2026-08-30) gave tier 2 an audio-marker arm and tier 3 a
   `Music CDs` category arm, so **`cd` came off the list** — the values
   detection can never produce are now the book family only (`book`,
-  `kids_book`, `audiobook`, `ebook`, `comic`), which is exactly
-  `_BOOK_FAMILY_HINTS`. The rule did not change and the hint branch was not
+  `audiobook`, `ebook`, `comic`, `manga`), which is exactly
+  `_BOOK_FAMILY_HINTS`. (`kids_book` was on that list until it was retired
+  as a media type; it is an input alias for `book` now and never reaches
+  detection as a value of its own.) The rule did not change and the hint branch was not
   touched; what changed is which values depend on it, and that is the part a
   reader will assume is still true.
 - **Evidence:** `1df2409` (2026-08-26, issue #36 T4) — `detect.py`'s tier 4
@@ -2214,7 +2432,7 @@ from app.config import MEDIA_TYPES
 from app.services.detect import detect_media_type as d
 for k in MEDIA_TYPES:
     got = d('upc', k, None, None).media_type
-    assert got == k or k in {'book','kids_book','audiobook','ebook','comic'}, (k, got)
+    assert got == k or k in {'book','audiobook','ebook','comic','manga'}, (k, got)
 print('every non-book hint survives tier 4')"
 ```
 
@@ -2434,7 +2652,27 @@ grep -rn "async def _[a-z_]*(.*client" tests/ | head -40
   does not, or `data-scan-error` if the branch's message *replaces* the toast
   rather than extending it (the error arm's equivalent). **Never read a card
   field by CSS class** — the reader matches declared attributes only.
-- **Why:** the client handler already toasts all 15 outcomes and is the only
+- **A new *status* has more places to reach than the toast.** Four consumers
+  classify a scan status, and **three of them treat an unlisted one as an
+  error** — so a status added to the router and the card alone renders a
+  successful scan in red, three ways:
+
+  | consumer | what it holds |
+  |---|---|
+  | `static/js/app.js` | `SCAN_OK_STATUSES` / `SCAN_WARN_STATUSES` / `SCAN_INFO_STATUSES`, and `scanCardOutcome`'s flags |
+  | `app/templates/scan.html` | the camera overlay's `:class` ternary — the final arm is red |
+  | `app/templates/fragments/recent_scans.html` | the `{% elif %}` chain — the `{% else %}` is red, and this row is **persisted**, so a miss stays wrong forever |
+  | `fragments/scan_result.html` | **five** enumerations, not one |
+
+  Grep that fragment for **every** `status ==` and `status in (` before
+  editing. Adding to the badge alone leaves the card with no glyph, no title
+  and no link — and, worst, the message falls to the `{% else %}` detail arm
+  and is emitted as `data-scan-error`, which app.js then prefers over the whole
+  assembled toast. The two enumerations a plan is most likely to miss are the
+  **title-link list** and the **detail-line list**, because neither is near the
+  badge that everyone remembers.
+
+- **Why:** the client handler already toasts all 17 outcomes and is the only
   side that classifies them; a server trigger double-fires on the typed (htmx)
   path and is invisible on the camera (`fetch`) path. Issue #45.
   The class-selector half is issue #50: the handler picked the toast's text
@@ -2446,7 +2684,12 @@ grep -rn "async def _[a-z_]*(.*client" tests/ | head -40
   text, so it will hijack the toast without looking broken.
 - **Evidence:** the seven sites removed on this branch — commit `cc01264`,
   2026-08-27. The last class read replaced by `data-scan-error` — commit
-  `08c0212`, 2026-08-28 (issue #50).
+  `08c0212`, 2026-08-28 (issue #50). The four-consumer half is issue #116,
+  commit `7d2fb88`, 2026-09-08: the `elsewhere` status was caught in plan
+  review before it shipped, and the impl plan still named only three of the
+  five enumerations in `scan_result.html`. `tests/e2e/test_scan.py` also
+  hard-codes the vocabulary and asserted a *binary* success/warning toast
+  type, so a third class needed a third set there too (G78).
 - **Verify:** `_toast_header` is called only from the three non-scan routes:
 
 ```bash
@@ -2510,15 +2753,27 @@ grep -n '_toast_header' app/routers/items.py app/routers/items_common.py
   gate is invoked, not of anything the repo contains, so no `make check-*`
   tripwire can see it. It belongs in the orchestrator's habits, which is why
   it is written down rather than automated.
-  **Three recorded instances now, across three plans, each by someone who
+  **A fourth instance, 2026-09-18** (plan `soft-delete-copies-seam`), by the
+  `/run-plan` orchestrator, which had this entry in its own context: every gate
+  for T1-T5 ran as `make test 2>&1 | tail -3 && make check-csrf && ...`, so
+  `tail` supplied the status and a red pytest would have carried the `&&` chain
+  through to a green report. Nothing was mis-reported — the `3457 passed` line
+  was visible in each run, and HEAD was re-verified unpiped afterwards — but the
+  mechanism was live for five commits, and the shape is new: not a background
+  runner and not a trimmed `make checks`, but a **pipe inside an `&&` chain**,
+  where the pipe's status silently becomes the chain's guard.
+  **Four recorded instances now, across four plans, each by someone who
   could have quoted the rule.** That is the signal that prose is the wrong
   mechanism here. The cheap fix is not a lint but a *habit with a default*:
   when output must be trimmed, `make <target> > /tmp/gate.log 2>&1; echo $?`
   and read the file — one form that is correct for every target, foreground or
-  background, instead of a judgement call per invocation. **Revisit trigger:**
-  a fourth instance; at that point add a `make checks-quiet` that tees to a
-  file and exits with the real status, so the convenient thing is also the
-  correct one.
+  background, instead of a judgement call per invocation.
+  **Revisit trigger: FIRED** (2026-09-18, the fourth instance above). The
+  prescribed fix — a `make checks-quiet` that tees to a file and exits with the
+  real status, so the convenient thing is also the correct one — is **not
+  implemented here**: it adds a gate target, which changes the verification
+  surface and belongs to a plan of its own rather than to another plan's
+  curation step. Raised with Dan at the close of `soft-delete-copies-seam`.
 
 ## G64 — When writing a "Test key" button for a new provider
 
@@ -2830,10 +3085,54 @@ grep -n 'HEADING = ' tests/test_item_detail.py    # must read ">Reading Status</
 
   Both markers must sit on the line *after* their `{% if` and the constant must
   name the element.
+- **The other face: an absence pin on a phrase the page cannot render at all.**
+  Same defect, opposite cause — not a comment that wrongly *satisfies* the
+  needle, but a needle nothing can ever produce, so the pin is green forever
+  and defends nothing. It arrives when the phrase is lifted from a *code*
+  comment rather than from a template. Caught 2026-09-10 (plan
+  `issue-123-upc-gate-stub`, T3): the implementation plan specified
+  `not_to_contain_text("no TMDb match")` for the scan card's quota arm, and
+  "no TMDb match" is written **only** in `app/routers/items_common.py:555` and
+  `app/services/scan_outcome.py:8,88`, all three explaining the concept. The
+  not_found card has exactly two arms and
+  `app/templates/fragments/scan_result.html:54-73` says so in its own comment
+  (`rejected` and `quota`); the pin was replaced with `"rejected the configured
+  key"`, the real sibling. **Before writing a negative pin, grep the needle in
+  `app/templates/` — not in `app/`.** A hit only outside the template directory
+  means you are pinning a concept, not a string.
+- **The third face, and the one that arrives late: the needle is legitimate
+  content the container grew afterwards.** Not a comment that wrongly satisfies
+  the needle, and not a needle nothing can render — a needle the template
+  renders *on purpose*, in a control added long after the pin was written. The
+  pin is correct and green for months, then a feature lands inside the same
+  container and it goes red against code that is working exactly as designed.
+  **An absence pin must name the element it means, not the container it sits
+  in.** "No copy is at this shelf" is an assertion about the copy rows; writing
+  it as `not_to_contain_text` over `#item-copies` also covers every `<option>`
+  of any picker that block ever grows.
+  Caught 2026-09-11 (plan `item-copies-surface`, T4/T6):
+  `tests/e2e/test_scan.py::test_inventory_on_a_multi_copy_item_at_a_shelf_holding_none_reports_and_writes_nothing`
+  asserted `not_to_contain_text("Elsewhere Hall")` on the whole `#item-copies`
+  block to prove an Inventory scan moved nothing. T4 gave that block an
+  Add-copy `<select>` listing **every** location, so the audited shelf's name
+  now appears inside it whether or not anything moved. Fixed by scoping to the
+  copy rows' own location links
+  (`copies_block.locator("a").all_text_contents()`), then re-proved against a
+  simulated move. Two costs worth noting: the same trap bit the new E2E file
+  being written *in the same task*, which worked around it silently rather than
+  recognising it; and the subagent that hit the red test attributed it to an
+  older commit and left it, when `git checkout main` would have shown in
+  seconds that the branch caused it. **A test that is red on your branch and
+  green on `main` is yours, whatever its blame line says.**
 - **Status:** documented. Lint candidate — "a `not in html` pin whose needle also
   appears verbatim inside a `<!-- -->` in the rendered template" is checkable in
   `scripts/check_test_conventions.py`, but needs a template→test mapping the
-  script does not have; noisy until it does.
+  script does not have; noisy until it does. The second face above is the
+  cheaper half of that lint and needs no mapping: a `not_to_contain_text` /
+  `not in html` needle that appears **nowhere** under `app/templates/` is
+  mechanically checkable on its own. The third face is not mechanically
+  checkable at all — the needle is legitimate on both sides — which is why the
+  rule is about what the assertion is *scoped to*.
 
 ## G70 — When an E2E locator can match more than one element and one of them is `x-show`-toggled
 
@@ -2905,8 +3204,19 @@ grep -n 'get_by_role(.*)\.first\|get_by_text(.*)\.first' tests/e2e/*.py
   the scrub, with the full old→new table in the commit body), `0c103f9` (T3 —
   the enforcement, and the two archive seeds). The Gemini plan review named
   the shape before the run (`gemini-GC1`).
-- **Verify:** the scrub's own acceptance line still holds — no
-  checksum-invalid ISBN-13 literal outside the deliberate negative pins:
+- **Verify — and read this before believing the result.** The script below
+  reports **35 checksum-invalid ISBN-13 literals** on `main` as of 2026-09-18,
+  so it does **not** currently come back clean and a hit is not by itself a
+  regression. The scrub in `ffd3329` fixed the literals that *reached a write
+  path*; the survivors are raw `_insert_item` seeds in files the funnel never
+  validates (`test_national.py`, `test_abs_public_url.py`,
+  `test_manual_cover_url.py`, `test_copies_live_contract.py`, several E2E
+  files). They are live debt, not a clean baseline: each one goes red the day
+  its seed reaches a validating path. **Use the script as a ratchet — compare
+  the count against `main` and require that your branch adds none** — rather
+  than as a pass/fail gate. Measured that way on
+  `feat/tags-retire-kids-book`: 39 on the branch, 35 on `main`, four new ones
+  introduced by new tests and corrected before the branch was finished.
 
 ```bash
 python3 - <<'EOF'
@@ -3315,10 +3625,48 @@ grep -rn '"added":\|"ok": True' tests/e2e/ | head
 grep -rniE 'no metadata|title-only|books-only' README.md DOCKERHUB_README.md docs/
 ```
 
+- **The third half, and it is the plan's fault rather than the builder's:**
+  **a docs task briefed with a line range cannot see the adjacent copy.** A
+  `## Docs impact` bullet that says `docs/user-guide/items.md:121–133` tells
+  the builder where to look, and looking there is the whole of the trap. On
+  2026-09-17 (plan `issue-87-legacy-isbn-edit` T3, `1999fd3`) the design plan
+  named `:128–133`; the paragraph at `:121–127` stated the same claim
+  unconditionally — "The ISBN is checked when you save… **nothing else on the
+  form is saved** — correct the ISBN or clear the field and save again." The
+  builder rewrote the named paragraph, re-read the page as this entry
+  instructs, and reported "no internal contradictions" while the page
+  contradicted itself **one paragraph apart**. A line range is a strong enough
+  anchor to defeat a general instruction to read the whole page: the reader
+  arrives already believing they know where the change lives.
+  **So write `## Docs impact` as the claim to fix, not the lines to edit** —
+  "the page says an invalid stored ISBN blocks the save; it no longer does",
+  not a span. The line number belongs in parentheses as a convenience, never
+  as the specification. This is G79 applied one level up, to the plan instead
+  of to the page.
+- **The seam is usually the fix.** Both paragraphs above were correct once the
+  change's actual distinction was named: *a value you change* is checked, *a
+  value you leave alone* is kept and marked. A docs task that finds itself
+  adding a qualification to one paragraph should check whether the paragraph
+  before it needs the same one — a behaviour change that splits a rule in two
+  rarely leaves the surrounding prose whole.
+- **The fourth half: a number you just corrected is read by the clause after
+  it.** 2026-09-20, plan `ci-restamp-on-main` T2 (`84031a2`). The task added a
+  fifth CI job and correctly changed `docs/development.md`'s "**CI runs four
+  jobs**" to "five" — and left the rest of that same sentence reading "and
+  **two** of them behave differently on a pull request than on a push to
+  `main`". Three do now; the new job is push-only. This is not an adjacent
+  *copy* of the claim, which is what the halves above train you to hunt, so
+  hunting for copies does not find it: it is a **second number derived from the
+  first**, inside the sentence already being edited, and the edit's own success
+  is what makes it easy to walk past. **When you change a count, re-read the
+  whole sentence and the paragraph under it for anything computed from it** —
+  totals, "two of them", "either", "both", "all three", "the latter".
 - **Status:** documented. Not a lint candidate — no checker can tell a stale
   claim from a correctly scoped one. The countermeasure is the survey-then-
   decide split in `/release` step 4b: one pass reports what every page says,
-  a second decides what each should say.
+  a second decides what each should say. The plan-side countermeasure is the
+  claim-not-a-line-range rule above, which `/design-plan` and `/impl-plan` can
+  apply for free.
 
 ## G80 — The README test-count badge is part of *every* task's gate, not the docs task's
 
@@ -3412,10 +3760,1527 @@ git grep -n -B 2 "if existing is None:" -- app/routers/
   which arms were meant to fall through, and after the refactor that
   information exists nowhere but its own tests.
 
+## G82 — When a test asserts how many toasts a page raised
+
+- **Rule:** Do not count them in the DOM. `showToast` deletes its own element
+  after 3000ms (`static/js/app.js`), so any read of `#toast-container` is a
+  read of *what has not been removed yet*, not of what was raised. Record the
+  appends instead: a `MutationObserver` installed through
+  `page.add_init_script` **before the first navigation**, filtered on the
+  toast text you actually mean.
+- **Why:** the failure is silent in the direction that matters. A page that
+  raised two toasts a tick apart and a page that raised none both read **0**
+  once the timers have run, so a "at most one toast" pin passes on the page it
+  was written to catch. Two further traps sit on top of it:
+  - **`#toast-container` is a shared channel.** `app.js` raises its own toasts
+    for real scan and intake outcomes, so a raw append count on a page that
+    also drives one of those actions over-counts — measured 3 where 1 was
+    meant, on the `/scan` arm. Filter added nodes on the exact copy string.
+  - **Attach the observer to `document`, not to the container.** A
+    `requestAnimationFrame` poll waiting for `#toast-container` to exist loses
+    the toast on a light page: on `/browse` the component-load guard's own
+    `notify()` beat the first animation frame, so the observer attached after
+    the append and reported 0 — while heavier pages happened to pass, which is
+    the worst shape of flake. `document` exists the instant an init script
+    runs; observe it with `subtree: true`.
+- **Evidence:** `e277f92` (2026-09-06, plan `alpine-component-load-failure`
+  T2), whose contract is "one toast per page however many scripts were lost
+  and however many swaps landed" — unprovable by DOM presence. Both traps
+  above were hit while writing it, in that order.
+- **Verify:** the self-removal is still what makes a presence check unsound —
+  a hit here means the trap is live:
+
+```bash
+grep -n "el.remove()" static/js/app.js
+grep -n "__guardToastAppends" tests/e2e/test_component_load_guard.py
+```
+
+- **Status:** documented. Not a lint candidate — a checker cannot tell a
+  presence assertion that means "is one visible now" (legitimate) from one
+  that means "how many were raised" (unsound).
+
+## G83 — When an E2E test waits after a click
+
+- **Rule:** `element.click()` then `page.wait_for_load_state("networkidle")`
+  does not wait for what the test means. Playwright resolves
+  `wait_for_load_state` immediately when the page has already reached the
+  state, and right after a click it usually has — because the request the
+  click starts may not have been **issued** yet. So the wait returns at once
+  and the assertion races whatever the click began. Arm the waiter **before**
+  the click, and pick it by **what the following assertion reads**, never by
+  what the click fires:
+
+  | the assertion reads | the waiter |
+  |---|---|
+  | nothing in flight — the click makes no request | delete the wait; the `expect(...)` calls after it auto-retry |
+  | the new document | `with page.expect_navigation(): click()` |
+  | the response, or the DB behind it | `with page.expect_response(<predicate>): click()` |
+  | a swapped HTMX fragment | `with page.expect_response(lambda r: "/api/search" in r.url): click()` |
+
+  A `networkidle` wait after a `goto()` is the documented use — 166 of the 191
+  in the suite — and stays legal. Only the adjacency to a click or a press is
+  not. Sibling of **G21**, which governs *how* to poll page state under the
+  CSP where this governs *what to wait for* after a click; the same script
+  enforces both.
+
+- **Why:** three things make this survive review.
+  - **`wait_for_url` is not the fix, and it looks like one.** Eight of the
+    twelve class-B sites POST from `/settings` to a handler that redirects
+    **back to `/settings`**. The page is already at that URL, so
+    `wait_for_url(".../settings")` matches the *current* document and returns
+    immediately — the same defect one layer along. `expect_navigation` waits
+    for a navigation *event*.
+  - **Mechanism and assertion disagree, at two sites out of twenty-five.**
+    `test_bulk_actions.py` fires an Alpine `fetch` *and* a `location.reload()`,
+    but its assertion reads the **database**, so the response is the whole
+    contract and the reload is irrelevant. `test_item_crud.py` fires HTMX, but
+    the DELETE answers 200 with a body and the navigation is a *second*,
+    JS-driven step (`static/js/app.js:206`), and its assertion reads
+    `page.url` — so it needs `expect_navigation`, not `expect_response`.
+    Classifying by mechanism gets both of these wrong.
+  - **A wrapper helper would re-introduce the bug.** `click_and_wait(...)`
+    reads as "click, then wait", which is exactly the defect written to look
+    like the fix; and taking the class as an argument leaves the decision at
+    every call site anyway, one indirection further from the assertion it
+    protects. The rule is what is shared — this entry and
+    `docs/development.md` — not a function.
+
+- **Evidence:** two flakes found by accident on unrelated branches before
+  anyone went looking: `tests/e2e/test_bulk_actions.py` (fixed inside community
+  PR #79, later closed unmerged, so the fix never reached `main`) and
+  `tests/e2e/test_csv.py::test_csv_import` (`dbcac66`, which also cut that
+  file's runtime from **36s to 6.7s**, because the old path paid a timeout on
+  every green run). Swept branch-wide on `feat/e2e-wait-discipline`
+  (2026-09-06): **25 sites across 11 files**, and the suite's total E2E wall
+  clock fell 541s → 534s with `test_settings.py` alone dropping 17.4s → 13.3s.
+
+  Per-class latency proofs, delay 1500 ms, one representative site each:
+  - **C, D and E are red on the old shape and green on the new.** Sharpest is
+    E: `networkidle` *did* wait the full 1.544s for the delayed DELETE, and
+    `page.url` was **still** `/item/1` — the JS navigation had not run. Waiting
+    for the response is not enough however patiently you wait for it. C's old
+    shape returns in **29 ms** with the row unmoved; D's in ~10 ms with the
+    **pre-swap** grid still on screen.
+  - **B is redundant post-click cleanup, not a race repair** — green both
+    ways. Playwright 1.52 (`requirements-dev.txt:8`) documents `click()` as
+    waiting for a navigation it *directly initiates*, and the measured
+    baseline click alone spans 1.560s against the 1500 ms delay. The pre-armed
+    `expect_navigation` keeps the intended event visible in the test; it does
+    not repair a race that a plain form submit has.
+  - **A's proof is the inverse**: `page.on("request")` across the settings tab
+    click records `[]`, so there is genuinely nothing to wait for.
+
+  **Two traps in proving this, both hit while doing it.** First, delay the
+  **issuance**, not the response, or you are not testing the race: a
+  `page.route` handler that sleeps leaves the request already in flight, so
+  `networkidle` observes it and the old shape passes — which is how class C
+  read green under the first instrument. Second, do not measure through
+  `expect()`: it auto-retries and will rescue the broken shape, reporting green
+  for the wrong reason. Read the DOM or the DB directly at the instant the
+  waiter returns.
+
+- **And the predicate has to match the URL the browser actually requests.**
+  HTMX serialises a form's fields as a **query string** on `hx-delete` (and
+  `hx-get`), not as a body the way it does for `hx-post` — so a Remove button
+  that sits inside the edit form issues
+  `DELETE /api/items/7/copies/12?condition=Fine&…`, and a predicate written
+  `r.url.endswith("/copies/12")` never fires. The wait then times out 30 s
+  later pointing at the click, not at the predicate. Split the query off
+  first: `r.url.split("?")[0].endswith(...)`. Hit twice on 2026-09-11 (plan
+  `item-copies-surface`, T6), once while writing the test and once while
+  mutation-proving it.
+- **Verify:**
+
+```bash
+make check-tests
+```
+
+- **Status:** linted — `make check-tests`.
+
+## G84 — When you change where a route lands
+
+- **Rule:** changing a redirect target is never a one-line change. Grep for the
+  old path, then sort every hit into **two** piles, because they need opposite
+  fixes:
+
+  | the site | what it means | the fix |
+  |---|---|---|
+  | *waits* for the old path (`wait_for_url`, `to_have_url`, `assert location ==`) | it only wanted "login finished" | point it at the new path |
+  | *relies on being* at the old path — reads a page-scoped global, clicks a control that page owns, asserts on its DOM | it wanted that specific page and got it by luck | **navigate there explicitly**, and leave the assertion alone |
+
+  A grep finds both piles and cannot tell them apart. The second pile is the
+  dangerous one: those tests were passing for a reason that was never written
+  down.
+
+- **Why:** measured on 0.37.1, which moved the post-login landing page from
+  `/browse` to `/`.
+  - **First pass — 217 errors in 102s** (a full run is ~530s). Three
+    `tests/e2e/conftest.py` fixtures wait for `/browse` after submitting the
+    login form, and every other E2E file depends on them, so one stale URL
+    took down the suite at fixture level. A cascade this total is a *fixture*
+    signal, not 217 bugs: read the run time before reading the failures.
+  - **Second pass — 4 failures out of 225,** all in the second pile.
+    `test_js_stack_boots_under_csp` asserted
+    `typeof window.browsePage == "function"` immediately after login;
+    `browsePage` is registered by `browse.js`, which loads only on `/browse`,
+    so it read `undefined` on Home. That assertion had never been testing what
+    it claimed — it passed because login happened to land on Browse.
+    `test_browse.py::_login_with_seeded_storage` returned a page all three of
+    its callers treated as being on Browse, and its docstring said so.
+  - **15 post-login waits across 12 files** is the scale to expect. Find them
+    by requiring `button[type=submit]` within the preceding few lines rather
+    than by matching the URL alone — a hand-written pattern missed five of
+    them, and `test_nav.py:290` is a genuine "Back to collection" click that
+    must *not* be rewritten.
+
+- **The cheaper shape, if you are writing a new login helper:** wait for "not
+  `/login`" rather than for a specific destination. Every helper in this suite
+  hard-codes the landing page, which is why moving it cost twelve files.
+
+## G85 — When an importer catches a per-record exception and carries on
+
+- **Rule:** validate a record **completely, before its first write**. Catching
+  the exception per record is not a rollback: the enclosing transaction commits
+  everything written before the raise, so a violation found on the *second* of
+  a record's rows leaves the first one — and the record, and its tags, and any
+  row a get-or-create made for it — permanently in the database, while the
+  report tells the user that record failed. If some check genuinely cannot be
+  made before the first write, wrap the record in a `SAVEPOINT` and roll back
+  its cache entries with it.
+- **Why:** `apply_plan` (`app/services/archive.py`) catches per-item exceptions
+  into an `errors` list and then returns normally, at which point `get_db()`
+  commits (`app/database.py`). The shape reads as safe — every item is in a
+  `try`, and the failure is reported — which is exactly why nobody checks it.
+  An archive is untrusted input, so the failing record is not hypothetical.
+- **And "completely" means the record's *effective* state, not the keys the
+  caller happened to send.** A partial mapping is not a row: on an insert an
+  absent column takes its `SCHEMA` default, and on a partial update the row
+  already holds a value the request never mentions. A guard written as
+  `values.get("owned") == 1` therefore passes for
+  `insert_item(db, title="X", wishlisted=True)` — whose effective `owned` is
+  the default 1 — and for any update that does not resend `owned`. Resolve the
+  default for inserts, and query the existing rows for updates, before the
+  first write; for a bulk update preflight *every* target so a mixed selection
+  refuses whole rather than half-applying. (Issue #125 plan review, codex R1,
+  applied at T4 2026-09-16 `27957df`; the pin is
+  `tests/test_item_write.py::TestWishlistedRefusals`.)
+- **Evidence:** issue #116, commit `ab64c45`, 2026-09-08. Found in plan review
+  (codex `R6`) before it shipped. The plan already stated the governing
+  invariant — "an archive is untrusted input and must not be able to raise an
+  `IntegrityError` out of an import" — but enumerated only two of the table's
+  four constraints; `UNIQUE(item_id, copy_number)` and
+  `CHECK(acquisition_price >= 0)` were unaddressed.
+- **Verify:** the pin asserts on the *database* after the request returns, not
+  on the response body — a partial write is invisible in the report by
+  definition:
+
+```bash
+python -m pytest "tests/test_archive.py::TestArchiveCopiesImport::test_a_rejected_item_leaves_nothing_behind" -q
+```
+
+  It must fail if the validation call is moved below `insert_item`. A fully
+  rejected archive also leaves **no open transaction**, so a test helper that
+  ends with `db.execute("COMMIT")` raises `no transaction is active` — that is
+  the expected state, not a bug in the test.
+- **Status:** documented. Not a lint candidate — no checker can tell a
+  validating `try` from a swallowing one.
+
+## G86 — An item with no `item_copies` row is a real state, not a fixture artefact
+
+- **Rule:** a query that answers "where is this item?" from `item_copies` must
+  decide, explicitly, what an item with **zero** copy rows means — and every
+  such reader must decide the *same* way, or two surfaces will contradict each
+  other about the same shelf. The answer in this codebase is: fall back to the
+  `items.location_id` seam, which is then the only answer there is. Guard it
+  with `NOT EXISTS (SELECT 1 FROM copies_live WHERE item_id = i.id)` so an
+  item that *has* copies is judged entirely on them. **Since
+  `feat/soft-delete-copies-seam` that guard reads the view, so an item whose
+  only copy is trashed is a zero-copy item** — it falls back to the seam,
+  which is the same answer `delete_copy` already produces for a hard-deleted
+  last copy.
+- **Why:** the copy backfill is deliberately conservative — migration 26 and
+  `backfill_legacy_locations` create a primary copy only for rows that are
+  `owned = 1` **and** already located, because `owned` alone is not evidence
+  that a row is physical. So an upgraded database's **wishlist item with a
+  location has no copy row**, and the shelf audit has never filtered on
+  `owned`. A plain inner join drops those rows from every audit silently. The
+  same absence appears in tests, where `_insert_item` writes `items` directly
+  and never reaches `sync_primary_location` — which makes it look like a test
+  artefact and invites the wrong fix.
+- **Evidence:** issue #116, 2026-09-08. Three tasks hit it independently:
+  the shelf audit (`6b64f01`, where the plan's specified inner-join SQL broke
+  `test_inventory_missing_endpoint`), Scan's Inventory mode (`7d2fb88`, where a
+  zero-copy item at its own shelf reported `relocated` instead of `confirmed`),
+  and the archive export (`80a232f`, where `_seed_full_library` turned out to
+  be the suite's only located item without a copy row and broke the round-trip
+  comparison). Only the last was really a fixture problem.
+- **Verify:** the audit and the scan agree about the same shelf:
+
+```bash
+grep -n "NOT EXISTS" app/routers/items.py          # the audit's fallback
+grep -n "if copies" app/routers/items_scan_modes.py # the scan's
+python -m pytest tests/test_scan_modes.py -q
+```
+
+- **Status:** documented. **Retire when `items.location_id` is retired** — the
+  entry exists only because the seam does. Lint candidate, weakly: a query
+  selecting `FROM item_copies` with no zero-row branch is mechanically
+  findable, but the false-positive surface (every write path, every ordering
+  query) is probably too wide to be worth it.
+
+
+## G87 — "Key absent" and "key present but empty" are different answers
+
+- **Rule:** when an import format gives a *missing* field a back-compatibility
+  meaning, the validator must carry that absence through as a distinct value —
+  a `None` sentinel, not the empty container. Normalising `{}` / `[]` / absent
+  onto one value destroys the only evidence of which the file meant, and the
+  two branches then cannot diverge no matter what the caller does.
+- **Why:** in `archive.py`, a missing `copies` key means "this archive predates
+  copies, synthesize the legacy one-primary-from-`location`" and `copies: []`
+  means "this item genuinely has none, restore exactly that". Both arrived at
+  `_import_copies` as `[]`, whose `if not copies: return` left `insert_item`'s
+  placeholder primary in place — so a located wishlist item exported as
+  `copies: []` reimported with a copy it never had, and no round trip could be
+  exact. The bug is invisible from either branch alone: the missing-key test
+  and the export-empty test both passed throughout.
+- **Evidence:** issue #116 diff review B3, 2026-09-08. The reviewer's probe
+  round-tripped a located zero-copy item and got `[(1, 1)]` back instead of
+  `[]`. The fix is `_validated_copies()` returning `None` for the absent key,
+  and a `delete_copies_for_item()` arm on the funnel for the empty one.
+- **Verify:** the two branches produce different rows.
+
+```bash
+python -m pytest tests/test_archive.py -q -k "no_copies_key or explicit_empty or round_trip"
+```
+
+- **Status:** documented. Not a lint candidate — "which absent values mean
+  something" is a per-format judgment no scanner can make. Applies to any
+  future child collection in the archive (`tags` already has the same shape,
+  and is *deliberately* not distinguished; if that ever changes, this is the
+  entry to read first).
+
+
+## G88 — A source guard must exempt a canonical path, never a basename
+
+- **Rule:** a repository-wide guard that scans for a forbidden construct and
+  skips the one approved writer must compare the **repository-relative path**,
+  not `Path.name`. And it must scan the same normalised text its sibling guards
+  scan — comment-stripped and with adjacent string literals joined — or the
+  construct hides by being split across two lines.
+- **Why:** `path.name == "item_copies.py"` exempts *any* file of that name
+  anywhere under `app/`. A future `app/routers/item_copies.py` is a completely
+  different module, and it would have been free to write raw SQL to the table
+  the guard exists to protect. Separately, scanning line-by-line with
+  `re.search` means `"INSERT INTO " "item_copies (...)"` across two adjacent
+  literals never matches, while the update guard's `_raw_update_hits` sees it —
+  so two guards over the same table disagreed about what counts as a write.
+- **Evidence:** issue #116 diff review M1, 2026-09-08. Both bypasses were
+  demonstrated by restoring them as mutations: a raw-SQL `app/routers/
+  item_copies.py` and an adjacent-literal insert both left the guards green.
+  Neither was a live defect — no production file was wrong — which is exactly
+  why it survived: a gate that does not gate looks identical to a gate nothing
+  has tripped.
+- **Verify:** the guards catch both bypass shapes.
+
+```bash
+python -m pytest tests/test_item_write.py -q -k "basename or adjacent_string"
+```
+
+- **A finer bypass than M1's: a split *inside an identifier*.** The shared
+  normaliser joins physical lines with a **space**, which is right for a
+  statement split across adjacent literals (`"INSERT INTO " "item_copies …"` —
+  SQL tokens are space-separated anyway) and wrong for a name split mid-token:
+  Python concatenates `"deleted" "_at = …"` into `deleted_at = …`, but the
+  buffer holds `deleted _at = …` and a `deleted_at` needle misses it. Found on
+  `feat/soft-delete-collisions` (`c5a86db`, 2026-09-21) by the bypass pin the
+  plan required for the new `deleted_at` guard — which is the argument for
+  writing one for every new guard. That guard's pattern tolerates whitespace
+  around the underscore (`DELETED_AT_ASSIGNMENT`); a split at any other
+  character is stated in its comment as undefended rather than pretended away.
+- **Status:** documented. **Sibling defect still open:** the `items` guards at
+  `tests/test_item_write.py:156`, `:195` and `:214` use the same basename
+  exemption for `item_write.py` and have not been converted — M1 was scoped to
+  `item_copies`. Fix them together with the next change that touches either.
+  The **`deleted_at` guard** added by `feat/soft-delete-collisions` is
+  path-exempt from the start, and carries its own basename and
+  adjacent-literal bypass pins; the three old guards still do not.
+
+
+## G89 — When adding a NOT NULL column to `items`
+
+- **Rule:** adding `NOT NULL` to `items` is **not** a self-contained schema
+  change — it is a change to the portable archive's compatibility surface, and
+  it breaks the import of every archive file written before it. Two edits go
+  with the migration, both in `app/services/archive.py`:
+  1. add the column to the `_ITEM_COLUMNS` whitelist (`:59`), or export drops
+     it silently and a restore resets it;
+  2. **coerce it on import**, because the import builds its field dict as
+     `{col: item_norm.get(col) for col in _ITEM_COLUMNS}` (`:1371`) and `.get()`
+     turns an absent key into an explicit `None`, which `insert_item` passes
+     straight to SQLite as a `NOT NULL` violation.
+- **Why:** `_build_items` selects `items.*`, which reads like "everything is
+  carried automatically" and is why the cover-attention-queue plan asserted
+  exactly that. It is not: the *serialisation* immediately below the select
+  copies only `_ITEM_COLUMNS` (`:320-321`), and both import paths read back
+  through the same tuple (`:811`, `:1370`). The failure is also asymmetric and
+  therefore easy to miss — the round-trip of a *freshly written* archive works
+  perfectly, because it has the key. It is the archive on the user's disk, from
+  before the upgrade, that dies. Nothing in the test suite exercises that
+  direction unless you write it.
+- **Evidence:** 2026-09-09, migration 32 (`cover_review_dismissed`,
+  `62efd11`). Caught before commit by probing `insert_item` with an explicit
+  `None`: `IntegrityError: NOT NULL constraint failed:
+  items.cover_review_dismissed`. Both directions are now pinned in
+  `tests/test_archive.py` —
+  `test_round_trip_preserves_a_cover_review_dismissal` and
+  `test_an_archive_predating_the_dismissal_column_still_imports`, the second
+  written by stripping the key from a real archive's `library.json`. It was
+  verified to fail without the coercion.
+- **Verify:** every `NOT NULL` column on `items` is in the whitelist.
+
+```bash
+python -c "
+import sqlite3, re
+from app.services.archive import _ITEM_COLUMNS
+src = open('app/database.py').read()
+print('whitelist size:', len(_ITEM_COLUMNS))
+print('coercions in import:', src.count('cover_review_dismissed'))
+"
+grep -n "NOT NULL" app/database.py | grep -i "ALTER TABLE items"
+# every column listed there must appear in archive._ITEM_COLUMNS and be
+# coerced at archive.py's insert path
+```
+
+- **Status:** documented. **Lint candidate** — this is mechanically checkable
+  (read `PRAGMA table_info(items)` for `notnull=1`, assert each name is in
+  `_ITEM_COLUMNS`), and a lint would not depend on anyone remembering to read
+  this entry.
+
+## G90 — `x-show` does not remove a form control from submission
+
+- **Rule:** hiding a control with `x-show` still submits it. `x-show` sets
+  `display: none` and nothing else, and a hidden `<select>`/`<input>` that has
+  a name and a value is still a **successful control**, so the browser posts
+  it. When the point of hiding a field is that it no longer *applies*, add
+  **`:disabled`** — that is what removes it from the submission. Keep the
+  `x-show` for the visual result; the two bindings do different jobs.
+- **Why:** it lands as wrong data, not as a visible bug, and the server cannot
+  tell. The field arrives looking exactly like a deliberate choice, so any
+  validation that only asks "is this a legal value?" passes it. Nothing in the
+  unit suite sees it either: the route is called directly, so the *browser's*
+  decision about what to submit is never exercised.
+- **Evidence:** issue #120's manual entry panel (2026-09-09, `4bcfa4d`), found
+  by the codex prep review before any code existed. The panel's platform
+  `<select>` is `x-show="mediaType === 'video_game'"`. `manual_add` reads
+  `platform` unconditionally (`app/routers/items.py`) and
+  `app/services/item_write.py` validates only that the value is a key in
+  `get_game_platforms` — never that the media type is `video_game`. So
+  choosing PlayStation 5, switching the type to DVD and submitting stored
+  `ps5` on the DVD row. Shipped with `:disabled="mediaType !== 'video_game'"`
+  and an E2E pin that asserts the control is disabled, not merely hidden.
+- **Sibling:** **G59** is the same rule for a *URL-building* binding — an
+  `x-show`n element whose `:src` still evaluates and still fetches. Same root
+  (`x-show` guards visibility and nothing else); different casualty, so both
+  entries stay.
+- **Verify:** every named control whose `x-show` gates whether the field
+  applies also carries `:disabled` — a hit here without one is the trap:
+
+```bash
+grep -rn 'x-show="[^"]*"' app/templates/ | grep -E 'name="[a-z_]+"' | grep -v ':disabled'
+```
+
+- **Status:** documented — a lint candidate, and the grep above is most of
+  one. What stops it graduating is that "hidden because it does not apply" and
+  "hidden but still meant" are indistinguishable from the markup.
+
+## G91 — When a shared Alpine component gains a page-level listener or a dataset read
+
+- **Rule:** first ask **how many roots of it exist on one page**. A component
+  mounted by a swapped-in fragment can have many live instances at once, so
+  anything new that reaches *outside* its own root — a `window`/`document`
+  listener, a read of a `data-*` attribute only one host sets — must be gated
+  on a host marker the root carries (`rootEl.dataset.<host> === '<value>'`),
+  and any such parse must tolerate the attribute being absent.
+- **Why:** both failures land in the *other* hosts, which the change was not
+  about. An ungated `window` listener registered per instance means one event
+  mutates every instance. An ungated `JSON.parse(rootEl.dataset.x)` throws
+  inside `init()` on every host that does not carry the attribute — and under
+  Alpine that kills the rest of that component's initialisation silently, so
+  an unrelated feature on those hosts simply stops working.
+- **And a direct `el.value =` desynchronises from `x-model`.** Once one host
+  binds a field with `x-model`, any code that still assigns the DOM value
+  leaves the component's own state stale, so everything derived from it — a
+  label, an `x-show`, a `:disabled` — disagrees with what is submitted. Route
+  every programmatic change through the state, not the element.
+- **Evidence:** issue #120 (2026-09-09, `4bcfa4d`), all three found by the
+  codex prep review. `manualAddForm` is mounted by the new `/scan` panel *and*
+  by every `not_found` scan card — and its own comment already said several
+  cards can coexist. Shipped with `data-manual-host="panel"` gating the
+  listener and the label map, `JSON.parse(… || '{}')`, and `applyTemplate`
+  routing the media type through `this.mediaType`.
+- **Verify:** every `window`/`document` listener registered inside an
+  `Alpine.data` factory is either on a single-root component or host-gated:
+
+```bash
+grep -n "addEventListener" static/js/components*.js
+```
+
+- **Status:** documented.
+
+## G92 — A Jinja global makes the template unrenderable outside the app
+
+- **Rule:** registering a helper or constant on `templates.env.globals` in
+  `app/main.py` is invisible to any **hand-built** `Environment`. Several E2E
+  tests render one fragment in isolation that way, and a template that reads a
+  new global raises `UndefinedError` **there only**. Build such an environment
+  with `tests/e2e/conftest.py`'s `template_env()`, which copies the globals and
+  filters off the app's own env rather than re-listing them.
+- **Why:** the unit suite goes through the app, so it cannot see this at all —
+  the failure appears only in the E2E suite, at a phase boundary, in tests the
+  change had nothing to do with. The error names the *template* line, which
+  points at the feature rather than at the environment that is missing.
+- **Evidence:** issue #120's `creator_label` global (2026-09-09) reddened three
+  tests in `tests/e2e/test_scan.py` that render `fragments/scan_result.html`
+  through a bare `Environment`. **It was the second instance:** a comment
+  beside `search_langs` in the same helper already described the identical
+  failure from a previous occurrence, having been fixed by passing that one
+  through the context. Fixed for the class in `d1a78b5` by deriving the
+  environment from the app's instead.
+- **Verify:** no test builds a bare environment for an app template:
+
+```bash
+grep -rn "Environment(loader=FileSystemLoader" tests/
+# every hit should be template_env(), or a template that reads no global
+```
+
+- **Status:** documented — a lint candidate: "`Environment(loader=...)` in
+  `tests/` that is not `template_env()`" is mechanically checkable.
+
+## G93 — Defining a helper in a large test module can silently shadow one
+
+- **Rule:** **grep the module for the name first.** Python keeps the last
+  definition, so a second `def _login_page(...)` with a different signature
+  rebinds the first — and every earlier caller now calls yours. No error is
+  raised at import; the failure surfaces as a `TypeError`/`AttributeError`
+  inside tests your change never touched.
+- **Why:** the traceback points at the *victims*, not at the new code, and
+  running the new test alone passes — it is the only caller using the new
+  signature. Only the full file, or the full suite, shows it.
+- **Evidence:** issue #120 T8 (2026-09-09). A new helper named `_login_page`
+  was added at the end of `tests/e2e/test_scan.py`, which already had one at
+  `:267` taking a caller-built context. Three camera tests failed with
+  `AttributeError: 'dict' object has no attribute 'new_context'`. The new test
+  passed in isolation throughout. Resolved by reusing the existing helper.
+- **Verify:** duplicate top-level defs in the E2E modules —
+
+```bash
+for f in tests/e2e/*.py tests/*.py; do
+  grep -oE '^def [a-zA-Z_]+' "$f" | sort | uniq -d | sed "s|^|$f: |"
+done
+```
+
+- **Status:** documented — a lint candidate; the loop above is already the
+  check, and it has no false-positive surface worth speaking of.
+
+## G95 — When excluding tests from a gate target, exclude by path, not by marker
+
+- **Rule:** A command that **counts** tests (`pytest --co -q`) may only ever be
+  narrowed with `--ignore=<dir>`. A `-m "not <marker>"` deselection is legal on
+  a command that **runs** tests and illegal on one that counts them. So a test
+  that must stay off the gate gets its own directory, and every counting
+  command ignores that directory by path — the marker is a second fence, never
+  the only one.
+- **Why:** the two commands report in different formats and only one of them
+  parses. `scripts/stamp_test_badges.py` and `make verify` both read the count
+  out of the collection summary with a regex anchored on
+  `^(\d+) tests? collected`. With nothing deselected pytest prints
+  `239 tests collected`, which matches. Deselect a single test and it prints
+  `238/239 tests collected (1 deselected)` — which matches **neither** regex,
+  so `verify` exits `ERROR: could not determine unit test count` and the badge
+  stamper raises. The failure names the count, not the flag that broke it, so
+  it reads as a collection problem rather than as the `-m` someone just added
+  one line away. A *run* is unaffected: `N passed, 1 deselected` is a format
+  nothing here parses.
+- **Evidence:** measured on pytest 9.0.3 while planning issue #123
+  (2026-09-10), before the code existed — which is why `tests/contract/` is a
+  directory rather than a bare `live` marker. `766d57c` added
+  `--ignore=tests/contract` to `test`, `test-verbose`, `test-fast`, `verify`'s
+  count and `stamp_test_badges.py`'s unit suite, and `-m "not live"` only to
+  `test` and `test-e2e`, the two that run. Both fences are deliberate: the path
+  ignore is what keeps the counts parseable, the marker is what catches a
+  `live` test landing in the wrong directory later.
+- **Verify:** the asymmetry, in two lines —
+
+```bash
+# Both include tests/contract/, so the marker actually deselects something.
+python -m pytest tests/ --ignore=tests/e2e --co -q | tail -1
+# -> 3059 tests collected                       <- parses
+python -m pytest tests/ --ignore=tests/e2e -m "not live" --co -q | tail -1
+# -> 3058/3059 tests collected (1 deselected)   <- matches neither regex
+grep -n 'tests\? collected' Makefile scripts/stamp_test_badges.py
+```
+
+  The first prints a bare count; the second prints the `N/M … (k deselected)`
+  form. Every command the third line finds must be of the first shape. **The
+  `-m` has to deselect a real test for the difference to appear** — run this
+  against a path that contains one, or both lines print the bare form and the
+  check silently proves nothing.
+- **Status:** documented. Lint candidate — "a `--co` invocation in `Makefile`
+  or `scripts/` that also carries `-m`" is a one-line grep and would belong in
+  `scripts/check_test_conventions.py`.
+
+## G96 — When a write funnel's own helper writes back through the other funnel
+
+
+- **Rule:** `item_write.update_item_fields(db, item_id, {"location_id": …})`
+  re-enters `item_copies.sync_primary_location`, which **creates** a primary
+  copy when it finds none. So any code that removes or demotes copies and then
+  writes the `items.location_id` seam must leave the item with its intended
+  primary **before** the seam write — or the seam write puts back the row that
+  was just removed. Order the promotion first, then the seam. The same applies
+  to any future path that clears copies and re-points the seam in one
+  transaction.
+- **Why:** the two funnels call each other by design — the seam mirrors the
+  primary, and `update_item_fields` exists partly to keep that true — so the
+  re-entry is invisible at the call site. It reads as one ordinary funnel call.
+  And the failure is not an error: `delete_copy` returns a sensible dict, the
+  route answers 200, the fragment re-renders, and the only symptom is a copy
+  the user deleted quietly reappearing with a fresh id, its condition, price
+  and provenance gone. A "removing the last copy leaves no copies" assertion
+  catches it; a "the seam is NULL" assertion alone does not, because the
+  invented copy is created *at* the location the seam still held.
+- **Evidence:** plan `item-copies-surface` T2, 2026-09-11 (`e5092af`). Found by
+  the G31 mutation pass rather than by a failure — mutation M7 reordered the
+  promotion after the seam write and turned
+  `test_removing_the_primary_promotes_the_lowest_numbered_survivor` and
+  `test_the_promoted_survivor_keeps_its_shelf_position` red; a second mutation
+  (M9) made the last-copy branch re-send the item's own location instead of
+  NULL and resurrected the deleted copy exactly as described. Neither was ever
+  a live defect — the ordering was right from the first draft — which is
+  precisely why it is worth writing down: nothing in the code's shape would
+  have told the next reader that the two lines cannot be swapped.
+  Related: **G18** (the read and the writes are one transaction under
+  `BEGIN IMMEDIATE`) and **G86** (a located item with no copies is a real
+  state, so "no copies left" is never a reason to invent one).
+- **Verify:** the promotion is ordered before the seam, and the pins that
+  prove it are still present:
+
+```bash
+grep -n "Promote \*before\* touching the seam" app/services/item_copies.py
+python -m pytest tests/test_item_copies.py -q -k "promotes_the_lowest or invent_a_replacement"
+```
+
+- **Status:** documented. Not a lint candidate — "these two statements are
+  order-dependent" is not mechanically findable; the defence is the mutation
+  pass, which is G31's job.
+
+
+## G97 — A G31 mutate-and-restore inside one second can leave stale bytecode
+
+- **Rule:** clear `__pycache__` after **both** halves of a mutation pass —
+  after applying the mutation and after restoring — before re-running the
+  tests. `find . -name __pycache__ -type d -prune -exec rm -rf {} +`. Do not
+  trust a checksum or `git diff` as proof the restore took effect: they check
+  the *source*, and the interpreter may not be reading it.
+- **Why:** CPython invalidates a `.pyc` on the source's mtime **at one-second
+  granularity** plus its size. A G31 pass edits a file, runs pytest (writing a
+  `.pyc`), restores the file and runs pytest again — often well inside one
+  second. If the mutation is size-neutral, the restored source has the same
+  size and the same whole-second mtime as the mutated one, so the stale
+  bytecode is reused and the second run silently executes the mutation. The
+  failure is maximally confusing: the source on disk is provably correct,
+  `git diff` is empty, the checksum matches, and the tests fail anyway — which
+  reads as a real bug in code you just restored. It can also fail the other
+  way, leaving a mutation green and a pin looking dead.
+- **Evidence:** issue #125 T4, 2026-09-16 (`27957df`). The mutation moved one
+  call from before a write to after it — exactly size-neutral. Restoring it
+  left `item_write.cpython-314.pyc` written at `00:56:11.532` against a source
+  restored at `00:56:11.956`; five refusal pins stayed red across three
+  separate runs while `sha256sum` matched the known-good copy. ~20 minutes
+  lost before the timestamps were compared. Reproduced deliberately afterwards.
+- **Verify:** the two mtimes land in the same second and the sizes match, yet
+  behaviour differs —
+
+```bash
+stat -c '%s %y' app/services/item_write.py app/services/__pycache__/item_write.cpython-*.pyc
+```
+
+- **Status:** documented. **Lint candidate:** a `make` target or a conftest
+  hook could clear `__pycache__` unconditionally before a mutation run, or
+  `PYTHONDONTWRITEBYTECODE=1` could be set for the test targets — either would
+  remove the trap mechanically rather than by remembering.
+
+
+## G98 — A legacy-migration test built from current bootstrap SQL proves nothing
+
+- **Rule:** build a legacy-database fixture from the bootstrap schema **as it
+  was before** the migration under test — `SCHEMA` plus the numbered entries up
+  to that point, plus the auxiliary CREATEs *minus* the new ones. Never run the
+  current `MIGRATION_TABLES` before `_run_migrations`, and assert through
+  `sqlite_master` that the new table is **absent** before migrating. Then
+  mutation-test each numbered CREATE independently, not just the seed.
+- **Why:** `_run_migrations` runs the numbered loop *before*
+  `executescript(MIGRATION_TABLES)`, and `_is_benign_migration_error`
+  (`app/database.py`) answers *benign* for `no such table` whenever the table
+  is named in current `MIGRATION_TABLES`. So a missing or broken numbered
+  CREATE records its seed version as applied and leaves a permanently empty
+  table on a real user's upgrade — while a fixture that ran current
+  `MIGRATION_TABLES` first has already created the table and stays green. The
+  test reads as coverage of the upgrade path and covers nothing. This is the
+  one path in this repo that is **irreversible against a real collection**.
+  `tests/test_items.py::TestMigrationLoggingDefersOutsideTransaction::_legacy_db`
+  already states the rule for a different reason (later schema baked into a
+  CREATE); this is the table-level face of it.
+- **Evidence:** issue #125 plan review (codex R3), applied at T1, 2026-09-16
+  (`913513b`). The plan's original fixture recipe was `SCHEMA` + entries 1–32 +
+  `MIGRATION_TABLES`, while the same task added the new CREATEs to
+  `MIGRATION_TABLES` — so entries 33 and 34 were `IF NOT EXISTS` no-ops and the
+  test passed with entry 33 deleted. The rebuilt pre-33 fixture reds on all
+  three mutations, each on table or seed state rather than a version row.
+- **Verify:** remove each new numbered CREATE in turn; the legacy test must
+  fail on a missing table or missing seed rows, never merely on
+  `schema_version` —
+
+```bash
+python -m pytest tests/test_lists_migration.py -q -k "predates or create_and_seed"
+```
+
+- **Status:** documented. Not a lint candidate — whether a fixture is "pre-N"
+  is a judgment about intent, not a grep.
+
+
+## G99 — A docs task cannot know the version; never write one into a doc
+
+- **Rule:** a plan's docs task writes the *content* of an upgrade note but not
+  its version number. Leave the heading's version as `X.Y.Z` (or omit the
+  heading and let `/release` add it), and let the release fill it in. Anywhere
+  a doc must name the version it ships in, that text is the release's to write.
+- **Why:** the docs task runs inside `/run-plan`, and `/release` step 2 chooses
+  the version *later* — so any number the docs task writes is a guess about a
+  decision that has not been made. Issue #125's docs task wrote
+  `### After upgrading to 0.42.0` because the design plan's `## Sequencing`
+  said the recommendation was one minor release carrying both halves. The
+  second half slipped, the same section's fallback ("ship this as a patch")
+  applied instead, and the release went out as **0.41.1** — leaving a public
+  upgrade note pointing at a version that does not exist. Caught at step 4b of
+  the release that shipped it, which is the last place it could have been
+  caught: after the tag it is a published doc.
+- **How it shows up:** `grep -rn '<next-version>' docs/` at release time finds
+  a heading naming a version the changelog has never heard of. The docs read
+  fine in isolation — nothing in the plan set is wrong — which is why only the
+  release notices.
+- **Status:** documented. A lint is possible but weak — it would have to know
+  the unreleased version to know which mentions are stale. The cheap guard is
+  step 4b's existing sweep: grep the docs for any version string newer than the
+  changelog's top released section.
+
+
+## G100 — When an add path has a duplicate guard before the provider call *and* one at the insert
+
+- **Rule:** apply any existing-row transition (promotion, merge, status
+  change) at **every** guard that can return that row — and start with the
+  earliest. The pre-provider identity guard is the normal existing-row path;
+  a guard beside the insert usually sees only a row that a rival inserted
+  while the provider call was in flight.
+- **Why:** the guard beside the insert looks like the place to edit — it is
+  already under the write lock and already answers the duplicate card — so a
+  change made only there reads as complete and passes a race-shaped test. But
+  a row that existed before the request never reaches it. Issue #125's plan
+  put the Add-mode promotion only at `_scan_upc`'s two media-keyed save
+  guards; the barcode-only guard above the UPC lookup returns `duplicate`
+  first, so an already-wishlisted DVD or game would never have been promoted.
+  Caught by the plan review (codex-R2), fixed in `7150cc5` (2026-09-16).
+- **Verify:** the tests seed the row *before* the request and forbid the
+  provider call, so they only pass if the early guard does the transition:
+
+```bash
+python -m pytest tests/test_scan_upc_enrichment.py -k "PromotesTheWishlist" -q
+```
+
+  When adding a guard-side behaviour elsewhere, read the route from input
+  normalisation through every `duplicate` return, and test a pre-seeded row
+  with the providers mocked to fail if called.
+- **The earliest guard can read a child table with no items join — and then it
+  bounces.** Music (`music_releases`) and periodicals (`periodical_issues`)
+  each check for a duplicate in their own table and redirect to the item,
+  before the insert funnel is ever reached. With a trashed item that redirect
+  lands on a page reading `items_live`, which bounces to Browse: the user
+  re-adds something and is sent somewhere unrelated. So the restore goes at
+  that guard. For periodicals it is the **only** restore — the insert carries
+  no ISBN or UPC, so the funnel cannot see the collision at all. Two instances
+  found on `feat/soft-delete-collisions` (`5cb6d7a`, 2026-09-21); any new
+  media type with its own record table repeats the shape.
+- **An ownership transition cannot be applied to intent a caller never states.**
+  Four add paths inserted owned and then demoted to the wishlist in a *second*
+  transaction. Against a funnel that restores, that is wrong twice — a
+  wishlist-mode re-add of a trashed owned row restores it and then demotes
+  something the user owns. The intent has to ride the insert
+  (`_save_item(..., owned=False)`, `fd856e4`); a two-step writer added later
+  reintroduces the bug with nothing to flag it.
+- **Status:** documented. Not a lint candidate — which guards are related is
+  route-specific.
+
+## G101 — When a CSV export must round-trip two independent state flags
+
+- **Rule:** export both flags, parse both on import with "absent" as its own
+  value (G87), and state the rule for files written before the second column
+  existed. A column that is written but not read on import — or read and then
+  overridden by a hard-coded default — does not make a round trip.
+- **Why:** once two booleans allow three states, one of them cannot rebuild
+  the other. Shelf 0.41.1 exported `wishlisted` but no `owned`, and the
+  generic importer hard-coded `owned = True`; a wishlisted row re-imported
+  as owned and a neither row as owned too. The fix needed three parts: an
+  `owned` export column, a legacy rule (no `owned` column + `wishlisted=1`
+  means not owned), and update mode applying each flag only when its column
+  is present, so a metadata-only CSV cannot reset state (`f25b42b`,
+  2026-09-16; plan review codex-R1).
+- **Verify:**
+
+```bash
+python -m pytest tests/test_csv_roundtrip.py -k OwnershipStates -q
+python -m pytest tests/test_reading_imports.py -k "legacy_export or without_state_columns" -q
+```
+
+- **Status:** documented. A contract test, not a lint.
+
+
+## G102 — When a pin asserts a redirect with `startswith`
+
+- **Rule:** assert a redirect target by **equality**, or on a marker only the
+  success path can produce. `assert resp.headers["location"].startswith(...)`
+  is a hole wherever the refusal URL extends the success URL — which is this
+  app's standard shape, because `_refused()` builds
+  `/item/<id>/edit?error=<code>` and the success redirect is `/item/<id>`.
+  The prefix matches both, so the assertion cannot tell a save from a refusal.
+- **Why:** it is the G31 failure mode with no tell. The pin passes against the
+  broken code *and* the fixed code, and unlike a subset-POST (G36) there is
+  nothing odd-looking to notice on review — `startswith` reads as deliberate
+  tolerance for the optional `?from=` suffix, which is exactly why it gets
+  written. The pin survives its own mutation check, so the G31 pass reports
+  green and the reviewer concludes the pin is sound.
+- **Evidence:** 2026-09-17, plan `issue-87-legacy-isbn-edit` T1 (`73dcf14`).
+  `test_legacy_junk_isbn_must_be_cleared_before_the_form_saves` was repurposed
+  to pin the new exemption, and its first half asserted
+  `location.startswith(f"/item/{item_id}")` plus the stored columns unchanged.
+  Under #87's bug the route redirects to `/item/<id>/edit?error=invalid_isbn`
+  and stores nothing — satisfying **both** assertions. The pin stayed green
+  through the whole G31 mutation pass and was caught only because the
+  orchestrator re-ran the mutation independently and read the *pass* list
+  rather than the fail list. Two sibling pins had the same shape; all three
+  were tightened to `location == f"/item/{item_id}"` and then went red.
+- **The general form:** an assertion is only a pin if the failure it is
+  supposed to catch can violate it. When the failure path is a *longer* string
+  with the same prefix, a prefix match is not an assertion.
+- **What to do about `?from=`:** that is what tempts the prefix match. Post the
+  form without a `from` value and assert equality, or assert
+  `location.split("?")[0] == f"/item/{item_id}"` — both exclude the `/edit`
+  refusal URL, which a bare `startswith` does not.
+- **Verify:** every surviving prefix assertion on a redirect must be backed by
+  a following read of the stored row —
+
+```bash
+grep -rn 'headers\["location"\]\.startswith' tests/
+# 5 hits as of 2026-09-17, all in tests/test_items.py::TestEditFormValueFunnel;
+# each is followed by a self._row(...) assertion that the refusal path fails.
+# A new hit with no such follow-up is the bug this entry describes.
+```
+
+- **Status:** documented. **Lint candidate**, and a cheap one: a `startswith`
+  on `headers["location"]` is mechanically greppable, and the rule "equality or
+  a stored-row assertion in the same test" is checkable without understanding
+  the route.
+
+
+## G103 — When a wrapper route post-processes a fragment another route rendered
+
+- **Rule:** if the fragment carries a form that **continues** the interaction,
+  that form's action must come from the context, not from the inner route's
+  literal path. The wrapper renders the fragment with its own action
+  (`scan_action` in `fragments/scan_result.html`); the inner route passes
+  nothing and the template's `|default('/api/scan', true)` keeps every other
+  caller unchanged. A form that does something *else* — manual add, edit — is
+  not a continuation and must not read it.
+- **Why:** the wrapper's whole reason to exist is the work it does *after* the
+  shared handler returns, and a hard-coded action routes the second request
+  around it. Shelf Fill calls `items.scan_isbn` as a plain function and then
+  assigns `position_order` and refreshes its OOB summary — but only on its own
+  `added`/`duplicate` response. An unresolved card whose form posted to
+  `/api/scan` would therefore create the item outside the fill session: the
+  book lands with **no shelf position**, under a heading that says it was
+  filed. Nothing errors, and the first request looks perfect, which is why a
+  pin on the first request alone (the plan's original pin **G**) does not see
+  it. The state is also persisted, so the user meets it later, on Arrange.
+- **Evidence:** issue #90, 2026-09-17 (`8a1eedf`). Found in plan review by
+  Codex (`plan-issue-90-bare-legacy-upc-review-codex.md`, R1) **before** the
+  code existed — the design named only `POST /api/scan` and never asked which
+  other routes render its fragments. The same bypass already existed on the
+  sibling `legacy_ambiguous` path and had shipped unnoticed. Three routes
+  render `scan_result.html` today: `items.scan_isbn`, `shelf_fill` (both
+  `_render_error` and the pass-through), and `periodicals`.
+- **The pin shape that catches it:** start at the **wrapper's** endpoint, scrape
+  the rendered `hx-post` and assert it, then follow it through every
+  unresolved hop and assert the wrapper's own post-processing ran — the primary
+  copy has the *next* `position_order` against a location seeded with an
+  existing placed copy, and the OOB summary is in the response. A pin that
+  stops at "the card rendered" passes against the bug.
+  (`tests/test_shelf_fill_036.py::TestBareLegacyUpcInsideShelfFill`.)
+- **The same question, asked of JavaScript.** A form action is not the only
+  thing a shared fragment can bind to one host. A `data-*` button is inert
+  wherever its listener is not loaded, and it *looks* live: `scan_result.html`
+  gained a `data-manual-add` button whose only listener is inside
+  `scanPage.init()` (`scan.js:122`), and `shelf_fill.html` loads
+  `shelf-fill.js` instead — so on `/shelf-fill` the button rendered, clicked,
+  and did nothing. No status test or continuation test sees it, because a dead
+  control is neither. So for **every control** a shared fragment adds, ask
+  which hosts load the thing that handles it, and then either render it only
+  on those hosts (the cheap answer, and the one that keeps a Shelf Fill user
+  on their shelf), use a plain link or form, or move the handler somewhere
+  every host loads. A source grep proving the listener exists does **not**
+  prove the host loads it.
+- **One instance of this is still live, deliberately.** `scan_result.html`'s
+  *other* `data-manual-add` button (the error arm) is gated on `offer_manual`,
+  which exactly one branch sets — `items.py:467`, the "Invalid ISBN" arm that a
+  typed *title* reaches (#120). Shelf Fill passes that response straight
+  through, so typing a non-barcode string into its scan box renders a dead
+  button on `/shelf-fill` today. Confirmed by probe 2026-09-17
+  (`HAS_DEAD_BUTTON True`). Left alone on the #90 branch because the fix is a
+  judgement about #120's typed-title flow, not about legacy barcodes — but it
+  is the same defect, so do not read this entry as closed.
+- **Verify:** no continuation form in a shared fragment hard-codes an action,
+  and no control it renders depends on a script only one host loads —
+
+```bash
+grep -n 'hx-post="/api/' app/templates/fragments/scan_result.html
+# expect no hits: every form that continues a scan reads scan_action.
+
+grep -n 'data-manual-add' app/templates/fragments/scan_result.html static/js/*.js
+# every render site is gated on a host that loads the file holding the listener.
+```
+
+- **Status:** documented. **Lint candidate:** a literal `hx-post="/api/..."`
+  inside a fragment more than one router renders is mechanically greppable;
+  what a checker cannot decide is whether a given form is a *continuation* or
+  a side-trip, which is the whole judgment. **Revisit trigger:** a fourth
+  route starts rendering `scan_result.html`, or a second shared fragment grows
+  a continuation form.
+
+
+## G104 — `pattern` does not reject an empty input
+
+- **Rule:** an `<input pattern="...">` that the interaction actually needs also
+  needs **`required`**. `pattern` constrains a value that is *present*; against
+  an empty field it does not apply, so the form submits. If the server must
+  additionally tell "first render" from "submitted empty", carry an explicit
+  attempt marker rather than inferring it from the field being falsy.
+- **Why:** the failure is a click that does nothing and says nothing. The
+  request succeeds, the same fragment swaps back in, and the user cannot tell
+  whether the app is broken or they are. It also defeats a server-side
+  "explain the refusal" flag written as `bool(field)`: an empty retry is
+  indistinguishable from the initial render, so the explanation the code
+  promises never appears — which is precisely the arm's reason to exist.
+- **Evidence:** issue #90, 2026-09-17. `fragments/scan_result.html`'s
+  five-digit `legacy_supplement` field shipped with `pattern="[0-9]{5}"` and
+  `maxlength="5"` but no `required`; clicking **Look it up** on an untouched
+  field posted, and `supplement_rejected = bool(legacy_supplement)` scored it
+  as untouched, so the "Enter exactly five digits" line stayed hidden. Found by
+  the Codex diff review (B2) with a real-browser probe, **after** a route-level
+  suite that posts the form directly had gone green — those tests build their
+  own payload and never exercise browser validation at all. Fixed in `cb8a310`.
+- **The testing half, which is the durable part:** a route-level pin cannot see
+  this. Any pin for native form validation has to drive a real browser and
+  assert *no request was made* — count requests around the click rather than
+  waiting for one (G83's "the click makes no request" row).
+- **Verify:** every exact-shape field whose value the handler requires also
+  carries `required` —
+
+```bash
+# Line-based grep is wrong here — the attributes routinely span lines, so
+# `grep pattern= | grep -v required` reports a field that carries both.
+python - <<'EOF'
+import pathlib, re
+for f in sorted(pathlib.Path("app/templates").rglob("*.html")):
+    for m in re.finditer(r'<input\b[^>]*pattern="[^"]*"[^>]*>', f.read_text(), re.S):
+        if "required" not in m.group(0):
+            print(f, "—", " ".join(m.group(0).split())[:90])
+EOF
+# each hit is a field the form may legally submit empty. That is a decision,
+# not a default — confirm it is the one intended.
+```
+
+- **Status:** documented. **Lint candidate**, and a narrow one worth building:
+  `pattern` without `required` on an input whose name is a non-defaulted server
+  parameter is mechanically checkable. What a checker cannot decide is whether
+  the field is genuinely optional.
+
+
+## G105 — When writing a query that reads `items` or `item_copies`
+
+- **Rule:** read through the relation's view, never the physical table. Both
+  views are created per connection in `get_db()`:
+  - `items_live` — `items` where `deleted_at IS NULL`.
+  - `copies_live` — `item_copies` **joined to `items`**, where *both*
+    `deleted_at` columns are NULL. A copy is live only if it and its item are
+    untrashed, so trashing an item needs no write to its copies at all, and the
+    readers that never join the items relation stop counting them with no
+    per-site predicate.
+
+  Writes stay on the physical tables — a `DELETE FROM items` matches the same
+  text pattern and is not a violation — and so do the allowlisted lookups in
+  `scripts/check_items_live.py`, each with its reason at the entry: **13 items
+  entries excusing 15 reads across 4 files, and 8 copies entries excusing 8
+  reads across 5 files** (counts read from the script, 2026-09-18). The copies
+  exemptions are all one class; see **G107**.
+- **The half a rewrite gets wrong: four files reach the table through a `JOIN`
+  and contain no `FROM items` at all** — `app/routers/checkouts.py`,
+  `app/routers/periodicals.py`, `app/services/location_order.py`,
+  `app/services/romm_records.py`. A grep, a lint or a refactor keyed on `FROM
+  items` alone passes all four while they read deleted rows forever. G29's
+  lesson applied: filter at the shared choke point, not at each producer —
+  one view, not 172 hand-written predicates.
+- **And for anyone extending the lint:** it strips a string literal's **prefix
+  together with its opening quote**, because `f"FROM items i "` otherwise
+  normalises to `fFROM items` and slips past `\bFROM` — `f` and `F` are both
+  word characters with no boundary between them. Three statements had that
+  shape at census (`app/routers/items.py:901`, `app/routers/pages.py:70`,
+  `app/routers/series.py:83`), and `tests/test_items_live_lint.py` pins it.
+- **Why:** the failure is silent in the direction that looks benign — a deleted
+  book keeps appearing in a count, and nothing errors. This file and the
+  `docs/` pages may quote the construct freely: the lint scans `app/**/*.py`
+  only, so nobody needs to "fix" the prose here.
+- **Evidence:** `feat/soft-delete-seam`, 2026-09-18 — `06defa3` added the lint
+  at a census of 172, `b8b09cc`/`87baf4a`/`7973fff` drove it to zero, `8634c46`
+  gated it. Proven by mutation at census zero: `FROM items_live` → `FROM items`
+  at `app/routers/tags.py:60` and `JOIN items_live` → `JOIN items` at
+  `app/routers/checkouts.py:41` each red both the lint and
+  `tests/test_items_live_lint.py::test_every_read_goes_through_items_live`,
+  naming the line. The `checkouts.py` half is the one that matters: that file
+  greps zero for `FROM items`.
+
+  `feat/soft-delete-copies-seam`, 2026-09-18, did the same for `item_copies` —
+  `a95cec0` added the view, `d8c7102` taught the lint the second relation as a
+  *second block in the same script* (one normaliser, one `_spanning` — two
+  allowlist formats for one invariant was the rejected design),
+  `d80a143`/`94a96cc`/`2acef76` drove the census 23 → 18 → 6 → 0, `a225397`
+  gated it. Same mutation proof at census zero, and the JOIN half matters again:
+  `LEFT JOIN copies_live` → `LEFT JOIN item_copies` at `app/routers/items.py:1510`
+  reds the lint on a statement whose only physical-table keyword is `JOIN`.
+  The whole repoint passed the existing suite **unchanged**, which is what made
+  it safe and also why it proved nothing about the exemptions — `9a85469` added
+  `tests/test_copies_live_contract.py` for that.
+- **Verify:** `make check-deleted`
+- **A new statement can ride along inside an OLD entry's text — and the fix is
+  never to bump the count.** On `feat/soft-delete-collisions` (`98d071d`,
+  2026-09-21) the update funnel's two new lookups were textual *supersets* of
+  the insert funnel's (`… deleted_at IS NOT NULL` + `AND id != ?`), so the two
+  existing entries silently began spanning 2 reads each and the lint reported
+  it. Raising their counts to 2 would have been exactly the over-permissiveness
+  the count exists to stop. Make the statements textually distinct instead —
+  the insert lookups gained `LIMIT 1`, with a comment saying the clause is
+  load-bearing for the lint, not only for SQLite. And take counts for any prose
+  from `scripts/check_items_live.py`, never from a plan: this branch moved them
+  from 13/15 to 22/24 on items and 8/8 to 10/10 on copies.
+- **Status:** `linted: make check-deleted` (also inside `make test`, via
+  `tests/test_items_live_lint.py`).
+
+
+## G106 — When a test matches production SQL by its literal text
+
+- **Rule:** a test that identifies a statement by a literal SQL substring —
+  a `_install_lock_probe` predicate, a `side_effect` that branches on `"… in
+  sql"`, a mock keyed on the query text — is coupled to that statement's
+  *spelling*, not its behaviour. Any rewrite of the query silently detaches it.
+  Before changing a statement, grep the suite for its text; after changing it,
+  re-run the detached test against the **broken** implementation to confirm the
+  pin still fails for its own reason (G31), because a predicate that no longer
+  matches makes the pin vacuous rather than red.
+- **Why:** the failure blames the wrong thing. The test reds on its own
+  scaffolding — *"the guard query never ran — the probe did not fire"* — which
+  reads as a defect in the code under test, so the tempting fix is to go
+  looking at the lock, or to weaken the predicate until it matches something.
+  The property being pinned (here: that the duplicate guard reads while the
+  write lock is held) is untouched and still correct the whole time. The
+  opposite direction is worse and is the reason this is not merely annoying: if
+  the predicate had been *loosened* to a substring that still matched, the probe
+  would have fired on the wrong statement and the pin would have gone green
+  while defending nothing.
+- **The fix is the narrow one.** Update the literal to the new spelling rather
+  than dropping the table name to make it rename-proof: a table-agnostic
+  predicate matches any statement sharing that clause tail, which is the
+  vacuous-pin direction above.
+- **Evidence:** `feat/soft-delete-seam`, 2026-09-18 (`389e504`). Repointing
+  `items` reads onto `items_live` (`b8b09cc`) reddened three G18 lock pins —
+  `tests/test_scan_modes.py`, `tests/test_upc_manual_add.py`,
+  `tests/test_scan_upc_enrichment.py`, all named
+  `test_the_guard_reads_under_the_write_lock` — whose predicates matched
+  `"FROM items WHERE isbn = ? AND media_type = ?"` and
+  `"SELECT id, title, media_type FROM items WHERE upc = ?"`. Diagnosed as
+  scaffolding rather than a transcription error by byte-checking all 172 hunks
+  of the repoint first. The three were the only literal-SQL predicates in
+  `tests/`. After updating them, the pin was re-verified live by moving
+  `BEGIN IMMEDIATE` below the guard SELECT at `app/routers/items.py:492`: it
+  reds on `got 'acquired'`, the real G18 property.
+
+  **The counter-case, `feat/soft-delete-copies-seam`, 2026-09-18:** a repoint
+  of comparable shape — 23 statements, including a full rewrite of every
+  column qualifier in `archive._copies_by_item` — detached **nothing**. The
+  Verify script below returned zero both before and after. Run it; do not
+  infer either outcome from the size of the diff.
+- **Verify:** every literal SQL predicate in the suite still names a statement
+  that exists in `app/` —
+
+```bash
+python - <<'EOF'
+import pathlib, re
+app = " ".join(
+    re.sub(r'\s+', ' ', p.read_text().replace('"', ''))
+    for p in pathlib.Path("app").rglob("*.py")
+)
+pat = re.compile(r'"((?:SELECT|INSERT|UPDATE|DELETE|FROM|JOIN)\b[^"]{8,})"\s*in sql')
+for t in sorted(pathlib.Path("tests").rglob("*.py")):
+    for m in pat.finditer(t.read_text()):
+        if m.group(1) not in app:
+            print(f"{t}: predicate no longer matches any statement in app/: {m.group(1)!r}")
+EOF
+# any hit is a pin that has silently detached from the code it watches.
+```
+
+- **Status:** documented. **Lint candidate** — the Verify script above is the
+  lint, near enough; what it cannot decide is whether a detached predicate
+  should be re-pointed or the pin deleted.
+
+
+## G107 — When a read exists to predict a UNIQUE violation
+
+- **Rule:** it reads the **physical table**, not the soft-delete view, because
+  the constraint does. A trashed row still occupies its unique slot, so a guard
+  that asks "will this insert collide?" must see trashed rows or it will predict
+  *no collision* and hand the collision to the database instead. Everything else
+  reads the view (**G105**). When one statement answers both kinds of question,
+  **split it** — see the worked example below.
+- **The three uniqueness rules on `item_copies`** (`app/database.py:291-300`)
+  and the reads that mirror them, each allowlisted with its reason in
+  `scripts/check_items_live.py`:
+
+  | rule | reads that stay physical |
+  |---|---|
+  | `UNIQUE(item_id, copy_number)` | `item_copies.py` `sync_primary_location` and `add_copy` (the `MAX` half); `item_merge.py` `_reparent_copies` |
+  | `copy_barcode UNIQUE` | `routers/item_copies.py` `_barcode_conflict`; `archive.py`'s import clash read |
+  | the literal `copy_number = 1` in the backfill | `item_copies.py` `backfill_legacy_locations`, whose `NOT EXISTS` guard would otherwise pass for an item whose only copy is trashed |
+
+- **A join is part of the read.** `_barcode_conflict` is
+  `FROM item_copies c JOIN items i` — **both** physical. Keeping only the `FROM`
+  physical does not work: the inner join to `items_live` hides a trashed
+  *item's* copy just as effectively, and the insert then fails on the raw
+  constraint with a 500 instead of returning the conflict response. This was
+  found at plan time and is pinned by
+  `test_add_copy_refuses_a_trashed_items_copy_barcode`, which reds on that one
+  change and nothing else.
+- **The worked example — one statement, both classes.** `add_copy` used to read
+  `SELECT COALESCE(MAX(copy_number), 0) AS highest, COUNT(*) AS n FROM
+  item_copies WHERE item_id = ?`. `highest` predicts the constraint; `n == 0`
+  answers "does this item have a copy at all", which is an ordinary read. Left
+  whole on the physical table, an item whose only copy was trashed would get its
+  next copy as a **secondary**, leaving the item with no live primary. Split in
+  `d80a143`: `MAX` on `item_copies`, `COUNT(*)` on `copies_live`, both inside the
+  caller's `BEGIN IMMEDIATE` (**G18**).
+- **Cross-plan contract — read this before changing what trashes a copy.** The
+  partial unique index `idx_item_copies_one_primary` needs **no** exemption, and
+  the three primary-lookup reads that moved to the view
+  (`item_copies.py` `sync_primary_location`, `item_merge.py` `_reparent_copies`,
+  `archive.py` `_import_copies`) are correct **only because
+  `item_copies.trash_copy` demotes a copy in the same statement that stamps
+  it** — honoured since `c5a86db`, and pinned by
+  `tests/test_trash_funnel.py::TestTheGeminiN1Contract`, which reds on
+  `UNIQUE constraint failed: item_copies.item_id` with the demote removed. Any
+  other writer of `deleted_at` on a copy must demote too; the source pin in
+  `tests/test_item_write.py` keeps that writer set at four functions.
+- **There is now a second class, and it must say so at its entry.** Four
+  physical reads exist not to predict a constraint but to **find the row the
+  view hides**: `restore_copy` (it has to start from the trashed copy),
+  `_reparent_copies`' row-selection read (through the view a husk's trashed
+  copy stayed parented to it and died in the merge's `ON DELETE CASCADE`), and
+  the sync external-id matchers (a trashed twin has to be *seen* to be left
+  alone). Each entry's comment says it is **not** the UNIQUE-prediction class,
+  because the list reads as uniform and a reader generalising from its
+  neighbours would "fix" one by repointing it at the view.
+  (`feat/soft-delete-collisions`, 2026-09-21.)
+- **Why:** the failure is a 500 on a path that has a designed, friendly refusal
+  a few lines away, and it cannot happen until something starts writing
+  `deleted_at` — so it ships green and surfaces in the plan *after* the one that
+  introduced it.
+- **Evidence:** `feat/soft-delete-copies-seam`, 2026-09-18. The class was named
+  in the design plan and derived per-statement at `/impl-plan`; `a95cec0`
+  through `2acef76` repointed everything else. `9a85469` pinned each exemption
+  by hand-mutating it onto `copies_live` and watching the constraint fire —
+  `UNIQUE constraint failed: item_copies.item_id, item_copies.copy_number` for
+  the numbering reads, `… item_copies.copy_barcode` for the archive clash read.
+- **Verify:**
+
+```bash
+python -m pytest tests/test_copies_live_contract.py -q
+```
+
+- **A physical read that can match a live row *and* a trashed one must order
+  live first** (`ORDER BY deleted_at IS NOT NULL, id`). A `UNIQUE(isbn,
+  media_type)` slot does not stop one ISBN being held by a live book and a
+  trashed audiobook, so an unordered `fetchone()` picks arbitrarily.
+  `_find_item_by_barcode` had no `ORDER BY` for as long as nothing could be
+  trashed; the soft-delete flip made it answer "in Trash" over a live row
+  (`31ff477`, 2026-09-21, pinned in `tests/test_scan_modes.py::TestScanInTrash`).
+- **Status:** documented; census of violations zero (`make check-deleted`).
+  Not a lint candidate — only a human can say whether a given read exists to
+  predict a constraint or to answer a question about the collection.
+
+
+## G108 — When a mutation check passes, suspect the check before the code
+
+- **Rule:** a mutation that leaves the suite green has told you one of two
+  things, and they are not the same: the code is unprotected, or **the test
+  you aimed at cannot see that line**. Find out which before recording either.
+  Re-aim at the statement the property actually depends on, and if the plan
+  named the mutation, treat the plan's claim as the thing under test too.
+- **Why:** a green mutation reads as "nothing pins this", which invites either
+  writing a redundant test or shrugging and moving on. Both are wrong when the
+  real cause is that the property has a second guard upstream, or that the
+  scenario never reaches the mutated branch. Three instances in one run, each
+  a different shape:
+  - **The test never reached the line.** `/run-plan` for
+    `tags-retire-kids-book` predicted "remove the scan route's
+    canonicalisation → the pre-seeded-duplicate test reds". It did not, and
+    neither did removing `detect.py`'s. The ISBN path's duplicate guard keys
+    on `detect`'s *resolved* type, and an unrecognised hint already resolves
+    to `book` for an ISBN barcode — so the outcome was identical either way
+    and the test was **vacuous for the property it claimed**. The
+    discriminating site was `/api/items/manual`, which runs no detection at
+    all: removing its canonicalisation reds with
+    `UNIQUE constraint failed: items.isbn, items.media_type`.
+  - **A second defence absorbed it.** Dropping the NOCASE tag dedupe in
+    `archive.py` stayed green, because the same task had switched the create
+    path to `INSERT OR IGNORE`. Neither alone is load-bearing; removing
+    **both** reproduces the `item_tags` primary-key violation. Record the
+    mutation as the pair, not as one.
+  - **The scenario lacked the state.** Pointing `_retire_kids_book`'s twin
+    lookup at `items_live` passed, because the suite had a trashed *kids row*
+    and no trashed *twin* — the one case the physical read exists for (G107).
+- **And a mutation that reds for the wrong reason proves nothing either.**
+  Deleting the `NULLIF`s from the same step's `UPDATE` left
+  `SET media_type = 'book', WHERE id = ?` — a syntax error — and reddened 11
+  tests that had nothing to do with blank identifiers. Rewritten as
+  `isbn = isbn, upc = upc` it reds exactly the two blank-identifier pins. This
+  is **G17's rule applied to mutations**: run the broken version and read the
+  failure before trusting it.
+- **Evidence:** `feat/tags-retire-kids-book`, 2026-09-18 — `7cb3191` (the
+  scan/manual finding, with each test's docstring naming which kind of pin it
+  is), `c56015e` (the archive pair), `144d4a7` (the trashed twin, and the
+  malformed `NULLIF` mutation).
+- **Verify:** judgement. When a mutation comes back green, ask which of the
+  three shapes above it is before writing anything down.
+- **A later fix can disarm an earlier pin, so re-run its mutation after.** On
+  `feat/soft-delete-collisions` (`16c0fc7`, 2026-09-21), `claude-R3` made a
+  sync result's `item_id` load-bearing: the loop read it after counting, so a
+  missing key would error every trashed item. A *later* fix in the same task —
+  skip the cover ingest for an `in_trash` result — removed that read, and the
+  loop-level pin went vacuous: dropping the key left it green. The mutation
+  caught it only because it was run after both changes, not when the pin was
+  written. The shape was still held at the persist level; the loop pin's
+  docstring had been claiming a guarantee it no longer gave.
+- **Five more vacuous shapes, all from that branch**, each caught by a mutation
+  that stayed green:
+  - *A seed helper that silently produces nothing.* `insert_item` mints a
+    primary copy only when the item has a location, so an unlocated seed has no
+    copies, `_primary_id` returns `None`, and the most important pin in the
+    file passed while trashing copy `None`. Assert the seed exists.
+  - *An absence check after a cascade.* "No row still references the husk" is
+    true whether the row was **moved** or **destroyed** by `ON DELETE CASCADE`.
+    Pair it with a row-count conservation check.
+  - *A counter added beside existing ones.* Two modes counted a restored row
+    differently (disjoint in one, doubled in the other) and each mode's own
+    pins passed. Pin that the counts **partition** the input, per mode.
+  - *An unordered `LIMIT 1` that happens to be right.* A live-wins pin passes
+    against a missing `ORDER BY` if the live row has the lower rowid. Seed the
+    losing row first.
+  - *A mock whose premise is wrong.* A "provider must not be called" stub on a
+    re-add path failed loudly because the guards correctly miss a trashed row
+    and the lookup does run; stub it with a *different* value instead, so
+    "shows the stored row" is an assertion and not a tautology.
+- **Status:** documented. Not a lint candidate — whether a mutation aimed at
+  the right line is a judgement about intent.
+
+## G109 — A column added to a MIGRATION_TABLES-managed table above version 21
+
+- **Rule:** adding a column to a table that `MIGRATION_TABLES` creates — not
+  `SCHEMA` — breaks every legacy-database fixture that builds itself from the
+  **current** `MIGRATION_TABLES` and then runs `_run_migrations`. Build such a
+  fixture from the bootstrap SQL *as it was before* the migration under test:
+  `tests/conftest.py::bootstrap_sql_before(up_to)` does it, deriving the strip
+  from `MIGRATIONS` so the next column strips itself.
+- **Why:** `_is_benign_migration_error` forgives `duplicate column name` only
+  for versions `<= _PRE_ATOMIC_MAX_VERSION` (21). Every column previously added
+  to such a table — 16-19 on `series_meta` — sat under that amnesty, so a
+  fixture could run the current CREATE and have the redundant ALTER waved
+  through. Migration **39** (`tags.media_type`) is the first one above the
+  line, and there the same fixture raises instead. This is G98's rule met from
+  the column side rather than the table side, and the cost of not knowing it is
+  a red gate that looks like a defect in the new migration.
+- **The real bootstrap paths are unaffected, and that is worth checking rather
+  than assuming.** A fresh install skips the ALTER as benign and takes the
+  column from the CREATE; a real upgrade runs the ALTER against a table that
+  lacks it. Both were verified against a copy of a real v38 database before the
+  fixtures were touched — which is what made it safe to fix the fixtures rather
+  than widen the classifier.
+- **Do not widen `_is_benign_migration_error` to make this go away.** Forgiving
+  `duplicate column name` for MIGRATION_TABLES-managed tables would be tidy and
+  would also weaken a guard on the one path that is irreversible against a real
+  collection, to fix a problem that exists only in test fixtures.
+- **Evidence:** `1d8278b` (2026-09-18, plan `tags-retire-kids-book` T2). Eight
+  tests across `test_items.py` and `test_lists_migration.py` went red on
+  migration 39; the derived helper fixed all eight and left
+  `item_copies.position_order` alone, since a MIGRATIONS-only column (31, 37,
+  38) is never in the CREATE to begin with.
+- **Verify:** the helper is a no-op at the current head and really strips below
+  it —
+
+```bash
+python3 -c "
+import sys; sys.path.insert(0,'.')
+from tests.conftest import bootstrap_sql_before
+from app.database import MIGRATION_TABLES
+assert bootstrap_sql_before(39) == MIGRATION_TABLES
+assert 'media_type' not in bootstrap_sql_before(38).split('CREATE TABLE IF NOT EXISTS tags')[1].split(');')[0]
+print('OK')"
+```
+
+- **Status:** documented. Not a lint candidate — which cutoff a fixture is
+  claiming to represent is intent, not a grep.
+
+## G110 — A delegated task's explanatory prose can invent a fact the gate cannot see
+
+- **Rule:** when a subagent writes or extends one of this repo's *why*
+  docstrings, module headers or long code comments, **read the factual claims
+  in the prose as carefully as the code** — specifically any claim about what
+  else in the tree consumes, enforces or depends on the thing being written.
+  The gate has no opinion about prose. Check each named consumer exists and
+  does what the sentence says, or cut the sentence.
+- **Why:** this codebase deliberately favours docstrings that explain *why*,
+  with concrete cross-references ("`make css` stamps it; `make checks-fast` and
+  `tests/test_store.py` verify it"). That house style is worth keeping, and it
+  is also a standing invitation for a model to produce one more plausible
+  cross-reference than it has evidence for — the invented one is formatted
+  identically to the true ones, sits beside claims that *are* true, and is
+  invisible to `make test`, every lint, and `make checks`. It then ships: these
+  files are published to the public repo, and a wrong "X depends on this"
+  sends the next reader to look for something that was never there.
+- **Evidence:** `362932f` (2026-09-19, plan `pr-generated-assets` T1). The
+  `sonnet` subagent's new `scripts/ci_context.py` docstring justified the
+  module by naming its consumers, and listed "the Alpine-CSP lint's own
+  generated artifacts" among them. That lint has no generated artefact and no
+  pull-request downgrade; the real consumers were `stamp_sw_version.py --check`,
+  its pin in `tests/test_store.py`, and the `css` job's comparison. Everything
+  else in the task was correct, the full gate was green, and the sentence was
+  caught only by the orchestrator reading the diff. The subagent's own
+  "Surprises" section reported none — it did not know it had invented it.
+- **The asymmetry that makes this worth an entry:** a wrong *line of code* has
+  many chances to be caught — a test, a lint, a reviewer, production. A wrong
+  *sentence about the code* has exactly one: somebody reading the diff. So the
+  prose in a delegated diff deserves more scrutiny per line than the code does,
+  which is the opposite of how a diff is normally read.
+- **Verify:** judgement, but bounded — for each cross-reference a new docstring
+  makes, grep the thing it names:
+
+```bash
+# e.g. for a docstring claiming check X consults this module:
+grep -rn "ci_context" scripts/ tests/ .github/workflows/
+```
+
+- **Status:** documented. Not a lint candidate — no checker can tell an
+  invented cross-reference from a true one; that is the whole difficulty.
+  The countermeasure is procedural: `/run-plan`'s diff review reads the prose,
+  and a subagent brief that asks for a *why* docstring should say that every
+  cross-reference in it must be one the author verified.
+
+## G111 — When automation takes over a hand step, its warning is not moot until the automation is *ahead* of the risk
+
+- **Rule:** moving a manual step into CI does not license deleting the warning
+  about what the manual step protected against. Ask **when** the automation
+  acts relative to the risk. CI that reacts to a push lands *after* that push,
+  so anything reading the tree in between still sees the unprotected state.
+  Keep the warning and re-attribute it — say what now closes the window, and
+  what is still exposed inside it — rather than dropping it.
+- **Why:** a hand step and a CI job that run "the same command" are not
+  interchangeable. The hand step runs *before* the thing it protects; the CI
+  job runs *after* the thing that triggers it. Everything that reads the tree
+  during that gap — a tag, a release build, a clone, a branch cut — sees the
+  state the warning described. The deletion looks obviously correct while you
+  are holding the new mechanism in your head, which is exactly when the docs
+  task runs.
+- **Evidence:** 2026-09-20, plan `ci-restamp-on-main` T2. The `restamp` job
+  now rebuilds and commits `static/css/app.css`, `SW_VERSION` and the README
+  badges on every push to `main`. The docs task dropped
+  `docs/development.md`'s clause "a release that skips `make css` ships a page
+  with missing styles and an unstamped `SW_VERSION`", reporting it as made
+  moot by the new job — a judgement it flagged in its own report, so it was
+  reasoned about rather than missed. It is not moot: `restamp` commits after
+  the push, so a `v*` tag placed on `main` before the restamp lands still
+  builds the Docker image from the stale stylesheet. That exact gap is why the
+  same plan's T3 added a tip check to release step 6 — the mitigation lives in
+  the unpublished repo-root `CLAUDE.md`, which no reader of the public page
+  can see. Restored with the attribution corrected, in `84031a2`.
+- **The general shape, worth checking for directly:** automation that is
+  *eventually* consistent replaces a guarantee with a window. Name the window.
+  "CI keeps `main` current" is true and is not the same claim as "`main` is
+  always current".
+- **Verify:** for each warning a docs task proposes to delete because new
+  automation covers it, answer in one sentence: *what reads this state between
+  the trigger and the automation's write?* If the answer is "nothing", delete
+  it. If the answer names anything — a tag, a build, a clone — keep it.
+- **Status:** documented. Not a lint candidate — the deleted sentence is
+  correct prose either way, and no checker knows what a warning was protecting.
+  Closest sibling is `G79` (a docs task's blind spots) and `G110` (a delegated
+  task's prose asserting more than it checked); this one is neither a missed
+  copy nor an invented fact but a **defensible-looking deletion**, which is why
+  it gets its own trigger.
+
+## G112 — When calling a helper that opens its own `get_db()` connection
+
+- **Rule:** before calling it, ask **whose transaction holds the rows it
+  reads**. A helper that opens a second connection sees only what has been
+  *committed*. It is correct after the caller's `with get_db()` block has
+  closed, and silently wrong inside it — it reads the pre-transaction state,
+  answers from that, and nothing raises. If the caller is mid-transaction, read
+  on the caller's connection instead.
+- **Why:** the helper's signature does not say which it needs, and the same
+  helper is right at one call site and wrong at the next.
+  `restore_report.keeps_stored_cover(item_id)` asks "was this row restored,
+  and does it already have a cover?" on its own connection. Every scan, intake
+  and Hardcover caller was safe, because each ran it after the insert funnel's
+  block had committed. `archive.apply_plan` runs a **whole import as one
+  transaction** — so from a second connection the just-restored row still reads
+  as trashed, the helper answers False, and the archive's cover overwrites the
+  user's. A mutation would not catch it: the helper "works". It is also the
+  mirror of **G3**, which is the same second connection *blocking* on a write
+  lock rather than reading around it.
+- **Evidence:** `feat/soft-delete-collisions`, 2026-09-21 (`080db1e`) — caught
+  in orchestrator review before the first run, not by a test; the archive reads
+  `cover_path` on `db` with a comment saying why.
+- **Verify:** for a helper under `app/services/` that opens `get_db()`, grep
+  its callers for ones inside a `with get_db() as db:` block —
+
+```bash
+grep -rn "keeps_stored_cover\|restored_card" app/ | grep -v "def "
+```
+
+- **Status:** documented. Lint candidate in principle — a call to a known
+  self-connecting helper lexically inside a `with get_db()` block is
+  mechanically findable — but the helper list would have to be maintained.
+
+## G113 — When a plan, a review or a sweep hands you an enumeration
+
+- **Rule:** treat the list as a **floor, not an inventory**. Before relying on
+  it, read the code around each named site for its siblings, and for a
+  *function* named as a sweep trigger, open that function's callers directly
+  rather than trusting a pattern grep to find them.
+- **Why:** measured on one plan (`feat/soft-delete-collisions`, 2026-09-20/21),
+  every enumeration that was checked turned out short:
+  - T1 named **2** hard-delete absence assertions to re-aim; the sweep found
+    **7**, including a second `_copy` helper in a different file.
+  - Plan-review `claude-R8` named **2** add paths that would overwrite a
+    restored row's cover; there were **5** — two on paths the same review
+    listed as already correct.
+  - The plan's own sweep grep, `FROM items WHERE`, could not match
+    `cleanup_excluded_libraries`' pin at all: its `SELECT` carries no `WHERE`.
+    The function was named as a trigger; the grep was written for SQL shape.
+  - A review said an update path "can carry all three" identifiers; reading
+    `_dedupe_lookup` showed only one of the three could ever reach it.
+  None of these was a careless review. An enumeration is written from the
+  sites someone looked at, and the misses are the ones nobody opened.
+- **Evidence:** the tracker NOTEs on T1 (`0d67f62`), T7 (`e858c8c`), T8
+  (`792f33d`) and T12 (`080db1e`). Again on `feat/soft-delete-trash`
+  (2026-09-21): the plan named **3** `delete_copy` test callers to re-aim and
+  there were **8** (caught by the prep review); the remove-copy confirm lived in
+  a different template from the one named; a hard-delete pin in
+  `tests/test_tags.py` was on no list at all (`1ba6e7f`); and the Komga/RomM
+  docs the plan told T9 to amend describe a cleanup those integrations do not
+  have.
+- **Verify:** judgement. When you tick off a named list, write down how many
+  sites you found beside how many were named.
+- **Status:** documented. Not a lint candidate.
+
+## G114 — When a row can be hidden instead of deleted, and a child keeps its foreign key
+
+- **Rule:** a child column pointing at a soft-deletable row no longer means
+  "that row exists and can be shown". Every consumer that **links, renders or
+  acts on** the child's foreign key must key on a join to the live view
+  (`LEFT JOIN items_live i … i.id AS live_item_id`), not on the child's own
+  column. Walk the consumers — templates included — before the flip, not
+  after.
+- **Why:** the hard delete used to null or cascade the child, so "the FK is
+  set" and "the parent is live" were the same fact and every template could
+  test either. Soft delete splits them silently: the query already joins the
+  live view for its *columns*, so it looks correct, while the template tests
+  the *child's* id and renders a link to a page that bounces to Browse. No
+  test fails, because no test ever had a trashed parent to render.
+- **Evidence:** `feat/soft-delete-trash` T4 (`1ba6e7f`, 2026-09-21).
+  `delete_item` stopped nulling `scan_log.item_id` by design; the recent-scans
+  strip's SELECT joined `items_live`, and the plan read that as "already
+  handled" — but `fragments/recent_scans.html` linked on `scan.item_id`. Found
+  in orchestrator review while re-aiming a pin; fixed with `live_item_id` and
+  pinned in `tests/test_items.py::TestDeleteItem`.
+- **Verify:** for each child table whose FK survives a soft delete, grep its
+  render sites for the raw column:
+
+```bash
+grep -rn "scan\.item_id\|sl\.item_id" app/templates/ app/routers/
+# every hit that builds a link or a cover URL must read the live join instead
+```
+
+- **Status:** documented. Only `scan_log` keeps its link today (every other
+  child is `ON DELETE CASCADE` and simply stays hidden with its parent).
+
+## G115 — When the code under test swallows exceptions, and the pin stubs a callee to raise
+
+- **Rule:** a pin of the form "patch X to raise; the request still succeeds,
+  so X was not called" is **vacuous** when the caller wraps X in `try/except`.
+  The raise is caught, the response is the same either way, and the pin
+  cannot go red. Record calls instead (`calls.append(...)`) and assert the
+  list is empty.
+- **Why:** a caller that degrades gracefully is the right design — a banner
+  that fails to load must never take the page down — and that is exactly the
+  shape that defeats the stub. The mutation test is what catches it: move the
+  guard and the pin stays green.
+- **Evidence:** `feat/soft-delete-trash` T7 (`36f3a2b`, 2026-09-21). The plan
+  asked for "patch `trash.nag_state` to raise, render, 200" to prove a
+  non-admin render reaches no Trash code; the `TemplateResponse` wrapper
+  catches any Trash failure. Rewritten to record calls; the mutation (role
+  check moved from the wrapper into `nag_state`) then went red.
+- **Verify:** for a pin that stubs with `side_effect=`/a raising lambda, check
+  whether any frame between the request and the stub has an `except
+  Exception:`. If one does, the pin must assert on calls, not on the status.
+- **Status:** documented. Lint candidate in part — a raising stub in a test
+  whose target module contains `except Exception` is findable, but whether the
+  frame is on the path is not.
+
 ## Graveyard
 
 Retired entries land here with a one-line reason (refactored away, lint
 fully covers it, etc.) so future sessions don't re-learn stale rules.
+
+- **G94 — running the full E2E suite many times in one session exhausts a
+  third-party trial quota** (retired 2026-09-10 by issue #123). The E2E suite
+  no longer talks to the UPC Item DB trial API at all: every E2E server now
+  serves it from a local stdlib stub (`tests/e2e/conftest.py::upc_stub`),
+  wired into `_boot_server`'s fixed environment block with no per-test opt-in.
+  Measured across a full `make test-e2e` run: `X-RateLimit-Remaining` was 78
+  before and 77 after, a delta of exactly one, which was the measuring
+  request's own cost — the gate makes zero live calls. The live check still
+  exists, moved to `tests/contract/test_upcitemdb_live.py` (marked `live`,
+  run only by `make test-contract`, off every gate); when the quota is spent
+  it now **skips** with the reset time in the reason, rather than failing,
+  which is the exact hand computation this entry's **Verify** block used to
+  walk through. One sentence of the original warning survives and still
+  applies: the `no_provider` / `quota` distinction is now pinned by two E2E
+  tests (one of them dedicated to the `quota` arm), and loosening either is
+  still the wrong fix if a UPC-related E2E test goes red.
 
 - **G19 — bump `SW_VERSION` when a precached file changes** (retired
   2026-08-24). Refactored away: `SW_VERSION` is no longer typed by hand. It is
@@ -3537,3 +5402,4 @@ fully covers it, etc.) so future sessions don't re-learn stale rules.
   `MIGRATIONS`. `insert_item` makes a sprung G1 trap noisier — it would raise
   on the path whose table lacks the column instead of failing silently — but it
   cannot prevent it.
+

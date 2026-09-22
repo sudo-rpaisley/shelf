@@ -71,3 +71,48 @@ class TestMatches:
         """Matches the documented contract: wanted's first author decides it."""
         assert authors.matches("Frank Herbert, Kevin J. Anderson", "Frank Herbert")
         assert not authors.matches("Kevin J. Anderson, Frank Herbert", "Frank Herbert")
+
+
+class TestJoinNames:
+    def test_keeps_caller_order(self):
+        assert authors.join_names(["Kevin J. Anderson", "Frank Herbert"]) == "Kevin J. Anderson, Frank Herbert"
+
+    def test_drops_blanks_and_none(self):
+        assert authors.join_names(["Frank Herbert", None, "  ", ""]) == "Frank Herbert"
+
+    def test_drops_exact_repeat_first_occurrence_wins(self):
+        assert authors.join_names(["Frank Herbert", "Frank Herbert"]) == "Frank Herbert"
+
+    def test_case_different_names_are_kept_as_two(self):
+        assert authors.join_names(["Lem", "lem"]) == "Lem, lem"
+
+    def test_diacritic_variants_are_kept_as_two(self):
+        """join_names does exact dedup only — it is not authors.matches()."""
+        assert authors.join_names(["Stanisław Lem", "Stanislaw Lem"]) == "Stanisław Lem, Stanislaw Lem"
+
+    def test_empty_input_returns_none(self):
+        assert authors.join_names([]) is None
+
+    def test_all_blank_input_returns_none(self):
+        assert authors.join_names([None, "  ", ""]) is None
+
+    def test_single_name_has_no_separator(self):
+        assert authors.join_names(["Frank Herbert"]) == "Frank Herbert"
+
+    def test_bare_string_argument_raises_type_error(self):
+        with pytest.raises(TypeError):
+            authors.join_names("Frank Herbert")
+
+    def test_bare_mapping_argument_raises_type_error(self):
+        """Iterating a mapping yields its keys, so this would store "name"."""
+        with pytest.raises(TypeError):
+            authors.join_names({"name": "Frank Herbert"})
+
+    def test_non_str_elements_are_dropped(self):
+        assert authors.join_names(["Frank Herbert", {"name": "Someone"}, 42]) == "Frank Herbert"
+
+    def test_accepts_a_generator(self):
+        assert authors.join_names(n for n in ["Frank Herbert", "Kevin J. Anderson"]) == "Frank Herbert, Kevin J. Anderson"
+
+    def test_accepts_a_tuple(self):
+        assert authors.join_names(("Frank Herbert", "Kevin J. Anderson")) == "Frank Herbert, Kevin J. Anderson"

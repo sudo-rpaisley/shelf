@@ -97,6 +97,53 @@ def parse(raw: str) -> LegacyBookBarcode | None:
     return LegacyBookBarcode(upc, supplement, prefixes)
 
 
+def incomplete(raw: str) -> str | None:
+    """Return the bare UPC-A if it is a *known* legacy book barcode, else ``None``.
+
+    This recognizes a specific, evidence-backed publisher prefix — never a
+    shape. A bare 12-digit UPC-A with no supplement does not by itself
+    identify a book (the supplement carries the title number), so nothing is
+    ever mapped or stored under it; the caller's only use for this result is
+    to prompt for the missing five digits.
+
+    Accepts 12 digits, or 13 with a leading zero (the same UPC-A-as-EAN-13
+    tolerance ``parse`` applies at the 18/17 boundary). Any other length
+    returns ``None``, which keeps this function and ``parse`` disjoint by
+    construction: a 17- or 18-digit input is never "incomplete".
+    """
+
+    digits = upc_svc.normalize_barcode(raw)
+    if len(digits) == 13 and digits.startswith("0"):
+        digits = digits[1:]
+    if len(digits) != 12:
+        return None
+
+    if not upc_svc.validate_upc(digits):
+        return None
+    if digits[:6] not in _PUBLISHER_PREFIXES:
+        return None
+    return digits
+
+
+def complete(raw: str, supplement: str) -> str | None:
+    """Combine a known-incomplete UPC-A with a typed five-digit supplement.
+
+    Returns the same 17-digit form ``parse`` accepts, or ``None`` if ``raw``
+    is not a recognized legacy UPC or ``supplement`` is not exactly five
+    digits once normalized. ``supplement`` is user-typed input and may be
+    anything, including empty or non-numeric junk; this never raises on it.
+    """
+
+    upc = incomplete(raw)
+    if upc is None:
+        return None
+
+    digits = upc_svc.normalize_barcode(supplement)
+    if len(digits) != 5:
+        return None
+    return upc + digits
+
+
 def mapping_key(raw: str) -> str | None:
     """Return the canonical 17-digit identity shared by supported forms."""
 

@@ -43,7 +43,7 @@ def test_bulk_move_apply_moves_selected_list_item(live_server, authed_page):
     item_id = insert_item(
         live_server["data_dir"],
         title="Bulk Move Browser Probe",
-        isbn="9780000999401",
+        isbn="9780009994012",
     )
 
     authed_page.goto(f"{live_server['url']}/browse")
@@ -56,43 +56,40 @@ def test_bulk_move_apply_moves_selected_list_item(live_server, authed_page):
     expect(authed_page.get_by_text("1 selected", exact=True)).to_be_visible()
 
     authed_page.locator('select[x-model="bulkLocationVal"]').select_option(str(location_id))
-    apply_button = authed_page.get_by_role("button", name="Apply", exact=True).first
+    # Four buttons read "Apply"; the location one is x-show'd on this select.
+    # A role locator with `.first` resolves before Alpine flips it visible, so
+    # it pins the always-rendered (disabled) series Apply and times out — name
+    # the button by its own guard instead.
+    apply_button = authed_page.locator('button[x-show="bulkLocationVal"]')
     expect(apply_button).to_be_visible()
-
-    # bulkUpdate() awaits its POST before calling location.reload().  Waiting
-    # for the current page's load state after click is racy because it may
-    # already be network-idle before that future reload starts.  Arm the
-    # navigation waiter first so the assertion always observes the completed
-    # mutation rather than whichever side of that race the runner happened to
-    # hit.
-    with authed_page.expect_navigation(wait_until="networkidle"):
+    # The assertion below reads the database, not the page, so the POST
+    # response is the whole contract — the reload that follows it is
+    # irrelevant to this test.
+    with authed_page.expect_response(
+        lambda r: "/api/items/bulk-update" in r.url and r.request.method == "POST"
+    ):
         apply_button.click()
 
     assert _location_id(live_server["data_dir"], item_id) == location_id
 
 
 def test_shortcut_help_button_opens_and_modal_controls_close(live_server, authed_page):
-    """The account shortcut action and modal close surfaces work under strict CSP."""
+    """The visible ? button and modal close surfaces must work under strict CSP."""
     authed_page.goto(f"{live_server['url']}/browse")
     authed_page.wait_for_load_state("networkidle")
 
     modal = authed_page.locator("#shortcut-modal")
     expect(modal).to_be_hidden()
 
-    def open_shortcuts():
-        authed_page.locator('[data-testid="account-menu-button"]').click()
-        panel = authed_page.locator('[data-testid="account-menu-panel"]')
-        expect(panel).to_be_visible()
-        panel.locator('[data-testid="account-shortcuts-action"]').click()
-
-    open_shortcuts()
+    authed_page.get_by_title("Keyboard shortcuts (?)").click()
     expect(modal).to_be_visible()
 
-    authed_page.get_by_role("button", name="Close keyboard shortcuts").click()
+    # The modal header has a single close button.
+    modal.locator("button").first.click()
     expect(modal).to_be_hidden()
 
     # Reopen and verify clicking the backdrop closes it too.
-    open_shortcuts()
+    authed_page.get_by_title("Keyboard shortcuts (?)").click()
     expect(modal).to_be_visible()
     modal.click(position={"x": 5, "y": 5})
     expect(modal).to_be_hidden()

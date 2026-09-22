@@ -25,7 +25,6 @@ import httpx
 
 from fastapi import Request
 
-from app import browse_filters
 from app.config import HTTP_TIMEOUT, MEDIA_TYPES
 from app.database import get_db, get_setting
 from app.services import covers, detect, googlebooks, hardcover, national, openlibrary, provider_result
@@ -35,6 +34,8 @@ from app.services import igdb, scan_outcome, title_lookup, tmdb, upcitemdb
 from app.services import upc as upc_svc
 from app.services import isbn as isbn_svc
 from app.services.item_write import ItemValueError, insert_item, update_item_fields
+from app.services import item_write  # promote_wishlisted (scan) — call through the module (patchable)
+from app.services import restore_report
 
 logger = logging.getLogger(__name__)
 
@@ -47,87 +48,6 @@ SORT_OPTIONS = {
     "year_desc": ("Year (Newest)", "(i.publish_year IS NULL), i.publish_year DESC, i.title COLLATE NOCASE ASC"),
     "year_asc": ("Year (Oldest)", "(i.publish_year IS NULL), i.publish_year ASC, i.title COLLATE NOCASE ASC"),
 }
-
-
-def filter_counts(db, values: dict, total: int) -> dict:
-    """Cross-filter dropdown counts: each group is build_where minus its own filter.
-
-    `values` is the dict `browse_filters.values_from` produced; `total` is the
-    row count for the *unexcluded* where-clause, which every caller has already
-    run. Both `/browse` and `/api/search` render their dropdowns from this dict,
-    so the numbers cannot disagree between the first paint and the first swap.
-    """
-    def _count_where(exclude):
-        return browse_filters.build_where(values, exclude=exclude)
-
-    type_where, type_params = _count_where("media_type_filter")
-    type_counts = {
-        row["media_type"]: row["c"]
-        for row in db.execute(
-            f"SELECT media_type, COUNT(*) as c FROM items i {type_where} GROUP BY media_type",
-            type_params,
-        ).fetchall()
-    }
-    type_total = sum(type_counts.values())
-
-    own_where, own_params = _count_where("owned")
-    _own_join = " AND" if own_where else " WHERE"
-    owned_count = db.execute(
-        f"SELECT COUNT(*) as c FROM items i {own_where}{_own_join} i.owned = 1",
-        own_params,
-    ).fetchone()["c"]
-    wishlist_count = db.execute(
-        f"SELECT COUNT(*) as c FROM items i {own_where}{_own_join} i.owned = 0",
-        own_params,
-    ).fetchone()["c"]
-
-    loc_where, loc_params = _count_where("location_filter")
-    _loc_join = " AND" if loc_where else " WHERE"
-    location_counts = {
-        row["location_id"]: row["c"]
-        for row in db.execute(
-            f"SELECT location_id, COUNT(*) as c FROM items i {loc_where}"
-            f"{_loc_join} location_id IS NOT NULL GROUP BY location_id",
-            loc_params,
-        ).fetchall()
-    }
-    no_location_count = db.execute(
-        f"SELECT COUNT(*) as c FROM items i {loc_where}{_loc_join} location_id IS NULL",
-        loc_params,
-    ).fetchone()["c"]
-
-    rs_where, rs_params = _count_where("reading_status")
-    _rs_join = " AND" if rs_where else " WHERE"
-    reading_status_counts = {
-        row["reading_status"]: row["c"]
-        for row in db.execute(
-            f"SELECT reading_status, COUNT(*) as c FROM items i {rs_where}"
-            f"{_rs_join} reading_status IS NOT NULL AND reading_status != '' "
-            "GROUP BY reading_status",
-            rs_params,
-        ).fetchall()
-    }
-
-    locations = db.execute(
-        "SELECT * FROM locations ORDER BY sort_order, name"
-    ).fetchall()
-
-    return {
-        "type_counts": type_counts,
-        "type_total": type_total,
-        "owned_count": owned_count,
-        "wishlist_count": wishlist_count,
-        "location_counts": location_counts,
-        "no_location_count": no_location_count,
-        "reading_status_counts": reading_status_counts,
-        "locations": locations,
-        "filtered_total": total,
-        "active_type": values["media_type_filter"],
-        "active_owned": values["owned"],
-        "active_location": values["location_filter"],
-        "active_reading_status": values["reading_status"],
-    }
-
 
 def _toast_header(message: str, toast_type: str = "success") -> str:
     return json.dumps({"showToast": {"message": message, "type": toast_type}})
@@ -208,12 +128,22 @@ async def _lookup_metadata(isbn13: str, hc_token: str | None, client: httpx.Asyn
     return metadata, source, hc_ids, provider_result.combine(legs, provider="isbn-cascade")
 
 def _save_item(metadata: dict, isbn13: str, media_type: str, location_id: int | None,
-               source: str, hc_ids: dict) -> int:
+               source: str, hc_ids: dict, *, owned: bool = True) -> int:
     """Insert from scan metadata; `isbn13` is boundary-validated by every
-    caller, and the funnel derives `isbn10`. Returns the new item ID."""
+    caller, and the funnel derives `isbn10`. Returns the new item ID.
+
+    `owned=False` is wishlist mode, and it rides the **insert** rather than a
+    second transaction that demotes afterwards. A restoring funnel has to be
+    told the caller's ownership intent: it applies that intent to the row it
+    brings back, and a post-hoc demote would restore an owned item and then
+    demote it. It also closes the window where a crash between the two
+    transactions left an owned row behind.
+    """
+    extra = {} if owned else {"owned": 0, "wishlisted": True}
     with get_db() as db:
         return insert_item(
             db,
+            **extra,
             title=metadata["title"],
             subtitle=metadata.get("subtitle"),
             authors=metadata.get("authors"),
@@ -225,7 +155,6 @@ def _save_item(metadata: dict, isbn13: str, media_type: str, location_id: int | 
             description=metadata.get("description"),
             series_name=metadata.get("series_name"),
             series_position=metadata.get("series_position"),
-            series_memberships=metadata.get("series_memberships"),
             location_id=location_id,
             source=source,
             language=metadata.get("language"),
@@ -293,7 +222,7 @@ async def resolve_missing_cover(
     """
     with get_db() as db:
         row = db.execute(
-            "SELECT title, authors, isbn, cover_path FROM items WHERE id = ?",
+            "SELECT title, authors, isbn, cover_path FROM items_live WHERE id = ?",
             (item_id,),
         ).fetchone()
     if not row or row["cover_path"]:
@@ -324,11 +253,25 @@ async def resolve_missing_cover(
                 logger.info("Recovered ISBN %r for item %s is not a valid ISBN — not stored",
                             found_isbn, item_id)
             else:
+                skipped_in_trash = False
                 with get_db() as db:
-                    taken = db.execute("SELECT id FROM items WHERE isbn = ? AND id != ?",
+                    taken = db.execute("SELECT id FROM items_live WHERE isbn = ? AND id != ?",
                                        (pair[0], item_id)).fetchone()
                     if not taken:
-                        update_item_fields(db, item_id, {"isbn": pair[0]})
+                        try:
+                            update_item_fields(db, item_id, {"isbn": pair[0]})
+                        except item_write.IdentifierInTrash:
+                            # A trashed row holds the slot. Same outcome as
+                            # `taken` above: skip the rewrite and carry on
+                            # with the cover work, which is what this
+                            # function is actually for.
+                            skipped_in_trash = True
+                if skipped_in_trash:
+                    # Logged outside the `with` block — a log handler opening
+                    # its own connection would wait on the write lock (G3).
+                    logger.info(
+                        "Recovered ISBN %r for item %s is held by an item in "
+                        "Trash — not stored", pair[0], item_id)
         if cover_url:
             cover_path = await covers.download_cover(
                 item_id, None, cover_url, None, client)
@@ -417,7 +360,7 @@ def _find_upc_row(db, upc_key: str, media_type: str):
     `TestIntegrityErrorGuard` patches for exactly this reason.
     """
     return db.execute(
-        "SELECT id, title FROM items WHERE upc = ? AND media_type = ?",
+        "SELECT id, title FROM items_live WHERE upc = ? AND media_type = ?",
         (upc_key, media_type),
     ).fetchone()
 
@@ -454,30 +397,31 @@ async def _scan_upc(request: Request, templates, upc_code: str, media_type: str,
 
     # --- Duplicate check, part 1 of 2: the barcode alone, above the network.
     #
-    # Keyed on `upc` with **no media_type term**, deliberately. One physical
-    # barcode is one product, so a barcode already on the shelf under any type
-    # short-circuits here and a re-scan costs no outbound call at all. That is
-    # also what stops a quota-exhausted or offline lookup from telling the user
-    # a disc they own is "Not found — add manually below": this dedupe check
-    # runs before `upcitemdb.lookup` is ever called, so neither `rate_limited`
-    # nor `transport_failed` (G47) can reach a row already on the shelf.
+    # Keyed on `upc` with **no media_type term**: a barcode already on the
+    # shelf short-circuits here at no outbound cost, so neither `rate_limited`
+    # nor `transport_failed` (G47) can reach a row already on the shelf. Part
+    # 2 (media_type-keyed) runs at the save, once the effective type is known
+    # — deduping on the hint up here would match the wrong row. Manual add
+    # keeps its own media_type-keyed check (same UPC, two types is its contract).
     #
-    # Part 2 — the media_type-keyed check the insert needs — runs at the save,
-    # once the effective type is known. Deduping on the hint up here and then
-    # saving under a detected type would match the wrong row.
-    #
-    # `/api/items/manual` keeps its own media_type-keyed `_find_duplicate_item`
-    # and is unaffected: "the same UPC under two types" is a manual-add
-    # contract (tests/test_upc_manual_add.py), not a scan one.
+    # This is the primary promotion site (#125, triage codex-R2) — most
+    # existing UPCs are caught here, not at the race guards below — so the
+    # write lock and the promote have to live here too (G18): BEGIN IMMEDIATE
+    # first, the promote inside the block, `_log_scan` after it (G3).
+    promoted = False
     with get_db() as db:
+        db.execute("BEGIN IMMEDIATE")
         existing = db.execute(
-            "SELECT id, title, media_type FROM items WHERE upc = ?", (upc_key,)
+            "SELECT id, title, media_type FROM items_live WHERE upc = ?", (upc_key,)
         ).fetchone()
+        if existing and mode != "wishlist":
+            promoted = item_write.promote_wishlisted(db, existing["id"])
     if existing:
-        _log_scan(upc_norm, existing["media_type"], "duplicate", existing["id"], mode)
+        status = "promoted" if promoted else "duplicate"
+        _log_scan(upc_norm, existing["media_type"], status, existing["id"], mode)
         return templates.TemplateResponse(
             request, "fragments/scan_result.html",
-            {"status": "duplicate", "isbn": upc_norm, "title": existing["title"], "item_id": existing["id"]},
+            {"status": status, "isbn": upc_norm, "title": existing["title"], "item_id": existing["id"]},
         )
 
     # --- One UPC Item DB lookup, above the game/film fork.
@@ -655,6 +599,7 @@ async def _scan_upc(request: Request, templates, upc_code: str, media_type: str,
                     # Was a follow-up UPDATE in a second transaction; owned is
                     # an item-creation field, so it belongs in the insert.
                     owned=0 if mode == "wishlist" else 1,
+                    wishlisted=(mode == "wishlist"),
                 )
             except ItemValueError as e:  # a stale location (#54)
                 value_error = str(e)
@@ -662,6 +607,7 @@ async def _scan_upc(request: Request, templates, upc_code: str, media_type: str,
                 existing = _find_upc_row(db, upc_key, media_type)
                 if existing is None:
                     raise
+        promoted = bool(existing) and mode != "wishlist" and item_write.promote_wishlisted(db, existing["id"])
 
     # _log_scan opens its own connection, so it must run outside the write
     # transaction above or it blocks on the lock that block still holds.
@@ -672,30 +618,36 @@ async def _scan_upc(request: Request, templates, upc_code: str, media_type: str,
             {"status": "error", "isbn": upc_norm, "message": value_error},
         )
     if existing:
-        _log_scan(upc_norm, media_type, "duplicate", existing["id"], mode)
+        status = "promoted" if promoted else "duplicate"
+        _log_scan(upc_norm, media_type, status, existing["id"], mode)
         return templates.TemplateResponse(
             request, "fragments/scan_result.html",
-            {"status": "duplicate", "isbn": upc_norm, "title": existing["title"],
+            {"status": status, "isbn": upc_norm, "title": existing["title"],
              "item_id": existing["id"]},
         )
 
-    # Download cover
+    # Download cover — skipped entirely on a restored row that already has
+    # one, so the user's own cover survives the re-add (and no outbound call
+    # is made for a cover we would then discard).
     cover_path = None
-    if metadata.get("cover_url"):
+    if metadata.get("cover_url") and not restore_report.keeps_stored_cover(item_id):
         async with httpx.AsyncClient(timeout=HTTP_TIMEOUT) as client:
             cover_path = await covers._download_to_item(item_id, metadata["cover_url"], client)
         if cover_path:
             with get_db() as db:
                 db.execute("UPDATE items SET cover_path = ? WHERE id = ?", (cover_path, item_id))
 
-    status = "wishlisted" if mode == "wishlist" else "added"
+    status = restore_report.restored_status(item_id, "wishlisted" if mode == "wishlist" else "added")
     _log_scan(upc_norm, media_type, status, item_id, mode)
 
     resp = templates.TemplateResponse(
         request, "fragments/scan_result.html",
         {
-            "status": status, "isbn": upc_norm, "title": metadata["title"],
-            "authors": None, "cover_path": cover_path, "item_id": item_id,
+            "status": status, "isbn": upc_norm,
+            **({"title": metadata["title"], "authors": None,
+                "cover_path": cover_path}
+               if status != "restored" else restore_report.restored_card(item_id)),
+            "item_id": item_id,
             "source": source, "media_type_label": MEDIA_TYPES.get(media_type, media_type),
             # T5 renders these; T4 only has to carry them.
             "detect_reason": detect_reason, "detect_overrode": detect_overrode,
@@ -830,6 +782,7 @@ async def _scan_upc_game(request: Request, templates, upc_norm: str, product: di
                     upc=upc_key,
                     source=source,
                     owned=0 if mode == "wishlist" else 1,
+                    wishlisted=(mode == "wishlist"),
                 )
             except ItemValueError as e:  # unknown platform or stale location (#54)
                 value_error = str(e)
@@ -837,6 +790,7 @@ async def _scan_upc_game(request: Request, templates, upc_norm: str, product: di
                 existing = _find_upc_row(db, upc_key, "video_game")
                 if existing is None:
                     raise
+        promoted = bool(existing) and mode != "wishlist" and item_write.promote_wishlisted(db, existing["id"])
 
     # Outside the write transaction — _log_scan opens its own connection.
     if value_error:
@@ -846,32 +800,37 @@ async def _scan_upc_game(request: Request, templates, upc_norm: str, product: di
             {"status": "error", "isbn": upc_norm, "message": value_error},
         )
     if existing:
-        _log_scan(upc_norm, "video_game", "duplicate", existing["id"], mode)
+        status = "promoted" if promoted else "duplicate"
+        _log_scan(upc_norm, "video_game", status, existing["id"], mode)
         return templates.TemplateResponse(
             request, "fragments/scan_result.html",
-            {"status": "duplicate", "isbn": upc_norm, "title": existing["title"],
+            {"status": status, "isbn": upc_norm, "title": existing["title"],
              "item_id": existing["id"]},
         )
 
-    # Download cover
+    # Download cover — skipped on a restored row that already has one, the
+    # same rule as the film branch above.
     cover_path = None
     cover_url = metadata.get("cover_url") if metadata else None
-    if cover_url:
+    if cover_url and not restore_report.keeps_stored_cover(item_id):
         async with httpx.AsyncClient(timeout=HTTP_TIMEOUT) as client:
             cover_path = await covers._download_to_item(item_id, cover_url, client)
         if cover_path:
             with get_db() as db:
                 db.execute("UPDATE items SET cover_path = ? WHERE id = ?", (cover_path, item_id))
 
-    status = "wishlisted" if mode == "wishlist" else "added"
+    status = restore_report.restored_status(item_id, "wishlisted" if mode == "wishlist" else "added")
     _log_scan(upc_norm, "video_game", status, item_id, mode)
 
     resp = templates.TemplateResponse(
         request, "fragments/scan_result.html",
         {
-            "status": status, "isbn": upc_norm, "title": game_title,
-            "authors": metadata.get("developer") if metadata else None,
-            "cover_path": cover_path, "item_id": item_id,
+            "status": status, "isbn": upc_norm,
+            **({"title": game_title,
+                "authors": metadata.get("developer") if metadata else None,
+                "cover_path": cover_path}
+               if status != "restored" else restore_report.restored_card(item_id)),
+            "item_id": item_id,
             "source": source, "media_type_label": "Video Game",
             # T5 renders these; T4 only has to carry them.
             "detect_reason": detect_reason, "detect_overrode": detect_overrode,
@@ -890,3 +849,4 @@ def _manual_form_locations():
     """
     with get_db() as db:
         return db.execute("SELECT id, name FROM locations ORDER BY sort_order, name").fetchall()
+

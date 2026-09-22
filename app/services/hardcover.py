@@ -4,6 +4,7 @@ import logging
 
 import httpx
 
+from app.services import authors as authors_svc
 from app.services import outbound, provider_result
 from app.services.isbn import isbn13_to_isbn10
 from app.services.item_write import update_item_fields
@@ -22,23 +23,6 @@ _AUTH_STATUSES = (401, 403)
 
 async def _rate_limit():
     await outbound.acquire("api.hardcover.app")
-
-
-def _book_series_memberships(book: dict) -> list[dict]:
-    """Return every explicit Hardcover series membership in API order."""
-    rows = []
-    seen = set()
-    for entry in book.get("book_series") or []:
-        if not isinstance(entry, dict):
-            continue
-        series = entry.get("series") or {}
-        name = str(series.get("name") or "").strip() if isinstance(series, dict) else ""
-        key = name.casefold()
-        if not name or key in seen:
-            continue
-        seen.add(key)
-        rows.append({"name": name, "position": entry.get("position")})
-    return rows
 
 
 async def _graphql_outcome(
@@ -186,13 +170,16 @@ async def lookup_by_isbn(
     contributions = book.get("contributions", [])
     if contributions:
         author_names = [c["author"]["name"] for c in contributions if c.get("author", {}).get("name")]
-        if author_names:
-            authors = ", ".join(author_names)
+        authors = authors_svc.join_names(author_names)
 
-    # Extract every explicit series; the first remains the legacy primary.
-    series_memberships = _book_series_memberships(book)
-    series_name = series_memberships[0]["name"] if series_memberships else None
-    series_position = series_memberships[0]["position"] if series_memberships else None
+    # Extract series
+    series_name = None
+    series_position = None
+    book_series = book.get("book_series", [])
+    if book_series:
+        s = book_series[0]
+        series_name = s.get("series", {}).get("name")
+        series_position = s.get("position")
 
     # Cover URL — prefer edition image, fall back to book cached_image
     cover_url = None
@@ -222,7 +209,6 @@ async def lookup_by_isbn(
         "cover_url": cover_url,
         "series_name": series_name,
         "series_position": series_position,
-        "series_memberships": series_memberships,
         "isbn10": edition.get("isbn_10"),
         "hardcover_book_id": book.get("id"),
         "hardcover_edition_id": edition.get("id"),
@@ -302,13 +288,16 @@ async def get_user_books(
         contributions = book.get("contributions", [])
         if contributions:
             author_names = [c["author"]["name"] for c in contributions if c.get("author", {}).get("name")]
-            if author_names:
-                authors = ", ".join(author_names)
+            authors = authors_svc.join_names(author_names)
 
-        # Extract every explicit series; the first remains the legacy primary.
-        series_memberships = _book_series_memberships(book)
-        series_name = series_memberships[0]["name"] if series_memberships else None
-        series_position = series_memberships[0]["position"] if series_memberships else None
+        # Extract series
+        series_name = None
+        series_position = None
+        book_series = book.get("book_series", [])
+        if book_series:
+            s = book_series[0]
+            series_name = s.get("series", {}).get("name")
+            series_position = s.get("position")
 
         # Find best edition — prefer the one matching user's edition_id, else first with ISBN
         isbn13 = None
@@ -357,7 +346,6 @@ async def get_user_books(
             "cover_url": cover_url,
             "series_name": series_name,
             "series_position": series_position,
-            "series_memberships": series_memberships,
             "isbn": isbn13,
             "isbn10": isbn10,
             "reading_status": reading_status,
@@ -408,31 +396,29 @@ async def search_books(query_str: str, client: httpx.AsyncClient, token: str | N
         elif isinstance(img, str):
             cover_url = img
 
-        # Authors
-        author_names = doc.get("author_names", [])
-        authors = ", ".join(author_names) if isinstance(author_names, list) else author_names
+        # Authors — this search index's author_names is a list for most docs
+        # but a bare string for some, so wrap the string case before the funnel.
+        # Any other shape is dropped here: this loop has no parse guard, so a
+        # TypeError from join_names would reach the caller as a 500.
+        raw = doc.get("author_names") or []
+        if isinstance(raw, str):
+            names = [raw]
+        elif isinstance(raw, (list, tuple)):
+            names = raw
+        else:
+            names = []
+        authors = authors_svc.join_names(names)
 
-        # Search documents may expose a featured series plus other series names.
-        # Keep every explicit name; only the featured series has a reliable position.
+        # Series
         series = doc.get("featured_series")
-        series_memberships = []
-        seen_series = set()
-        if isinstance(series, dict) and series.get("name"):
-            name = str(series["name"]).strip()
-            if name:
-                series_memberships.append({"name": name, "position": series.get("position")})
-                seen_series.add(name.casefold())
-        names = doc.get("series_names") or []
-        if isinstance(names, str):
-            names = [names]
-        if isinstance(names, list):
-            for raw_name in names:
-                name = str(raw_name or "").strip()
-                if name and name.casefold() not in seen_series:
-                    series_memberships.append({"name": name, "position": None})
-                    seen_series.add(name.casefold())
-        series_name = series_memberships[0]["name"] if series_memberships else None
-        series_position = series_memberships[0]["position"] if series_memberships else None
+        series_name = None
+        series_position = None
+        if isinstance(series, dict):
+            series_name = series.get("name")
+            series_position = series.get("position")
+        elif doc.get("series_names"):
+            sn = doc["series_names"]
+            series_name = sn[0] if isinstance(sn, list) and sn else None
 
         # ISBNs
         isbns = doc.get("isbns", [])
@@ -447,7 +433,6 @@ async def search_books(query_str: str, client: httpx.AsyncClient, token: str | N
             "description": doc.get("description"),
             "series_name": series_name,
             "series_position": series_position,
-            "series_memberships": series_memberships,
             "isbn": isbn,
             "rating": doc.get("rating"),
             "pages": doc.get("pages"),
@@ -591,7 +576,7 @@ async def sync_reading_statuses(token: str) -> dict:
     with get_db() as db:
         # Get all Shelf items linked to Hardcover
         linked = db.execute(
-            "SELECT id, hardcover_book_id, reading_status FROM items WHERE hardcover_book_id IS NOT NULL"
+            "SELECT id, hardcover_book_id, reading_status FROM items_live WHERE hardcover_book_id IS NOT NULL"
         ).fetchall()
 
         for item in linked:
@@ -642,8 +627,7 @@ def _parse_series_entries(entries: list) -> list[dict]:
         contributions = book.get("contributions", [])
         if contributions:
             names = [c["author"]["name"] for c in contributions if c.get("author", {}).get("name")]
-            if names:
-                authors = ", ".join(names)
+            authors = authors_svc.join_names(names)
 
         cover_url = None
         ci = book.get("cached_image")

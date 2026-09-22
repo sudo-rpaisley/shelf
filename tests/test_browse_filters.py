@@ -136,8 +136,18 @@ class TestBuildWhere:
         assert params == []
 
     def test_owned_is_tri_state(self):
+        """The URL contract is unchanged — "1" and "0" still mean owned and
+        wishlist — but "0" now reads `list_items` rather than `owned = 0`
+        (#125), and a fourth value, "none", reads its negation. The negative
+        assertion is the point: it is what goes red if the filter is ever
+        reverted to reading possession."""
         assert "i.owned = 1" in bf.build_where({"owned": "1"})[0]
-        assert "i.owned = 0" in bf.build_where({"owned": "0"})[0]
+        wishlist_where = bf.build_where({"owned": "0"})[0]
+        assert "EXISTS (SELECT 1 FROM list_items" in wishlist_where
+        assert "i.owned = 0" not in wishlist_where
+        neither_where = bf.build_where({"owned": "none"})[0]
+        assert "i.owned = 0" in neither_where
+        assert "NOT EXISTS (SELECT 1 FROM list_items" in neither_where
         assert bf.build_where({"owned": "either"}) == ("", [])
 
     def test_lent_out_only_applies_when_set(self):

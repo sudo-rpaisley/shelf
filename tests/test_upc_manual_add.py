@@ -9,14 +9,16 @@ check could never see the row — and the resulting UNIQUE(isbn, media_type)
 violation escaped uncaught.
 """
 
+import json
 import sqlite3
+import time
 from unittest.mock import AsyncMock, patch
 
 import pytest
 
 from app.database import MIGRATIONS, MIGRATION_TABLES, SCHEMA, _run_migrations
 from app.services import upc as upc_svc
-from tests.conftest import _insert_item
+from tests.conftest import _assert_ownership_partition, _insert_item
 
 # 888888888866 is a well-formed UPC-A that no provider resolves.
 UPC_A = "888888888866"
@@ -246,6 +248,186 @@ class TestScanFindsManuallyAddedUpc:
         assert _find_item_by_barcode(UPC_EAN)["title"] == "Lookup Disc"
 
 
+class TestManualAddWishlistMode:
+    """Issue #120: manual add must honour mode=wishlist, like /api/scan does."""
+
+    def test_wishlist_mode_stores_owned_zero_and_renders_wishlisted_card(self, admin_client, db):
+        with patch("app.routers.items.covers.download_cover", new=AsyncMock(return_value=None)):
+            resp = admin_client.post(
+                "/api/items/manual",
+                data={"title": "Wishlist Book", "isbn": "9780306406157", "media_type": "book",
+                      "mode": "wishlist"},
+            )
+        assert resp.status_code == 200
+        row = db.execute(
+            "SELECT owned FROM items WHERE title = ?", ("Wishlist Book",)
+        ).fetchone()
+        assert row["owned"] == 0
+        _assert_ownership_partition(db)
+        # G62: the card's declared attribute, not loose page text.
+        assert 'data-scan-status="wishlisted"' in resp.text
+
+    def test_no_mode_field_stores_owned_one(self, admin_client, db):
+        with patch("app.routers.items.covers.download_cover", new=AsyncMock(return_value=None)):
+            resp = admin_client.post(
+                "/api/items/manual",
+                data={"title": "No Mode Book", "isbn": "9780132350884", "media_type": "book"},
+            )
+        assert resp.status_code == 200
+        row = db.execute(
+            "SELECT owned FROM items WHERE title = ?", ("No Mode Book",)
+        ).fetchone()
+        assert row["owned"] == 1
+
+    def test_unrecognized_mode_behaves_as_add(self, admin_client, db):
+        with patch("app.routers.items.covers.download_cover", new=AsyncMock(return_value=None)):
+            resp = admin_client.post(
+                "/api/items/manual",
+                data={"title": "Nonsense Mode Book", "isbn": "9781491950357",
+                      "media_type": "book", "mode": "nonsense"},
+            )
+        assert resp.status_code == 200
+        row = db.execute(
+            "SELECT owned FROM items WHERE title = ?", ("Nonsense Mode Book",)
+        ).fetchone()
+        assert row["owned"] == 1
+        assert 'data-scan-status="added"' in resp.text
+        assert "wishlisted" not in resp.text.lower()
+
+    def test_activity_log_records_the_mode_it_was_given(self, admin_client, db):
+        """`scan_log.mode` must say what the submission said, as /api/scan does.
+        Logging `add` beside a `wishlisted` result is an incoherent row."""
+        with patch("app.routers.items.covers.download_cover", new=AsyncMock(return_value=None)):
+            admin_client.post(
+                "/api/items/manual",
+                data={"title": "Logged Book", "isbn": "9780451524935", "media_type": "book",
+                      "mode": "wishlist"},
+            )
+        row = db.execute(
+            "SELECT result, mode FROM scan_log ORDER BY id DESC LIMIT 1"
+        ).fetchone()
+        assert row["result"] == "wishlisted"
+        assert row["mode"] == "wishlist"
+
+    def test_wishlist_toast_says_wishlisted_not_added(self, admin_client):
+        with patch("app.routers.items.covers.download_cover", new=AsyncMock(return_value=None)):
+            resp = admin_client.post(
+                "/api/items/manual",
+                data={"title": "Toast Book", "isbn": "9780743273565", "media_type": "book",
+                      "mode": "wishlist"},
+            )
+        assert resp.status_code == 200
+        toast = resp.headers.get("HX-Trigger", "")
+        assert "wishlist" in toast.lower()
+        assert "Added:" not in toast
+
+
+class TestManualAddPromotesWishlisted:
+    """#125: a manual add (Add mode) of a wishlisted ISBN is the purchase — the item
+    becomes owned and leaves the wishlist. Owned and neither rows, and any
+    Wishlist-mode scan, still answer `duplicate`."""
+
+    ISBN = "9780441013593"
+
+    def _scan(self, client, mode="add"):
+        with patch("app.routers.items.covers.download_cover",
+                   new=AsyncMock(side_effect=AssertionError("no cover work for a known ISBN"))):
+            return client.post("/api/items/manual", data={
+                "title": "Typed Title", "isbn": self.ISBN, "media_type": "book", "mode": mode,
+            })
+
+    def _state(self, db, item_id):
+        from app.services import lists
+
+        owned = db.execute("SELECT owned FROM items WHERE id = ?", (item_id,)).fetchone()["owned"]
+        return owned, lists.is_member(db, lists.WISHLIST, item_id)
+
+    def _last_scan(self, db):
+        return db.execute(
+            "SELECT result, mode, item_id FROM scan_log ORDER BY id DESC LIMIT 1"
+        ).fetchone()
+
+    def test_wishlisted_isbn_is_promoted(self, admin_client, db):
+        item_id = _insert_item(db, title="Wished Dune", isbn=self.ISBN, owned=0, wishlisted=True)
+        db.commit()
+
+        resp = self._scan(admin_client)
+
+        assert resp.status_code == 200
+        assert 'data-scan-status="promoted"' in resp.text
+        assert "Now owned" in resp.text
+        assert self._state(db, item_id) == (1, False)
+        log = self._last_scan(db)
+        assert (log["result"], log["mode"], log["item_id"]) == ("promoted", "add", item_id)
+        assert db.execute("SELECT COUNT(*) FROM items").fetchone()[0] == 1
+        _assert_ownership_partition(db)
+
+    @pytest.mark.parametrize("seed", [dict(owned=1), dict(owned=0)], ids=["owned", "neither"])
+    def test_owned_and_neither_isbns_stay_duplicates(self, admin_client, db, seed):
+        item_id = _insert_item(db, title="Known Dune", isbn=self.ISBN, **seed)
+        db.commit()
+
+        resp = self._scan(admin_client)
+
+        assert 'data-scan-status="duplicate"' in resp.text
+        assert self._state(db, item_id) == (seed["owned"], False)
+        assert self._last_scan(db)["result"] == "duplicate"
+        _assert_ownership_partition(db)
+
+    def test_wishlist_mode_leaves_a_wishlisted_isbn_alone(self, admin_client, db):
+        item_id = _insert_item(db, title="Still Wished", isbn=self.ISBN, owned=0, wishlisted=True)
+        db.commit()
+
+        resp = self._scan(admin_client, mode="wishlist")
+
+        assert 'data-scan-status="duplicate"' in resp.text
+        assert self._state(db, item_id) == (0, True)
+        log = self._last_scan(db)
+        assert (log["result"], log["mode"]) == ("duplicate", "wishlist")
+        _assert_ownership_partition(db)
+
+    def test_the_guard_reads_under_the_write_lock(self, admin_client, db, monkeypatch):
+        """G18 — see `_install_lock_probe` in tests/test_intake.py."""
+        from app.routers import items as items_router
+        from tests.test_intake import _install_lock_probe
+
+        _insert_item(db, title="Probe Dune", isbn=self.ISBN, owned=0, wishlisted=True)
+        db.commit()
+        probe_results = []
+        _install_lock_probe(
+            monkeypatch, items_router,
+            lambda sql: "FROM items_live WHERE isbn = ? AND media_type = ?" in sql,
+            probe_results,
+        )
+
+        resp = self._scan(admin_client)
+
+        assert 'data-scan-status="promoted"' in resp.text
+        assert probe_results, "the guard query never ran — the probe did not fire"
+        assert probe_results[0].startswith("locked"), (
+            f"a rival writer could take the write lock while manual_add's duplicate "
+            f"guard was being read (got {probe_results[0]!r}) — BEGIN IMMEDIATE is "
+            "missing or below the guard SELECT (G18)"
+        )
+
+    def test_the_scan_is_logged_after_the_lock_is_released(self, admin_client, db):
+        """G3 — `_log_scan` opens its own connection; called under the
+        request's write lock it waits out SQLite's 5s busy timeout."""
+        _insert_item(db, title="Timed Dune", isbn=self.ISBN, owned=0, wishlisted=True)
+        db.commit()
+
+        start = time.monotonic()
+        resp = self._scan(admin_client)
+        elapsed = time.monotonic() - start
+
+        assert resp.status_code == 200
+        assert self._last_scan(db)["result"] == "promoted"
+        assert elapsed < 2.0, (
+            f"the promoted manual add took {elapsed:.2f}s — the scan log is being "
+            "written while the request still holds the write lock (G3)"
+        )
+
+
 def _legacy_db(tmp_path, skip_versions):
     """A database with every migration applied except `skip_versions`."""
     conn = sqlite3.connect(str(tmp_path / "legacy.db"))
@@ -265,6 +447,91 @@ def _legacy_db(tmp_path, skip_versions):
     conn.executescript(MIGRATION_TABLES)
     conn.commit()
     return conn
+
+
+class TestManualAddSurvivesACoverFailure:
+    """B1: the item row commits before the cover is written.
+
+    A filesystem failure in that second half used to escape as a 500 over an
+    add that had already succeeded. The user, told the add failed, retried —
+    and a title-only manual add carries no identifier, so
+    `_find_duplicate_item` could not recognise the row already stored and the
+    retry filed a second one. The cover is enrichment; the item is what was
+    asked for.
+    """
+
+    def test_a_cover_write_failure_still_adds_the_item(self, admin_client, db):
+        with patch("app.routers.items.covers.save_uploaded_cover",
+                   side_effect=OSError("simulated disk full")):
+            resp = admin_client.post(
+                "/api/items/manual",
+                data={"title": "Cover Failure Atlas", "media_type": "book"},
+                files={"cover": ("c.png", b"x" * 200, "image/png")},
+            )
+
+        assert resp.status_code == 200
+        # G62: the card's declared attribute, not loose page text.
+        assert 'data-scan-status="added"' in resp.text
+        rows = db.execute(
+            "SELECT id, cover_path FROM items WHERE title = ?", ("Cover Failure Atlas",)
+        ).fetchall()
+        assert len(rows) == 1
+        assert rows[0]["cover_path"] is None
+
+    def test_the_toast_says_the_cover_was_not_saved(self, admin_client, db):
+        """Silently dropping it would leave a coverless item and no reason
+        why. The item page can retry the upload."""
+        with patch("app.routers.items.covers.save_uploaded_cover",
+                   side_effect=OSError("simulated disk full")):
+            resp = admin_client.post(
+                "/api/items/manual",
+                data={"title": "Cover Toast Atlas", "media_type": "book"},
+                files={"cover": ("c.png", b"x" * 200, "image/png")},
+            )
+
+        toast = json.loads(resp.headers["HX-Trigger"])["showToast"]
+        assert toast["type"] == "warning"
+        assert "Added: Cover Toast Atlas" in toast["message"]
+        assert "cover could not be saved" in toast["message"]
+
+    def test_a_cover_write_failure_keeps_wishlist_state(self, admin_client, db):
+        """The wishlist update is a second committed transaction, also before
+        the cover. Swallowing the cover failure must not swallow it too."""
+        with patch("app.routers.items.covers.save_uploaded_cover",
+                   side_effect=OSError("simulated disk full")):
+            resp = admin_client.post(
+                "/api/items/manual",
+                data={"title": "Cover Failure Wishlist", "media_type": "book",
+                      "mode": "wishlist"},
+                files={"cover": ("c.png", b"x" * 200, "image/png")},
+            )
+
+        assert resp.status_code == 200
+        assert 'data-scan-status="wishlisted"' in resp.text
+        rows = db.execute(
+            "SELECT owned FROM items WHERE title = ?", ("Cover Failure Wishlist",)
+        ).fetchall()
+        assert len(rows) == 1
+        assert rows[0]["owned"] == 0
+        _assert_ownership_partition(db)
+
+    def test_a_successful_cover_still_toasts_as_success(self, admin_client, db):
+        """The warning arm must not become the only arm."""
+        with patch("app.routers.items.covers.save_uploaded_cover",
+                   return_value="covers/1.jpg"):
+            resp = admin_client.post(
+                "/api/items/manual",
+                data={"title": "Cover Success Atlas", "media_type": "book"},
+                files={"cover": ("c.png", b"x" * 200, "image/png")},
+            )
+
+        toast = json.loads(resp.headers["HX-Trigger"])["showToast"]
+        assert toast["type"] == "success"
+        assert "cover could not be saved" not in toast["message"]
+        row = db.execute(
+            "SELECT cover_path FROM items WHERE title = ?", ("Cover Success Atlas",)
+        ).fetchone()
+        assert row["cover_path"] == "covers/1.jpg"
 
 
 class TestRefileMigrations:

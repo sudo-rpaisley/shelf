@@ -6,8 +6,7 @@ import httpx
 
 from app.database import get_db
 from app.services import covers
-from app.services import series_memberships as series_memberships_svc
-from app.services.item_write import insert_item
+from app.services.item_write import IdentifierInTrash, insert_item
 from app.services.item_write import ItemValueError, update_item_fields
 from app.services import isbn as isbn_svc
 
@@ -56,18 +55,17 @@ def _normalise_publish_year(value):
         return value
 
 
-def _series_memberships(metadata: dict) -> list[dict]:
-    rows = series_memberships_svc.normalise(metadata.get("series"))
-    if not rows and metadata.get("seriesName"):
-        rows = series_memberships_svc.normalise(metadata.get("seriesName"))
-    return rows
-
-
 async def sync(abs_url: str, abs_token: str, on_progress=None) -> dict:
     """Sync items from Audiobookshelf. Returns summary stats.
 
     on_progress: optional async callback(current, total, title, status) for progress updates.
     """
+    # `in_trash` is counted lazily, deliberately not seeded here. This loop
+    # increments by literal name — it has no "is this action known" check the
+    # way the Komga and RomM loops do — so a lazy key is safe, and it keeps
+    # the stats shape byte-identical until something is actually in Trash,
+    # which is every sync until the delete sites are flipped. The template
+    # renders the count only when it is non-zero.
     stats = {"added": 0, "updated": 0, "unchanged": 0, "skipped": 0, "errors": 0}
 
     headers = {"Authorization": f"Bearer {abs_token}"}
@@ -180,9 +178,7 @@ async def sync(abs_url: str, abs_token: str, on_progress=None) -> dict:
                         f"Audiobookshelf item {abs_id} ({title})", raw_isbn,
                     )
                 isbn = isbn_pair[0] if isbn_pair else None
-                series_memberships = _series_memberships(metadata)
-                series_name = series_memberships[0]["name"] if series_memberships else None
-                series_position = series_memberships[0]["position"] if series_memberships else None
+                series_name = metadata.get("seriesName")
                 publisher = metadata.get("publisher")
                 pub_year = _normalise_publish_year(metadata.get("publishedYear"))
                 description = metadata.get("description")
@@ -191,13 +187,29 @@ async def sync(abs_url: str, abs_token: str, on_progress=None) -> dict:
                 duration_mins = int(duration_secs / 60) if duration_secs else None
 
                 with get_db() as db:
+                    # Physical, and LIVE FIRST (claude-R4 / codex-R1). A
+                    # trashed row must be seen here — the view would hide it,
+                    # the ISBN-less item would miss, and the next sync would
+                    # insert a duplicate. But `abs_id` is a plain index, not
+                    # unique, so a trashed row must never win over a live one
+                    # sharing the id: order live rows first.
                     existing = db.execute(
-                        """SELECT id, title, authors, narrator, isbn, series_name, series_position,
+                        """SELECT id, title, authors, narrator, isbn, series_name,
                                   publisher, publish_year, description, duration_mins,
-                                  media_type, abs_id, abs_library_id, cover_path
-                           FROM items WHERE abs_id = ?""",
+                                  media_type, abs_id, abs_library_id, cover_path,
+                                  deleted_at
+                           FROM items WHERE abs_id = ?
+                           ORDER BY deleted_at IS NOT NULL, id LIMIT 1""",
                         (abs_id,),
                     ).fetchone()
+                    if existing is not None and existing["deleted_at"] is not None:
+                        # A machine re-syncing does not resurrect what a
+                        # person deleted. Skipped BEFORE any write (G85), and
+                        # counted — never a swallowed exception (G47).
+                        stats["in_trash"] = stats.get("in_trash", 0) + 1
+                        if on_progress:
+                            await on_progress(current, total, title, "in_trash")
+                        continue
 
                     # Shelf permits the same ISBN across formats, but not twice
                     # within one media type. ABS IDs alone are therefore not
@@ -208,14 +220,14 @@ async def sync(abs_url: str, abs_token: str, on_progress=None) -> dict:
                     if isbn:
                         if existing:
                             isbn_match = db.execute(
-                                """SELECT id, abs_id FROM items
+                                """SELECT id, abs_id FROM items_live
                                    WHERE isbn = ? AND media_type = ? AND id != ?
                                    ORDER BY id LIMIT 1""",
                                 (isbn, media_type, existing["id"]),
                             ).fetchone()
                         else:
                             isbn_match = db.execute(
-                                """SELECT id, abs_id FROM items
+                                """SELECT id, abs_id FROM items_live
                                    WHERE isbn = ? AND media_type = ?
                                    ORDER BY id LIMIT 1""",
                                 (isbn, media_type),
@@ -241,10 +253,10 @@ async def sync(abs_url: str, abs_token: str, on_progress=None) -> dict:
                         # instead of attempting a duplicate insert. From this
                         # point on it follows the normal ABS update path.
                         existing = db.execute(
-                            """SELECT id, title, authors, narrator, isbn, series_name, series_position,
+                            """SELECT id, title, authors, narrator, isbn, series_name,
                                       publisher, publish_year, description, duration_mins,
                                       media_type, abs_id, abs_library_id, cover_path
-                               FROM items WHERE id = ?""",
+                               FROM items_live WHERE id = ?""",
                             (isbn_match["id"],),
                         ).fetchone()
 
@@ -259,7 +271,6 @@ async def sync(abs_url: str, abs_token: str, on_progress=None) -> dict:
                             "narrator": narrator,
                             "isbn": isbn,
                             "series_name": series_name,
-                            "series_position": series_position,
                             "publisher": publisher,
                             "publish_year": pub_year,
                             "description": description,
@@ -278,6 +289,14 @@ async def sync(abs_url: str, abs_token: str, on_progress=None) -> dict:
                             else:
                                 stats["unchanged"] += 1
                                 status = "unchanged"
+                        except IdentifierInTrash:
+                            # The update funnel refuses an ISBN a trashed row
+                            # holds — counted as the insert arm counts it, not
+                            # as an error on every sync until Trash is emptied.
+                            stats["in_trash"] = stats.get("in_trash", 0) + 1
+                            if on_progress:
+                                await on_progress(current, total, title, "in_trash")
+                            continue
                         except ItemValueError as e:
                             stats["errors"] += 1
                             if on_progress:
@@ -285,9 +304,6 @@ async def sync(abs_url: str, abs_token: str, on_progress=None) -> dict:
                             continue
 
                         item_id = existing["id"]
-                        series_memberships_svc.add_metadata_memberships(
-                            db, item_id, series_memberships
-                        )
                         fetch_cover = changed or not existing["cover_path"]
                         if on_progress:
                             await on_progress(current, total, title, status)
@@ -303,14 +319,21 @@ async def sync(abs_url: str, abs_token: str, on_progress=None) -> dict:
                                 publish_year=pub_year,
                                 description=description,
                                 series_name=series_name,
-                                series_position=series_position,
-                                series_memberships=series_memberships,
                                 narrator=narrator,
                                 duration_mins=duration_mins,
                                 abs_id=abs_id,
                                 abs_library_id=lib_id,
                                 source="audiobookshelf",
+                                restore_trashed=False,
                             )
+                        except IdentifierInTrash:
+                            # A trashed ISBN twin with a different abs_id.
+                            # Must precede the ItemValueError arm below — it
+                            # is a subclass, and that arm counts an error.
+                            stats["in_trash"] = stats.get("in_trash", 0) + 1
+                            if on_progress:
+                                await on_progress(current, total, title, "in_trash")
+                            continue
                         except ItemValueError as e:
                             stats["errors"] += 1
                             if on_progress:
@@ -386,8 +409,45 @@ def _authors_compatible(a: str | None, b: str | None) -> bool:
 
 
 def _auto_link_items():
-    """Group ABS items with matching book-family editions after the batch."""
-    from app.services import media_groups
-
+    """Create item_links between items that appear to be the same work in different formats."""
     with get_db() as db:
-        media_groups.auto_link_family(db, "book")
+        abs_items = db.execute(
+            "SELECT id, title, authors, isbn, media_type FROM items_live WHERE abs_id IS NOT NULL"
+        ).fetchall()
+
+        for abs_item in abs_items:
+            norm_title = _normalize_title(abs_item["title"])
+
+            # Match by ISBN
+            if abs_item["isbn"]:
+                matches = db.execute(
+                    "SELECT id FROM items_live WHERE isbn = ? AND id != ? AND media_type != ?",
+                    (abs_item["isbn"], abs_item["id"], abs_item["media_type"]),
+                ).fetchall()
+            else:
+                matches = []
+
+            # Match by normalized title + compatible authors if no ISBN match
+            if not matches:
+                all_items = db.execute(
+                    "SELECT id, title, authors, media_type FROM items_live WHERE id != ? AND abs_id IS NULL",
+                    (abs_item["id"],),
+                ).fetchall()
+                matches = [
+                    i for i in all_items
+                    if _normalize_title(i["title"]) == norm_title
+                    and i["media_type"] != abs_item["media_type"]
+                    and _authors_compatible(abs_item["authors"], i["authors"])
+                ]
+
+            for match in matches:
+                match_id = match["id"] if isinstance(match, dict) else match[0]
+                a_id = min(abs_item["id"], match_id)
+                b_id = max(abs_item["id"], match_id)
+                try:
+                    db.execute(
+                        "INSERT OR IGNORE INTO item_links (item_a_id, item_b_id) VALUES (?, ?)",
+                        (a_id, b_id),
+                    )
+                except Exception:
+                    pass

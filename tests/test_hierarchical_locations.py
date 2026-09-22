@@ -1,184 +1,157 @@
-"""Product coverage for hierarchical locations and physical shelf ordering."""
+import pytest
 
-from app.services import holdings
+from app.services import item_copies
+from app.services import locations as location_svc
 from app.services.item_write import insert_item
 
 
-def _legacy_root(db, name):
-    legacy_id = db.execute("INSERT INTO locations (name) VALUES (?)", (name,)).lastrowid
-    holdings.ensure_legacy_location_nodes(db)
-    node = db.execute(
-        "SELECT id FROM location_nodes WHERE legacy_location_id = ?", (legacy_id,)
+def test_legacy_flat_location_insert_is_kept_as_a_root(db):
+    row = db.execute(
+        "INSERT INTO locations (name, sort_order) VALUES ('Living Room', 0) RETURNING id"
     ).fetchone()
-    return legacy_id, node["id"]
+    location_id = row["id"]
 
-
-def _child(db, parent_id, name):
-    holdings.install_schema(db)
-    return db.execute(
-        "INSERT INTO location_nodes (parent_id, name) VALUES (?, ?)",
-        (parent_id, name),
-    ).lastrowid
-
-
-def _physical_item(db, title, legacy_location_id, **kwargs):
-    fields = {
-        "title": title,
-        "media_type": "book",
-        "source": "test",
-        "owned": 1,
-        "location_id": legacy_location_id,
-    }
-    fields.update(kwargs)
-    return insert_item(db, fields)
-
-
-def test_location_tree_renders_same_shelf_name_under_different_rooms(viewer_client, db):
-    _, living = _legacy_root(db, "Living Room")
-    _, bedroom = _legacy_root(db, "Bedroom")
-    living_shelf = _child(db, living, "Shelf 1")
-    bedroom_shelf = _child(db, bedroom, "Shelf 1")
-    db.commit()
-
-    response = viewer_client.get("/locations")
-    assert response.status_code == 200
-    html = response.text
-    assert f'data-location-node="{living_shelf}"' in html
-    assert f'data-location-node="{bedroom_shelf}"' in html
-    assert html.count("Shelf 1") >= 2
-
-
-def test_admin_can_add_nested_location_but_duplicate_sibling_is_rejected(admin_client, db):
-    _, living = _legacy_root(db, "Living Room")
-    db.commit()
-
-    response = admin_client.post(
-        "/api/location-tree",
-        data={"name": "Shelf 1", "parent_id": living, "sort_order": 0},
-        follow_redirects=False,
-    )
-    assert response.status_code == 303
-    shelf = db.execute(
-        "SELECT id FROM location_nodes WHERE parent_id = ? AND name = 'Shelf 1'",
-        (living,),
+    # Legacy/raw callers may still know only the old flat columns. The tree
+    # service treats a missing node label as the legacy name rather than
+    # requiring a trigger (Shelf's secure restore rejects trigger-bearing DBs).
+    location = db.execute(
+        "SELECT name, label, parent_id FROM locations WHERE id = ?", (location_id,)
     ).fetchone()
-    assert shelf is not None
-
-    duplicate = admin_client.post(
-        "/api/location-tree",
-        data={"name": "shelf 1", "parent_id": living, "sort_order": 0},
-        follow_redirects=False,
-    )
-    assert duplicate.status_code == 303
-    assert "error=duplicate" in duplicate.headers["location"]
+    assert tuple(location) == ("Living Room", None, None)
+    tree_row = next(row for row in location_svc.location_tree(db) if row["id"] == location_id)
+    assert tree_row["label"] == "Living Room"
+    assert tree_row["depth"] == 0
 
 
-def test_location_cannot_be_reparented_into_its_descendant(admin_client, db):
-    _, room = _legacy_root(db, "Room")
-    bookcase = _child(db, room, "Bookcase")
-    shelf = _child(db, bookcase, "Shelf")
-    db.commit()
+def test_arbitrary_depth_builds_unambiguous_full_paths(db):
+    room = location_svc.create_location(db, "Living Room")
+    case = location_svc.create_location(db, "Bookcase 1", parent_id=room)
+    shelf = location_svc.create_location(db, "Shelf 3", parent_id=case)
 
-    response = admin_client.post(
-        f"/api/location-tree/{room}/update",
-        data={"name": "Room", "parent_id": shelf, "sort_order": 0},
-        follow_redirects=False,
-    )
-    assert response.status_code == 303
-    assert "error=cycle" in response.headers["location"]
-    assert db.execute(
-        "SELECT parent_id FROM location_nodes WHERE id = ?", (room,)
-    ).fetchone()["parent_id"] is None
-
-
-def test_drag_order_endpoint_requires_every_copy_exactly_once(editor_client, db):
-    legacy, room = _legacy_root(db, "Room")
-    first_item = _physical_item(db, "First", legacy)
-    second_item = _physical_item(db, "Second", legacy)
-    copies = db.execute(
-        "SELECT id, item_id FROM item_copies WHERE item_id IN (?, ?) ORDER BY item_id",
-        (first_item, second_item),
+    rows = db.execute(
+        "SELECT id, name, label, parent_id FROM locations ORDER BY id"
     ).fetchall()
-    first_copy, second_copy = copies[0]["id"], copies[1]["id"]
-    db.commit()
+    assert [tuple(row) for row in rows] == [
+        (room, "Living Room", "Living Room", None),
+        (case, "Living Room / Bookcase 1", "Bookcase 1", room),
+        (shelf, "Living Room / Bookcase 1 / Shelf 3", "Shelf 3", case),
+    ]
 
-    response = editor_client.post(
-        f"/api/location-tree/{room}/order",
-        data={"copy_ids": f"{second_copy},{first_copy}"},
+
+def test_same_child_label_is_allowed_under_different_parents(db):
+    living = location_svc.create_location(db, "Living Room")
+    bedroom = location_svc.create_location(db, "Bedroom")
+
+    first = location_svc.create_location(db, "Shelf 1", parent_id=living)
+    second = location_svc.create_location(db, "Shelf 1", parent_id=bedroom)
+
+    assert db.execute("SELECT name FROM locations WHERE id = ?", (first,)).fetchone()["name"] == (
+        "Living Room / Shelf 1"
     )
-    assert response.status_code == 200
-    ordered = db.execute(
-        "SELECT id, position_order FROM item_copies WHERE location_id = ? "
-        "ORDER BY position_order",
-        (room,),
+    assert db.execute("SELECT name FROM locations WHERE id = ?", (second,)).fetchone()["name"] == (
+        "Bedroom / Shelf 1"
+    )
+
+
+def test_duplicate_sibling_labels_are_case_insensitive(db):
+    living = location_svc.create_location(db, "Living Room")
+    location_svc.create_location(db, "Shelf 1", parent_id=living)
+
+    with pytest.raises(location_svc.DuplicateLocation):
+        location_svc.create_location(db, "sHeLf 1", parent_id=living)
+
+
+def test_duplicate_root_labels_are_case_insensitive(db):
+    location_svc.create_location(db, "Archive")
+
+    with pytest.raises(location_svc.DuplicateLocation):
+        location_svc.create_location(db, "archive")
+
+
+def test_hierarchy_uses_no_database_triggers(db):
+    """Shelf's secure restore rejects trigger-bearing databases."""
+    triggers = db.execute(
+        "SELECT name FROM sqlite_master WHERE type = 'trigger' AND name LIKE 'trg_locations_%'"
     ).fetchall()
-    assert [row["id"] for row in ordered] == [second_copy, first_copy]
+    assert triggers == []
 
-    incomplete = editor_client.post(
-        f"/api/location-tree/{room}/order",
-        data={"copy_ids": str(first_copy)},
+
+def test_renaming_parent_rewrites_descendant_full_paths(db):
+    room = location_svc.create_location(db, "Living Room")
+    case = location_svc.create_location(db, "Bookcase 1", parent_id=room)
+    shelf = location_svc.create_location(db, "Shelf 3", parent_id=case)
+
+    location_svc.update_location(db, room, "Lounge")
+
+    assert db.execute("SELECT name FROM locations WHERE id = ?", (room,)).fetchone()["name"] == "Lounge"
+    assert db.execute("SELECT name FROM locations WHERE id = ?", (case,)).fetchone()["name"] == (
+        "Lounge / Bookcase 1"
     )
-    assert incomplete.status_code == 409
-
-
-def test_auto_arrange_supports_series_order(editor_client, db):
-    legacy, room = _legacy_root(db, "Bookcase")
-    second = _physical_item(
-        db, "Volume Two", legacy, series_name="Example", series_position=2
+    assert db.execute("SELECT name FROM locations WHERE id = ?", (shelf,)).fetchone()["name"] == (
+        "Lounge / Bookcase 1 / Shelf 3"
     )
-    first = _physical_item(
-        db, "Volume One", legacy, series_name="Example", series_position=1
+
+
+def test_reparenting_subtree_rewrites_all_descendant_paths(db):
+    living = location_svc.create_location(db, "Living Room")
+    bedroom = location_svc.create_location(db, "Bedroom")
+    case = location_svc.create_location(db, "Bookcase", parent_id=living)
+    shelf = location_svc.create_location(db, "Shelf 1", parent_id=case)
+
+    location_svc.update_location(db, case, "Bookcase", parent_id=bedroom)
+
+    assert db.execute("SELECT name FROM locations WHERE id = ?", (case,)).fetchone()["name"] == (
+        "Bedroom / Bookcase"
     )
-    db.commit()
-
-    response = editor_client.post(
-        f"/api/location-tree/{room}/auto-order",
-        data={"sort_key": "series"},
-        follow_redirects=False,
+    assert db.execute("SELECT name FROM locations WHERE id = ?", (shelf,)).fetchone()["name"] == (
+        "Bedroom / Bookcase / Shelf 1"
     )
-    assert response.status_code == 303
-    ordered_items = db.execute(
-        "SELECT c.item_id FROM item_copies c WHERE c.location_id = ? "
-        "ORDER BY c.position_order",
-        (room,),
-    ).fetchall()
-    assert [row["item_id"] for row in ordered_items] == [first, second]
 
 
-def test_moving_primary_copy_to_nested_shelf_keeps_correct_legacy_room(editor_client, db):
-    living_legacy, living = _legacy_root(db, "Living Room")
-    bedroom_legacy, bedroom = _legacy_root(db, "Bedroom")
-    bedroom_shelf = _child(db, bedroom, "Shelf 1")
-    item_id = _physical_item(db, "Move Me", living_legacy)
-    copy_id = db.execute(
-        "SELECT id FROM item_copies WHERE item_id = ? AND is_primary = 1", (item_id,)
-    ).fetchone()["id"]
-    db.commit()
+def test_location_cannot_be_its_own_parent_or_move_under_descendant(db):
+    root = location_svc.create_location(db, "Room")
+    child = location_svc.create_location(db, "Case", parent_id=root)
+    grandchild = location_svc.create_location(db, "Shelf", parent_id=child)
 
-    response = editor_client.post(
-        f"/api/location-tree/copies/{copy_id}/move",
-        data={"location_id": bedroom_shelf},
-        follow_redirects=False,
-    )
-    assert response.status_code == 303
-    assert db.execute(
-        "SELECT location_id FROM item_copies WHERE id = ?", (copy_id,)
-    ).fetchone()["location_id"] == bedroom_shelf
-    assert db.execute(
-        "SELECT location_id FROM items WHERE id = ?", (item_id,)
-    ).fetchone()["location_id"] == bedroom_legacy
+    with pytest.raises(location_svc.InvalidLocationParent):
+        location_svc.update_location(db, root, "Room", parent_id=root)
+    with pytest.raises(location_svc.InvalidLocationParent):
+        location_svc.update_location(db, root, "Room", parent_id=grandchild)
 
 
-def test_viewer_cannot_mutate_location_tree(viewer_client, db):
-    _, room = _legacy_root(db, "Room")
-    db.commit()
+def test_parent_with_children_must_be_emptied_before_delete(db):
+    root = location_svc.create_location(db, "Room")
+    location_svc.create_location(db, "Shelf", parent_id=root)
 
-    response = viewer_client.post(
-        "/api/location-tree",
-        data={"name": "Shelf", "parent_id": room},
-        follow_redirects=False,
-    )
-    assert response.status_code == 403
-    assert db.execute(
-        "SELECT 1 FROM location_nodes WHERE parent_id = ?", (room,)
-    ).fetchone() is None
+    with pytest.raises(location_svc.LocationHasChildren):
+        location_svc.delete_location(db, root)
+
+
+def test_delete_leaf_clears_item_and_copy_location_without_deleting_copy(db):
+    shelf = location_svc.create_location(db, "Shelf")
+    item_id = insert_item(db, title="Placed", location_id=shelf)
+    copy_id = item_copies.copies_for_item(db, item_id)[0]["id"]
+
+    location_svc.delete_location(db, shelf)
+
+    item = db.execute("SELECT location_id FROM items WHERE id = ?", (item_id,)).fetchone()
+    copy = db.execute("SELECT id, location_id FROM item_copies WHERE id = ?", (copy_id,)).fetchone()
+    assert item["location_id"] is None
+    assert tuple(copy) == (copy_id, None)
+
+
+def test_tree_is_depth_first_and_sibling_sort_order_is_local(db):
+    living = location_svc.create_location(db, "Living", sort_order=20)
+    location_svc.create_location(db, "Bedroom", sort_order=10)
+    location_svc.create_location(db, "Shelf B", parent_id=living, sort_order=20)
+    shelf_a = location_svc.create_location(db, "Shelf A", parent_id=living, sort_order=10)
+    location_svc.create_location(db, "Box", parent_id=shelf_a)
+
+    tree = location_svc.location_tree(db)
+    assert [(row["name"], row["depth"]) for row in tree] == [
+        ("Bedroom", 0),
+        ("Living", 0),
+        ("Living / Shelf A", 1),
+        ("Living / Shelf A / Box", 2),
+        ("Living / Shelf B", 1),
+    ]

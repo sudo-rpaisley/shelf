@@ -23,7 +23,7 @@ import pytest
 from app.services import covers, provider_result
 
 
-BOOK_FAMILY = ["book", "ebook", "audiobook", "kids_book", "comic"]
+BOOK_FAMILY = ["book", "ebook", "audiobook", "manga", "comic"]
 
 TMDB_CREDS = {"tmdb_api_key": "k"}
 IGDB_CREDS = {"igdb_client_id": "cid", "igdb_client_secret": "secret"}

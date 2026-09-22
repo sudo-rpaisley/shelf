@@ -32,19 +32,26 @@ everywhere local, it still fails. Main is where the person who *can* restamp is.
 """
 
 import argparse
-import os
 import re
 import subprocess
 import sys
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
+
+# scripts/ is not a package -- tests load this script standalone via
+# importlib.util.spec_from_file_location, which skips sys.path[0] entirely.
+# Put the script's own directory on the path so `import ci_context` resolves
+# under both that loader and a direct `python scripts/stamp_test_badges.py`.
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from ci_context import staleness_is_enforceable  # noqa: E402
+
 README_PATH = ROOT / "README.md"
 
 # (badge slug in the shields URL, pytest argv). The slug is the anchor: it is
 # what makes the badge greppable and what these regexes key off.
 SUITES = (
-    ("unit%20tests", ["tests/", "--ignore=tests/e2e"]),
+    ("unit%20tests", ["tests/", "--ignore=tests/e2e", "--ignore=tests/contract"]),
     ("e2e%20tests", ["tests/e2e/", "-m", "e2e"]),
 )
 
@@ -111,9 +118,10 @@ def stamp(check_only=False):
                 # fails, because nobody learns it stopped watching.
                 print("\nADVISORY on a pull-request build: this cannot be "
                       "satisfied here, because a restamp in each PR would "
-                      "collide across the batch. The maintainer runs "
-                      "`make badges` once after merging. Enforced on push to "
-                      "main and locally.", file=sys.stderr)
+                      "collide across the batch. CI runs `make badges` once, "
+                      "automatically, in the `restamp` job on the push to "
+                      "main. Enforced on push to main and locally.",
+                      file=sys.stderr)
                 return 0
             print("\nRun `make badges` and commit README.md.", file=sys.stderr)
             return 1
@@ -127,16 +135,6 @@ def stamp(check_only=False):
     else:
         print("Test-count badges already current.")
     return 0
-
-
-def staleness_is_enforceable() -> bool:
-    """False only on a pull-request CI build, where the check cannot be met.
-
-    Deliberately narrow: `GITHUB_EVENT_NAME` is `pull_request` only in that one
-    context. A push to main, a local run and a manual dispatch all still
-    enforce, so the badge cannot drift anywhere it can actually be fixed.
-    """
-    return os.environ.get("GITHUB_EVENT_NAME") != "pull_request"
 
 
 def main():

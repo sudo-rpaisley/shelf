@@ -59,7 +59,8 @@ class TestSeriesPage:
         assert "#3" in html
 
     def test_wishlist_items_badged(self, admin_client, db):
-        _insert_item(db, title="Want It", isbn="9789000003563", series_name="Solo", series_position=1, owned=0)
+        _insert_item(db, title="Want It", isbn="9789000003563", series_name="Solo", series_position=1,
+                     owned=0, wishlisted=True)
         db.execute("COMMIT")
         html = admin_client.get("/series").text
         assert "Solo" in html
@@ -77,7 +78,7 @@ class TestUnassignedBlock:
     def test_unassigned_block_books_only(self, admin_client, db):
         _insert_item(db, title="Loose Book", isbn="9789000010011", media_type="book")
         _insert_item(db, title="Loose Comic", isbn="9789000010028", media_type="comic")
-        _insert_item(db, title="Loose Kids Book", isbn="9789000010035", media_type="kids_book")
+        _insert_item(db, title="Loose Manga", isbn="9789000010035", media_type="manga")
         _insert_item(db, title="Loose DVD", isbn="9789000010042", media_type="dvd")
         _insert_item(db, title="Loose CD", isbn="9789000010059", media_type="cd")
         _insert_item(db, title="Loose Game", isbn="9789000010066", media_type="video_game")
@@ -89,7 +90,7 @@ class TestUnassignedBlock:
         after_block = html[block_start:]
         assert "Loose Book" in after_block
         assert "Loose Comic" in after_block
-        assert "Loose Kids Book" in after_block
+        assert "Loose Manga" in after_block
         assert "Loose DVD" not in html
         assert "Loose CD" not in html
         assert "Loose Game" not in html
@@ -187,7 +188,9 @@ class TestSeriesCheck:
         _insert_item(db, title="Dune", isbn="9789000003013", series_name="Dune Saga",
                      series_position=1, hardcover_book_id=101)
         _insert_item(db, title="Dune Messiah", isbn="9789000003181", series_name="Dune Saga",
-                     series_position=2, owned=0)  # matched by title, wishlisted
+                     series_position=2, owned=0, wishlisted=True)  # matched by title, wishlisted
+        _insert_item(db, title="Children of Dune", isbn="9789000003198", series_name="Dune Saga",
+                     series_position=3, owned=0, hardcover_book_id=103)  # matched by id, neither
         db.execute("INSERT INTO settings (key, value) VALUES ('hardcover_token', 'tok')")
         db.execute("COMMIT")
 
@@ -199,6 +202,8 @@ class TestSeriesCheck:
              "cover_url": None, "year": 1969, "series_position": 2},
             {"hardcover_book_id": 103, "title": "Children of Dune", "authors": "Frank Herbert",
              "cover_url": None, "year": 1976, "series_position": 3},
+            {"hardcover_book_id": 104, "title": "God Emperor of Dune", "authors": "Frank Herbert",
+             "cover_url": None, "year": 1981, "series_position": 4},
         ]
 
     def test_classification(self, admin_client, db):
@@ -207,12 +212,13 @@ class TestSeriesCheck:
                    new=AsyncMock(return_value=self._hc_books())):
             data = admin_client.get("/api/series/check", params={"name": "Dune Saga"}).json()
         assert data["ok"] is True
-        assert data["total"] == 3
-        assert data["missing"] == 1
+        assert data["total"] == 4
+        assert data["missing"] == 2
         by_id = {b["hardcover_book_id"]: b["status"] for b in data["books"]}
         assert by_id[101] == "owned"        # matched by hardcover_book_id
         assert by_id[102] == "wishlist"     # matched case-insensitively by title
-        assert by_id[103] == "missing"
+        assert by_id[103] == "missing"      # matched by hardcover_book_id, but neither owned nor wishlisted
+        assert by_id[104] == "missing"      # no local match at all
 
     def test_no_token(self, admin_client):
         data = admin_client.get("/api/series/check", params={"name": "X"}).json()
@@ -1285,6 +1291,14 @@ class TestGetSeriesBooksParsing:
         with patch.object(hc, "_graphql", new=AsyncMock(return_value=payload)):
             books = await hc.get_series_books("Obscure", "tok")
         assert [b["title"] for b in books] == ["Obscure Vol 1", "Obscure Vol 2"]
+
+    def test_parse_series_entries_joins_multiple_authors(self):
+        """T3 — `_parse_series_entries` is pure; call it directly beside the
+        single-author pin above (`books[0]["authors"] == "Frank Herbert"`)."""
+        from app.services import hardcover as hc
+        entries = [self._entry(1, "Dune", 1, authors=("Frank Herbert", "Brian Herbert"))]
+        books = hc._parse_series_entries(entries)
+        assert books[0]["authors"] == "Frank Herbert, Brian Herbert"
 
 
 class TestSeriesMetaOrphanGC:
