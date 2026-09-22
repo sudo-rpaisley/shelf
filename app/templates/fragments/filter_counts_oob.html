@@ -1,5 +1,5 @@
 {% if render_oob_counts %}
-<span id="collection-count" hx-swap-oob="true" class="text-shelf-muted text-lg font-normal">({{ filtered_total }})</span>
+<span id="collection-count" hx-swap-oob="true" class="text-shelf-muted text-lg font-normal">({{ browse_total if browse_total is defined else filtered_total }})</span>
 
 <select id="type-filter" name="media_type_filter" hx-swap-oob="true"
         hx-get="/api/search" hx-trigger="change" hx-target="#item-grid"
@@ -62,7 +62,7 @@
     <option value="" {{ 'selected' if not active_reading_status else '' }}>All Statuses</option>
     <option value="want_to_read" {{ 'selected' if active_reading_status == 'want_to_read' else '' }}>Want to Read{% if rsc.get('want_to_read') %} ({{ rsc.want_to_read }}){% endif %}</option>
     <option value="reading" {{ 'selected' if active_reading_status == 'reading' else '' }}>Reading{% if rsc.get('reading') %} ({{ rsc.reading }}){% endif %}</option>
-    <option value="read" {{ 'selected' if active_reading_status == 'read' else '' }}>Read{% if rsc.get('read') %} ({{ rsc.read }}){% endif %}</option>
+    <option value="read" {{ 'selected' if active_reading_status == 'read' else '' }}>Read{% if rsc.get('read') %} ({{ rsc.reading }}){% endif %}</option>
 </select>
 {% endif %}
 {% endif %}
