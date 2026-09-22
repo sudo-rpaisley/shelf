@@ -1,0 +1,351 @@
+name: Temporary general series experience patch
+on:
+  push:
+    branches: [upstream/general-series-experience-046]
+permissions:
+  contents: write
+jobs:
+  patch:
+    if: ${{ !contains(github.event.head_commit.message, 'Wire general series experience') }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: upstream/general-series-experience-046
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+      - name: Patch current 0.46 files
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          def replace(path, old, new, count=1):
+              p = Path(path)
+              text = p.read_text()
+              found = text.count(old)
+              if found != count:
+                  raise SystemExit(f"{path}: expected {count} occurrence(s), found {found}")
+              p.write_text(text.replace(old, new, count))
+
+          # Central Browse registry: presentation state, not a narrowing filter.
+          replace(
+              'app/browse_filters.py',
+              '    BrowseFilter("language", prefix="Language", condition=_column("i.language")),\n    # `view` is the odd one:',
+              '    BrowseFilter("language", prefix="Language", condition=_column("i.language")),\n'
+              '    # Presentation-only: grouping changes Browse units/pagination but does not\n'
+              '    # narrow the underlying item set. It stays in the URL because a grouped\n'
+              '    # Browse URL must reproduce the same cards when shared.\n'
+              '    BrowseFilter("group_series", prefix="Series", default="0", chip=False, clear_to=None),\n'
+              '    # `view` is the odd one:'
+          )
+
+          # First-paint Browse route: leave the existing query untouched unless grouping is requested.
+          p = Path('app/routers/pages.py')
+          text = p.read_text()
+          text = text.replace('from app.services import browse_counts\n', 'from app.services import browse_counts, series_browse\n', 1)
+          old = '''        from app.routers.checkouts import OVERDUE_CONDITION, get_overdue_days
+        items = db.execute(
+            f"SELECT i.*, l.name as location_name, "
+            f"(SELECT b.name FROM checkouts c JOIN borrowers b ON c.borrower_id = b.id "
+            f" WHERE c.item_id = i.id AND c.checked_in IS NULL LIMIT 1) AS lent_to, "
+            f"(SELECT 1 FROM checkouts c WHERE c.item_id = i.id AND {OVERDUE_CONDITION} LIMIT 1) AS lent_overdue, "
+            f"{lists.WISHLISTED_SQL} AS wishlisted "
+            f"FROM items_live i "
+            f"LEFT JOIN locations l ON i.location_id = l.id "
+            f"{where} ORDER BY {order_clause} LIMIT ?",
+            [get_overdue_days(db)] + params + [DEFAULT_PAGE_SIZE],
+        ).fetchall()
+
+        total_filtered = db.execute(
+            f"SELECT COUNT(*) as c FROM items_live i {where}", params
+        ).fetchone()["c"]
+'''
+          new = '''        from app.routers.checkouts import OVERDUE_CONDITION, get_overdue_days
+        overdue_days = get_overdue_days(db)
+        if values["group_series"] == "1":
+            items, total_filtered = series_browse.fetch_page(
+                db,
+                where=where,
+                params=params,
+                sort=values["sort"],
+                overdue_condition=OVERDUE_CONDITION,
+                overdue_days=overdue_days,
+                limit=DEFAULT_PAGE_SIZE,
+                offset=0,
+            )
+        else:
+            items = db.execute(
+                f"SELECT i.*, l.name as location_name, "
+                f"(SELECT b.name FROM checkouts c JOIN borrowers b ON c.borrower_id = b.id "
+                f" WHERE c.item_id = i.id AND c.checked_in IS NULL LIMIT 1) AS lent_to, "
+                f"(SELECT 1 FROM checkouts c WHERE c.item_id = i.id AND {OVERDUE_CONDITION} LIMIT 1) AS lent_overdue, "
+                f"{lists.WISHLISTED_SQL} AS wishlisted "
+                f"FROM items_live i "
+                f"LEFT JOIN locations l ON i.location_id = l.id "
+                f"{where} ORDER BY {order_clause} LIMIT ?",
+                [overdue_days] + params + [DEFAULT_PAGE_SIZE],
+            ).fetchall()
+
+            total_filtered = db.execute(
+                f"SELECT COUNT(*) as c FROM items_live i {where}", params
+            ).fetchone()["c"]
+'''
+          if old not in text:
+              raise SystemExit('pages.py browse query block not found')
+          p.write_text(text.replace(old, new, 1))
+
+          # HTMX Browse route: same explicit opt-in and same service.
+          p = Path('app/routers/items.py')
+          text = p.read_text()
+          text = text.replace('from app.services import browse_counts\n', 'from app.services import browse_counts, series_browse\n', 1)
+          old = '''    with get_db() as db:
+        total = db.execute(
+            f"SELECT COUNT(*) as c FROM items_live i {where}", params
+        ).fetchone()["c"]
+
+        from app.routers.checkouts import OVERDUE_CONDITION, get_overdue_days
+        items = db.execute(
+            f"SELECT i.*, l.name as location_name, "
+            f"(SELECT b.name FROM checkouts c JOIN borrowers b ON c.borrower_id = b.id "
+            f" WHERE c.item_id = i.id AND c.checked_in IS NULL LIMIT 1) AS lent_to, "
+            f"(SELECT 1 FROM checkouts c WHERE c.item_id = i.id AND {OVERDUE_CONDITION} LIMIT 1) AS lent_overdue, "
+            f"{lists.WISHLISTED_SQL} AS wishlisted "
+            f"FROM items_live i "
+            f"LEFT JOIN locations l ON i.location_id = l.id "
+            f"{where} ORDER BY {order_clause} LIMIT ? OFFSET ?",
+            [get_overdue_days(db)] + params + [per_page, offset],
+        ).fetchall()
+
+        # Cross-filter counts for dropdowns (page 1 only). Each group is the
+'''
+          new = '''    with get_db() as db:
+        from app.routers.checkouts import OVERDUE_CONDITION, get_overdue_days
+        overdue_days = get_overdue_days(db)
+        if values["group_series"] == "1":
+            items, total = series_browse.fetch_page(
+                db,
+                where=where,
+                params=params,
+                sort=sort,
+                overdue_condition=OVERDUE_CONDITION,
+                overdue_days=overdue_days,
+                limit=per_page,
+                offset=offset,
+            )
+        else:
+            total = db.execute(
+                f"SELECT COUNT(*) as c FROM items_live i {where}", params
+            ).fetchone()["c"]
+            items = db.execute(
+                f"SELECT i.*, l.name as location_name, "
+                f"(SELECT b.name FROM checkouts c JOIN borrowers b ON c.borrower_id = b.id "
+                f" WHERE c.item_id = i.id AND c.checked_in IS NULL LIMIT 1) AS lent_to, "
+                f"(SELECT 1 FROM checkouts c WHERE c.item_id = i.id AND {OVERDUE_CONDITION} LIMIT 1) AS lent_overdue, "
+                f"{lists.WISHLISTED_SQL} AS wishlisted "
+                f"FROM items_live i "
+                f"LEFT JOIN locations l ON i.location_id = l.id "
+                f"{where} ORDER BY {order_clause} LIMIT ? OFFSET ?",
+                [overdue_days] + params + [per_page, offset],
+            ).fetchall()
+
+        # Cross-filter counts for dropdowns (page 1 only). Each group is the
+'''
+          if old not in text:
+              raise SystemExit('items.py search query block not found')
+          p.write_text(text.replace(old, new, 1))
+
+          # Static presentation control; the registry carries it through every HTMX request.
+          replace(
+              'app/templates/browse.html',
+              '''            {% set f = initial_filters or {} %}
+            <!-- Media Type Filter -->''',
+              '''            {% set f = initial_filters or {} %}
+            <!-- Series grouping is presentation state, not a narrowing filter. -->
+            <select id="group-series" name="group_series" data-testid="group-series"
+                    hx-get="/api/search" hx-trigger="change" hx-target="#item-grid"
+                    hx-include="{{ filter_includes('group_series') }}"
+                    class="bg-shelf-card border border-shelf-border rounded-lg px-3 py-2 text-sm text-shelf-text focus:ring-2 focus:ring-shelf-accent outline-none">
+                <option value="0" {{ 'selected' if f.group_series != '1' else '' }}>Individual items</option>
+                <option value="1" {{ 'selected' if f.group_series == '1' else '' }}>Group series</option>
+            </select>
+
+            <!-- Media Type Filter -->'''
+          )
+
+          # Group-aware card/row wrappers; ordinary rows are byte-for-byte the old body.
+          for path, fragment in [
+              ('app/templates/fragments/item_card.html', 'fragments/series_card.html'),
+              ('app/templates/fragments/item_row.html', 'fragments/series_row.html'),
+          ]:
+              p = Path(path)
+              original = p.read_text()
+              p.write_text(
+                  "{% if item.is_series_unit is defined and item.is_series_unit %}\n"
+                  f"{{% include \"{fragment}\" %}}\n"
+                  "{% else %}\n" + original + "\n{% endif %}\n"
+              )
+
+          # Bulk selection expands collapsed series back to their actual item ids.
+          p = Path('static/js/browse.js')
+          text = p.read_text()
+          old = '''        openOrToggle(id, url, event) {
+            if (this.selectMode) { this.toggleItem(id); return; }
+            if (event && (event.ctrlKey || event.metaKey)) window.open(url, '_blank');
+            else window.location = url;
+        },
+
+        toggleItem(id) {
+            var idx = this.selectedIds.indexOf(id);
+            if (idx >= 0) this.selectedIds.splice(idx, 1);
+            else this.selectedIds.push(id);
+        },
+
+        selectAll() {
+            var self = this;
+            document.querySelectorAll('[data-item-id]').forEach(function(el) {
+                var id = parseInt(el.dataset.itemId);
+                if (self.selectedIds.indexOf(id) < 0) self.selectedIds.push(id);
+            });
+        },
+'''
+          new = '''        openOrToggle(id, url, event) {
+            if (this.selectMode) { this.toggleItem(id); return; }
+            if (event && (event.ctrlKey || event.metaKey)) window.open(url, '_blank');
+            else window.location = url;
+        },
+
+        groupIds(csv) {
+            if (!csv) return [];
+            return csv.split(',').map(function(value) { return parseInt(value); })
+                .filter(function(value) { return Number.isInteger(value); });
+        },
+
+        allSelected(csv) {
+            var self = this;
+            var ids = this.groupIds(csv);
+            return ids.length > 0 && ids.every(function(id) { return self.selectedIds.indexOf(id) >= 0; });
+        },
+
+        openGroupOrToggle(csv, url, event) {
+            if (this.selectMode) { this.toggleGroup(csv); return; }
+            if (event && (event.ctrlKey || event.metaKey)) window.open(url, '_blank');
+            else window.location = url;
+        },
+
+        toggleGroup(csv) {
+            var ids = this.groupIds(csv);
+            var remove = this.allSelected(csv);
+            var self = this;
+            ids.forEach(function(id) {
+                var idx = self.selectedIds.indexOf(id);
+                if (remove) {
+                    if (idx >= 0) self.selectedIds.splice(idx, 1);
+                } else if (idx < 0) {
+                    self.selectedIds.push(id);
+                }
+            });
+        },
+
+        toggleItem(id) {
+            var idx = this.selectedIds.indexOf(id);
+            if (idx >= 0) this.selectedIds.splice(idx, 1);
+            else this.selectedIds.push(id);
+        },
+
+        selectAll() {
+            var self = this;
+            document.querySelectorAll('[data-item-id], [data-item-ids]').forEach(function(el) {
+                var ids = el.dataset.itemIds ? self.groupIds(el.dataset.itemIds) : [parseInt(el.dataset.itemId)];
+                ids.forEach(function(id) {
+                    if (Number.isInteger(id) && self.selectedIds.indexOf(id) < 0) self.selectedIds.push(id);
+                });
+            });
+        },
+'''
+          if old not in text:
+              raise SystemExit('browse.js selection block not found')
+          p.write_text(text.replace(old, new, 1))
+
+          # General name-keyed series detail page; reuses find_gaps and series_meta.
+          p = Path('app/routers/series.py')
+          text = p.read_text()
+          text = text.replace('from fastapi import APIRouter, Depends, Form, Request\n', 'from fastapi import APIRouter, Depends, Form, HTTPException, Request\n', 1)
+          text = text.replace('from app.config import BOOK_MEDIA_TYPES\n', 'from app.config import BOOK_MEDIA_TYPES, MEDIA_TYPES\n', 1)
+          text = text.replace('from app.services import hardcover\n', 'from app.services import hardcover\nfrom app.services.browse_counts import SOURCE_LABELS\n', 1)
+          marker = '''@router.get("/series")
+async def series_page'''
+          route = '''@router.get("/series/{name:path}", name="series_detail")
+async def series_detail(request: Request, name: str, _=Depends(require_role("viewer"))):
+    """One provider-neutral series page, keyed by Shelf's NOCASE series name."""
+    name = name.strip()
+    if not name:
+        raise HTTPException(status_code=404, detail="Series not found")
+
+    with get_db() as db:
+        rows = db.execute(
+            "SELECT i.id, i.title, i.authors, i.cover_path, i.media_type, i.source, "
+            "i.series_name, i.series_position, i.owned, i.reading_status, "
+            f"{lists.WISHLISTED_SQL} AS wishlisted "
+            "FROM items_live i WHERE i.series_name = ? COLLATE NOCASE "
+            "ORDER BY i.series_position IS NULL, i.series_position, i.title COLLATE NOCASE, i.id",
+            (name,),
+        ).fetchall()
+        if not rows:
+            raise HTTPException(status_code=404, detail="Series not found")
+
+        meta = db.execute(
+            "SELECT description, complete, hc_total, hc_missing, hc_checked_at "
+            "FROM series_meta WHERE name = ? COLLATE NOCASE",
+            (name,),
+        ).fetchone()
+
+    spellings = {}
+    for row in rows:
+        spelling = row["series_name"]
+        spellings[spelling] = spellings.get(spelling, 0) + 1
+    display_name = min(spellings.items(), key=lambda kv: (-kv[1], kv[0]))[0]
+    items = [dict(row) for row in rows]
+    positions = [item["series_position"] for item in items]
+    series = {
+        "name": display_name,
+        "items": items,
+        "owned_count": sum(1 for item in items if item["owned"]),
+        "wishlist_count": sum(1 for item in items if item["wishlisted"]),
+        "gaps": find_gaps(positions),
+        "sources": sorted({item["source"] for item in items if item["source"]}),
+        "description": meta["description"] if meta else None,
+        "complete": meta["complete"] if meta else None,
+        "hc_total": meta["hc_total"] if meta else None,
+        "hc_missing": meta["hc_missing"] if meta else None,
+        "hc_checked_at": meta["hc_checked_at"] if meta else None,
+    }
+    return request.app.state.templates.TemplateResponse(
+        request,
+        "series_detail.html",
+        {"series": series, "media_types": MEDIA_TYPES, "source_labels": SOURCE_LABELS},
+    )
+
+
+@router.get("/series")
+async def series_page'''
+          if marker not in text:
+              raise SystemExit('series.py route marker not found')
+          p.write_text(text.replace(marker, route, 1))
+
+          # Make the overview's series title the entry point to the same name-keyed page.
+          replace(
+              'app/templates/series.html',
+              '                    {{ s.name }}\n                    {# Completeness badge (#15).',
+              '                    <a href="/series/{{ s.name|urlencode }}" class="hover:text-shelf-accent2 hover:underline">{{ s.name }}</a>\n                    {# Completeness badge (#15).'
+          )
+          PY
+      - name: Remove temporary workflow
+        run: rm .github/workflows/tmp-general-series-experience.yml
+      - name: Commit patch
+        run: |
+          git config user.name "Robert J Paisley"
+          git config user.email "56076332+sudo-rpaisley@users.noreply.github.com"
+          git add -A
+          git commit -m "Wire general series experience"
+          git push origin HEAD:upstream/general-series-experience-046
