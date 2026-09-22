@@ -73,6 +73,46 @@ def test_bulk_move_apply_moves_selected_list_item(live_server, authed_page):
     assert _location_id(live_server["data_dir"], item_id) == location_id
 
 
+def test_grouped_series_selection_expands_to_all_member_items(live_server, authed_page):
+    """One grouped series card must select and bulk-update every represented item."""
+    location_id = _insert_location(live_server["data_dir"], "Grouped Series Target")
+    first = insert_item(
+        live_server["data_dir"],
+        title="Grouped Volume One",
+        isbn="9780009994111",
+        series_name="Browser Grouping Probe",
+        series_position=1,
+    )
+    second = insert_item(
+        live_server["data_dir"],
+        title="Grouped Volume Two",
+        isbn="9780009994128",
+        series_name="browser grouping probe",
+        series_position=2,
+    )
+
+    authed_page.goto(f"{live_server['url']}/browse?sort=title_asc")
+    authed_page.wait_for_load_state("networkidle")
+    series_card = authed_page.locator('[data-testid="series-card"]')
+    expect(series_card).to_have_count(1)
+    expect(series_card).to_contain_text("Browser Grouping Probe")
+
+    authed_page.get_by_role("button", name="Select", exact=True).click()
+    series_card.click()
+    expect(authed_page.get_by_text("2 selected", exact=True)).to_be_visible()
+
+    authed_page.locator('select[x-model="bulkLocationVal"]').select_option(str(location_id))
+    apply_button = authed_page.locator('button[x-show="bulkLocationVal"]')
+    expect(apply_button).to_be_visible()
+    with authed_page.expect_response(
+        lambda r: "/api/items/bulk-update" in r.url and r.request.method == "POST"
+    ):
+        apply_button.click()
+
+    assert _location_id(live_server["data_dir"], first) == location_id
+    assert _location_id(live_server["data_dir"], second) == location_id
+
+
 def test_shortcut_help_button_opens_and_modal_controls_close(live_server, authed_page):
     """The visible ? button and modal close surfaces must work under strict CSP."""
     authed_page.goto(f"{live_server['url']}/browse")
