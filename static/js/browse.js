@@ -396,10 +396,7 @@ function browsePage() {
             this.showSelectTip = !localStorage.getItem('shelf-select-used');
         },
 
-        // item_row / item_card fragments: tap toggles selection in select
-        // mode, otherwise navigates to the item detail page. Ctrl/cmd-click
-        // opens a new tab instead (middle-click is handled natively by the
-        // anchor markup, which never reaches this handler).
+        // Plain item cards/rows keep the existing one-id behaviour.
         openOrToggle(id, url, event) {
             if (this.selectMode) { this.toggleItem(id); return; }
             if (event && (event.ctrlKey || event.metaKey)) window.open(url, '_blank');
@@ -412,11 +409,60 @@ function browsePage() {
             else this.selectedIds.push(id);
         },
 
+        // A grouped series is one Browse unit but still represents every
+        // matching item in that series. Bulk selection therefore expands the
+        // unit back into its item ids; it must never silently update only the
+        // representative cover item.
+        idsFromCsv(csv) {
+            if (!csv) return [];
+            return String(csv).split(',').map(function(value) {
+                return Number.parseInt(value, 10);
+            }).filter(function(value) {
+                return Number.isInteger(value);
+            });
+        },
+
+        groupSelected(csv) {
+            var self = this;
+            var ids = this.idsFromCsv(csv);
+            return ids.length > 0 && ids.every(function(id) {
+                return self.selectedIds.indexOf(id) >= 0;
+            });
+        },
+
+        toggleGroup(csv) {
+            var self = this;
+            var ids = this.idsFromCsv(csv);
+            var remove = ids.length > 0 && ids.every(function(id) {
+                return self.selectedIds.indexOf(id) >= 0;
+            });
+            ids.forEach(function(id) {
+                var idx = self.selectedIds.indexOf(id);
+                if (remove) {
+                    if (idx >= 0) self.selectedIds.splice(idx, 1);
+                } else if (idx < 0) {
+                    self.selectedIds.push(id);
+                }
+            });
+        },
+
+        openGroupOrToggle(csv, url, event) {
+            if (this.selectMode) { this.toggleGroup(csv); return; }
+            if (event && (event.ctrlKey || event.metaKey)) window.open(url, '_blank');
+            else window.location = url;
+        },
+
         selectAll() {
             var self = this;
-            document.querySelectorAll('[data-item-id]').forEach(function(el) {
-                var id = parseInt(el.dataset.itemId);
-                if (self.selectedIds.indexOf(id) < 0) self.selectedIds.push(id);
+            document.querySelectorAll('[data-item-id], [data-item-ids]').forEach(function(el) {
+                var ids = el.dataset.itemIds
+                    ? self.idsFromCsv(el.dataset.itemIds)
+                    : [Number.parseInt(el.dataset.itemId, 10)];
+                ids.forEach(function(id) {
+                    if (Number.isInteger(id) && self.selectedIds.indexOf(id) < 0) {
+                        self.selectedIds.push(id);
+                    }
+                });
             });
         },
 
