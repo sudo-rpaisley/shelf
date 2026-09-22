@@ -1,0 +1,346 @@
+name: Temporary general series build
+on:
+  push:
+    branches: [build/general-series-046]
+permissions:
+  contents: write
+jobs:
+  patch:
+    if: github.event.head_commit.message != 'TEMP: apply general series patches'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+      - name: Apply focused patches
+        shell: python
+        run: |
+          from pathlib import Path
+
+          def replace(path, old, new, count=-1):
+              p = Path(path)
+              text = p.read_text()
+              if old not in text:
+                  raise SystemExit(f"pattern not found in {path}: {old[:100]!r}")
+              text = text.replace(old, new, count)
+              p.write_text(text)
+
+          # pages.py: route Browse through provider-neutral grouping, but keep
+          # all ordinary row decoration and cross-filter counts unchanged.
+          replace(
+              "app/routers/pages.py",
+              "from app.services import item_copies, item_template, item_write\n",
+              "from app.services import item_copies, item_template, item_write, series_browse\n",
+              1,
+          )
+          old = '''        from app.routers.checkouts import OVERDUE_CONDITION, get_overdue_days
+          items = db.execute(
+              f"SELECT i.*, l.name as location_name, "
+              f"(SELECT b.name FROM checkouts c JOIN borrowers b ON c.borrower_id = b.id "
+              f" WHERE c.item_id = i.id AND c.checked_in IS NULL LIMIT 1) AS lent_to, "
+              f"(SELECT 1 FROM checkouts c WHERE c.item_id = i.id AND {OVERDUE_CONDITION} LIMIT 1) AS lent_overdue, "
+              f"{lists.WISHLISTED_SQL} AS wishlisted "
+              f"FROM items_live i "
+              f"LEFT JOIN locations l ON i.location_id = l.id "
+              f"{where} ORDER BY {order_clause} LIMIT ?",
+              [get_overdue_days(db)] + params + [DEFAULT_PAGE_SIZE],
+          ).fetchall()
+
+          total_filtered = db.execute(
+              f"SELECT COUNT(*) as c FROM items_live i {where}", params
+          ).fetchone()["c"]
+'''
+          new = '''        total_filtered = db.execute(
+              f"SELECT COUNT(*) as c FROM items_live i {where}", params
+          ).fetchone()["c"]
+
+          units, display_total = series_browse.fetch_units(
+              db,
+              where,
+              params,
+              order_clause,
+              limit=DEFAULT_PAGE_SIZE,
+              offset=0,
+          )
+
+          from app.routers.checkouts import OVERDUE_CONDITION, get_overdue_days
+          unit_ids = [unit["id"] for unit in units]
+          if unit_ids:
+              placeholders = ",".join("?" for _ in unit_ids)
+              detail_rows = db.execute(
+                  f"SELECT i.*, l.name as location_name, "
+                  f"(SELECT b.name FROM checkouts c JOIN borrowers b ON c.borrower_id = b.id "
+                  f" WHERE c.item_id = i.id AND c.checked_in IS NULL LIMIT 1) AS lent_to, "
+                  f"(SELECT 1 FROM checkouts c WHERE c.item_id = i.id AND {OVERDUE_CONDITION} LIMIT 1) AS lent_overdue, "
+                  f"{lists.WISHLISTED_SQL} AS wishlisted "
+                  f"FROM items_live i "
+                  f"LEFT JOIN locations l ON i.location_id = l.id "
+                  f"WHERE i.id IN ({placeholders})",
+                  [get_overdue_days(db)] + unit_ids,
+              ).fetchall()
+              items = series_browse.merge_item_details(units, detail_rows)
+          else:
+              items = []
+'''
+          replace("app/routers/pages.py", old, new, 1)
+          replace(
+              "app/routers/pages.py",
+              "        has_more = len(items) < total_filtered\n",
+              "        has_more = len(items) < display_total\n",
+              1,
+          )
+          replace(
+              "app/routers/pages.py",
+              '        "load_more_url": load_more_url,\n',
+              '        "load_more_url": load_more_url,\n        "display_total": display_total,\n',
+              1,
+          )
+
+          # items.py: same grouping boundary for HTMX pagination.
+          replace(
+              "app/routers/items.py",
+              "from app.services import item_merge\n",
+              "from app.services import item_merge, series_browse\n",
+              1,
+          )
+          old = '''        total = db.execute(
+              f"SELECT COUNT(*) as c FROM items_live i {where}", params
+          ).fetchone()["c"]
+
+          from app.routers.checkouts import OVERDUE_CONDITION, get_overdue_days
+          items = db.execute(
+              f"SELECT i.*, l.name as location_name, "
+              f"(SELECT b.name FROM checkouts c JOIN borrowers b ON c.borrower_id = b.id "
+              f" WHERE c.item_id = i.id AND c.checked_in IS NULL LIMIT 1) AS lent_to, "
+              f"(SELECT 1 FROM checkouts c WHERE c.item_id = i.id AND {OVERDUE_CONDITION} LIMIT 1) AS lent_overdue, "
+              f"{lists.WISHLISTED_SQL} AS wishlisted "
+              f"FROM items_live i "
+              f"LEFT JOIN locations l ON i.location_id = l.id "
+              f"{where} ORDER BY {order_clause} LIMIT ? OFFSET ?",
+              [get_overdue_days(db)] + params + [per_page, offset],
+          ).fetchall()
+'''
+          new = '''        total = db.execute(
+              f"SELECT COUNT(*) as c FROM items_live i {where}", params
+          ).fetchone()["c"]
+
+          units, display_total = series_browse.fetch_units(
+              db,
+              where,
+              params,
+              order_clause,
+              limit=per_page,
+              offset=offset,
+          )
+
+          from app.routers.checkouts import OVERDUE_CONDITION, get_overdue_days
+          unit_ids = [unit["id"] for unit in units]
+          if unit_ids:
+              placeholders = ",".join("?" for _ in unit_ids)
+              detail_rows = db.execute(
+                  f"SELECT i.*, l.name as location_name, "
+                  f"(SELECT b.name FROM checkouts c JOIN borrowers b ON c.borrower_id = b.id "
+                  f" WHERE c.item_id = i.id AND c.checked_in IS NULL LIMIT 1) AS lent_to, "
+                  f"(SELECT 1 FROM checkouts c WHERE c.item_id = i.id AND {OVERDUE_CONDITION} LIMIT 1) AS lent_overdue, "
+                  f"{lists.WISHLISTED_SQL} AS wishlisted "
+                  f"FROM items_live i "
+                  f"LEFT JOIN locations l ON i.location_id = l.id "
+                  f"WHERE i.id IN ({placeholders})",
+                  [get_overdue_days(db)] + unit_ids,
+              ).fetchall()
+              items = series_browse.merge_item_details(units, detail_rows)
+          else:
+              items = []
+'''
+          replace("app/routers/items.py", old, new, 1)
+          replace(
+              "app/routers/items.py",
+              "    has_more = (offset + per_page) < total\n",
+              "    has_more = (offset + per_page) < display_total\n",
+              1,
+          )
+          replace(
+              "app/routers/items.py",
+              '        "total": total,\n',
+              '        "total": display_total,\n        "display_total": display_total,\n',
+              1,
+          )
+
+          # Keep count labels honest: the heading is grouped, filter option
+          # counts remain raw items because they answer item-filter questions.
+          replace(
+              "app/templates/browse.html",
+              'id="collection-count" class="text-shelf-muted text-lg font-normal">({{ filtered_total }})</span>',
+              'id="collection-count" class="text-shelf-muted text-lg font-normal">({{ display_total if display_total is defined else filtered_total }})</span>',
+              1,
+          )
+          replace(
+              "app/templates/fragments/filter_counts_oob.html",
+              '<span id="collection-count" hx-swap-oob="true" class="text-shelf-muted text-lg font-normal">({{ filtered_total }})</span>',
+              '<span id="collection-count" hx-swap-oob="true" class="text-shelf-muted text-lg font-normal">({{ display_total if display_total is defined else filtered_total }})</span>',
+              1,
+          )
+
+          # Render grouped units through dedicated card/row templates in all
+          # first-page and infinite-scroll surfaces.
+          card_cond = '''{% if item.browse_series_group %}
+          {% include "fragments/series_card.html" %}
+          {% else %}
+          {% include "fragments/item_card.html" %}
+          {% endif %}'''
+          row_cond = '''{% if item.browse_series_group %}
+          {% include "fragments/series_row.html" %}
+          {% else %}
+          {% include "fragments/item_row.html" %}
+          {% endif %}'''
+          replace("app/templates/fragments/item_grid.html", '{% include "fragments/item_card.html" %}', card_cond, 1)
+          replace("app/templates/fragments/item_grid.html", '{% include "fragments/item_row.html" %}', row_cond, 1)
+          replace("app/templates/fragments/item_cards_page.html", '{% include "fragments/item_card.html" %}', card_cond, 1)
+          replace("app/templates/fragments/item_rows_page.html", '{% include "fragments/item_row.html" %}', row_cond, 1)
+
+          # Browse bulk selection treats a grouped card as all of its filtered
+          # members, fixing the old provider-specific PR's selection hole.
+          old = '''        openOrToggle(id, url, event) {
+              if (this.selectMode) { this.toggleItem(id); return; }
+              if (event && (event.ctrlKey || event.metaKey)) window.open(url, '_blank');
+              else window.location = url;
+          },
+
+          toggleItem(id) {
+'''
+          new = '''        openOrToggle(id, url, event) {
+              if (this.selectMode) { this.toggleItem(id); return; }
+              if (event && (event.ctrlKey || event.metaKey)) window.open(url, '_blank');
+              else window.location = url;
+          },
+
+          groupIds(raw) {
+              return String(raw || '').split(',').map(function(value) {
+                  return Number.parseInt(value, 10);
+              }).filter(function(value) { return Number.isInteger(value) && value > 0; });
+          },
+
+          groupSelected(raw) {
+              var ids = this.groupIds(raw);
+              return ids.length > 0 && ids.every((id) => this.selectedIds.includes(id));
+          },
+
+          toggleGroup(raw) {
+              var ids = this.groupIds(raw);
+              var allSelected = ids.length > 0 && ids.every((id) => this.selectedIds.includes(id));
+              if (allSelected) {
+                  this.selectedIds = this.selectedIds.filter((id) => ids.indexOf(id) < 0);
+              } else {
+                  ids.forEach((id) => {
+                      if (this.selectedIds.indexOf(id) < 0) this.selectedIds.push(id);
+                  });
+              }
+          },
+
+          openSeriesOrToggle(raw, url, event) {
+              if (this.selectMode) { this.toggleGroup(raw); return; }
+              if (event && (event.ctrlKey || event.metaKey)) window.open(url, '_blank');
+              else window.location = url;
+          },
+
+          toggleItem(id) {
+'''
+          replace("static/js/browse.js", old, new, 1)
+          old = '''        selectAll() {
+              var self = this;
+              document.querySelectorAll('[data-item-id]').forEach(function(el) {
+                  var id = parseInt(el.dataset.itemId);
+                  if (self.selectedIds.indexOf(id) < 0) self.selectedIds.push(id);
+              });
+          },
+'''
+          new = '''        selectAll() {
+              var self = this;
+              document.querySelectorAll('[data-item-id], [data-item-ids]').forEach(function(el) {
+                  if (el.dataset.itemIds) {
+                      self.groupIds(el.dataset.itemIds).forEach(function(id) {
+                          if (self.selectedIds.indexOf(id) < 0) self.selectedIds.push(id);
+                      });
+                      return;
+                  }
+                  var id = parseInt(el.dataset.itemId);
+                  if (self.selectedIds.indexOf(id) < 0) self.selectedIds.push(id);
+              });
+          },
+'''
+          replace("static/js/browse.js", old, new, 1)
+
+          # Put gap logic below the router and add one general, name-keyed page.
+          replace(
+              "app/routers/series.py",
+              "from fastapi import APIRouter, Depends, Form, Request\n",
+              "from fastapi import APIRouter, Depends, Form, Request\nfrom fastapi.responses import RedirectResponse\n",
+              1,
+          )
+          replace(
+              "app/routers/series.py",
+              "from app.services import lists\n",
+              "from app.services import lists, series_browse\n",
+              1,
+          )
+          old = '''def find_gaps(positions: list) -> list[int]:
+              """Missing integer positions between 1 and the highest whole-numbered
+              position. Fractional positions (novellas: 2.5) are ignored for gap math."""
+              ints = set()
+              for p in positions:
+                  if p is None:
+                      continue
+                  try:
+                      f = float(p)
+                  except (TypeError, ValueError):
+                      continue
+                  if f.is_integer() and f >= 1:
+                      ints.add(int(f))
+              if not ints:
+                  return []
+              return [n for n in range(1, max(ints) + 1) if n not in ints]
+          '''
+          replace("app/routers/series.py", old, "find_gaps = series_browse.find_gaps\n", 1)
+          marker = '''@router.get("/api/series/check")
+          async def check_series(name: str = "", _=Depends(require_role("viewer"))):
+          '''
+          detail_route = '''@router.get("/series/{name:path}")
+          async def series_detail_page(
+              request: Request,
+              name: str,
+              _=Depends(require_role("viewer")),
+          ):
+              with get_db() as db:
+                  detail = series_browse.series_detail(db, name)
+              if detail is None:
+                  return RedirectResponse(url="/series", status_code=302)
+              return request.app.state.templates.TemplateResponse(
+                  request,
+                  "series_detail.html",
+                  {"series": detail},
+              )
+
+
+          @router.get("/api/series/check")
+          async def check_series(name: str = "", _=Depends(require_role("viewer"))):
+          '''
+          replace("app/routers/series.py", marker, detail_route, 1)
+
+          # Make the existing /series overview an entry point to the detail page.
+          replace(
+              "app/templates/series.html",
+              '''                <h2 class="text-lg font-semibold">
+                      {{ s.name }}
+          ''',
+              '''                <h2 class="text-lg font-semibold">
+                      <a href="/series/{{ s.name|urlencode }}" class="hover:text-shelf-accent2">{{ s.name }}</a>
+          ''',
+              1,
+          )
+      - name: Commit patched tree
+        run: |
+          git config user.name "Robert J Paisley"
+          git config user.email "56076332+sudo-rpaisley@users.noreply.github.com"
+          git add app static tests
+          git commit -m "TEMP: apply general series patches"
+          git push
