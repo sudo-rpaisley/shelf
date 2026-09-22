@@ -1,0 +1,51 @@
+{% set ids = item.unit_item_ids %}
+{% set series_url = '/series/' ~ (item.unit_label|urlencode) %}
+{% set col_class = {
+    'author': 'text-shelf-muted text-sm truncate max-w-[200px]',
+    'status': '',
+    'value': 'text-shelf-success text-sm',
+    'series': 'text-shelf-muted text-xs truncate max-w-[200px]',
+    'publisher': 'text-shelf-muted text-xs truncate max-w-[200px]',
+    'identifier': 'text-shelf-muted text-xs font-mono',
+} %}
+<tr class="border-b border-shelf-border hover:bg-shelf-hover/50 transition-colors cursor-pointer"
+    data-item-ids="{{ ids }}"
+    @click="openGroupOrToggle('{{ ids }}', '{{ series_url }}', $event)"
+    :class="allSelected('{{ ids }}') ? 'bg-shelf-accent/10' : ''">
+    {% for col in browse_columns %}
+    {%- if col.name == 'select' %}
+    <td x-show="selectMode" data-col="select" class="px-3 py-2 w-8">
+        <div class="w-5 h-5 rounded border-2 flex items-center justify-center text-xs"
+             :class="allSelected('{{ ids }}') ? 'bg-shelf-accent border-shelf-accent text-white' : 'border-shelf-border'">
+            <span x-show="allSelected('{{ ids }}')">&#10003;</span>
+        </div>
+    </td>
+    {%- elif col.name == 'cover' %}
+    <td data-col="cover" class="px-3 py-2 w-10">
+        {% if item.cover_path %}
+        <img src="/{{ item.cover_path }}" alt="" class="w-8 h-12 object-cover rounded" loading="lazy">
+        {% else %}
+        <div class="w-8 h-12 bg-shelf-hover rounded flex items-center justify-center">
+            <svg class="w-4 h-4 text-shelf-muted" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M12 6.253v13m0-13C10.832 5.477 9.246 5 7.5 5S4.168 5.477 3 6.253v13C4.168 18.477 5.754 18 7.5 18s3.332.477 4.5 1.253m0-13C13.168 5.477 14.754 5 16.5 5c1.747 0 3.332.477 4.5 1.253v13C19.832 18.477 18.247 18 16.5 18c-1.746 0-3.332.477-4.5 1.253"/></svg>
+        </div>
+        {% endif %}
+    </td>
+    {%- elif col.name == 'title' %}
+    <td data-col="title" class="px-3 py-2">
+        <div class="flex items-center gap-2">
+            <a href="{{ series_url }}" @click.prevent class="text-shelf-text text-sm font-medium truncate max-w-xs hover:underline">{{ item.unit_label }}</a>
+            <span class="px-1.5 py-0.5 rounded text-[10px] font-medium bg-shelf-accent/20 text-shelf-accent2 shrink-0">{{ item.member_count }} item{{ '' if item.member_count == 1 else 's' }}</span>
+        </div>
+    </td>
+    {%- else %}
+    <td x-show="visibleCols.{{ col.name }}" data-col="{{ col.name }}"
+        class="px-3 py-2 {{ col_class.get(col.name, 'text-shelf-muted text-xs') }}">
+        {%- if col.name == 'author' %}{{ item.authors or '—' }}
+        {%- elif col.name == 'media_type' %}Series
+        {%- elif col.name == 'series' %}{{ item.unit_label }} · {{ item.member_count }} items
+        {%- else %}—
+        {%- endif %}
+    </td>
+    {%- endif %}
+    {% endfor %}
+</tr>
