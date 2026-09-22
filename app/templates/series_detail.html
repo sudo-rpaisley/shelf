@@ -1,0 +1,74 @@
+{% extends "base.html" %}
+{% block title %}{{ series.name }} — Shelf{% endblock %}
+{% block content %}
+<div class="mb-6">
+    <div class="flex items-center gap-3 mb-3">
+        <a href="/browse" class="text-sm text-shelf-muted hover:text-shelf-accent2 transition-colors">&larr; Browse</a>
+        <span class="text-shelf-border">/</span>
+        <a href="/series" class="text-sm text-shelf-muted hover:text-shelf-accent2 transition-colors">All series</a>
+    </div>
+
+    <div class="flex items-start justify-between gap-4 flex-wrap">
+        <div>
+            <div class="flex items-center gap-2 flex-wrap">
+                <h1 class="text-2xl font-bold">{{ series.name }}</h1>
+                {% if series.complete == 1 %}
+                <span class="px-2 py-0.5 rounded-full text-xs font-medium bg-shelf-success/20 text-shelf-success">&check; Complete</span>
+                {% elif series.hc_missing is not none and series.hc_missing > 0 %}
+                <span class="px-2 py-0.5 rounded-full text-xs font-medium bg-shelf-warning/20 text-shelf-warning">{{ series.hc_missing }} missing</span>
+                {% endif %}
+            </div>
+            <p class="text-sm text-shelf-muted mt-1">
+                {{ series['items']|length }} item{% if series['items']|length != 1 %}s{% endif %}
+                · {{ series.owned_count }} owned
+                {% if series.wishlist_count %} · {{ series.wishlist_count }} wishlisted{% endif %}
+                {% if series.gaps %}
+                · <span class="text-shelf-warning">possible gaps
+                    {%- for gap in series.gaps[:8] %} #{{ gap }}{% if not loop.last %},{% endif %}{% endfor %}
+                    {%- if series.gaps|length > 8 %} +{{ series.gaps|length - 8 }} more{% endif %}</span>
+                {% endif %}
+            </p>
+        </div>
+        <a href="/series" class="px-3 py-1.5 bg-shelf-card border border-shelf-border text-shelf-muted rounded-lg text-xs hover:text-shelf-text hover:border-shelf-accent/50 transition-colors">
+            Manage series
+        </a>
+    </div>
+
+    {% if series.description %}
+    <p class="mt-4 max-w-3xl text-sm text-shelf-muted leading-relaxed whitespace-pre-line">{{ series.description }}</p>
+    {% endif %}
+
+    {% if series.hc_total is not none %}
+    <p class="text-xs text-shelf-muted mt-3">
+        Hardcover lists {{ series.hc_total }} volume{% if series.hc_total != 1 %}s{% endif %}
+        {% if series.hc_checked_at %} · last checked {{ series.hc_checked_at[:10] }}{% endif %}
+    </p>
+    {% endif %}
+</div>
+
+<div class="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 xl:grid-cols-8 gap-4" data-testid="series-detail-items">
+    {% for item in series['items'] %}
+    <a href="/item/{{ item.id }}?from=series" class="group min-w-0" data-testid="series-detail-item">
+        <div class="relative aspect-[2/3] rounded-lg overflow-hidden border border-shelf-border bg-shelf-hover group-hover:border-shelf-accent/50 transition-colors">
+            {% if item.cover_path %}
+            <img src="/{{ item.cover_path }}" alt="" class="w-full h-full object-cover" loading="lazy">
+            {% else %}
+            <div class="w-full h-full flex items-center justify-center p-3">
+                <span class="text-xs text-shelf-muted text-center leading-tight">{{ item.title[:60] }}</span>
+            </div>
+            {% endif %}
+            {% if item.series_position is not none %}
+            <span class="absolute top-1.5 left-1.5 bg-black/75 text-white text-xs px-1.5 py-0.5 rounded">
+                #{{ item.series_position|int if item.series_position == item.series_position|int else item.series_position }}
+            </span>
+            {% endif %}
+            {% if item.wishlisted %}
+            <span class="absolute bottom-1.5 left-1.5 bg-shelf-warning/90 text-black text-[10px] px-1.5 py-0.5 rounded font-medium">Wishlist</span>
+            {% endif %}
+        </div>
+        <p class="text-sm font-medium text-shelf-text mt-2 leading-tight line-clamp-2 group-hover:text-shelf-accent2">{{ item.title }}</p>
+        {% if item.authors %}<p class="text-xs text-shelf-muted mt-0.5 truncate">{{ item.authors }}</p>{% endif %}
+    </a>
+    {% endfor %}
+</div>
+{% endblock %}
