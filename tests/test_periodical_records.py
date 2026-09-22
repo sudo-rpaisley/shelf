@@ -63,6 +63,43 @@ def test_publication_identity_is_separate_from_issue_items(db):
     ]
 
 
+def test_same_title_with_different_issns_stays_separate(db):
+    uk_id = periodical_records.upsert_publication(
+        db, title="Example Magazine", issn="12345679", publisher="UK Publisher"
+    )
+    us_id = periodical_records.upsert_publication(
+        db, title="Example Magazine", issn="20493630", publisher="US Publisher"
+    )
+
+    assert us_id != uk_id
+    rows = db.execute(
+        "SELECT id, issn, publisher FROM periodical_publications "
+        "WHERE title = ? COLLATE NOCASE ORDER BY id",
+        ("Example Magazine",),
+    ).fetchall()
+    assert [tuple(row) for row in rows] == [
+        (uk_id, "1234-5679", "UK Publisher"),
+        (us_id, "2049-3630", "US Publisher"),
+    ]
+
+
+def test_issn_can_upgrade_an_existing_title_only_publication(db):
+    title_only_id = periodical_records.upsert_publication(
+        db, title="Example Magazine", publisher="Original Publisher"
+    )
+
+    resolved_id = periodical_records.upsert_publication(
+        db, title="Example Magazine", issn="12345679"
+    )
+
+    assert resolved_id == title_only_id
+    row = db.execute(
+        "SELECT issn, publisher FROM periodical_publications WHERE id = ?",
+        (title_only_id,),
+    ).fetchone()
+    assert tuple(row) == ("1234-5679", "Original Publisher")
+
+
 def test_same_issue_number_is_allowed_in_different_volumes(db):
     publication_id = periodical_records.upsert_publication(db, title="Journal")
     first = insert_item(db, title="Journal v1 n1", media_type="magazine")
