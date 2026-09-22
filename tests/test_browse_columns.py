@@ -181,8 +181,8 @@ class TestHeaderCellAgreement:
     def test_header_and_every_row_match_registry_order(self, admin_client, db):
         rich = _insert_item(
             db, title="Rich Item", isbn="9780000090010", media_type="book",
-            manual_value=42.50, estimated_value=10.00, series_name="The Chronicles",
-            series_position=2, publisher="Acme Books", publish_year=2001,
+            manual_value=42.50, estimated_value=10.00,
+            publisher="Acme Books", publish_year=2001,
             page_count=350, language="eng", platform="PC", upc="012345678905",
         )
         bare = _insert_item(db, title="Bare Item", isbn="9780000090027", media_type="book")

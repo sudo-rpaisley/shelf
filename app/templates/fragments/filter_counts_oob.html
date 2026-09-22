@@ -1,5 +1,5 @@
 {% if render_oob_counts %}
-<span id="collection-count" hx-swap-oob="true" class="text-shelf-muted text-lg font-normal">({{ filtered_total }})</span>
+<span id="collection-count" hx-swap-oob="true" class="text-shelf-muted text-lg font-normal">({{ browse_total if browse_total is defined else filtered_total }})</span>
 
 <select id="type-filter" name="media_type_filter" hx-swap-oob="true"
         hx-get="/api/search" hx-trigger="change" hx-target="#item-grid"

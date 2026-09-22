@@ -10,11 +10,11 @@ from app.services.synopsis import SYNOPSIS_MEDIA_TYPES
 from app.currency import get_currency
 from app.services import browse_counts
 from app.services import lists
+from app.services import series_browse
 from app.services import isbn as isbn_svc
 from app.services import upc as upc_svc
 from app.database import get_db, get_setting, get_game_platforms, get_reading_history
 from app.routers import items_common
-from app.routers.items_common import SORT_OPTIONS
 from app.routers.series import find_gaps
 from app.services import item_copies, item_template, item_write
 from app.services.home_dashboard import dashboard_summary
@@ -53,6 +53,10 @@ async def browse(
     to `app/browse_filters.py` needs no change in this signature. The dropdown
     counts come from the same `browse_counts.filter_counts` helper `/api/search`
     uses, so the first paint and the first OOB swap cannot disagree.
+
+    Series are collapsed after filtering but before pagination. A series is
+    identified by Shelf's normal case-insensitive ``series_name`` identity;
+    provider-specific identifiers never participate in Browse grouping.
     """
     values = browse_filters.values_from(request.query_params)
     # Truncate search query to prevent slow LIKE scans (parity with /api/search)
@@ -60,21 +64,19 @@ async def browse(
     where, params = browse_filters.build_where(values)
 
     with get_db() as db:
-        _, order_clause = SORT_OPTIONS.get(values["sort"], SORT_OPTIONS["newest"])
+        from app.routers.checkouts import get_overdue_days
+        items, browse_total = series_browse.fetch_units(
+            db,
+            where=where,
+            params=params,
+            sort=values["sort"],
+            limit=DEFAULT_PAGE_SIZE,
+            overdue_days=get_overdue_days(db),
+        )
 
-        from app.routers.checkouts import OVERDUE_CONDITION, get_overdue_days
-        items = db.execute(
-            f"SELECT i.*, l.name as location_name, "
-            f"(SELECT b.name FROM checkouts c JOIN borrowers b ON c.borrower_id = b.id "
-            f" WHERE c.item_id = i.id AND c.checked_in IS NULL LIMIT 1) AS lent_to, "
-            f"(SELECT 1 FROM checkouts c WHERE c.item_id = i.id AND {OVERDUE_CONDITION} LIMIT 1) AS lent_overdue, "
-            f"{lists.WISHLISTED_SQL} AS wishlisted "
-            f"FROM items_live i "
-            f"LEFT JOIN locations l ON i.location_id = l.id "
-            f"{where} ORDER BY {order_clause} LIMIT ?",
-            [get_overdue_days(db)] + params + [DEFAULT_PAGE_SIZE],
-        ).fetchall()
-
+        # Filter dropdown counts remain item counts: they answer "how many
+        # items match this option?". The Collection heading uses browse_total
+        # instead, so its count agrees with the grouped cards/rows and paging.
         total_filtered = db.execute(
             f"SELECT COUNT(*) as c FROM items_live i {where}", params
         ).fetchone()["c"]
@@ -113,7 +115,7 @@ async def browse(
             ).fetchall()
         ]
 
-        has_more = len(items) < total_filtered
+        has_more = len(items) < browse_total
 
         load_more_url = "/api/search?" + browse_filters.querystring(
             values, extra=["page=2"]
@@ -121,6 +123,7 @@ async def browse(
 
     ctx = {
         "items": items,
+        "browse_total": browse_total,
         "media_types": MEDIA_TYPES,
         "series_names": series_names,
         "all_tags": all_tags,
