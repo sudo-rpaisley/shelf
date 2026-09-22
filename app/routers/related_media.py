@@ -4,6 +4,7 @@ from fastapi import APIRouter, Depends, Form, Query, Request
 from fastapi.responses import HTMLResponse
 
 from app.auth import require_role
+from app.config import MEDIA_TYPES
 from app.database import get_db
 from app.services import media_groups
 
@@ -17,7 +18,8 @@ def _panel_context(db, item_id: int) -> dict | None:
     if not item:
         return None
 
-    direct = {row["item_id"]: row for row in media_groups.direct_links(db, item_id)}
+    direct_rows = media_groups.direct_links(db, item_id)
+    direct = {row["item_id"]: row for row in direct_rows}
     related = []
     for row in media_groups.related_items(db, item_id):
         value = dict(row)
@@ -25,14 +27,31 @@ def _panel_context(db, item_id: int) -> dict | None:
         value["direct"] = edge is not None
         value["link_type"] = edge["link_type"] if edge else None
         related.append(value)
-    return {"item": item, "related_items": related}
+
+    linked_items = [
+        {"id": row["item_id"], "media_type": row["media_type"]}
+        for row in direct_rows
+        if row["link_type"] == "format"
+    ]
+    return {
+        "item": item,
+        "related_items": related,
+        "linked_items": linked_items,
+        "media_types": MEDIA_TYPES,
+    }
 
 
-def _render_panel(request: Request, item_id: int):
+def _render_panel(
+    request: Request,
+    item_id: int,
+    *,
+    refresh_also_available: bool = False,
+):
     with get_db() as db:
         context = _panel_context(db, item_id)
     if context is None:
         return HTMLResponse("Item not found", status_code=404)
+    context["also_available_as_oob"] = refresh_also_available
     return request.app.state.templates.TemplateResponse(
         request, "fragments/related_media_panel.html", context
     )
@@ -90,7 +109,7 @@ async def related_media_link(
             media_groups.link_items(db, item_id, other_item_id, link_type=link_type)
         except ValueError as exc:
             return HTMLResponse(str(exc), status_code=400)
-    return _render_panel(request, item_id)
+    return _render_panel(request, item_id, refresh_also_available=True)
 
 
 @router.delete("/api/related-media/items/{item_id}/links/{other_item_id}")
@@ -105,4 +124,4 @@ async def related_media_unlink(
             return HTMLResponse("Item not found", status_code=404)
         if not media_groups.unlink_items(db, item_id, other_item_id):
             return HTMLResponse("Related-media link not found", status_code=404)
-    return _render_panel(request, item_id)
+    return _render_panel(request, item_id, refresh_also_available=True)
