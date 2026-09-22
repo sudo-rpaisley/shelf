@@ -1,12 +1,38 @@
-"""Provider-neutral series grouping primitives for Browse design work.
+"""Provider-neutral series grouping for Browse.
 
-This module deliberately has no route or template caller yet.  It proves the
-hard part of collapsing Shelf series *before* pagination while keeping ordinary
-(non-series) items as independent browse units.  Series identity follows
-Shelf's existing model: ``series_name`` with ``COLLATE NOCASE`` semantics.
+Shelf's series identity is the existing ``series_name`` value with SQLite
+``NOCASE`` semantics.  This module turns a filtered set of live items into
+Browse *units*: one unit for every series and one unit for every item that is
+not in a series.  The collapse happens before LIMIT/OFFSET so a long series
+uses one Browse slot rather than one slot per volume.
+
+The service deliberately knows nothing about providers, routes, templates,
+loans or permissions.  Komga, Hardcover, manual and future sources all
+participate through the same ``items_live.series_name`` field.
 """
 
 from __future__ import annotations
+
+from collections.abc import Sequence
+
+
+# Unit-level equivalents of Browse's normal item sorts.  The caller supplies
+# only the public sort key; SQL never comes from the request directly.
+_SORT_ORDERS = {
+    "newest": "unit_newest DESC, unit_label COLLATE NOCASE, id",
+    "oldest": "unit_oldest ASC, unit_label COLLATE NOCASE, id",
+    "title_asc": "unit_label COLLATE NOCASE ASC, id",
+    "title_desc": "unit_label COLLATE NOCASE DESC, id DESC",
+    "author": "unit_author COLLATE NOCASE ASC, unit_label COLLATE NOCASE ASC, id",
+    "year_desc": (
+        "(unit_year_newest IS NULL), unit_year_newest DESC, "
+        "unit_label COLLATE NOCASE ASC, id"
+    ),
+    "year_asc": (
+        "(unit_year_oldest IS NULL), unit_year_oldest ASC, "
+        "unit_label COLLATE NOCASE ASC, id"
+    ),
+}
 
 
 def _bounds(limit: int, offset: int) -> tuple[int, int]:
@@ -21,17 +47,22 @@ def _bounds(limit: int, offset: int) -> tuple[int, int]:
     return max(1, min(limit, 200)), max(0, offset)
 
 
-_BASE_CTE = """
-WITH ranked AS (
+def _cte(where: str) -> str:
+    """Return the grouping CTE for an already-built Browse WHERE clause.
+
+    ``where`` comes from :mod:`app.browse_filters`, whose conditions are all
+    written against alias ``i``.  Keeping the registry-built clause intact is
+    what makes grouping preserve every normal Browse filter.
+    """
+    return f"""
+WITH filtered AS (
     SELECT
-        i.id,
-        i.title,
-        i.authors,
-        i.cover_path,
-        i.media_type,
-        i.series_name,
-        i.series_position,
-        i.owned,
+        i.*,
+        CASE
+            WHEN i.series_name IS NOT NULL AND TRIM(i.series_name) != ''
+            THEN TRIM(i.series_name)
+            ELSE '__item__:' || CAST(i.id AS TEXT)
+        END AS unit_group,
         CASE
             WHEN i.series_name IS NOT NULL AND TRIM(i.series_name) != ''
             THEN 'series:' || LOWER(TRIM(i.series_name))
@@ -45,76 +76,114 @@ WITH ranked AS (
         CASE
             WHEN i.series_name IS NOT NULL AND TRIM(i.series_name) != ''
             THEN 1 ELSE 0
-        END AS is_series,
+        END AS is_series
+    FROM items_live i
+    {where}
+), ranked AS (
+    SELECT
+        f.*,
         COUNT(*) OVER (
-            PARTITION BY
-                CASE
-                    WHEN i.series_name IS NOT NULL AND TRIM(i.series_name) != ''
-                    THEN TRIM(i.series_name) COLLATE NOCASE
-                    ELSE 'item:' || CAST(i.id AS TEXT)
-                END
+            PARTITION BY unit_group COLLATE NOCASE
         ) AS member_count,
+        GROUP_CONCAT(id, ',') OVER (
+            PARTITION BY unit_group COLLATE NOCASE
+        ) AS member_ids_csv,
+        MAX(created_at) OVER (
+            PARTITION BY unit_group COLLATE NOCASE
+        ) AS unit_newest,
+        MIN(created_at) OVER (
+            PARTITION BY unit_group COLLATE NOCASE
+        ) AS unit_oldest,
+        MIN(authors) OVER (
+            PARTITION BY unit_group COLLATE NOCASE
+        ) AS unit_author,
+        MAX(publish_year) OVER (
+            PARTITION BY unit_group COLLATE NOCASE
+        ) AS unit_year_newest,
+        MIN(publish_year) OVER (
+            PARTITION BY unit_group COLLATE NOCASE
+        ) AS unit_year_oldest,
         ROW_NUMBER() OVER (
-            PARTITION BY
-                CASE
-                    WHEN i.series_name IS NOT NULL AND TRIM(i.series_name) != ''
-                    THEN TRIM(i.series_name) COLLATE NOCASE
-                    ELSE 'item:' || CAST(i.id AS TEXT)
-                END
+            PARTITION BY unit_group COLLATE NOCASE
             ORDER BY
                 CASE
-                    WHEN i.series_name IS NOT NULL AND TRIM(i.series_name) != ''
-                         AND (i.cover_path IS NULL OR TRIM(i.cover_path) = '')
+                    WHEN is_series = 1
+                         AND (cover_path IS NULL OR TRIM(cover_path) = '')
                     THEN 1 ELSE 0
                 END,
                 CASE
-                    WHEN i.series_name IS NOT NULL AND TRIM(i.series_name) != ''
-                         AND i.series_position IS NULL
+                    WHEN is_series = 1 AND series_position IS NULL
                     THEN 1 ELSE 0
                 END,
                 CASE
-                    WHEN i.series_name IS NOT NULL AND TRIM(i.series_name) != ''
-                    THEN CAST(i.series_position AS REAL)
+                    WHEN is_series = 1
+                    THEN CAST(series_position AS REAL)
                     ELSE NULL
                 END,
-                i.title COLLATE NOCASE,
-                i.id
+                title COLLATE NOCASE,
+                id
         ) AS representative_rank
-    FROM items_live i
+    FROM filtered f
 ), units AS (
     SELECT * FROM ranked WHERE representative_rank = 1
 )
 """
 
 
-def fetch_units(db, *, limit: int = 60, offset: int = 0) -> tuple[list[dict], int]:
-    """Return one Browse unit per series plus one per non-series item.
+def fetch_units(
+    db,
+    *,
+    where: str = "",
+    params: Sequence = (),
+    sort: str = "title_asc",
+    limit: int = 60,
+    offset: int = 0,
+) -> tuple[list[dict], int]:
+    """Return a page of grouped Browse units and the grouped total.
 
-    The CTE ranks members and collapses each series before ``LIMIT/OFFSET`` is
-    applied.  That means a 100-volume run consumes one page slot, not 100.
+    Filters are applied to items first, then matching items are collapsed by
+    Shelf's normal case-insensitive series identity, and only then are sorting
+    and pagination applied.  ``member_ids`` contains exactly the matching
+    members represented by the unit; this lets Browse bulk selection retain
+    the same "act on the visible result set" semantics it has for plain items.
+
     Representative artwork prefers a member that actually has a cover, then
-    the earliest numbered member, then a stable title/id tiebreak.
-
-    This is intentionally provider-neutral: Komga, manual, Hardcover and other
-    sources all participate through Shelf's normal ``series_name`` field.
+    the earliest numbered member, then a stable title/id tiebreak.  Sorting is
+    unit-aware: for example, "newest" uses the newest matching member in a
+    series while title sorting uses the series name.
     """
     limit, offset = _bounds(limit, offset)
+    order = _SORT_ORDERS.get(sort, _SORT_ORDERS["newest"])
+    cte = _cte(where)
+    bound = list(params)
 
     total = db.execute(
-        _BASE_CTE + "SELECT COUNT(*) AS c FROM units"
+        cte + "SELECT COUNT(*) AS c FROM units",
+        bound,
     ).fetchone()["c"]
 
     rows = db.execute(
-        _BASE_CTE
-        + """
-        SELECT id, title, authors, cover_path, media_type,
-               series_name, series_position, owned,
-               unit_key, unit_label, is_series, member_count
+        cte
+        + f"""
+        SELECT id, unit_key, unit_label, is_series, member_count,
+               member_ids_csv, series_name, series_position
         FROM units
-        ORDER BY unit_label COLLATE NOCASE, id
+        ORDER BY {order}
         LIMIT ? OFFSET ?
         """,
-        (limit, offset),
+        [*bound, limit, offset],
     ).fetchall()
 
-    return [dict(row) for row in rows], int(total)
+    units: list[dict] = []
+    for row in rows:
+        unit = dict(row)
+        ids = {
+            int(value)
+            for value in (unit.pop("member_ids_csv", "") or "").split(",")
+            if value
+        }
+        unit["member_ids"] = sorted(ids)
+        unit["representative_id"] = unit["id"]
+        units.append(unit)
+
+    return units, int(total)
