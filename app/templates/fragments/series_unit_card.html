@@ -1,0 +1,33 @@
+{% set member_csv = item.member_ids|join(',') %}
+<div class="relative">
+<a href="/series/{{ item.unit_label|urlencode }}" class="group relative block"
+   data-item-ids="{{ member_csv }}"
+   @click.prevent="openGroupOrToggle('{{ member_csv }}', '/series/{{ item.unit_label|urlencode }}', $event)">
+    <div class="cover-card bg-shelf-card rounded-lg overflow-hidden border border-shelf-border group-hover:border-shelf-accent/50 transition-colors shadow-lg"
+         :class="groupSelected('{{ member_csv }}') ? 'ring-2 ring-shelf-accent' : ''">
+        <div class="absolute top-2 right-2 z-10 px-1.5 py-0.5 rounded text-[10px] font-medium bg-black/75 text-white shadow">
+            {{ item.member_count }} item{% if item.member_count != 1 %}s{% endif %}
+        </div>
+        <div x-show="selectMode" class="absolute top-2 left-2 z-10">
+            <div class="w-5 h-5 rounded border-2 flex items-center justify-center text-xs"
+                 :class="groupSelected('{{ member_csv }}') ? 'bg-shelf-accent border-shelf-accent text-white' : 'border-shelf-border bg-black/40'">
+                <span x-show="groupSelected('{{ member_csv }}')">&#10003;</span>
+            </div>
+        </div>
+        {% if item.cover_path %}
+        <img src="/{{ item.cover_path }}" alt="{{ item.unit_label }}" loading="lazy">
+        {% else %}
+        <div class="w-full h-full flex flex-col items-center justify-center p-4 text-center bg-gradient-to-br from-shelf-card to-shelf-hover">
+            <p class="text-shelf-text text-sm font-medium leading-tight mb-1">{{ item.unit_label[:60] }}</p>
+            <p class="text-shelf-muted text-xs">Series</p>
+        </div>
+        {% endif %}
+    </div>
+    <div class="absolute inset-0 bg-gradient-to-t from-black/80 via-transparent to-transparent rounded-lg opacity-0 group-hover:opacity-100 transition-opacity flex items-end p-3">
+        <div class="min-w-0">
+            <p class="text-white text-sm font-medium truncate">{{ item.unit_label }}</p>
+            <p class="text-gray-300 text-xs truncate">{{ item.member_count }} matching item{% if item.member_count != 1 %}s{% endif %}</p>
+        </div>
+    </div>
+</a>
+</div>
