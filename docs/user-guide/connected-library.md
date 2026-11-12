@@ -482,10 +482,28 @@ The additive tables are `source_instances`, `source_records`, `user_item_state`,
 `user_item_events`, `library_saved_views`, `connection_dismissals`,
 `item_metadata_provenance` and `cover_sync_blocks`, all owned by
 `MIGRATION_TABLES` in `app/database.py`. They exist even with the feature off;
-an upgrade does not invent personal activity or new source configuration from
-legacy data.
+an upstream upgrade does not invent personal activity or new source configuration
+from shared legacy catalogue data.
 Migration 59 adds `user_item_state.last_event_id` (default 0) so personal merge
 recency belongs to the saved state, not to later reset/merge history events.
+
+**Older fork databases:** the 0.37/0.39 fork already had private
+`user_item_state` rows with a different layout. Startup now recognizes that
+layout before creating the new indexes, adds the missing fields, and maps each
+account's existing status, dates, notes and personal wishlist into the new
+fields. Ratings, favourites and timestamps stay intact. Valid progress with a
+known total (or an explicit percent unit) becomes a whole percentage; unscaled
+progress is not guessed. Finished entries become 100%.
+
+Original columns, precise progress values/units and `user_reading_log` remain
+in the database; the old reading-history table is not replayed into the new
+activity timeline. Original overlapping migration records are archived in the
+`connected_library_legacy_migrations_v1` setting before current migrations run.
+This bridge is safe to retry after the `no such column: status` startup error
+and does not reapply old values over later edits. Unknown migration namespaces
+are refused rather than guessed. **Keep the existing data volume and keys;
+do not delete the database to work around this error.** Back up the stopped
+data directory before retrying an experimental upgrade.
 
 Preserve the matching `data/encryption.key` and `data/signing.key`, or the
 `SHELF_ENCRYPTION_KEY` and `SECRET_KEY` environment values, separately from a

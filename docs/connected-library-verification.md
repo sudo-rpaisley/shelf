@@ -15,9 +15,51 @@ These results are **not pinned-CI verification** (the project CI uses Python
 3.12 and its pinned Playwright browser). Dependency manifests were not changed
 to accommodate the local environment.
 
+## Deployment hotfix: older fork databases
+
+**PASS — scoped legacy-upgrade verification on 2026-11-12.** This hotfix was
+added after the original full-suite commit `1a06ee5`; the complete unit/browser
+suites below were **not rerun for this hotfix**.
+
+The deployed `no such column: status` failure was reproduced before the fix
+using frozen older-fork DDL and migration descriptions. The compatibility
+bridge now preserves original private-state fields/history, projects only
+missing fields, and archives/translates known colliding migration identities
+before the normal strict runner and auxiliary indexes execute.
+
+| Gate | Result |
+|---|---|
+| Migration/schema, personal-state, backup/restore, archive and mutation regressions | **727 passed**, exit 0, 170.04 seconds |
+| New `test_connected_legacy_upgrade.py` cases within that run | **29 cases**, including real lifespan/routes and pre-/post-upgrade backup restore |
+| README badge regression tests | **6 passed**, exit 0 |
+| Full historical schema smoke checks, `5d94d2e` and `6a46f467` | Both passed: bootstrap, upgrade, second boot, private-state preservation, foreign-key and integrity checks |
+| `make checks-fast` | Passed; private roadmap-map lint unavailable as below |
+| Python compilation and `git diff --check` | Passed |
+
+The focused cases include retries after migration 59 and partial auxiliary DDL,
+transaction rollback, overlapping startups, preserving newer edits and long
+notes, valid/invalid progress scales, refusing unknown namespaces, and keeping
+strict migration defects visible. Historical smoke checks extracted only SQL
+constants from repository history into temporary databases, not user data.
+
+```bash
+/tmp/shelf-new-test-compatible-venv/bin/python -m pytest \
+  tests/test_connected_legacy_upgrade.py tests/test_connected_library_schema.py \
+  tests/test_schema_parity.py tests/*migration.py tests/test_items.py \
+  tests/test_personal_library.py tests/test_connected_persistence.py \
+  tests/test_archive.py tests/test_backup_passphrase.py tests/test_item_write.py \
+  tests/test_mutation_integrity.py -q --tb=short -n 4 --dist loadfile
+```
+
+README badges now report collection of **7544 unit tests** and **384 browser
+tests**; collection counts are not a claim that every test was rerun for the
+hotfix. The same compatible Python 3.14 runtime limitations above still apply;
+no Docker engine or Python 3.12 interpreter is available in this environment.
+
 ## Full gates
 
-**PASS — final implementation verified locally on 2026-11-12.**
+**PASS — original implementation (`1a06ee5`) verified locally on 2026-11-12.**
+These complete suites predate the deployment hotfix above.
 
 | Gate | Result | Pytest duration |
 |---|---|---|
@@ -50,7 +92,7 @@ Unit and browser suites run in separate pytest invocations. The implementation
 is frozen during each full gate; results from a changing tree are not counted
 as final passes. Live contract tests and external media providers are excluded.
 The final suites ran concurrently, and all post-test checks passed afterward.
-The staged candidate SHA-256 stayed
+The original staged candidate SHA-256 stayed
 `a53b082d4c5ca4334a18573014d6d6c19e90d9c8c6b7b6a6baadd05a988b852b`
 throughout both suites, with no unstaged or untracked files. Only verification
 documentation was updated after that frozen run.

@@ -1,3 +1,4 @@
+import json
 import logging
 import re
 import sqlite3
@@ -968,6 +969,135 @@ def _is_benign_migration_error(version: int, exc: sqlite3.OperationalError) -> b
     return False
 
 
+def _prepare_legacy_connected_upgrade(db: sqlite3.Connection) -> list[str]:
+    """Bridge the older fork's private-state table before current indexes run.
+
+    This is a layout/ledger bridge, not a new numbered SQL migration: the fork
+    already used 32-55 for unrelated work. CREATE IF NOT EXISTS cannot update
+    its table, and trusting those version numbers skips upstream's ALTERs and
+    seeds. Preserve the original ledger and every legacy private-state column;
+    only newly added fields receive the one-time projection below.
+    """
+    def columns(table):
+        return {row["name"] for row in db.execute(f"PRAGMA table_info({table})")}
+
+    legacy_columns = columns("user_item_state")
+    if "reading_status" not in legacy_columns:
+        return []
+    legacy_fields = {
+        "user_id", "item_id", "reading_status", "date_started", "date_finished",
+        "rating", "wishlist", "favourite", "personal_notes", "progress_value",
+        "progress_total", "progress_unit", "updated_at",
+    }
+    if not legacy_fields <= legacy_columns:
+        raise sqlite3.OperationalError("Unrecognized legacy user_item_state layout; database left unchanged")
+
+    additions = {
+        "status": (
+            "TEXT CHECK(status IS NULL OR status IN "
+            "('planned', 'in_progress', 'finished', 'paused', 'abandoned'))",
+            "CASE reading_status WHEN 'want_to_read' THEN 'planned' "
+            "WHEN 'reading' THEN 'in_progress' WHEN 'read' THEN 'finished' END",
+        ),
+        "progress": (
+            "INTEGER CHECK(progress IS NULL OR progress BETWEEN 0 AND 100)",
+            "CASE WHEN reading_status = 'read' THEN 100 "
+            "WHEN typeof(progress_value) IN ('integer', 'real') AND progress_value >= 0 THEN "
+            "CASE WHEN typeof(progress_total) IN ('integer', 'real') "
+            "AND progress_total > 0 AND progress_total <= 1.7976931348623157e308 "
+            "AND progress_value <= progress_total "
+            "THEN CAST(ROUND(100.0 * (progress_value / progress_total), 9) AS INTEGER) "
+            "WHEN progress_unit IN ('percent', '%') AND progress_total IS NULL "
+            "AND progress_value <= 100 THEN CAST(progress_value AS INTEGER) END END",
+        ),
+        "on_list": ("INTEGER NOT NULL DEFAULT 0 CHECK(on_list IN (0, 1))", "wishlist"),
+        "notes": ("TEXT NOT NULL DEFAULT ''", "COALESCE(personal_notes, '')"),
+        "started_at": ("TEXT", "date_started"),
+        "finished_at": ("TEXT", "date_finished"),
+    }
+    # Only these source-grounded 0.37/0.39 fork identities are translated.
+    # A differently named migration is not proof that its SQL is safe to
+    # replay, even if its database also carries an old private-state table.
+    legacy_descriptions = dict(enumerate((
+        "Add per-user item state table", "Index per-user item state by item",
+        "Index per-user consumption status", "Index per-user wishlist",
+        "Index per-user favourites", "Add per-user reading history table",
+        "Index per-user reading history", "Snapshot legacy item state for existing users",
+        "Snapshot legacy reading history for existing users", "Add Shelf libraries",
+        "Add per-library user memberships", "Add one-library-per-item mapping",
+        "Create default Main Library", "Assign existing catalogue items to Main Library",
+        "Seed Main Library memberships from existing roles", "Index library memberships by user",
+        "Index catalogue items by library", "Add external user identities",
+        "Index external user identities by user", "Add library-scoped collections",
+        "Add collection item memberships", "Index collection memberships by item",
+        "Index collections by library", "Add durable cover-review dismissal",
+    ), start=32))
+    migrations = {version: (description, sql) for version, description, sql in MIGRATIONS if version >= 32}
+
+    def collisions():
+        return [dict(row) for row in db.execute(
+            "SELECT version, description, applied_at FROM schema_version ORDER BY version"
+        ) if row["version"] in migrations and row["description"] != migrations[row["version"]][0]]
+
+    if additions.keys() <= legacy_columns and not collisions():
+        return []
+
+    # Re-read under the write lock: another startup may have completed the
+    # bridge after the unlocked fingerprint above. DDL and ledger translation
+    # commit together, without logging through a second SQLite connection.
+    db.execute("BEGIN IMMEDIATE")
+    try:
+        legacy_columns = columns("user_item_state")
+        old_records = collisions()
+        if any(legacy_descriptions.get(row["version"]) != row["description"] for row in old_records):
+            raise sqlite3.OperationalError("Unrecognized legacy migration namespace; database left unchanged")
+        if old_records:
+            archive_key = "connected_library_legacy_migrations_v1"
+            previous = db.execute("SELECT value FROM settings WHERE key = ?", (archive_key,)).fetchone()
+            archived = json.loads(previous["value"]) if previous else []
+            if not isinstance(archived, list):
+                raise sqlite3.OperationalError("Invalid archived legacy migration ledger; database left unchanged")
+            archived.extend(row for row in old_records if row not in archived)
+            db.execute(
+                "INSERT INTO settings (key, value) VALUES (?, ?) "
+                "ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+                (archive_key, json.dumps(archived)),
+            )
+            for row in old_records:
+                version = row["version"]
+                description, sql = migrations[version]
+                added_column = re.fullmatch(r"ALTER TABLE (\w+) ADD COLUMN (\w+) .+", sql)
+                if added_column and added_column[2] in columns(added_column[1]):
+                    # E.g. the fork added cover_review_dismissed at 55, while
+                    # upstream added the same column at 32. Do not re-ALTER it.
+                    db.execute(
+                        "UPDATE schema_version SET description = ?, applied_at = datetime('now') WHERE version = ?",
+                        (description, version),
+                    )
+                else:
+                    # Leave actual execution/recording to the normal atomic
+                    # runner. Its strict migration-error policy stays intact.
+                    db.execute("DELETE FROM schema_version WHERE version = ?", (version,))
+
+        projected = []
+        for name, (definition, expression) in additions.items():
+            if name not in legacy_columns:
+                db.execute(f"ALTER TABLE user_item_state ADD COLUMN {name} {definition}")
+                projected.append(f"{name} = {expression}")
+        if projected:
+            db.execute(f"UPDATE user_item_state SET {', '.join(projected)}")
+        db.commit()
+    except Exception:
+        db.rollback()
+        raise
+    logs = []
+    if old_records:
+        logs.append(f"Translated {len(old_records)} older-fork migration records; original ledger retained")
+    if projected:
+        logs.append("Upgraded legacy per-user state for connected library; original fields retained")
+    return logs
+
+
 def _backfill_versions(db: sqlite3.Connection) -> tuple[set[int], str]:
     """Detect already-applied migrations in pre-version-tracking databases.
 
@@ -1003,7 +1133,7 @@ def _run_migrations(db: sqlite3.Connection) -> list[str]:
     migrations meant ~25s of startup and five tracebacks that looked, to
     anyone upgrading, exactly like a failed migration.
     """
-    logs: list[str] = []
+    logs = _prepare_legacy_connected_upgrade(db)
     applied = {
         r["version"]
         for r in db.execute("SELECT version FROM schema_version").fetchall()

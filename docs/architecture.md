@@ -1300,7 +1300,7 @@ Role checks precede feature checks, mutations use POST and CSRF, and disabling
 the feature hides/refuses surfaces without deleting data. It adds no lifespan
 task or scheduler. New-source configuration is gated too.
 
-**Persistence is additive, not a backfill.** Eight tables live in
+**Persistence is additive, with a bounded older-fork bridge.** Eight tables live in
 `MIGRATION_TABLES`, created on fresh boots and upgrades even with the feature off:
 
 | Table | Record |
@@ -1319,6 +1319,19 @@ an existing choice. It does not seed personal state or convert legacy sources.
 Migration 59 adds `user_item_state.last_event_id INTEGER NOT NULL DEFAULT 0`;
 the additive CREATE includes it for fresh databases too. Unknown old recency
 stays 0 rather than being inferred from reset/merged history.
+Before the numbered runner, `_prepare_legacy_connected_upgrade` recognizes the
+0.37/0.39 fork's older `user_item_state` layout and known colliding migration
+descriptions. It archives the original ledger in
+`settings.connected_library_legacy_migrations_v1`, translates only those known
+identities, and adds/projects missing personal-state fields in one immediate
+transaction. Already-present fields and all original columns/timestamps/history
+are retained; later boots cannot replay legacy values over new edits. Existing
+equivalent ALTER columns are recognized by schema inspection, while other
+current migrations still execute through the unchanged strict atomic runner.
+The bridge rechecks under the write lock and rolls back on failure; it is also
+used by restore through `init_db`. It does not infer private state from shared
+catalogue fields, import old reading history into the new timeline, or accept
+unknown fork migration namespaces.
 Full database backups (`settings._vacuum_backup`, `VACUUM INTO`) retain these
 tables, not covers or external encryption/signing keys. Preserve matching keys
 separately. The portable collection archive's explicit export contract excludes

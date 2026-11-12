@@ -122,6 +122,13 @@ the full experiment matters. See the [guide](user-guide/connected-library.md).
 Migration 59 adds the state-owned `user_item_state.last_event_id` ordering
 identity; fresh-table DDL includes it too. `cover_sync_blocks` is another
 additive side table, independent of cover-review dismissal.
+`_prepare_legacy_connected_upgrade` is the pre-runner compatibility bridge for
+the older 0.37/0.39 fork's private-state layout and colliding migration ledger;
+it retains original fields/history and archives the original version records.
+`tests/test_connected_legacy_upgrade.py` deliberately uses frozen older DDL and
+descriptions, including interrupted-startup, rollback, overlapping-runner,
+account-isolation and real backup-restore regressions. Do not replace that
+fixture with current `MIGRATION_TABLES`.
 
 Regression cases live in `tests/test_library_catalog.py`,
 `test_library_routes.py`, `test_availability.py`, `test_sources.py`,
