@@ -132,6 +132,10 @@ ALLOWLIST: dict[str, dict[str, int]] = {
         # hand to the database, and a trashed row still holds its unique
         # slot (G107).
         "SELECT id FROM items WHERE media_type = 'book' AND": 1,
+        # Pre-0.37 compatibility bridge: preserve provider identities before
+        # the catalogue's old vocabulary is rewritten, including hidden rows.
+        "SELECT id, media_type, romm_id, romm_platform_id, komga_id, komga_library_id, "
+        "komga_series_id FROM items ORDER BY id": 1,
     },
     "app/services/item_write.py": {
         # _trashed_twin — the insert funnel's collision-with-Trash lookup.
@@ -360,6 +364,10 @@ COPIES_ALLOWLIST: dict[str, dict[str, int]] = {
         # the physical table by definition, same reasoning as the
         # items_live entry above.
         "SELECT c.* FROM item_copies c JOIN items i ON i.id = c.item_id": 1,
+        # The old location-node FK must be rebuilt before copies_live is
+        # usable. Copy every row, then project primaries without hiding any.
+        "SELECT * FROM item_copies ORDER BY id": 1,
+        "SELECT item_id, location_id FROM item_copies WHERE is_primary = 1": 1,
         # Migration 26 — backfill primary copies from legacy locations; the
         # NOT EXISTS guard reads item_copies to decide whether a row needs
         # backfilling at all.

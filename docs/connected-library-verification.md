@@ -15,7 +15,53 @@ These results are **not pinned-CI verification** (the project CI uses Python
 3.12 and its pinned Playwright browser). Dependency manifests were not changed
 to accommodate the local environment.
 
-## Deployment hotfix: older fork databases
+## Deployment follow-up: diagnosed pre-0.37 database
+
+**PASS — scoped follow-up verification on 2026-11-12.** The operator's read-only
+metadata identified a different migration namespace than `f161556` covered:
+versions 24-66, a `location_nodes` copy FK, no location parent/label columns,
+and no copy acquisition-source/provenance fields. A frozen fixture matching
+those reported columns, FKs and ledger reproduced the namespace refusal before
+the new bridge was added. No operator database was uploaded or modified here.
+
+| Gate | Result |
+|---|---|
+| Expanded migration/schema, copy/location, provider-record, privacy, backup/restore, mutation and read/write-lint regressions | **857 passed**, exit 0, 196.32 seconds |
+| Final `test_connected_pre037_upgrade.py` run, including an added overlapping-startup case | **20 passed**, exit 0, 23.30 seconds |
+| Temporary-copy verifier success/failure and unchanged original files | Covered by the new suite |
+| README badge regressions | **6 passed**, exit 0 |
+| `make checks-fast` | Passed; private roadmap-map lint skipped because `.devdocs` is absent |
+| Compilation and staged whitespace check | Passed |
+
+The production implementation was unchanged between those two passing runs;
+only the additional concurrency test and generated collection badge changed.
+The new cases cover the actual copy FK replacement, old private state/music/
+library retention, missing marks, child rows, copy sequence/custom index,
+alias/binding conflicts, two initialization passes, real application lifespan
+and pages, and original/converted database restore. An initial route assertion
+used a nonexistent `/locations` page; it was corrected to the actual library
+settings page rather than changing application behavior.
+
+```bash
+/tmp/shelf-new-test-compatible-venv/bin/python -m pytest \
+  tests/test_connected_pre037_upgrade.py tests/test_connected_legacy_upgrade.py \
+  tests/test_connected_library_schema.py tests/test_schema_parity.py \
+  tests/*migration.py tests/test_items.py tests/test_personal_library.py \
+  tests/test_connected_persistence.py tests/test_archive.py \
+  tests/test_backup_passphrase.py tests/test_item_write.py tests/test_mutation_integrity.py \
+  tests/test_hierarchical_locations.py tests/test_item_copies.py tests/test_location_order.py \
+  tests/test_romm_records.py tests/test_komga_records.py tests/test_items_live_lint.py \
+  -q --tb=short -n 4 --dist loadfile
+```
+
+That expanded command predates the final added concurrency case; the subsequent
+20-case module run includes it. Collection now contains **7564 unit tests**
+and **384 browser tests**. Neither the complete suite nor pinned Python 3.12 CI
+was rerun here. The container-side `python -m app.verify_upgrade` command in
+the guide allows the operator to check a disposable copy with the real image
+runtime before deploying; a successful Cornelius check is not claimed here.
+
+## First deployment hotfix: older 0.37/0.39 fork databases (`f161556`)
 
 **PASS — scoped legacy-upgrade verification on 2026-11-12.** This hotfix was
 added after the original full-suite commit `1a06ee5`; the complete unit/browser
@@ -51,8 +97,8 @@ constants from repository history into temporary databases, not user data.
   tests/test_mutation_integrity.py -q --tb=short -n 4 --dist loadfile
 ```
 
-README badges now report collection of **7544 unit tests** and **384 browser
-tests**; collection counts are not a claim that every test was rerun for the
+At this first hotfix, README badges reported collection of **7544 unit tests**
+and **384 browser tests**; collection counts are not a claim that every test was rerun for the
 hotfix. The same compatible Python 3.14 runtime limitations above still apply;
 no Docker engine or Python 3.12 interpreter is available in this environment.
 

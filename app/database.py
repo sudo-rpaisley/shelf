@@ -969,7 +969,7 @@ def _is_benign_migration_error(version: int, exc: sqlite3.OperationalError) -> b
     return False
 
 
-def _prepare_legacy_connected_upgrade(db: sqlite3.Connection) -> list[str]:
+def _prepare_legacy_connected_upgrade(db: sqlite3.Connection, *, _in_transaction=False) -> list[str]:
     """Bridge the older fork's private-state table before current indexes run.
 
     This is a layout/ledger bridge, not a new numbered SQL migration: the fork
@@ -1045,7 +1045,8 @@ def _prepare_legacy_connected_upgrade(db: sqlite3.Connection) -> list[str]:
     # Re-read under the write lock: another startup may have completed the
     # bridge after the unlocked fingerprint above. DDL and ledger translation
     # commit together, without logging through a second SQLite connection.
-    db.execute("BEGIN IMMEDIATE")
+    if not _in_transaction:
+        db.execute("BEGIN IMMEDIATE")
     try:
         legacy_columns = columns("user_item_state")
         old_records = collisions()
@@ -1086,9 +1087,11 @@ def _prepare_legacy_connected_upgrade(db: sqlite3.Connection) -> list[str]:
                 projected.append(f"{name} = {expression}")
         if projected:
             db.execute(f"UPDATE user_item_state SET {', '.join(projected)}")
-        db.commit()
+        if not _in_transaction:
+            db.commit()
     except Exception:
-        db.rollback()
+        if not _in_transaction:
+            db.rollback()
         raise
     logs = []
     if old_records:
@@ -1096,6 +1099,258 @@ def _prepare_legacy_connected_upgrade(db: sqlite3.Connection) -> list[str]:
     if projected:
         logs.append("Upgraded legacy per-user state for connected library; original fields retained")
     return logs
+
+
+def _bootstrap_statements():
+    """Yield canonical auxiliary DDL without executescript's implicit commit."""
+    pending = ""
+    for line in MIGRATION_TABLES.splitlines(keepends=True):
+        pending += line
+        if sqlite3.complete_statement(pending):
+            statement = "\n".join(part for part in pending.splitlines()
+                                  if not part.lstrip().startswith("--")).strip()
+            if statement:
+                yield statement
+            pending = ""
+
+
+def _table_columns(db, table):
+    return {row["name"] for row in db.execute(f"PRAGMA table_info({table})")}
+
+
+def _pre037_locations(db):
+    """Project node identities into current locations without merging nodes."""
+    for version in (27, 28):
+        sql = next(sql for number, description, sql in MIGRATIONS if number == version)
+        column = re.fullmatch(r"ALTER TABLE (\w+) ADD COLUMN (\w+) .+", sql)[2]
+        if column not in _table_columns(db, "locations"):
+            db.execute(sql)
+    pending = {row["id"]: dict(row) for row in db.execute("SELECT * FROM location_nodes ORDER BY id")}
+    mapping, names = {}, {}
+    while pending:
+        for old_id, node in list(pending.items()):
+            parent = node["parent_id"]
+            if parent is not None and parent not in mapping:
+                continue
+            label = node["name"]
+            if not isinstance(label, str) or not label.strip():
+                raise sqlite3.IntegrityError("Legacy location has a blank label")
+            name = f"{names[parent]} / {label}" if parent is not None else label
+            target = node["legacy_location_id"]
+            if target is not None:
+                if target in mapping.values() or not db.execute("SELECT 1 FROM locations WHERE id = ?", (target,)).fetchone():
+                    raise sqlite3.IntegrityError("Legacy location mapping is ambiguous or missing")
+                db.execute("UPDATE locations SET name = ?, label = ?, parent_id = ?, sort_order = ? WHERE id = ?",
+                           (name, label, mapping.get(parent), node["sort_order"], target))
+            else:
+                target = db.execute(
+                    "INSERT INTO locations (name, label, parent_id, sort_order, created_at) "
+                    "VALUES (?, ?, ?, ?, COALESCE(?, datetime('now')))",
+                    (name, label, mapping.get(parent), node["sort_order"], node.get("created_at")),
+                ).lastrowid
+            mapping[old_id], names[old_id] = target, name
+            del pending[old_id]
+            break
+        else:
+            raise sqlite3.IntegrityError("Legacy location tree contains an orphan or cycle")
+    return mapping
+
+
+def _pre037_copies(db, mapping):
+    """Rebuild the FK via a replacement table, preserving dependent row IDs.
+
+    The caller disables FK enforcement before its transaction and restores it
+    after a full foreign-key check. Never rename the original table: SQLite
+    would retarget child FKs to that temporary name, or cascade-delete rows.
+    """
+    target = next((row["table"] for row in db.execute("PRAGMA foreign_key_list(item_copies)")
+                   if row["from"] == "location_id"), None)
+    if target != "location_nodes":
+        raise sqlite3.OperationalError("Unrecognized pre-0.37 physical-copy location FK")
+    if db.execute("SELECT 1 FROM sqlite_master WHERE type = 'trigger' AND tbl_name = 'item_copies'").fetchone():
+        raise sqlite3.OperationalError("Cannot rebuild legacy copies with custom triggers")
+    replacement = "_connected_upgrade_copies"
+    if db.execute("SELECT 1 FROM sqlite_master WHERE name = ?", (replacement,)).fetchone():
+        raise sqlite3.OperationalError("Legacy copy replacement name is already in use")
+    indexes = [row[0] for row in db.execute(
+        "SELECT sql FROM sqlite_master WHERE type = 'index' AND tbl_name = 'item_copies' AND sql IS NOT NULL"
+    )]
+    sequence = db.execute("SELECT seq FROM sqlite_sequence WHERE name = 'item_copies'").fetchone()
+    old_columns = list(row["name"] for row in db.execute("PRAGMA table_info(item_copies)"))
+    create = next(sql for sql in _bootstrap_statements()
+                  if sql.startswith("CREATE TABLE IF NOT EXISTS item_copies ("))
+    db.execute(create.replace("IF NOT EXISTS item_copies", replacement, 1))
+    for version, description, sql in MIGRATIONS:
+        if sql.startswith("ALTER TABLE item_copies ADD COLUMN "):
+            db.execute(sql.replace("item_copies", replacement, 1))
+    if set(old_columns) - _table_columns(db, replacement):
+        raise sqlite3.OperationalError("Unrecognized legacy copy columns; refusing to discard them")
+    for row in db.execute("SELECT * FROM item_copies ORDER BY id").fetchall():
+        values = dict(row)
+        location = values["location_id"]
+        if location is not None and location not in mapping:
+            raise sqlite3.IntegrityError("Legacy copy points to an unknown location node")
+        values["location_id"] = mapping.get(location)
+        db.execute(
+            f"INSERT INTO {replacement} ({', '.join(old_columns)}) VALUES ({', '.join('?' for _ in old_columns)})",
+            [values[column] for column in old_columns],
+        )
+    db.execute("DROP TABLE item_copies")
+    db.execute(f"ALTER TABLE {replacement} RENAME TO item_copies")
+    if sequence:
+        db.execute("INSERT INTO sqlite_sequence (name, seq) SELECT 'item_copies', ? "
+                   "WHERE NOT EXISTS (SELECT 1 FROM sqlite_sequence WHERE name = 'item_copies')", (sequence[0],))
+        db.execute("UPDATE sqlite_sequence SET seq = MAX(seq, ?) WHERE name = 'item_copies'", (sequence[0],))
+    for sql in indexes:
+        db.execute(sql)
+    # Primary-copy compatibility projection, not a request-path metadata edit.
+    for row in db.execute("SELECT item_id, location_id FROM item_copies WHERE is_primary = 1"):
+        db.execute("UPDATE items SET location_id = ? WHERE id = ?", (row["location_id"], row["item_id"]))
+
+
+def _pre037_provider_records(db):
+    """Preserve legacy identities in current cached bindings; no network work."""
+    def library(item_id, provider, external_id):
+        if not _table_columns(db, "digital_holdings"):
+            return ""
+        rows = db.execute(
+            "SELECT DISTINCT library_id FROM digital_holdings "
+            "WHERE item_id = ? AND provider = ? AND external_id = ? "
+            "AND library_id IS NOT NULL AND TRIM(library_id) <> ''",
+            (item_id, provider, external_id),
+        ).fetchall()
+        if len(rows) > 1:
+            raise sqlite3.IntegrityError("Legacy holding has ambiguous library identifiers")
+        return str(rows[0][0]).strip() if rows else ""
+
+    rows = db.execute(
+        "SELECT id, media_type, romm_id, romm_platform_id, komga_id, komga_library_id, komga_series_id "
+        "FROM items ORDER BY id"
+    ).fetchall()
+    for row in rows:
+        for provider in ("romm", "komga"):
+            external_id = str(row[f"{provider}_id"] or "").strip()
+            if not external_id:
+                continue
+            existing = db.execute(f"SELECT item_id FROM {provider}_records WHERE {provider}_id = ?", (external_id,)).fetchone()
+            if existing:
+                if existing[0] != row["id"]:
+                    raise sqlite3.IntegrityError("Conflicting legacy provider binding; refusing to overwrite it")
+                continue
+            library_id = str(row["romm_platform_id" if provider == "romm" else "komga_library_id"] or "").strip()
+            library_id = library_id or library(row["id"], provider, external_id)
+            if provider == "romm":
+                if not library_id:
+                    raise sqlite3.IntegrityError("Legacy RomM binding has no recoverable platform ID")
+                db.execute("INSERT INTO romm_records (romm_id, item_id, platform_id) VALUES (?, ?, ?)",
+                           (external_id, row["id"], library_id))
+            else:
+                kind = "manga" if row["media_type"] in ("manga", "digital_manga") else "comic"
+                db.execute("INSERT INTO komga_records (komga_id, item_id, library_id, series_id, kind) VALUES (?, ?, ?, ?, ?)",
+                           (external_id, row["id"], library_id, row["komga_series_id"], kind))
+    # Vocabulary aliases, not merges: a uniqueness conflict aborts the bridge.
+    for old, current in (("digital_manga", "manga"), ("digital_comic", "comic"), ("digital_game", "video_game")):
+        db.execute("UPDATE items SET media_type = ? WHERE media_type = ?", (current, old))
+
+
+def _prepare_pre037_connected_upgrade(db):
+    """Atomic bridge for the diagnosed pre-0.37 fork namespace (24-66).
+
+    This deliberately precedes the later 0.37 private-state bridge. Merely
+    widening that bridge's description allowlist would leave location FKs,
+    missing columns and provider bindings incompatible with current Shelf.
+    """
+    def pending():
+        row = db.execute("SELECT description FROM schema_version WHERE version = 24").fetchone()
+        return row is not None and row[0] == "Add komga_id column"
+
+    if not pending():
+        return []
+    if db.in_transaction:
+        raise sqlite3.OperationalError("Pre-0.37 upgrade requires its own transaction")
+    descriptions = dict(enumerate((
+        "Add komga_id column", "Add komga_library_id column", "Add komga_series_id column",
+        "Index Komga item IDs", "Add romm_id column", "Add romm_platform_id column",
+        "Index RomM item IDs", "Add Discogs master ID", "Add Discogs label",
+        "Add Discogs catalogue number", "Add Discogs format summary", "Add Discogs genres",
+        "Add Discogs styles", "Add Discogs notes", "Add Discogs cache timestamp",
+        "Add music identifier source", "Add item-series membership table", "Index item-series names",
+        "Backfill primary item-series memberships", "Add collections table",
+        "Add collection item membership table", "Index collection item memberships",
+        "Add confirmed legacy book barcode mappings", "Add missing-since mark to item copies",
+        "Add per-user item state table", "Index per-user item state by item",
+        "Index per-user consumption status", "Index per-user wishlist", "Index per-user favourites",
+        "Add per-user reading history table", "Index per-user reading history",
+        "Snapshot legacy item state for existing users", "Snapshot legacy reading history for existing users",
+        "Add Shelf libraries", "Add per-library user memberships", "Add one-library-per-item mapping",
+        "Create default Main Library", "Assign existing catalogue items to Main Library",
+        "Seed Main Library memberships from existing roles", "Index library memberships by user",
+        "Index catalogue items by library", "Add connected-service series metadata",
+        "Index connected-service series names",
+    ), start=24))
+    foreign_keys = db.execute("PRAGMA foreign_keys").fetchone()[0]
+    legacy_alter = db.execute("PRAGMA legacy_alter_table").fetchone()[0]
+    # Required by SQLite's safe replacement-table procedure. The original
+    # table name stays the FK target throughout, including for unknown child
+    # tables. TEMP live views resolve again once the replacement is renamed.
+    db.execute("PRAGMA foreign_keys=OFF")
+    db.execute("PRAGMA legacy_alter_table=ON")
+    try:
+        db.execute("BEGIN IMMEDIATE")
+        if not pending():
+            db.commit()
+            return []
+        records = [dict(row) for row in db.execute(
+            "SELECT version, description, applied_at FROM schema_version WHERE version >= 24 ORDER BY version"
+        )]
+        if any(descriptions.get(row["version"]) != row["description"] for row in records):
+            raise sqlite3.OperationalError("Unrecognized pre-0.37 migration namespace; database left unchanged")
+        archive_key = "connected_library_legacy_migrations_v1"
+        previous = db.execute("SELECT value FROM settings WHERE key = ?", (archive_key,)).fetchone()
+        archived = json.loads(previous[0]) if previous else []
+        if not isinstance(archived, list):
+            raise sqlite3.OperationalError("Invalid archived legacy migration ledger")
+        archived.extend(row for row in records if row not in archived)
+        db.execute("INSERT INTO settings (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+                   (archive_key, json.dumps(archived)))
+        mapping = _pre037_locations(db)
+        _pre037_copies(db, mapping)
+        db.execute("DELETE FROM schema_version WHERE version >= 24")
+        for version, description, sql in MIGRATIONS:
+            if version < 24:
+                continue
+            column = re.fullmatch(r"ALTER TABLE (\w+) ADD COLUMN (\w+) .+", sql)
+            if not column or column[2] not in _table_columns(db, column[1]):
+                if version == 26:
+                    # Old provider-backed media never acquires a physical
+                    # copy merely because it retained a shared location.
+                    sql += " AND i.media_type NOT IN ('audiobook', 'ebook', 'digital_music', 'digital_comic', 'digital_manga', 'digital_game')"
+                try:
+                    db.execute(sql)
+                except sqlite3.OperationalError as exc:
+                    if not _is_benign_migration_error(version, exc):
+                        raise
+            db.execute("INSERT INTO schema_version (version, description) VALUES (?, ?)", (version, description))
+        _prepare_legacy_connected_upgrade(db, _in_transaction=True)
+        if _table_columns(db, "periodical_issues") and "barcode_ean" not in _table_columns(db, "periodical_issues"):
+            db.execute("ALTER TABLE periodical_issues ADD COLUMN barcode_ean TEXT")
+        for statement in _bootstrap_statements():
+            db.execute(statement)
+        _pre037_provider_records(db)
+        if db.execute("PRAGMA foreign_key_check").fetchone():
+            raise sqlite3.IntegrityError("Legacy upgrade failed foreign-key validation; database left unchanged")
+        db.execute("INSERT INTO settings (key, value) VALUES ('connected_library_legacy_locations_v1', ?) "
+                   "ON CONFLICT(key) DO UPDATE SET value = excluded.value", (json.dumps(mapping),))
+        db.execute("INSERT INTO settings (key, value) VALUES ('connected_library_pre037_upgrade_v1', '1') "
+                   "ON CONFLICT(key) DO UPDATE SET value = excluded.value")
+        db.commit()
+    except Exception:
+        db.rollback()
+        raise
+    finally:
+        db.execute(f"PRAGMA legacy_alter_table={legacy_alter}")
+        db.execute(f"PRAGMA foreign_keys={foreign_keys}")
+    return ["Upgraded pre-0.37 fork locations, copies, provider bindings and private state; original ledger retained"]
 
 
 def _backfill_versions(db: sqlite3.Connection) -> tuple[set[int], str]:
@@ -1133,7 +1388,8 @@ def _run_migrations(db: sqlite3.Connection) -> list[str]:
     migrations meant ~25s of startup and five tracebacks that looked, to
     anyone upgrading, exactly like a failed migration.
     """
-    logs = _prepare_legacy_connected_upgrade(db)
+    logs = _prepare_pre037_connected_upgrade(db)
+    logs.extend(_prepare_legacy_connected_upgrade(db))
     applied = {
         r["version"]
         for r in db.execute("SELECT version FROM schema_version").fetchall()

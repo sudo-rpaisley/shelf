@@ -110,6 +110,10 @@ RAW_UPDATE_ALLOWLIST: dict[str, set[str]] = {
         # merging into an unowned twin must not silently become a wish;
         # the value is the step's own literal 1, never user input.
         "owned = 1 WHERE id = ?",
+        # Pre-0.37 compatibility: project remapped primary-copy locations and
+        # translate old digital vocabulary, not request-supplied metadata.
+        "location_id = ? WHERE id = ?",
+        "media_type = ? WHERE media_type = ?",
     },
 }
 

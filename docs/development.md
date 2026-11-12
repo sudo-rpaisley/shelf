@@ -129,6 +129,12 @@ it retains original fields/history and archives the original version records.
 descriptions, including interrupted-startup, rollback, overlapping-runner,
 account-isolation and real backup-restore regressions. Do not replace that
 fixture with current `MIGRATION_TABLES`.
+`tests/test_connected_pre037_upgrade.py` freezes the separately reported
+24-66 ledger, old location-node/copy FK and missing optional copy fields. It
+also checks dependent copy rows, sequence/index preservation, rollback,
+overlapping startups, provider conflicts, real routes and pre-/post-upgrade
+restore. `app/verify_upgrade.py` provides a production-image check on a
+temporary copy, with no keys, provider requests or writes to the original.
 
 Regression cases live in `tests/test_library_catalog.py`,
 `test_library_routes.py`, `test_availability.py`, `test_sources.py`,

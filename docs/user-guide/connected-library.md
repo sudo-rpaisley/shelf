@@ -505,6 +505,38 @@ are refused rather than guessed. **Keep the existing data volume and keys;
 do not delete the database to work around this error.** Back up the stopped
 data directory before retrying an experimental upgrade.
 
+**Pre-0.37 fork databases:** a separate bridge handles the older migration
+namespace where version 24 is **Add komga_id column**, including the reported
+versions through 66. This is not just a different private-state table: physical
+copies reference `location_nodes` instead of `locations`. The bridge projects
+the hierarchy, rebuilds that copy foreign key while retaining copy IDs,
+barcodes, positions, notes, missing marks, dependent rows and ID high-water,
+and retains the original node/holding/music/library tables. Known Komga/RomM
+identities become current cached bindings without contacting either server;
+the old digital comic/manga/game vocabulary is translated without merging
+items. Unknown schema extensions, binding conflicts and vocabulary collisions
+stop the upgrade rather than discarding or merging data. The entire pre-0.37
+conversion rolls back together on failure.
+
+The experiment still has **one shared catalogue**: retained old library and
+membership tables do not make their former visibility restrictions active.
+
+After building `shelf-rpaisley:test`, verify the stopped `shelf-test` database
+on a disposable copy **before** redeploying:
+
+```bash
+docker run --rm --network none --volumes-from shelf-test:ro \
+  --entrypoint python shelf-rpaisley:test -m app.verify_upgrade
+```
+
+Keep all writers to that data directory stopped while checking. The command
+copies the database/WAL into temporary storage, runs initialization twice and
+checks foreign keys and SQLite integrity. It never opens the original database
+through SQLite, changes its files, or prints catalogue/private/credential
+values. Continue only if it prints **Upgrade verification passed**. This tests
+the migrations with the image's actual Python/SQLite runtime; it does not test
+live integrations or replace the pre-upgrade backup.
+
 Preserve the matching `data/encryption.key` and `data/signing.key`, or the
 `SHELF_ENCRYPTION_KEY` and `SECRET_KEY` environment values, separately from a
 downloaded database backup. The matching encryption key is needed to reuse

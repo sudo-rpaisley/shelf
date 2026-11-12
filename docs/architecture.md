@@ -1332,6 +1332,23 @@ The bridge rechecks under the write lock and rolls back on failure; it is also
 used by restore through `init_db`. It does not infer private state from shared
 catalogue fields, import old reading history into the new timeline, or accept
 unknown fork migration namespaces.
+The earlier `_prepare_pre037_connected_upgrade` handles the separately
+diagnosed pre-0.37 namespace (versions 24-66) and `location_nodes` FK layout.
+It validates the recorded descriptions, archives the ledger and location ID
+mapping, reads canonical table DDL from `MIGRATION_TABLES`, and performs the
+whole conversion in one immediate transaction. SQLite FK enforcement is
+temporarily disabled **before** that transaction for the replacement-table
+procedure and restored in `finally`; an all-table foreign-key check precedes
+commit. The original copies table is never renamed, so child FK targets and
+rows are retained. Copy indexes, sequence high-water, optional legacy columns
+and missing marks survive; unrecognized columns/triggers are refused. Canonical
+DDL is executed statement by statement, not through an implicit-commit
+`executescript`. Known old provider identities are projected without I/O, and
+known digital aliases are translated without automatic merges. The completed
+bridge is skipped on later boots, including after user edits.
+`python -m app.verify_upgrade` runs this initialization/check sequence in a
+subprocess against a temporary DB/WAL copy with its own `DATA_DIR`; it does
+not open the original with SQLite or require keys or provider access.
 Full database backups (`settings._vacuum_backup`, `VACUUM INTO`) retain these
 tables, not covers or external encryption/signing keys. Preserve matching keys
 separately. The portable collection archive's explicit export contract excludes
