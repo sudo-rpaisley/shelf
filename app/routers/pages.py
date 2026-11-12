@@ -7,7 +7,7 @@ from app import browse_filters, features, nav
 from app.auth import require_role
 from app.features import require_feature
 from app.config import (
-    MEDIA_TYPES, DEFAULT_PAGE_SIZE, MAX_PAGE, BOOK_MEDIA_TYPES, STATUS_MEDIA_TYPES,
+    MEDIA_TYPES, DEFAULT_PAGE_SIZE, MAX_PAGE, BOOK_MEDIA_TYPES, MUSIC_MEDIA_TYPES, STATUS_MEDIA_TYPES,
     status_labels, READ_LABELS, WATCH_LABELS, PLAY_LABELS,
 )
 from app.services.synopsis import SYNOPSIS_MEDIA_TYPES
@@ -435,6 +435,7 @@ async def item_detail(
             "all_tags": all_tags,
             "media_types": MEDIA_TYPES,
             "book_media_types": BOOK_MEDIA_TYPES,
+            "music_media_types": MUSIC_MEDIA_TYPES,
             "status_media_types": STATUS_MEDIA_TYPES,
             "synopsis_media_types": SYNOPSIS_MEDIA_TYPES,
             "game_platforms": game_platforms,

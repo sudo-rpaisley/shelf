@@ -3,7 +3,7 @@ from urllib.parse import urlparse
 
 import httpx
 
-from app.config import COVERS_DIR
+from app.config import COVERS_DIR, MUSIC_MEDIA_TYPES
 from app.services import book_cover_search, igdb, national, outbound, porbase, provider_result, tmdb
 
 logger = logging.getLogger(__name__)
@@ -26,6 +26,7 @@ ALLOWED_COVER_DOMAINS = {
     "rnod.bnportugal.gov.pt",  # PORBASE cover scans for Portuguese (978-989, 978-972) ISBNs
     "neodb.social",  # NeoDB cover images for Chinese (978-7, Taiwan, Hong Kong) ISBNs
     "coverartarchive.org",  # Cover Art Archive entry point for music releases
+    "i.discogs.com",  # Explicitly selected Discogs pressing artwork
 }
 
 # Suffix-matched domains (subdomain rotates): covers.openlibrary.org serves
@@ -103,6 +104,8 @@ _IMAGE_SIGNATURES = [
 
 def _looks_like_image(content: bytes) -> bool:
     """Check if content starts with known image magic bytes."""
+    if content.startswith(b"RIFF"):
+        return content[8:12] == b"WEBP"  # RIFF also contains WAV audio and AVI.
     return any(content.startswith(sig) for sig in _IMAGE_SIGNATURES)
 
 
@@ -117,7 +120,7 @@ def validate_uploaded_cover(content: bytes) -> bool:
     return _looks_like_image(content)
 
 
-def write_uploaded_cover(item_id: int, content: bytes) -> str:
+def write_uploaded_cover(item_id: int, content: bytes, *, unique: bool = False) -> str:
     """Write already-validated cover bytes to `{item_id}.jpg`. Returns the relative path.
 
     Does no validation: the caller must have passed `content` through
@@ -126,13 +129,15 @@ def write_uploaded_cover(item_id: int, content: bytes) -> str:
     the existing cover untouched when it refuses.
     """
     COVERS_DIR.mkdir(parents=True, exist_ok=True)
-    (COVERS_DIR / f"{item_id}.jpg").write_bytes(content)
-    return f"covers/{item_id}.jpg"
+    from uuid import uuid4
+    filename = f"{item_id}-{uuid4().hex}.jpg" if unique else f"{item_id}.jpg"
+    (COVERS_DIR / filename).write_bytes(content)
+    return f"covers/{filename}"
 
 
-def save_uploaded_cover(item_id: int, content: bytes) -> str | None:
+def save_uploaded_cover(item_id: int, content: bytes, *, unique: bool = False) -> str | None:
     """Save an uploaded cover image. Returns relative path or None."""
-    return write_uploaded_cover(item_id, content) if validate_uploaded_cover(content) else None
+    return write_uploaded_cover(item_id, content, unique=unique) if validate_uploaded_cover(content) else None
 
 
 async def search_book_covers(
@@ -156,6 +161,7 @@ async def search_book_covers(
 # two-field credential is exactly the shape that entry documents.
 
 MEDIA_TYPE_PROVIDERS: dict[str, str] = {
+    **dict.fromkeys(MUSIC_MEDIA_TYPES, "musicbrainz"),
     "dvd": "tmdb",
     "digital_video": "tmdb",
     "video_game": "igdb",
@@ -166,6 +172,7 @@ MEDIA_TYPE_PROVIDERS: dict[str, str] = {
 MANUAL_COVER_TYPES = frozenset({"tv_series"})
 
 CREDENTIAL_KEYS: dict[str, tuple[str, ...]] = {
+    "musicbrainz": (),  # MusicBrainz and Cover Art Archive need no API key.
     "tmdb": ("tmdb_api_key",),
     "igdb": ("igdb_client_id", "igdb_client_secret"),
 }
@@ -247,6 +254,9 @@ async def search_covers(
         return await _tmdb_candidates(item, query, client, creds)
     if provider == "igdb":
         return await _igdb_candidates(item, query, client, creds)
+    if provider == "musicbrainz":
+        from app.services import music_artwork
+        return await music_artwork.search(item, query, client, creds=creds)
     typed = query.strip() != (_col(item, "title") or "").strip()
     result = await search_book_covers(
         query,
@@ -431,8 +441,13 @@ def is_allowed_cover_url(url: str) -> bool:
     try:
         parsed = urlparse(url)
         host = parsed.hostname
-        if parsed.scheme != "https" or not host:
+        if (parsed.scheme != "https" or not host or parsed.username is not None
+                or parsed.password is not None or parsed.port not in (None, 443)):
             return False
+        # CAA listings and images redirect here. Do not allow unrelated
+        # archive.org URLs (downloads, audio and other arbitrary content).
+        if host == "archive.org":
+            return parsed.path.startswith("/download/mbid-")
         return host in ALLOWED_COVER_DOMAINS or host.endswith(ALLOWED_COVER_SUFFIXES)
     except Exception:
         return False

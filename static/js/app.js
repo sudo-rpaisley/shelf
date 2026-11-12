@@ -105,6 +105,34 @@ function t(message) {
 }
 
 // --- Toast notifications ---
+// Native dialogs supply Escape, focus trapping and focus restoration. Keep
+// the gallery out of the narrow artwork column and preserve it across swaps.
+document.addEventListener('click', function(event) {
+    if (event.target.closest('[data-music-review-open]')) {
+        var review = document.querySelector('[data-testid="music-match-disclosure"]');
+        if (review) review.open = true;
+    }
+    if (event.target.closest('[data-artwork-open]')) {
+        var dialog = document.getElementById('artwork-dialog');
+        if (dialog && !dialog.open) {
+            // A reopened picker is about to be replaced by HTMX. Never let
+            // someone choose a file in the old form and lose it to that swap.
+            document.getElementById('cover-candidates').textContent = t('Loading artwork…');
+            dialog.showModal();
+        }
+    }
+    if (event.target.closest('[data-artwork-close]')) {
+        var parent = event.target.closest('dialog');
+        if (parent) parent.close();
+    }
+});
+
+document.addEventListener('htmx:responseError', function(event) {
+    if (event.detail.target && event.detail.target.id === 'cover-candidates') {
+        event.detail.target.textContent = t('Could not load artwork. Close this window and try again.');
+    }
+});
+
 function showToast(message, type) {
     var container = document.getElementById('toast-container');
     var colors = {success: 'bg-shelf-success', error: 'bg-shelf-error', warning: 'bg-shelf-warning', info: 'bg-shelf-accent'};

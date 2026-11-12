@@ -22,7 +22,7 @@ from fastapi import APIRouter, Depends, Form, Request
 from fastapi.responses import HTMLResponse
 
 from app.auth import require_role
-from app.config import HTTP_TIMEOUT
+from app.config import HTTP_TIMEOUT, MUSIC_MEDIA_TYPES
 from app.database import get_db
 from app.routers import items_common
 from app.routers.cover_review import (
@@ -59,7 +59,7 @@ async def cover_review_select(
     """
     with get_db() as db:
         exists = db.execute(
-            "SELECT id FROM items_live WHERE id = ?", (item_id,)
+            "SELECT id, media_type FROM items_live WHERE id = ?", (item_id,)
         ).fetchone()
         if not exists:
             return HTMLResponse("Not found", status_code=404)
@@ -73,8 +73,12 @@ async def cover_review_select(
     # calls — re-implementing the fetch here would drop an off-allowlist redirect
     # straight onto disk. The leading underscore is cosmetic; seven production
     # callers and eight test monkeypatches bind this exact name.
-    async with httpx.AsyncClient(timeout=HTTP_TIMEOUT) as client:
-        cover_path = await covers._download_to_item(item_id, url, client)
+    if exists["media_type"] in MUSIC_MEDIA_TYPES:
+        from app.services import music_artwork
+        cover_path = await music_artwork.download(item_id, url)
+    else:
+        async with httpx.AsyncClient(timeout=HTTP_TIMEOUT) as client:
+            cover_path = await covers._download_to_item(item_id, url, client)
 
     if cover_path:
         from app.services.librarything import selected_provenance

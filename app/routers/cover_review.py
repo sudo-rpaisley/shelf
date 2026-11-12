@@ -242,7 +242,7 @@ async def cover_review_search(
     templates = request.app.state.templates
     with get_db() as db:
         item = db.execute(
-            "SELECT id, title, authors, cover_path, media_type, publish_year, platform, isbn, cover_edition_language "
+            "SELECT id, title, authors, cover_path, media_type, publish_year, platform, isbn, upc, cover_edition_language "
             "FROM items_live WHERE id = ?", (item_id,)
         ).fetchone()
         # Key-by-key through get_setting, never the bulk accessor: provider
@@ -250,6 +250,7 @@ async def cover_review_search(
         # that have a row, so an env-only install would be told its provider is
         # unconfigured (G15).
         creds = {} if not item else items_covers._cover_search_credentials(db, item["media_type"])
+        item = items_covers._cover_item(db, item)
     if not item:
         return HTMLResponse("Not found", status_code=404)
 

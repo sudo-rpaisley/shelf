@@ -6,7 +6,7 @@
 msgid ""
 msgstr ""
 "Report-Msgid-Bugs-To: EMAIL@ADDRESS\n"
-"PO-Revision-Date: 2026-11-10 11:39-0500\n"
+"PO-Revision-Date: 2026-11-12 18:38+0000\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language: zh_Hans\n"
 "Language-Team: zh_Hans <LL@li.org>\n"
@@ -15,10 +15,18 @@ msgstr ""
 "Content-Type: text/plain; charset=utf-8\n"
 "Content-Transfer-Encoding: 8bit"
 
-#: static/js/app.js:71 static/js/app.js:114 static/js/app.js:124
+#: static/js/app.js:71 static/js/app.js:142 static/js/app.js:152
 #: static/js/browse.js:30
 msgid "Done"
 msgstr "完成"
+
+#: static/js/app.js:120
+msgid "Loading artwork…"
+msgstr "正在加载封面…"
+
+#: static/js/app.js:132
+msgid "Could not load artwork. Close this window and try again."
+msgstr "无法加载封面。请关闭此窗口后重试。"
 
 #: static/js/browse.js:29
 #, python-brace-format

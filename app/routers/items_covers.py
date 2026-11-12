@@ -14,9 +14,9 @@ from fastapi import APIRouter, Depends, Form, Request
 from fastapi.responses import HTMLResponse, JSONResponse
 from starlette.responses import StreamingResponse
 
-from app import i18n
+from app import features, i18n
 from app.auth import require_role
-from app.config import BOOK_MEDIA_TYPES, COVERS_DIR, HTTP_TIMEOUT
+from app.config import BOOK_MEDIA_TYPES, COVERS_DIR, HTTP_TIMEOUT, MUSIC_MEDIA_TYPES
 from app.database import get_db, get_setting
 from app.routers import items_common
 from app.services import covers, cover_queue, manual_cover, openlibrary, scan_outcome
@@ -120,6 +120,8 @@ def _search_note(media_type: str | None, creds: dict) -> str | None:
     """
     if media_type in covers.MANUAL_COVER_TYPES:
         return i18n.gettext("TV series cover search is not available. Use an image URL or upload a cover.")
+    if media_type in MUSIC_MEDIA_TYPES and not features.feature_enabled("music"):
+        return i18n.gettext("Music matching is turned off. Use an image URL or upload artwork.")
     keys = covers.required_credentials(media_type)
     if not keys:
         return None
@@ -148,6 +150,10 @@ def _cover_search_credentials(db, media_type: str | None) -> dict[str, str]:
     """Load required provider credentials plus the optional Google book key."""
     if media_type in covers.MANUAL_COVER_TYPES:
         return {}
+    if media_type in MUSIC_MEDIA_TYPES:
+        if not features.feature_enabled("music"):
+            return {"music_disabled": True}
+        return {"discogs_token": get_setting(db, "discogs_token")}
     keys = covers.required_credentials(media_type)
     creds = {key: get_setting(db, key) for key in keys}
     if not keys:
@@ -161,13 +167,21 @@ def _cover_search_credentials(db, media_type: str | None) -> dict[str, str]:
     return creds
 
 
+def _cover_item(db, item):
+    if item and item["media_type"] in MUSIC_MEDIA_TYPES:
+        from app.services import music_artwork
+        return music_artwork.context(db, item)
+    return item
+
+
 @router.get("/items/{item_id}/cover-search")
-async def cover_search(request: Request, item_id: int, query: str | None = None, _=Depends(require_role("editor"))):
+async def cover_search(request: Request, item_id: int, query: str | None = None, gallery: int = 0,
+                       return_to: str = "", _=Depends(require_role("editor"))):
     """Search for cover candidates by title/author. Returns HTMX fragment."""
     templates = request.app.state.templates
     with get_db() as db:
         item = db.execute(
-            "SELECT title, authors, cover_path, media_type, publish_year, platform, isbn, cover_edition_language "
+            "SELECT id, title, authors, cover_path, media_type, publish_year, platform, isbn, upc, cover_edition_language "
             "FROM items_live WHERE id = ?", (item_id,)
         ).fetchone()
         # Key-by-key through get_setting, never the bulk settings accessor:
@@ -175,6 +189,7 @@ async def cover_search(request: Request, item_id: int, query: str | None = None,
         # returns only keys that have a row, so an env-only install would be
         # told its provider is unconfigured (G15).
         creds = {} if not item else _cover_search_credentials(db, item["media_type"])
+        item = _cover_item(db, item)
     if not item:
         return HTMLResponse("Not found", status_code=404)
 
@@ -196,6 +211,8 @@ async def cover_search(request: Request, item_id: int, query: str | None = None,
             "search_note": _search_note(item["media_type"], creds),
             "search_status": search_status,
             "search_provider": search_provider,
+            "gallery": bool(gallery),
+            "return_to": "music" if return_to == "music" else "",
         },
     )
 
@@ -207,11 +224,21 @@ async def cover_select(
     edition_isbn: str | None = Form(None),
     edition_language: str | None = Form(None),
     query: str | None = Form(None),
+    gallery: int = Form(0),
+    return_to: str = Form(""),
     _=Depends(require_role("editor")),
 ):
     """Download a selected cover URL and save it for an item."""
-    async with httpx.AsyncClient(timeout=HTTP_TIMEOUT) as client:
-        cover_path = await covers._download_to_item(item_id, url, client)
+    with get_db() as db:
+        target = db.execute("SELECT id, media_type FROM items_live WHERE id = ?", (item_id,)).fetchone()
+    if not target:
+        return HTMLResponse("Not found", status_code=404)
+    if target["media_type"] in MUSIC_MEDIA_TYPES:
+        from app.services import music_artwork
+        cover_path = await music_artwork.download(item_id, url)
+    else:
+        async with httpx.AsyncClient(timeout=HTTP_TIMEOUT) as client:
+            cover_path = await covers._download_to_item(item_id, url, client)
 
     if cover_path:
         from app.services.librarything import selected_provenance
@@ -223,19 +250,20 @@ async def cover_select(
                                                            "cover_edition_language": provenance[1]})
         resp = HTMLResponse("")
         resp.headers["HX-Trigger"] = items_common._toast_header("Cover updated")
-        resp.headers["HX-Redirect"] = f"/item/{item_id}"
+        resp.headers["HX-Redirect"] = f"/music/item/{item_id}" if return_to == "music" else f"/item/{item_id}"
         return resp
 
     templates = request.app.state.templates
     with get_db() as db:
         item = db.execute(
-            "SELECT title, authors, cover_path, media_type, publish_year, platform, isbn, cover_edition_language "
+            "SELECT id, title, authors, cover_path, media_type, publish_year, platform, isbn, upc, cover_edition_language "
             "FROM items_live WHERE id = ?", (item_id,)
         ).fetchone()
         # Same key-by-key build as cover_search — this failure path re-renders
         # the grid, and a DVD whose pick failed must not fall back to book
         # results (G15 again, for the same env-only reason).
         creds = {} if not item else _cover_search_credentials(db, item["media_type"])
+        item = _cover_item(db, item)
     if not item:
         return HTMLResponse("Not found", status_code=404)
 
@@ -258,6 +286,8 @@ async def cover_select(
             "search_status": search_status,
             "search_provider": search_provider,
             "failed_url": url,
+            "gallery": bool(gallery),
+            "return_to": "music" if return_to == "music" else "",
         },
     )
     resp.headers["HX-Trigger"] = items_common._toast_header("Failed to download cover", "error")
@@ -273,11 +303,11 @@ async def cover_from_url(
 ):
     """Use a user-pasted public HTTPS image as an item's cover."""
     with get_db() as db:
-        item = db.execute("SELECT id FROM items_live WHERE id = ?", (item_id,)).fetchone()
+        item = db.execute("SELECT id, media_type FROM items_live WHERE id = ?", (item_id,)).fetchone()
     if not item:
         return HTMLResponse("Not found", status_code=404)
 
-    cover_path = await manual_cover.download(item_id, url)
+    cover_path = await manual_cover.download(item_id, url, unique=True) if item["media_type"] in MUSIC_MEDIA_TYPES else await manual_cover.download(item_id, url)
     if not cover_path:
         resp = HTMLResponse("")
         resp.headers["HX-Trigger"] = items_common._toast_header(
@@ -294,7 +324,7 @@ async def cover_from_url(
     resp = HTMLResponse("")
     resp.headers["HX-Trigger"] = items_common._toast_header("Cover updated")
     if return_to != "edit":
-        resp.headers["HX-Redirect"] = f"/item/{item_id}"
+        resp.headers["HX-Redirect"] = f"/music/item/{item_id}" if return_to == "music" else f"/item/{item_id}"
     return resp
 
 
@@ -308,7 +338,7 @@ async def cover_upload(request: Request, item_id: int, _=Depends(require_role("e
     still navigates on success regardless of swap.
     """
     with get_db() as db:
-        item = db.execute("SELECT id FROM items_live WHERE id = ?", (item_id,)).fetchone()
+        item = db.execute("SELECT id, media_type FROM items_live WHERE id = ?", (item_id,)).fetchone()
     if not item:
         return HTMLResponse("Not found", status_code=404)
 
@@ -323,7 +353,7 @@ async def cover_upload(request: Request, item_id: int, _=Depends(require_role("e
         # both live in the helper — do not duplicate them here.
         content = await cover_file.read(covers.MAX_COVER_SIZE + 1)
         if content:
-            cover_path = covers.save_uploaded_cover(item_id, content)
+            cover_path = covers.save_uploaded_cover(item_id, content, unique=True) if item["media_type"] in MUSIC_MEDIA_TYPES else covers.save_uploaded_cover(item_id, content)
 
     if not cover_path:
         resp = HTMLResponse("")
@@ -338,11 +368,11 @@ async def cover_upload(request: Request, item_id: int, _=Depends(require_role("e
         )
     resp = HTMLResponse("")
     resp.headers["HX-Trigger"] = items_common._toast_header("Cover updated")
-    resp.headers["HX-Redirect"] = f"/item/{item_id}"
+    resp.headers["HX-Redirect"] = f"/music/item/{item_id}" if form.get("return_to") == "music" else f"/item/{item_id}"
     return resp
 
 @router.post("/items/{item_id}/cover-remove")
-async def cover_remove(item_id: int, _=Depends(require_role("editor"))):
+async def cover_remove(item_id: int, return_to: str = Form(""), _=Depends(require_role("editor"))):
     """Clear an item's cover. Returns no body.
 
     The file stays on disk — covers overwrite `{item_id}.jpg` in place, so
@@ -374,7 +404,7 @@ async def cover_remove(item_id: int, _=Depends(require_role("editor"))):
 
     resp = HTMLResponse("")
     resp.headers["HX-Trigger"] = items_common._toast_header("Cover removed")
-    resp.headers["HX-Redirect"] = f"/item/{item_id}"
+    resp.headers["HX-Redirect"] = f"/music/item/{item_id}" if return_to == "music" else f"/item/{item_id}"
     return resp
 
 # These two sweeps are deliberately NOT filtered on `cover_review_dismissed`.

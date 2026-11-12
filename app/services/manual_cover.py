@@ -12,6 +12,7 @@ import ipaddress
 import logging
 import socket
 from urllib.parse import urljoin, urlparse
+from uuid import uuid4
 
 import httpx
 
@@ -104,6 +105,7 @@ async def _fetch_once(url: str) -> tuple[int, str | None, bytes | None] | None:
             transport=transport,
             timeout=HTTP_TIMEOUT,
             follow_redirects=False,
+            trust_env=False,
         ) as client:
             async with client.stream("GET", url) as resp:
                 location = resp.headers.get("location")
@@ -131,8 +133,19 @@ async def _fetch_once(url: str) -> tuple[int, str | None, bytes | None] | None:
         return None
 
 
-async def download(item_id: int, url: str) -> str | None:
+async def download(item_id: int, url: str, *, unique: bool = False, caa: bool = False) -> str | None:
     """Download a public HTTPS image into Shelf and return its relative path."""
+    try:
+        async with asyncio.timeout(35):
+            return await _download(item_id, url, unique=unique, caa=caa)
+    except TimeoutError:
+        return None
+    except (httpx.HTTPError, httpx.InvalidURL, OSError, ValueError):
+        logger.warning("Could not download or save artwork", exc_info=True)
+        return None
+
+
+async def _download(item_id: int, url: str, *, unique: bool, caa: bool) -> str | None:
     current = (url or "").strip()
     for _ in range(_MAX_REDIRECTS + 1):
         result = await _fetch_once(current)
@@ -143,6 +156,9 @@ async def download(item_id: int, url: str) -> str | None:
             if not location:
                 return None
             current = urljoin(current, location)
+            if caa:
+                from app.services.musicbrainz import artwork_url
+                current = artwork_url(current) or ""
             continue
         if status != 200 or content is None:
             return None
@@ -150,6 +166,18 @@ async def download(item_id: int, url: str) -> str | None:
             return None
 
         COVERS_DIR.mkdir(parents=True, exist_ok=True)
-        (COVERS_DIR / f"{item_id}.jpg").write_bytes(content)
-        return f"covers/{item_id}.jpg"
+        # Explicit artwork choices use a fresh URL: a browser/PWA may have the
+        # old filename cached, and a stale review must not overwrite that file.
+        filename = f"{item_id}-{uuid4().hex}.jpg" if unique else f"{item_id}.jpg"
+        try:
+            (COVERS_DIR / filename).write_bytes(content)
+        except OSError:
+            if unique:
+                try:
+                    (COVERS_DIR / filename).unlink(missing_ok=True)
+                except OSError:
+                    logger.warning("Could not remove incomplete artwork file", exc_info=True)
+            logger.warning("Could not save downloaded artwork", exc_info=True)
+            return None
+        return f"covers/{filename}"
     return None

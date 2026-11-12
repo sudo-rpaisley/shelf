@@ -229,7 +229,7 @@ FEATURES: dict[str, Feature] = {
         profile="standard",
         nav_tabs=("music",),
         entry_path="/music",
-        modules=("app.routers.music",),
+        modules=("app.routers.music", "app.routers.music_matching"),
     ),
     "periodicals": Feature(
         label="Periodicals",

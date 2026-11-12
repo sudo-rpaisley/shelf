@@ -1,0 +1,134 @@
+{% set match_fields = match_fields | default({}) %}
+{% set fact_labels = {'barcode': _('Barcode'), 'catalog_number': _('Catalogue number'), 'title': _('Title'), 'artist': _('Artist'), 'format': _('Format'), 'country': _('Country')} %}
+<section id="music-matching" class="bg-shelf-card border border-shelf-border rounded-xl p-4 sm:p-6 space-y-5" data-testid="music-matching">
+    <div>
+        <h2 class="text-lg font-semibold">{{ _('Match a release or use a shop link') }}</h2>
+        <p class="text-sm text-shelf-muted mt-1">{{ _('Preview the edition and artwork before changing anything. Existing copies, ownership, locations and personal activity stay unchanged.') }}</p>
+    </div>
+    {% if match_error %}<p role="alert" class="p-3 rounded-lg border border-shelf-error/40 text-sm text-shelf-error">{{ match_error }}</p>{% endif %}
+    <details{% if not candidates %} open{% endif %} class="space-y-4">
+    <summary class="cursor-pointer text-sm text-shelf-accent2">{{ _('Search and link options') }}</summary>
+    {% if show_match_search %}
+    <form method="get" action="/api/music/match" hx-get="/api/music/match" hx-target="#music-matching" hx-swap="outerHTML" class="space-y-3">
+        <input type="hidden" name="item_id" value="{{ item.id }}">
+        <input type="hidden" name="search" value="1">
+        <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+            {% for key, label in [('q', _('Release title')), ('artist', _('Artist')), ('barcode', _('Barcode')), ('catalog_number', _('Catalogue number'))] %}
+            <label class="block min-w-0 text-sm text-shelf-muted">{{ label }}<input name="{{ key }}" value="{{ match_fields.get(key, '') }}" maxlength="200" class="block w-full mt-1 bg-shelf-bg border border-shelf-border rounded-lg px-3 py-2 text-shelf-text"></label>
+            {% endfor %}
+            <label class="block min-w-0 text-sm text-shelf-muted">{{ _('Format') }}
+                <select name="format" class="block w-full mt-1 bg-shelf-bg border border-shelf-border rounded-lg px-3 py-2 text-shelf-text">
+                    <option value="">{{ _('Any music format') }}</option>
+                    {% for key, label in music_media_types.items() %}<option value="{{ key }}"{% if match_fields.get('format', '') == key %} selected{% endif %}>{{ label }}</option>{% endfor %}
+                </select>
+            </label>
+            <label class="block text-sm text-shelf-muted">{{ _('Country code (optional)') }}<input name="country" value="{{ match_fields.get('country', '') }}" maxlength="2" placeholder="GB" class="block w-full mt-1 bg-shelf-bg border border-shelf-border rounded-lg px-3 py-2 text-shelf-text"></label>
+        </div>
+        <button type="submit" class="px-4 py-2 bg-shelf-accent text-white rounded-lg text-sm">{{ _('Search releases') }}</button>
+    </form>
+    {% endif %}
+    <form method="post" action="/api/music/preview" hx-post="/api/music/preview" hx-target="#music-matching" hx-swap="outerHTML" class="space-y-2" data-testid="music-link-form">
+        <input type="hidden" name="_csrf" value="{{ request.cookies.get('csrf_token', '') }}">
+        <input type="hidden" name="item_id" value="{{ item.id if item else 0 }}">
+        <label class="block text-sm text-shelf-muted" for="music-source-url">{{ _('MusicBrainz release, Discogs release or shop product URL') }}</label>
+        <div class="flex flex-col sm:flex-row gap-2">
+            <input id="music-source-url" name="url" type="url" required maxlength="2048" placeholder="https://…" class="min-w-0 flex-1 bg-shelf-bg border border-shelf-border rounded-lg px-3 py-2 text-sm">
+            <button type="submit" class="shrink-0 px-4 py-2 bg-shelf-hover rounded-lg text-sm">{{ _('Preview link') }}</button>
+        </div>
+        <p class="text-xs text-shelf-muted">{{ _('Public HTTPS product pages only. Shelf reads published product metadata, not scripts, audio or your shop account. Some shops require manual details.') }}</p>
+    </form>
+    </details>
+    {% if match_results %}
+    <div class="space-y-3" data-testid="music-match-results">
+        {% for result in match_results %}
+        <article class="bg-shelf-bg border border-shelf-border rounded-lg p-4">
+            <h3 class="font-semibold break-words">{{ result.title }}</h3>
+            <p class="text-sm text-shelf-accent2">{{ result.artist_credit or '' }}</p>
+            <p class="text-xs text-shelf-muted mt-1">{{ result.release_date or '' }} · {{ result.country or '' }} · {{ result.label or '' }} · {{ result.catalog_number or '' }} · {{ result.format_summary or '' }}</p>
+            {% if result.barcode %}<p class="text-xs text-shelf-muted">{{ _('Barcode') }}: {{ result.barcode }}</p>{% endif %}
+            {% if result.disambiguation %}<p class="text-xs text-shelf-muted">{{ result.disambiguation }}</p>{% endif %}
+            <p class="text-xs text-shelf-muted mt-2">{{ _('Matching facts') }}: {% for key in result.match_reasons %}{{ fact_labels[key] }}{{ ', ' if not loop.last }}{% else %}{{ _('Title search only — check the edition') }}{% endfor %}</p>
+            {% if result.match_conflicts %}<p class="text-xs text-shelf-warning">{{ _('Check differences') }}: {% for key in result.match_conflicts %}{{ fact_labels[key] }}{{ ', ' if not loop.last }}{% endfor %}</p>{% endif %}
+            <form method="post" action="/api/music/preview" hx-post="/api/music/preview" hx-target="#music-matching" hx-swap="outerHTML" class="mt-3">
+                <input type="hidden" name="_csrf" value="{{ request.cookies.get('csrf_token', '') }}">
+                <input type="hidden" name="item_id" value="{{ item.id if item else 0 }}">
+                <input type="hidden" name="release_id" value="{{ result.musicbrainz_release_id }}">
+                <button type="submit" class="px-3 py-2 bg-shelf-accent text-white rounded-lg text-sm">{{ _('Preview details and artwork') }}</button>
+            </form>
+        </article>
+        {% endfor %}
+    </div>
+    {% endif %}
+    {% for candidate in candidates | default([]) %}
+    <article class="border-t border-shelf-border pt-5 space-y-4" data-testid="music-match-preview">
+        <h3 class="text-lg font-semibold break-words">{{ candidate.fields.get('title') or candidate.release.get('title') }}</h3>
+        <a href="{{ candidate.source_url }}" target="_blank" rel="noopener noreferrer" referrerpolicy="no-referrer" class="inline-block text-sm text-shelf-accent2 break-all">{{ candidate.source_url }}</a>
+        {% if candidate.kind == 'shop' %}<p class="text-xs text-shelf-warning">{{ _('Shop-provided details are not proof of an exact pressing. Check the barcode, catalogue number, format and artwork.') }}</p>{% endif %}
+        {% if candidate.keep_release %}<p class="text-sm text-shelf-muted">{{ _('Your exact MusicBrainz release and track list will be kept. Only the catalogue fields and artwork you select below can change.') }}</p>{% endif %}
+        {% if candidate.kind == 'musicbrainz' %}<p class="text-sm text-shelf-muted">{{ _('Applying this match attaches this exact release and replaces its release details and track list. Only checked catalogue fields change.') }}</p>{% endif %}
+        <dl class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2 text-sm">
+            {% for key, label in [('artist_credit', _('Artist')), ('release_date', _('Release date')), ('country', _('Country')), ('label', _('Label')), ('catalog_number', _('Catalogue number')), ('format_summary', _('Format')), ('packaging', _('Packaging'))] %}
+            {% if candidate.release.get(key) %}<div class="min-w-0"><dt class="text-shelf-muted">{{ label }}</dt><dd class="break-words">{{ candidate.release[key] }}</dd></div>{% endif %}
+            {% endfor %}
+        </dl>
+        {% if candidate.release.get('genres') or candidate.release.get('styles') %}<p class="text-sm text-shelf-muted">{{ (candidate.release.get('genres', []) + candidate.release.get('styles', []))|join(' · ') }}</p>{% endif %}
+        {% if candidate.release.get('identifiers') %}
+        <dl class="grid grid-cols-1 sm:grid-cols-2 gap-2 text-xs">{% for identifier in candidate.release.identifiers %}<div class="break-words"><dt class="text-shelf-muted">{{ identifier.identifier_type|replace('_', ' ') }}</dt><dd>{{ identifier.value }}</dd></div>{% endfor %}</dl>
+        {% endif %}
+        {% if candidate.release.get('notes') %}<details class="text-sm"><summary class="cursor-pointer text-shelf-muted">{{ _('Release notes') }}</summary><p class="whitespace-pre-wrap break-words mt-2">{{ candidate.release.notes }}</p></details>{% endif %}
+        {% for medium in candidate.release.get('media', []) %}
+        {% if medium.tracks %}
+        <details class="bg-shelf-bg rounded-lg p-3">
+            <summary class="text-sm cursor-pointer">{{ _('Track listing') }} ({{ medium.tracks|length }}) · {{ medium.format or '' }}</summary>
+            <ol class="mt-3 space-y-1 text-sm">
+                {% for track in medium.tracks %}<li class="flex gap-3"><span class="text-shelf-muted shrink-0">{{ track.number or track.position }}</span><span class="break-words">{{ track.title }}</span></li>{% endfor %}
+            </ol>
+        </details>
+        {% endif %}
+        {% endfor %}
+        <form method="post" action="/api/music/apply-match" hx-post="/api/music/apply-match" hx-target="#music-matching" hx-swap="outerHTML" class="space-y-4" data-testid="music-apply-match">
+            <input type="hidden" name="_csrf" value="{{ request.cookies.get('csrf_token', '') }}">
+            <input type="hidden" name="ticket" value="{{ candidate.ticket }}">
+            <input type="hidden" name="item_id" value="{{ item.id if item else 0 }}">
+            <div class="grid grid-cols-1 {% if candidate.fields %}lg:grid-cols-2{% endif %} gap-6 items-start">
+            {% if candidate.fields %}
+            <fieldset class="space-y-3">
+                <legend class="font-medium text-sm mb-2">{{ _('Choose which catalogue fields to use') }}</legend>
+                {% for key, value in candidate.fields.items() %}
+                <label class="flex items-start gap-3 text-sm">
+                    <input type="checkbox" name="fields" value="{{ key }}"{% if not item or item[key] in (none, '') %} checked{% endif %} class="mt-1 shrink-0">
+                    <span class="min-w-0"><span class="block font-medium">{{ _(field_labels[key]) }}</span>
+                        {% if item and item[key] not in (none, '') %}<span class="block text-xs text-shelf-muted break-words">{{ _('Current') }}: {{ item[key] }}</span>{% endif %}
+                        <span class="block break-words max-h-40 overflow-y-auto">{{ value }}</span>
+                    </span>
+                </label>
+                {% endfor %}
+            </fieldset>
+            {% endif %}
+            <fieldset class="space-y-3">
+                <legend class="font-medium text-sm mb-2">{{ _('Artwork') }}</legend>
+                <label class="flex items-center gap-2 text-sm"><input type="radio" name="image" value="-1" checked> {{ _('Keep current artwork') if item else _('Add without artwork') }}</label>
+                {% if candidate.images %}
+                <div class="grid grid-cols-2 xl:grid-cols-3 gap-3">
+                    {% for image in candidate.images %}
+                    <label class="min-w-0 border border-shelf-border rounded-lg p-2 bg-shelf-bg cursor-pointer">
+                        <img src="/api/music/preview-image?ticket={{ candidate.image_tickets[loop.index0] | urlencode }}&amp;index=0" alt="{{ _('Cover candidate') }}" loading="lazy" class="w-full aspect-square object-contain rounded-sm">
+                        <span class="flex items-center gap-2 text-xs mt-2"><input type="radio" name="image" value="{{ loop.index0 }}"> {{ candidate.image_labels[loop.index0] if candidate.image_labels else _('Use image') ~ ' ' ~ loop.index }}</span>
+                    </label>
+                    {% endfor %}
+                </div>
+                {% else %}<p class="text-xs text-shelf-muted">{{ _('No artwork was supplied. You can use Choose artwork, an image URL or an upload afterwards.') }}</p>{% endif %}
+            </fieldset>
+            </div>
+            {% if not item %}
+            <label class="block text-sm text-shelf-muted">{{ _('Format') }}<select name="media_type" required class="block w-full mt-1 bg-shelf-bg border border-shelf-border rounded-lg px-3 py-2">{% for key, label in music_media_types.items() %}<option value="{{ key }}"{% if key == 'vinyl' %} selected{% endif %}>{{ label }}</option>{% endfor %}</select></label>
+            <input type="hidden" name="owned" value="0">
+            <label class="flex items-center gap-2 text-sm"><input type="checkbox" name="owned" value="1" checked> {{ _('I own this item') }}</label>
+            {% endif %}
+            {% if candidate.kind == 'discogs' %}<p class="text-xs text-shelf-muted">{{ _('Discogs details are displayed live. Applying this preview remembers the pressing reference and any artwork you select; it does not replace your MusicBrainz metadata.') }}</p>{% endif %}
+            <button type="submit" class="px-4 py-2 bg-shelf-accent text-white rounded-lg text-sm">{{ _('Apply selected match') if item else _('Add release') }}</button>
+        </form>
+        {% if candidate.kind == 'discogs' %}<p class="text-xs text-shelf-muted"><a href="https://www.discogs.com" target="_blank" rel="noopener noreferrer">{{ _('Data provided by Discogs') }}</a></p>{% endif %}
+    </article>
+    {% endfor %}
+</section>

@@ -130,6 +130,47 @@ def _discogs_url(release_id: int | str | None, uri: Any = None) -> str | None:
     return f"https://www.discogs.com/release/{release_id}" if release_id else None
 
 
+def _tracklist(values: Any, *, depth: int = 0) -> list[dict]:
+    """Retain vinyl side numbers and indexed works, without persisting API data."""
+    if not isinstance(values, list) or depth > 4:
+        return []
+    tracks = []
+    for value in values[:200]:
+        if not isinstance(value, dict):
+            continue
+        children = _tracklist(value.get("sub_tracks"), depth=depth + 1)
+        if children:
+            tracks.extend(children)
+        elif value.get("type_") != "heading" and value.get("title"):
+            duration = re.fullmatch(r"(?:(\d{1,2}):)?(\d{1,3}):(\d{2})", str(value.get("duration") or ""))
+            seconds = (int(duration[1] or 0) * 3600 + int(duration[2]) * 60 + int(duration[3])) if duration else None
+            tracks.append({"position": len(tracks) + 1, "number": str(value.get("position") or len(tracks) + 1),
+                           "title": str(value["title"])[:1000], "artist_credit": _artist_credit(value.get("artists")),
+                           "duration_ms": seconds * 1000 if seconds is not None else None})
+        if len(tracks) >= 200:
+            break
+    return [{**track, "position": i} for i, track in enumerate(tracks[:200], 1)]
+
+
+def _images(values: Any) -> list[dict]:
+    from app.services import covers
+    if not isinstance(values, list):
+        return []
+    images = []
+    for value in values[:12]:
+        if not isinstance(value, dict):
+            continue
+        url = value.get("uri")
+        if not isinstance(url, str) or not url.startswith("https://i.discogs.com/") or not covers.is_allowed_cover_url(url):
+            continue
+        thumb = value.get("uri150")
+        if not isinstance(thumb, str) or not thumb.startswith("https://i.discogs.com/") or not covers.is_allowed_cover_url(thumb):
+            thumb = url
+        images.append({"url": url, "thumbnail": thumb, "source": "Discogs",
+                       "label": "Primary" if value.get("type") == "primary" else "Release artwork"})
+    return images
+
+
 def normalise_release(release: dict) -> dict:
     release_id = release.get("id")
     try:
@@ -166,6 +207,7 @@ def normalise_release(release: dict) -> dict:
     released = str(release.get("released") or "").strip()
     if not released and release.get("year"):
         released = str(release["year"])
+    tracks = _tracklist(release.get("tracklist"))
 
     return {
         "discogs_release_id": release_id,
@@ -182,7 +224,10 @@ def normalise_release(release: dict) -> dict:
         "styles": [str(v) for v in release.get("styles") or [] if v],
         "notes": str(release.get("notes") or "").strip() or None,
         "identifiers": identifiers,
+        "media": [{"position": 1, "format": _format_summary(release.get("formats")),
+                   "track_count": len(tracks), "tracks": tracks}] if tracks else [],
         "discogs_url": _discogs_url(release_id, release.get("uri")),
+        "images": _images(release.get("images")),
         "source": "discogs",
     }
 

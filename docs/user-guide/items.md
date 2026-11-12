@@ -6,7 +6,7 @@ its home.
 ## What's on the page
 
 - **Cover**, with **Find cover** (search by ISBN and title, or type your own query,
-  and pick a candidate — your current cover is shown first, marked
+  and pick a candidate in a large artwork chooser — your current cover is shown first, marked
   *Current*, for comparison), **Upload** your own image, paste a link
   under **Use image from URL**, or **Remove cover**. These work on an item that already has a cover, not just a
   cover-less one; **Retry cover** (re-running the automatic chain) only
@@ -21,6 +21,7 @@ its home.
   | DVDs, Blu-rays and Digital Video | the film's poster set on TMDb | by language (`TMDb · EN`) — the same film's posters differ mostly by language |
   | TV Series | no automatic artwork search; use an image URL or upload | no book-cover fallback |
   | Video games | IGDB cover art **and** key artwork, as separate tiles | by game and kind (`IGDB · Portal · cover`) |
+  | Vinyl, CDs, cassettes and digital music | Cover Art Archive scans of the attached release, a bounded release search when unmatched, and optional artwork from the selected Discogs pressing | by release/scan type; Release Group fallback is labelled **another edition** |
 
   For **books and comics**, the default search uses the item's stored ISBN
   and author. A query you type searches on that text alone, without the
@@ -28,7 +29,9 @@ its home.
   cover. Keep a typed query to the title: Open Library matches typed text
   against titles only, so adding the author's name there can empty the
   Open Library half of the result. The other media
-  types search on the title (or your typed query) alone; a game's stored
+  types search on the title (or your typed query) alone, except music, which
+  uses the attached release or barcode/artist to narrow its initial search.
+  Music's typed query searches independently of stored identifiers. A game's stored
   platform narrows the search when it is set, and a DVD's year is used to
   pick the right film when several share a title.
 
@@ -38,6 +41,12 @@ its home.
   credential is missing rather than reporting "No covers found for this
   title.", which would be untrue: the artwork exists, Shelf just cannot ask
   for it.
+
+  MusicBrainz and Cover Art Archive need no API key; Discogs images require an
+  optional token and an explicitly selected pressing. If Music is turned off,
+  the generic music item still offers manual image URLs and uploads without
+  contacting music providers. See [Music](music.md) for release matching and
+  shop-link previews. Selecting artwork does not change the matched edition.
 
   The same is true once the credential is *there* but the provider will not
   answer. A key the provider rejects, a provider that is rate-limiting us, and

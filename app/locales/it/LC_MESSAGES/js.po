@@ -3,7 +3,7 @@
 msgid ""
 msgstr ""
 "Report-Msgid-Bugs-To: andrea@bergamasco.me\n"
-"PO-Revision-Date: 2026-11-06 15:53+0100\n"
+"PO-Revision-Date: 2026-11-12 18:38+0000\n"
 "Last-Translator: Andrea Bergamasco\n"
 "Language: it\n"
 "Language-Team: Italian\n"
@@ -12,10 +12,18 @@ msgstr ""
 "Content-Type: text/plain; charset=utf-8\n"
 "Content-Transfer-Encoding: 8bit"
 
-#: static/js/app.js:71 static/js/app.js:114 static/js/app.js:124
+#: static/js/app.js:71 static/js/app.js:142 static/js/app.js:152
 #: static/js/browse.js:30
 msgid "Done"
 msgstr "Fatto"
+
+#: static/js/app.js:120
+msgid "Loading artwork…"
+msgstr "Caricamento copertine…"
+
+#: static/js/app.js:132
+msgid "Could not load artwork. Close this window and try again."
+msgstr "Impossibile caricare le copertine. Chiudi questa finestra e riprova."
 
 #: static/js/browse.js:29
 #, python-brace-format

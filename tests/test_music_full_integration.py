@@ -41,6 +41,8 @@ def test_music_templates_keep_exact_release_workflow_visible():
     assert 'action="/api/music/add"' in library
     assert "Search MusicBrainz" in library
     assert 'href="/music/item/{{ item.id }}"' in library
-    assert 'action="/api/music/items/{{ item.id }}/refresh"' in detail
+    assert 'action="/api/music/preview"' in detail
+    assert 'data-music-review-open' in detail
+    assert 'action="/api/music/items/{{ item.id }}/refresh"' not in detail
     assert "Track listing" in detail
     assert "musicbrainz.org/release/" in detail

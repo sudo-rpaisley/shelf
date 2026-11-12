@@ -15,7 +15,9 @@ through Shelf's normal outbound rate-limit configuration.
 from __future__ import annotations
 
 import logging
+import re
 from typing import Any
+from urllib.parse import urljoin, urlsplit, urlunsplit
 
 import httpx
 
@@ -84,6 +86,7 @@ def _normalise_medium(medium: dict, fallback_position: int) -> dict:
         if not isinstance(track, dict):
             continue
         recording = track.get("recording") or {}
+        recording = recording if isinstance(recording, dict) else {}
         tracks.append({
             "position": index,
             # Text deliberately preserves vinyl positions such as A1/B2.
@@ -136,7 +139,7 @@ def normalise_release(release: dict) -> dict:
 
 def _search_summary(release: dict) -> dict:
     normalised = normalise_release(release)
-    return {
+    summary = {
         key: normalised.get(key)
         for key in (
             "title", "artist_credit", "musicbrainz_release_id",
@@ -145,6 +148,24 @@ def _search_summary(release: dict) -> dict:
             "packaging", "media_count", "format_summary",
         )
     }
+    summary["disambiguation"] = str(release.get("disambiguation") or "")[:500]
+    summary["track_count"] = sum(m.get("track_count") or 0 for m in normalised["media"])
+    return summary
+
+
+def artwork_url(value: Any) -> str | None:
+    """CAA still returns HTTP links. Upgrade only its declared image hosts."""
+    from app.services import covers
+
+    if not isinstance(value, str):
+        return None
+    try:
+        parsed = urlsplit(value)
+        if parsed.scheme == "http":
+            value = urlunsplit(parsed._replace(scheme="https"))
+        return value if covers.is_allowed_cover_url(value) else None
+    except ValueError:
+        return None
 
 
 async def _request_json(
@@ -155,14 +176,20 @@ async def _request_json(
     provider: str = "musicbrainz",
 ) -> provider_result.ProviderResult:
     try:
-        resp = await outbound.fetch(
-            client,
-            "GET",
-            url,
-            params=params,
-            headers=_headers(),
-            timeout=15,
-        )
+        # CAA's listing endpoint normally redirects to archive.org/index.json.
+        # httpx does not follow it by default; treating that 307 as a miss made
+        # otherwise valid music releases appear to have no artwork at all.
+        for hop in range(6):
+            resp = await outbound.fetch(
+                client, "GET", url, params=params if hop == 0 else None,
+                headers=_headers(), timeout=15, follow_redirects=False,
+            )
+            if provider != "coverartarchive" or resp.status_code not in (301, 302, 303, 307, 308):
+                break
+            next_url = artwork_url(urljoin(url, resp.headers.get("location", "")))
+            if not resp.headers.get("location") or not next_url or hop == 5:
+                return provider_result.transport_failed(provider)
+            url = next_url
     except (httpx.ConnectError, httpx.TimeoutException):
         return provider_result.transport_failed(provider)
     except Exception:
@@ -187,20 +214,33 @@ async def search_releases(
     artist: str | None = None,
     barcode: str | None = None,
     catalog_number: str | None = None,
+    media_type: str = "",
+    country: str = "",
     limit: int = 15,
 ) -> provider_result.ProviderResult:
     """Search exact MusicBrainz releases, not Release Groups."""
     clauses: list[str] = []
+    def literal(value):
+        # Quoting alone does not escape Lucene: AC/DC, quotes and colons in
+        # genuine album/artist names otherwise alter or invalidate the query.
+        return re.sub(r'([+\-!(){}\[\]^"~*?:\\/|&])', r'\\\1', value.strip())
+
     if barcode:
-        clauses.append(f'barcode:"{barcode.strip()}"')
+        clauses.append(f'barcode:"{literal(barcode)}"')
     if catalog_number:
-        clauses.append(f'catno:"{catalog_number.strip()}"')
+        clauses.append(f'catno:"{literal(catalog_number)}"')
     if query and query.strip():
-        clauses.append(f'release:"{query.strip()}"')
+        clauses.append(f'release:"{literal(query)}"')
     if artist and artist.strip():
-        clauses.append(f'artist:"{artist.strip()}"')
+        clauses.append(f'artist:"{literal(artist)}"')
     if not clauses:
         return provider_result.no_match("musicbrainz")
+    formats = {"vinyl": "(Vinyl OR 7vinyl OR 10vinyl OR 12vinyl)",
+               "cd": "CD", "cassette": "Cassette", "digital_music": "DigitalMedia"}
+    if media_type in formats:
+        clauses.append("format:" + formats[media_type])
+    if country.strip():
+        clauses.append(f'country:"{literal(country)}"')
 
     result = await _request_json(
         client,
@@ -213,10 +253,13 @@ async def search_releases(
     )
     if not result.found:
         return result
-    releases = result.payload.get("releases") or []
-    return result.with_payload([
-        _search_summary(r) for r in releases if isinstance(r, dict)
-    ])
+    releases = (result.payload.get("releases") or []) if isinstance(result.payload, dict) else None
+    if not isinstance(releases, list):
+        return provider_result.transport_failed("musicbrainz")
+    try:
+        return result.with_payload([_search_summary(r) for r in releases[:100] if isinstance(r, dict)])
+    except (TypeError, ValueError, AttributeError):
+        return provider_result.transport_failed("musicbrainz")
 
 
 async def search_by_barcode(
@@ -252,11 +295,14 @@ async def lookup_release(
         return result
     if not isinstance(result.payload, dict) or not result.payload.get("id"):
         return provider_result.no_match("musicbrainz")
-    return result.with_payload(normalise_release(result.payload))
+    try:
+        return result.with_payload(normalise_release(result.payload))
+    except (TypeError, ValueError, AttributeError):
+        return provider_result.transport_failed("musicbrainz")
 
 
 async def cover_art(
-    release_id: str, client: httpx.AsyncClient
+    release_id: str, client: httpx.AsyncClient, *, group: bool = False
 ) -> provider_result.ProviderResult:
     """Return Cover Art Archive candidates for one exact MusicBrainz release."""
     release_id = (release_id or "").strip()
@@ -264,7 +310,7 @@ async def cover_art(
         return provider_result.no_match("coverartarchive")
     result = await _request_json(
         client,
-        f"{COVER_ART_BASE}/release/{release_id}",
+        f"{COVER_ART_BASE}/{'release-group' if group else 'release'}/{release_id}",
         provider="coverartarchive",
     )
     if not result.found:
@@ -272,14 +318,17 @@ async def cover_art(
             return provider_result.found("coverartarchive", [], status=404)
         return result
 
-    images = result.payload.get("images") or []
+    images = (result.payload.get("images") or []) if isinstance(result.payload, dict) else None
+    if not isinstance(images, list):
+        return provider_result.transport_failed("coverartarchive")
     candidates: list[dict] = []
-    for image in images:
+    for image in images[:100]:
         if not isinstance(image, dict):
             continue
         thumbnails = image.get("thumbnails") or {}
-        full = image.get("image")
-        thumb = thumbnails.get("500") or thumbnails.get("250") or full
+        thumbnails = thumbnails if isinstance(thumbnails, dict) else {}
+        full = artwork_url(image.get("image"))
+        thumb = artwork_url(thumbnails.get("500")) or artwork_url(thumbnails.get("250")) or full
         if not full:
             continue
         candidates.append({

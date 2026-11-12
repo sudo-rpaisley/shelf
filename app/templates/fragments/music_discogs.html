@@ -29,6 +29,14 @@
             </div>
             {% endif %}
         </div>
+        {% if can_edit %}
+        <form method="post" action="/api/music/preview" hx-post="/api/music/preview" hx-target="#music-matching" hx-swap="outerHTML show:top" class="mt-3">
+            <input type="hidden" name="_csrf" value="{{ request.cookies.get('csrf_token', '') }}">
+            <input type="hidden" name="item_id" value="{{ item.id }}">
+            <input type="hidden" name="url" value="https://www.discogs.com/release/{{ selected_id }}">
+            <button type="submit" data-music-review-open class="px-3 py-2 bg-shelf-hover rounded-lg text-sm">{{ _('Preview details and artwork') }}</button>
+        </form>
+        {% endif %}
 
         {% if selected_release %}
         <div class="mt-3 pt-3 border-t border-shelf-border space-y-1 text-sm">

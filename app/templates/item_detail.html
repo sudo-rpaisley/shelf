@@ -43,7 +43,7 @@
 
                 {% if user and user.role in ('admin', 'editor') %}
                 <div class="flex flex-col gap-1 mt-2" data-testid="cover-controls">
-                    <button hx-get="/api/items/{{ item.id }}/cover-search" hx-target="#cover-candidates" hx-swap="innerHTML"
+                    <button type="button" data-artwork-open hx-get="/api/items/{{ item.id }}/cover-search?gallery=1" hx-target="#cover-candidates" hx-swap="innerHTML"
                             class="text-xs px-3 py-1 bg-shelf-accent/20 text-shelf-accent2 rounded-sm hover:bg-shelf-accent/30 transition-colors">
                         {{ _('Find cover') }}
                     </button>
@@ -55,12 +55,14 @@
                     </form>
                     {% endif %}
                 </div>
-                <div id="cover-candidates"></div>
                 {% endif %}
             </div>
 
             <!-- Metadata -->
             <div class="flex-1 min-w-0">
+                {% if item.media_type in music_media_types and feature_on('music') %}
+                <a href="/music/item/{{ item.id }}" class="inline-block text-sm text-shelf-accent2 hover:underline mb-2">{{ _('Music details and matching') }}</a>
+                {% endif %}
                 <h1 class="text-2xl font-bold mb-1">{{ item.title }}{% if item.wishlisted %} <span class="px-1.5 py-0.5 rounded-sm text-[10px] font-medium bg-shelf-warning/90 text-black shrink-0 align-middle" data-testid="wishlist-badge">{{ _('Wishlist') }}</span>{% endif %}</h1>
                 {% if item.wishlisted and price_line and feature_on('price_alerts') %}<p class="text-sm text-shelf-muted mb-2" data-testid="list-price-line">{{ _('List price %(price)s', price=price_line.current|money) }}{% if price_line.stale %} {{ _('as of %(date)s', date=price_line.current_on) }}{% endif %}{% if price_line.was is not none %} &middot; {{ _('was %(price)s on %(date)s', price=price_line.was|money, date=price_line.was_on) }}{% endif %}</p>{% endif %}
                 {% if item.wishlisted and buy_links and feature_on('buy_links') %}<div class="mb-2" data-testid="buy-links">
@@ -350,4 +352,7 @@
         </div>
     </div>
 </div>
+{% if user and user.role in ('admin', 'editor') %}
+{% include "fragments/artwork_dialog.html" %}
+{% endif %}
 {% endblock %}

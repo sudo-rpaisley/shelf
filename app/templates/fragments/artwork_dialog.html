@@ -1,0 +1,8 @@
+<dialog id="artwork-dialog" class="artwork-dialog rounded-xl border border-shelf-border bg-shelf-bg text-shelf-text shadow-2xl"
+        aria-labelledby="artwork-dialog-title">
+    <div class="sticky top-0 z-10 bg-shelf-card border-b border-shelf-border p-4 flex items-center justify-between gap-3">
+        <h2 id="artwork-dialog-title" class="text-lg font-semibold">{{ _('Choose artwork') }}</h2>
+        <button type="button" data-artwork-close class="px-3 py-2 rounded-lg bg-shelf-hover text-sm">{{ _('Close') }}</button>
+    </div>
+    <div id="cover-candidates" class="p-4 sm:p-6" aria-live="polite"></div>
+</dialog>

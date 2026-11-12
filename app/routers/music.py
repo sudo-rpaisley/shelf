@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import sqlite3
+from pathlib import Path
 
 import httpx
 from fastapi import APIRouter, Depends, Form, Query, Request
@@ -10,9 +11,9 @@ from fastapi.responses import HTMLResponse, RedirectResponse
 
 from app.auth import require_role
 from app.features import require_feature
-from app.config import HTTP_TIMEOUT, MEDIA_TYPES, MUSIC_MEDIA_TYPES
+from app.config import COVERS_DIR, HTTP_TIMEOUT, MEDIA_TYPES, MUSIC_MEDIA_TYPES
 from app.database import get_db, get_setting
-from app.services import covers, discogs, discogs_selection, music_catalog, musicbrainz
+from app.services import cover_sync_policy, discogs, discogs_selection, music_artwork, music_catalog, music_matching, music_review, musicbrainz, shop_metadata
 from app.services import upc as upc_svc
 from app.services import item_write
 from app.services.item_write import insert_item, update_item_fields
@@ -88,21 +89,30 @@ async def _apply_release_artwork(item_id: int, release_id: str) -> None:
         row = db.execute(
             "SELECT cover_path FROM items_live WHERE id = ?", (item_id,)
         ).fetchone()
-    if not row or row["cover_path"]:
+        blocked = cover_sync_policy.blocked(db, item_id)
+        release = music_catalog.get_release(db, item_id)
+    if not row or row["cover_path"] or blocked:
         return
 
     async with httpx.AsyncClient(timeout=HTTP_TIMEOUT) as client:
-        art = await musicbrainz.cover_art(release_id, client)
+        art = await music_artwork.release_candidates(release or {"musicbrainz_release_id": release_id}, client)
         candidates = art.payload if art.found else []
         front = next((c for c in candidates if c.get("front")), None)
         chosen = front or (candidates[0] if candidates else None)
         if not chosen:
             return
-        cover_path = await covers._download_to_item(item_id, chosen["url"], client)
+        cover_path = await music_artwork.download(item_id, chosen["url"])
 
     if cover_path:
         with get_db() as db:
-            update_item_fields(db, item_id, {"cover_path": cover_path})
+            db.execute("BEGIN IMMEDIATE")
+            current = db.execute("SELECT cover_path FROM items_live WHERE id = ?", (item_id,)).fetchone()
+            current_release = music_catalog.get_release(db, item_id)
+            if (current and not current["cover_path"] and not cover_sync_policy.blocked(db, item_id)
+                    and (current_release or {}).get("musicbrainz_release_id", release_id) == release_id):
+                update_item_fields(db, item_id, {"cover_path": cover_path})
+            else:
+                (COVERS_DIR / Path(cover_path).name).unlink(missing_ok=True)
 
 
 @router.get("/music")
@@ -112,6 +122,8 @@ async def music_page(
     artist: str = Query(""),
     barcode: str = Query(""),
     catalog_number: str = Query(""),
+    format: str = Query(""),
+    country: str = Query(""),
     _=Depends(require_role("viewer")),
     __=Depends(require_feature("music")),
 ):
@@ -120,6 +132,8 @@ async def music_page(
     artist = artist.strip()[:200]
     barcode = upc_svc.normalize_barcode(barcode)[:32]
     catalog_number = catalog_number.strip()[:100]
+    format = format if format in MUSIC_MEDIA_TYPES else ""
+    country = country.strip().upper()[:2]
 
     placeholders, music_types = _music_types_sql()
     with get_db() as db:
@@ -142,14 +156,8 @@ async def music_page(
     error = None
     if q or artist or barcode or catalog_number:
         async with httpx.AsyncClient(timeout=HTTP_TIMEOUT) as client:
-            result = await musicbrainz.search_releases(
-                q,
-                client,
-                artist=artist or None,
-                barcode=barcode or None,
-                catalog_number=catalog_number or None,
-                limit=20,
-            )
+            result = await music_matching.search(client, title=q, artist=artist, barcode=barcode,
+                                                 catalog_number=catalog_number, format=format, country=country)
         if result.found:
             results = result.payload or []
             for release in results:
@@ -172,6 +180,8 @@ async def music_page(
             "artist": artist,
             "barcode": barcode,
             "catalog_number": catalog_number,
+            "format": format,
+            "country": country,
             "locations": locations,
             "music_media_types": {
                 key: MEDIA_TYPES[key]
@@ -302,6 +312,13 @@ async def music_item_page(
         request,
         "music_item.html",
         {"item": item, "release": release, "media_types": MEDIA_TYPES,
+         "music_media_types": {key: MEDIA_TYPES[key] for key in MEDIA_TYPES if key in MUSIC_MEDIA_TYPES},
+         "field_labels": music_review.FIELD_LABELS, "show_match_search": True,
+         "shop_links": [url for identifier in (release or {}).get("identifiers", [])
+                        if identifier["identifier_type"] == "shop_url"
+                        and (url := shop_metadata.public_url(identifier["value"], page=True))],
+         "match_fields": {"q": item["title"], "artist": item["authors"] or "", "barcode": item["upc"] or "",
+                          "format": item["media_type"], "catalog_number": (release or {}).get("catalog_number") or ""},
          # A boolean flag selects a template arm; nothing is echoed (G58).
          "restored": bool(restored)},
     )

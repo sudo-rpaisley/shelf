@@ -658,6 +658,22 @@ a retail UPC and neither produces a plain `items` row:
   is why the side tables above are keyed on the release MBID rather than on
   anything Shelf invents. `services/music_catalog.py` is what writes the item and
   its four tables in one transaction.
+  `services/music_matching.py` ranks identifier-first searches with visible
+  matching facts/conflicts and bounded fallback, plus format/country filters.
+  `routers/music_matching.py` exposes editor-only, music-feature-gated search,
+  preview, same-origin preview-image and Apply endpoints. `services/music_review.py`
+  signs 15-minute user/item/purpose-bound JWTs with an HMAC-derived key distinct
+  from the login key. Apply validates selected fields and the complete live
+  item/release fingerprint before downloads, then rechecks under `BEGIN IMMEDIATE`
+  before any catalogue write. Failed/stale writes remove staged versioned artwork.
+  Review and image tickets are not interchangeable. Streaming body limits apply
+  before plain-form CSRF parsing as well as inside both review POST handlers.
+  Public shop previews (`services/shop_metadata.py`) use inert, bounded JSON-LD/
+  OpenGraph extraction over DNS-pinned HTTPS; no script execution or account
+  access. Applying saves a reviewed `shop_url` identifier and never replaces an
+  existing canonical MusicBrainz release with shop metadata. Sparse shop updates
+  preserve previously collected release details/tracks. No schema migration is
+  needed for this workflow.
 - **The ISSN portal** (`services/issn_portal.py`) resolves a 977 barcode's ISSN
   to a publication. `services/periodical_scan.py` reads the EAN and its
   supplement digits, and **the supplement is deliberately not trusted** to fill
@@ -686,8 +702,10 @@ a retail UPC and neither produces a plain `items` row:
   validates a chosen release before `services/discogs_selection.py` stores only
   its Release ID in `music_identifiers` as `discogs_release_id`. MusicBrainz
   remains the canonical identity in `music_releases`; Discogs response metadata
-  is fetched fresh on demand rather than copied into Shelf, and Discogs artwork
-  or copy-level condition, acquisition and provenance data are not imported.
+  is fetched fresh on demand rather than copied into canonical release tables.
+  Its normalized tracklist, notes and identifiers can be previewed. An explicit
+  artwork choice may save a local image from the selected pressing; condition,
+  acquisition and provenance remain in the copy model, not the Discogs selection.
   The admin's personal access token (`discogs_token`) remains a sensitive
   setting, and `api.discogs.com` is paced at 1 req/s, the published rate for
   authenticated requests.
@@ -861,7 +879,9 @@ with the cover.
 
 The **picker is a separate, human-driven path** and dispatches on the item's
 media type (`covers.search_covers`): `dvd` → TMDb's poster set for the film,
-`video_game` → IGDB cover art and artwork, and everything else — including an
+`video_game` → IGDB cover art and artwork, music → Cover Art Archive and optional
+selected Discogs artwork (`services/music_artwork.py`), TV → manual-only, and
+everything else — including an
 unrecognised `media_type`, which the schema does not constrain — → book cover
 search over Google Books and Open Library. The book search asks both sources
 for the item's exact ISBN edition first. It accepts a Google result only when
@@ -883,10 +903,22 @@ one declaration of which media type reaches which service and what credential
 it needs; the routes derive their "provider not configured" message from
 `required_credentials()` rather than keeping a second list.
 
-**A pasted cover URL is the one outbound fetch that does not go through
-`outbound.py`, deliberately** (`services/manual_cover.py`, added 0.35.0). The
-host is user-supplied, so there is no published rate limit to pace against and
-no allow-list entry to match; what it needs instead is SSRF containment, which
+Item and Music detail pages host a shared native artwork dialog. Desktop galleries
+use the available modal width instead of the 192-pixel artwork column; narrow
+screens keep two columns and a scrollable dialog. Escape, focus trapping and focus
+restoration are native. Reopening clears the previous form before its HTMX
+replacement, preventing a selected upload from disappearing in a late swap.
+Inline cover-review queue hosts retain their separate targets/counters.
+CAA listings follow at most five allowlisted redirects, normalize legacy HTTP
+artwork links to HTTPS, and label Release Group fallback as another edition.
+Music artwork downloads use the public/DNS-pinned image helper and versioned
+filenames; automatic fill rechecks the live cover, release and durable suppression
+under a write lock before assigning its downloaded file.
+
+**A pasted cover URL uses a separately pinned transport**, not `outbound.fetch`
+(`services/manual_cover.py`, added 0.35.0). It still calls `outbound.acquire` for
+host pacing. The host is user-supplied, so there is no allow-list entry to match;
+what it needs instead is SSRF containment, which
 the paced clients have no reason to carry. It resolves the hostname itself off
 the event loop, requires **every** returned address to be globally routable —
 a mixed public/private answer is rejected outright rather than filtered, which
@@ -895,11 +927,13 @@ while keeping the original hostname for the Host header and SNI. Redirects are
 followed by hand, at most five, each hop re-resolved and re-validated as a
 fresh target. HTTPS only; embedded credentials rejected; the size cap is
 enforced twice, against `Content-Length` and again while streaming; and the
-bytes must pass the same magic-byte sniff as an upload. Every failure returns
+bytes must pass the same magic-byte sniff as an upload (RIFF must be WebP, not
+WAV/AVI). A whole-download timeout bounds slow/redirecting responses. Every failure returns
 the same `None` and the same user-facing message, so the route cannot be used
 as a probe of what is reachable from the server. Every provider
-returns URL strings only — nothing fetches an image — so each candidate still
-reaches `_download`'s post-redirect allow-list re-check when the user picks it.
+returns URL strings only — nothing fetches an image. Ordinary provider choices
+reach `_download`'s post-redirect allow-list re-check; music choices validate the
+initial provider URL, then use the pinned helper with CAA redirect normalization.
 
 `search_covers` returns a `ProviderResult` whose payload is the candidate
 list, so the picker projects the provider's own outcome through the same

@@ -15,6 +15,99 @@ These results are **not pinned-CI verification** (the project CI uses Python
 3.12 and its pinned Playwright browser). Dependency manifests were not changed
 to accommodate the local environment.
 
+## Music matching, shop links and artwork selection
+
+**PASS — verified locally on 2026-11-12** using the compatible runtime above,
+not pinned CI. Both complete gates finished successfully on frozen checkouts.
+
+| Gate | Result |
+|---|---|
+| Complete non-live unit/integration suite | **7669 passed**, exit 0, 1384.55 seconds |
+| Complete non-live browser suite, including responsive/page-layout audits | **401 passed**, exit 0, 543.04 seconds |
+| Final focused music, shop, cover, i18n and layout-site preflight | **316 passed**, exit 0, 58.79 seconds |
+| Eight new browser journeys before the complete run | **8 passed**, exit 0, 46.10 seconds |
+| README badge and test-convention follow-up | **8 passed**, exit 0, 26.91 seconds |
+| `make css i18n badges checks-fast` | Passed; private roadmap-map check explicitly unavailable |
+| Python compilation, JavaScript syntax, `pip check`, staged whitespace | Passed |
+| Local Markdown link targets in the updated guides/README/architecture | **85 checked**, none missing |
+
+New unit coverage exercises identifier-first matching and padding/fallback,
+Lucene escaping, every music format's artwork dispatch, CAA redirects and album
+fallback, Discogs tracks/images, public/pinned shop fetches, size/encoding and
+redirect failures, inert structured metadata, distinct product variants, and
+safe image signatures. Review cases cover user/item/expiry/purpose binding,
+separate image tickets and login keys, stale writes before/during downloads,
+staging cleanup, atomic image failure, duplicate-release rollback, preserving
+shop tracks and canonical releases, feature/role/body gates, and unchanged
+copies, ownership, memberships and private activity.
+
+The five music journeys run at **320, 375, 768, 1280 and 1366 pixels**. They
+verify selective Apply, persistence, independent artwork, Escape/focus return,
+reopening, uploads and return navigation; three additional journeys use the
+shared chooser on books, films and games. Provider-derived preview fragments
+and images are offline fixtures; signed Apply, database writes, uploads and
+navigation are real. No production data or signing keys are involved. Final
+phone/laptop preview and gallery screenshots were inspected, alongside the
+complete responsive/page-layout audit in the full browser suite.
+
+The unit candidate is staged tree `e73ac2113885f43a45a99ae118ae6433a16d488e`
+in `/tmp/shelf-music-verify`. The browser candidate is staged tree
+`4aa850402318e04aaae9edaa8c5efde8504bf795` in `/tmp/shelf-music-final`.
+Their application, static assets and unit tests are identical. Between them,
+only README/verification documentation and the lazy Discogs-panel CSRF browser
+assertion changed: the panel now has two POST forms, and the assertion checks
+each form's actual token instead of assuming one token across the entire panel.
+The first full browser run was **400 passed / 1 failed** on that stale count;
+the second complete run passed without changing application code.
+Only documentation was updated after both complete gates. The final warnings
+were the existing Starlette/httpx deprecation and duplicate-ZIP-entry test
+fixture; no warnings were suppressed and no tests were skipped.
+
+Final logs: `/tmp/shelf-music-unit-verified.log` and
+`/tmp/shelf-music-browser-final-verified.log`. Browser artifacts:
+`/tmp/shelf-music-final-verified` and `/tmp/shelf-music-layout-final-verified`.
+
+Bounded public smoke checks also retrieved a vinyl MusicBrainz match with nine
+tracks and a CAA listing with six scans. A public Bandcamp album supplied its
+2016 date, nine tracks and two images; the pinned image fetch returned a
+342,230-byte image with HTTP 200. A different shop page failed with the manual
+fallback message, and a subsequent MusicBrainz probe reported a transport
+failure. These are sample observations, not a general shop/provider
+compatibility guarantee; live CAA image download and authenticated Discogs
+compatibility were not established. The complete test suites remain offline.
+
+No database migration, dependency manifest or Portainer setting changed. Docker
+builds, Cornelius deployment and the existing production catalogue were not
+accessed here. Deployment still requires rebuilding the local test image and
+recreating the existing container with pulling disabled, preserving its volumes,
+ports, networking, environment and signing/encryption keys.
+
+## Responsive layout verification (`644403d`)
+
+**PASS — frozen layout follow-up on 2026-11-12.** This is the separately
+published layout commit, not the later music implementation.
+
+| Gate | Result |
+|---|---|
+| Complete non-live browser suite | **393 passed**, exit 0, 536.22 seconds |
+| Focused layout, item/settings, labels, navigation, feature-off and connected-library regressions | **720 passed**, exit 0, 133.65 seconds |
+| CSS/service-worker regeneration, translations, badges and `make checks-fast` | Passed; private roadmap check unavailable |
+
+The routable-page audit checks shared shell width/gutters, visible controls,
+horizontal overflow and stacked/desktop workspaces at **320, 375, 640, 768,
+1024, 1280, 1366 and 1920 pixels**. Alternate populated/empty states, settings
+panels, disabled features, authentication and print geometry are included.
+Screenshots at phone/laptop widths and label/valuation PDFs were inspected;
+authentication cards, camera/export previews and physical label dimensions
+remain intentionally constrained. The fixes include the mobile Labels
+dropdown and valuation scrolling/printing. A connected-library assertion was
+updated to the new desktop columns, and destructive archive browser tests now
+use their own disposable databases instead of relying on suite ordering.
+
+Frozen checkout: `/tmp/shelf-layout-verify`; final logs:
+`/tmp/shelf-layout-browser-verified.log`, `/tmp/shelf-layout-unit-verified.log`;
+screenshots/PDFs: `/tmp/shelf-layout-verified`. No production data was used.
+
 ## Deployment follow-up: diagnosed pre-0.37 database
 
 **PASS — scoped follow-up verification on 2026-11-12.** The operator's read-only

@@ -11,6 +11,12 @@
 {% set search_swap   = search_swap   | default('innerHTML', true) %}
 {% set show_url_form = show_url_form if show_url_form is defined else true %}
 <div class="mt-3" id="cover-picker-{{ item_id }}">
+    {% if gallery %}
+    <div id="cover-options-{{ item_id }}">
+        <input type="hidden" name="gallery" value="1">
+        <input type="hidden" name="return_to" value="{{ return_to or '' }}">
+    </div>
+    {% endif %}
     <input type="text" id="cover-query-{{ item_id }}" name="query" value="{{ query or '' }}"
            placeholder="{{ _('Search covers…') }}"
            class="w-full bg-shelf-bg border border-shelf-border rounded-lg px-2 py-1.5 text-sm text-shelf-text focus:ring-2 focus:ring-shelf-accent focus:border-transparent outline-hidden placeholder-shelf-muted/50 mb-2"
@@ -23,31 +29,33 @@
               hand the route its defaults and the counter would read "N of 0"
               after the next pick. #}
            {% if pos is defined and pos %}hx-vals='{"pos":"{{ pos }}","total":"{{ total }}"}'{% endif %}
-           hx-include="#cover-query-{{ item_id }}">
+           hx-include="#cover-query-{{ item_id }}{% if gallery %}, #cover-options-{{ item_id }}{% endif %}">
 
     {% if candidates %}
     <p class="text-sm text-shelf-muted mb-2">{{ _('Select a cover:') }}</p>
     {% endif %}
     {% if candidates or cover_path %}
-    {# Two columns, not five: this grid lives inside item_detail.html's fixed
-       192 px cover column, so `sm:grid-cols-5` rendered 29 x 42 px tiles on
-       desktop — too small to tell candidates apart, which is the one thing
-       the picker exists for. Two columns give ~90 px. #}
-    <div class="grid grid-cols-2 gap-3">
+    {# The modal can use a wide gallery. Inline hosts such as the review queue
+       keep two columns rather than squeezing thumbnails into tiny tiles. #}
+    <div class="grid grid-cols-2 {% if gallery %}sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5{% endif %} gap-3">
         {% if cover_path %}
         <div data-testid="current-cover"
              class="relative rounded-lg overflow-hidden border border-shelf-accent bg-shelf-card">
-            <img src="/{{ cover_path }}" alt="{{ _('Current cover') }}" class="w-full aspect-2/3 object-cover"
+            <img src="/{{ cover_path }}" alt="{{ _('Current cover') }}" class="w-full aspect-2/3 object-contain"
                  data-cover-shape="{{ cover_shape(media_type) }}">
             <div class="absolute bottom-0 inset-x-0 bg-black/70 text-[10px] text-gray-300 px-1 py-0.5 text-center">{% if cover_edition_language == "en" %}{{ _('Current: English cover from another edition') }}{% else %}{{ _('Current') }}{% endif %}</div>
         </div>
         {% endif %}
         {% for c in candidates %}
-        <button hx-post="{{ action_prefix }}/cover-select" hx-vals='{"url":"{{ c.url }}"{% if c.edition_isbn %}, "edition_isbn":"{{ c.edition_isbn }}", "edition_language":"en"{% endif %}{% if pos is defined and pos %}, "pos":"{{ pos }}", "total":"{{ total }}"{% endif %}}'
+        {% set values = {'url': c.url} %}
+        {% if c.edition_isbn %}{% set unused = values.update({'edition_isbn': c.edition_isbn, 'edition_language': 'en'}) %}{% endif %}
+        {% if pos is defined and pos %}{% set unused = values.update({'pos': pos, 'total': total}) %}{% endif %}
+        <button type="button" hx-post="{{ action_prefix }}/cover-select" hx-vals='{{ values | tojson }}'
                 hx-target="{{ result_target }}" hx-swap="{{ result_swap }}"
-                hx-include="#cover-query-{{ item_id }}"
+                hx-include="#cover-query-{{ item_id }}{% if gallery %}, #cover-options-{{ item_id }}{% endif %}"
+                aria-label="{{ _('Use this artwork: %(source)s', source=c.source ~ (' · ' ~ c.label if c.label else '')) }}"
                 class="group relative rounded-lg overflow-hidden border {% if failed_url and failed_url == c.url %}border-shelf-error{% else %}border-shelf-border hover:border-shelf-accent/50{% endif %} transition-colors cursor-pointer bg-shelf-card">
-            <img src="{{ c.thumbnail }}" alt="{{ _('Cover candidate') }}" class="w-full aspect-2/3 object-cover" loading="lazy"
+            <img src="{{ c.thumbnail }}" alt="{{ _('Cover candidate') }}" class="w-full aspect-2/3 object-contain" loading="lazy"
                  data-cover-shape="{{ cover_shape(media_type) }}">
             {% if failed_url and failed_url == c.url %}
             <div class="absolute top-0 inset-x-0 bg-shelf-error/90 text-[10px] text-white px-1 py-0.5 text-center">{{ _('Failed') }}</div>
@@ -84,7 +92,8 @@
             <form hx-post="{{ action_prefix }}/cover-url" hx-swap="none"
                   data-testid="cover-url"
                   hx-disabled-elt="find input, find button"
-                  class="flex items-center gap-2">
+                   class="flex items-center gap-2">
+                {% if return_to %}<input type="hidden" name="return_to" value="{{ return_to }}">{% endif %}
                 <input type="url" name="url" required inputmode="url" autocomplete="url"
                        placeholder="https://example.com/cover.jpg"
                        class="min-w-0 flex-1 bg-shelf-bg border border-shelf-border rounded-lg px-2 py-1.5 text-sm text-shelf-text focus:ring-2 focus:ring-shelf-accent focus:border-transparent outline-hidden placeholder-shelf-muted/50">
@@ -105,7 +114,8 @@
                   enctype="multipart/form-data"
                   data-testid="cover-upload"
                   hx-disabled-elt="find input[type=file], find button"
-                  class="flex flex-wrap items-center gap-2">
+                   class="flex flex-wrap items-center gap-2">
+                {% if return_to %}<input type="hidden" name="return_to" value="{{ return_to }}">{% endif %}
                 {# A counted host (the review queue) carries its position through
                    the pick, or the server falls back to its defaults and the
                    "N of M" counter reads nonsense after an upload. Item detail
@@ -124,6 +134,7 @@
         </div>
         {% if cover_path %}
         <button hx-post="/api/items/{{ item_id }}/cover-remove" hx-swap="none" hx-confirm="Remove this cover?"
+                {% if gallery %}hx-include="#cover-options-{{ item_id }}"{% endif %}
                 data-testid="cover-remove"
                 class="px-3 py-1.5 bg-shelf-hover text-shelf-error rounded-lg text-sm hover:bg-shelf-border transition-colors">
             {{ _('Remove cover') }}

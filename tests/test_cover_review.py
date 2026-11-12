@@ -7,6 +7,10 @@ G48: every seed goes through the `db` fixture and is committed before the
 request, or the app's own connection cannot see it and the failure reads like a
 routing bug.
 """
+import html
+import json
+import re
+
 import pytest
 
 from tests.conftest import _insert_item, _insert_location
@@ -296,7 +300,9 @@ class TestTheSearchRouteExists:
         )
         # the candidate the reviewer would click
         assert 'cover-select" hx-vals=' in r.text
-        assert '"pos":"2", "total":"3"' in r.text
+        match = re.search(r'<button[^>]*cover-select" hx-vals=\'([^\']*)\'', r.text)
+        values = json.loads(html.unescape(match[1]))
+        assert values == {"url": "https://covers.openlibrary.org/b/id/1-L.jpg", "pos": 2, "total": 3}
         # the upload form beside it
         assert '<input type="hidden" name="pos" value="2">' in r.text
         assert '<input type="hidden" name="total" value="3">' in r.text

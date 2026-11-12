@@ -4,6 +4,8 @@ from starlette.requests import Request
 
 
 METADATA_FORM_BYTES = 4096
+MUSIC_PREVIEW_FORM_BYTES = 8192
+MUSIC_REVIEW_FORM_BYTES = 130000
 
 
 class BodyTooLarge(ValueError):

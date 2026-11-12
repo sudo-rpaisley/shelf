@@ -39,6 +39,8 @@ body { background-color: #0f1117; color: #e2e8f0; }
    must not add a second max-width: constrain artwork/cards, not the workspace. */
 .app-shell { width: 100%; max-width: 96rem; margin-inline: auto; padding-inline: 1rem; }
 .page-layout { width: 100%; min-width: 0; }
+.artwork-dialog { width: min(72rem, calc(100% - 2rem)); max-width: calc(100% - 2rem); max-height: calc(100dvh - 2rem); margin: auto; padding: 0; }
+.artwork-dialog::backdrop { background: rgb(0 0 0 / 75%); }
 .workspace-layout, .edit-layout { display: grid; grid-template-columns: minmax(0, 1fr); gap: 1.5rem; align-items: start; }
 .workspace-layout > *, .edit-layout > * { min-width: 0; }
 @media (min-width: 40rem) {

@@ -124,9 +124,17 @@ def test_plain_form_in_lazy_loaded_fragment_carries_csrf(live_server, authed_pag
 
     authed_page.goto(f"{live_server['url']}/music/item/{item_id}")
     authed_page.wait_for_load_state("networkidle")
-    clear = authed_page.locator("#discogs-panel button:has-text('Clear selection')")
+    clear_form = authed_page.locator(f'#discogs-panel form[action="/api/music/items/{item_id}/discogs/clear"]')
+    clear = clear_form.get_by_role("button", name="Clear selection", exact=True)
     expect(clear).to_be_visible()
-    expect(authed_page.locator("#discogs-panel input[name='_csrf']")).to_have_count(1)
+    # The panel now has a second POST form for the explicit artwork preview.
+    # Check each form, not an incidental total across the whole lazy fragment.
+    csrf = next(cookie["value"] for cookie in authed_page.context.cookies() if cookie["name"] == "csrf_token")
+    expect(clear_form.locator('input[name="_csrf"]')).to_have_count(1)
+    expect(clear_form.locator('input[name="_csrf"]')).to_have_value(csrf)
+    preview = authed_page.locator('#discogs-panel form[action="/api/music/preview"]')
+    expect(preview.locator('input[name="_csrf"]')).to_have_count(1)
+    expect(preview.locator('input[name="_csrf"]')).to_have_value(csrf)
 
     with authed_page.expect_response(lambda r: "/discogs/clear" in r.url) as resp_info:
         clear.click()

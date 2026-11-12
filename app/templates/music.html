@@ -1,6 +1,7 @@
 {% extends "base.html" %}
 {% block title %}Music — Shelf{% endblock %}
 {% block content %}
+{% set fact_labels = {'barcode': _('Barcode'), 'catalog_number': _('Catalogue number'), 'title': _('Title'), 'artist': _('Artist'), 'format': _('Format'), 'country': _('Country')} %}
 <div>
     <div class="flex items-center justify-between gap-4 mb-6">
         <div>
@@ -13,7 +14,7 @@
 
     <form method="get" action="/music" class="bg-shelf-card border border-shelf-border rounded-xl p-6 mb-6">
         <h2 class="text-lg font-semibold mb-4">Find a release</h2>
-        <div class="space-y-3">
+        <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
             <div>
                 <label for="music-title" class="block text-sm font-medium text-shelf-muted mb-1">Release title</label>
                 <input id="music-title" name="q" value="{{ q }}" placeholder="Release title" class="w-full bg-shelf-bg border border-shelf-border rounded-lg px-3 py-2 text-shelf-text outline-hidden">
@@ -29,6 +30,17 @@
             <div>
                 <label for="music-catno" class="block text-sm font-medium text-shelf-muted mb-1">Catalogue number</label>
                 <input id="music-catno" name="catalog_number" value="{{ catalog_number }}" placeholder="Catalogue number" class="w-full bg-shelf-bg border border-shelf-border rounded-lg px-3 py-2 text-shelf-text outline-hidden">
+            </div>
+            <div>
+                <label for="music-format" class="block text-sm font-medium text-shelf-muted mb-1">{{ _('Format') }}</label>
+                <select id="music-format" name="format" class="w-full bg-shelf-bg border border-shelf-border rounded-lg px-3 py-2">
+                    <option value="">{{ _('Any music format') }}</option>
+                    {% for key, label in music_media_types.items() %}<option value="{{ key }}"{% if format == key %} selected{% endif %}>{{ label }}</option>{% endfor %}
+                </select>
+            </div>
+            <div>
+                <label for="music-country" class="block text-sm font-medium text-shelf-muted mb-1">{{ _('Country code (optional)') }}</label>
+                <input id="music-country" name="country" value="{{ country or '' }}" maxlength="2" placeholder="GB" class="w-full bg-shelf-bg border border-shelf-border rounded-lg px-3 py-2">
             </div>
         </div>
         <div class="flex gap-3 mt-4">
@@ -47,7 +59,7 @@
         <div class="space-y-3">
             {% for release in results %}
             <article class="bg-shelf-card border border-shelf-border rounded-xl p-4">
-                <div class="flex items-start justify-between gap-4">
+                <div class="flex flex-col sm:flex-row items-start justify-between gap-4">
                     <div class="min-w-0">
                         <h3 class="font-semibold">{{ release.title }}</h3>
                         {% if release.artist_credit %}<p class="text-sm text-shelf-accent2 mt-1">{{ release.artist_credit }}</p>{% endif %}
@@ -59,6 +71,10 @@
                             {% if release.catalog_number %} · {{ release.catalog_number }}{% endif %}
                             {% if release.format_summary %} · {{ release.format_summary }}{% endif %}
                         </p>
+                        {% if release.barcode %}<p class="text-xs text-shelf-muted">{{ _('Barcode') }}: {{ release.barcode }}</p>{% endif %}
+                        {% if release.disambiguation %}<p class="text-xs text-shelf-muted">{{ release.disambiguation }}</p>{% endif %}
+                        {% if release.match_reasons %}<p class="text-xs text-shelf-muted mt-2">{{ _('Matching facts') }}: {% for key in release.match_reasons %}{{ fact_labels[key] }}{{ ', ' if not loop.last }}{% endfor %}</p>{% endif %}
+                        {% if release.match_conflicts %}<p class="text-xs text-shelf-warning">{{ _('Check differences') }}: {% for key in release.match_conflicts %}{{ fact_labels[key] }}{{ ', ' if not loop.last }}{% endfor %}</p>{% endif %}
                     </div>
                     {% if user and user.role in ('admin', 'editor') %}
                     <form method="post" action="/api/music/add" class="space-y-2">
@@ -79,10 +95,21 @@
                     </form>
                     {% endif %}
                 </div>
+                {% if user and user.role in ('admin', 'editor') %}
+                <form method="post" action="/api/music/preview" hx-post="/api/music/preview" hx-target="#music-matching" hx-swap="outerHTML show:top" class="mt-3">
+                    <input type="hidden" name="_csrf" value="{{ request.cookies.get('csrf_token', '') }}">
+                    <input type="hidden" name="release_id" value="{{ release.musicbrainz_release_id }}">
+                    <button type="submit" class="px-3 py-2 bg-shelf-hover rounded-lg text-sm">{{ _('Preview details and artwork') }}</button>
+                </form>
+                {% endif %}
             </article>
             {% endfor %}
         </div>
     </section>
+    {% endif %}
+
+    {% if user and user.role in ('admin', 'editor') %}
+    <div class="mb-6">{% include "fragments/music_matching.html" %}</div>
     {% endif %}
 
     <section>
