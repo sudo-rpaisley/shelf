@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import json
 import logging
+from ipaddress import ip_address
 from typing import Any, Awaitable, Callable
 from urllib.parse import urljoin, urlsplit
 
@@ -17,7 +18,7 @@ import httpx
 from app.config import HTTP_TIMEOUT
 from app.crypto import decrypt_value, encrypt_value, get_encryption_key
 from app.database import get_db
-from app.services import covers, romm_client, romm_records
+from app.services import covers, legacy_sources, romm_client, romm_records
 from app.services.item_write import update_item_fields
 
 logger = logging.getLogger(__name__)
@@ -134,19 +135,42 @@ async def discover_platforms(
     ]
 
 
+def _cover_origin(value: str) -> tuple[str, bytes, int] | None:
+    """Use the HTTP client's normalized host and an explicit effective port."""
+    try:
+        if "\\" in value or any(ord(char) < 32 or ord(char) == 127 for char in value):
+            return None
+        parts = urlsplit(value)
+        if (parts.scheme not in {"http", "https"} or not parts.hostname
+                or parts.username is not None or parts.password is not None):
+            return None
+        parts.port  # Reject malformed/out-of-range ports before normalizing.
+        url = httpx.URL(value)
+        host = url.raw_host
+        try:
+            host = ip_address(host.decode("ascii")).compressed.encode("ascii")
+        except ValueError:
+            pass  # DNS names are already IDNA-normalized by the HTTP client.
+        port = url.port if url.port is not None else (443 if url.scheme == "https" else 80)
+        return url.scheme, host, port
+    except (ValueError, UnicodeError, httpx.InvalidURL):
+        return None
+
+
 def _cover_target(server: str, cover_url: str | None) -> str | None:
     raw = str(cover_url or "").strip()
     if not raw:
         return None
-    server_parts = urlsplit(server)
-    target = urljoin(server + "/", raw)
-    target_parts = urlsplit(target)
-    if target_parts.scheme not in {"http", "https"}:
+    server_origin = _cover_origin(server)
+    if server_origin is None:
         return None
-    # RomM may return either an absolute cached-resource URL or a relative
-    # asset path.  Never let provider metadata turn the sync into an arbitrary
-    # URL fetch: absolute targets must remain on the configured RomM host.
-    if target_parts.hostname != server_parts.hostname:
+    try:
+        target = urljoin(server.rstrip("/") + "/", raw)
+    except ValueError:
+        return None
+    # The bearer token must stay on the configured origin, not merely on the
+    # same hostname: a downgrade/alternate port could expose another service.
+    if _cover_origin(target) != server_origin:
         return None
     return target
 
@@ -158,28 +182,56 @@ async def _ingest_cover(
     item_id: int,
     cover_url: str | None,
 ) -> bool:
+    from app.services import cover_sync_policy
     with get_db() as db:
-        row = db.execute("SELECT cover_path FROM items_live WHERE id = ?", (item_id,)).fetchone()
-    if row is None or row["cover_path"]:
+        row = db.execute(
+            "SELECT cover_path, cover_review_dismissed FROM items_live WHERE id = ?",
+            (item_id,),
+        ).fetchone()
+        preference = cover_sync_policy.decision(db, item_id)
+    if row is None or row["cover_path"] or row["cover_review_dismissed"] or preference is True:
         return False
     target = _cover_target(server, cover_url)
     if not target:
         return False
     try:
-        response = await client.get(target, headers={"Authorization": f"Bearer {token}"})
+        response = await client.get(
+            target, headers={"Authorization": f"Bearer {token}"}, follow_redirects=False
+        )
     except httpx.HTTPError:
         return False
-    if response.status_code != 200 or len(response.content) > covers.MAX_COVER_SIZE:
+    if response.status_code != 200:
         return False
-    path = covers.save_uploaded_cover(item_id, response.content)
-    if not path:
+    content = response.content
+    if not covers.validate_uploaded_cover(content):
         return False
     with get_db() as db:
+        db.execute("BEGIN IMMEDIATE")
+        # Network work cannot authorize a later write. Recheck local choices
+        # and live membership under the lock before touching the file (G18).
+        row = db.execute(
+            "SELECT cover_path, cover_review_dismissed FROM items_live WHERE id = ?",
+            (item_id,),
+        ).fetchone()
+        preference = cover_sync_policy.decision(db, item_id)
+        if row is None or row["cover_path"] or row["cover_review_dismissed"] or preference is True:
+            return False
+        # Cover removal leaves the old file with a NULL path. Preserve those
+        # deliberate bytes rather than silently refilling on the next sync.
+        if (covers.COVERS_DIR / f"{item_id}.jpg").exists() and preference is not False:
+            cover_sync_policy.block(db, item_id)
+            return False
+        path = covers.write_uploaded_cover(item_id, content)
         update_item_fields(db, item_id, {"cover_path": path})
     return True
 
 
 async def sync(on_progress: ProgressCallback | None = None) -> dict[str, int]:
+    """Synchronise included RomM platforms, recording only safe local health."""
+    return await legacy_sources.run_tracked("romm", _sync, on_progress=on_progress)
+
+
+async def _sync(on_progress: ProgressCallback | None = None) -> dict[str, int]:
     config = configuration()
     server = clean_url(config["url"])
     token = str(config["token"] or "").strip()

@@ -38,10 +38,11 @@ DATA_DIR=./data-dev uvicorn app.main:app --reload
 
 | Command | What |
 |---|---|
-| `make test` | Unit + integration, quiet and parallel (~1500 tests, excludes `tests/e2e/`) |
+| `make test` | Unit + integration, quiet and parallel; excludes E2E, contract and live tests |
 | `make test-fast` | Re-run only the last failures |
 | `make test-verbose` | Per-test output |
 | `make test-e2e` | Playwright E2E; starts its own server |
+| `make verify` | Unit + E2E, then enforces the minimum collected unit-test count |
 | `make test-contract` | Live UPC Item DB contract check — spends one trial lookup; run at release, never on a gate |
 | `python -m pytest tests/test_items.py::test_x -v` | One unit test |
 | `python -m pytest tests/e2e/test_scan.py -v -m e2e` | One E2E file |
@@ -86,6 +87,67 @@ CI does **not** run `make test-contract`, and neither does any gate target.
 The release gate makes no live third-party call — that is a stated invariant
 (`architecture.md`, Testing), and the contract test is the deliberate exception
 that lives outside it.
+
+### Native Chromium override
+
+The default E2E browser remains Playwright's bundled Chromium, with Playwright
+pinned in `requirements-dev.txt` (`1.52.0`). `tests/e2e/conftest.py` optionally
+accepts **`SHELF_E2E_CHROMIUM_EXECUTABLE`**, the path to an already-installed
+native Chromium executable. This is useful on Alpine, where the bundled
+browser may not run. For example, if that is your installed path:
+
+```bash
+SHELF_E2E_CHROMIUM_EXECUTABLE=/usr/bin/chromium make test-e2e
+```
+
+Unset the variable to return to the pinned-browser default. The override does
+not install a browser or change dependency pins. The experiment's local Alpine
+verification environment uses fallback Playwright **1.65.1** and native
+Chromium **155**, not the pinned CI runtime. Report the actual Playwright and
+browser versions, override path, commands, failures and skips with results;
+success on that fallback is not evidence that pinned CI passed. The experiment's
+[verification record](connected-library-verification.md) documents the completed
+local gates and their limits.
+
+### Connected-library experiment
+
+The implementation on `new-test` is experimental, not a release commitment.
+Use a disposable data directory or a backed-up copy, not the only copy of a
+live library. Its additive schema is in `app/database.py`'s `MIGRATION_TABLES`;
+migration 58 only preserves minimal-profile enablement. A portable collection
+archive intentionally omits the new source configuration/bindings, personal
+state/history, saved views, connection dismissals, metadata provenance and
+cover-sync decisions; use a database backup plus matching external keys and covers when retaining
+the full experiment matters. See the [guide](user-guide/connected-library.md).
+Migration 59 adds the state-owned `user_item_state.last_event_id` ordering
+identity; fresh-table DDL includes it too. `cover_sync_blocks` is another
+additive side table, independent of cover-review dismissal.
+
+Regression cases live in `tests/test_library_catalog.py`,
+`test_library_routes.py`, `test_availability.py`, `test_sources.py`,
+`test_opds_connector.py`, `test_jellyfin_connector.py`, `test_library_attention.py`,
+`test_personal_library.py`, `test_connected_sync_safety.py`,
+`test_legacy_source_health.py`, `test_metadata_review.py`, `test_source_links.py`,
+`test_cover_sync_policy.py` and the connected schema/integration/persistence,
+merge-provenance and
+cover-safety tests. Metadata review is registered in `main.py`/the feature
+registry and included in the item context/template. Sources registers its
+page/API routers separately; do not add an aggregate registration as well.
+`tests/e2e/test_connected_library.py` uses fresh installs, local fixtures and
+browser forms; an adapter fixture does not establish live-server compatibility.
+
+Use the existing targets, keeping unit and browser invocations separate:
+
+```bash
+make css              # render template changes against rebuilt local assets
+make test
+make test-e2e
+make checks-fast
+```
+
+These instructions are not a test-results report. Gate/example/build execution
+must be reported separately; no live contract check, external script execution
+or untrusted media download is needed for this experiment's offline gate.
 
 ### Service worker versioning
 

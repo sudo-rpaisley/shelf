@@ -1,0 +1,73 @@
+<section id="connection-suggestions" data-attention-queue="connections" class="space-y-4">
+    <div class="space-y-1">
+        <h2 class="text-lg font-semibold">{{ _('Review format connections') }}</h2>
+        <p class="text-sm text-shelf-muted">{{ _('Suggestions use exact identifiers or a whole title and subtitle with a shared named creator, only within compatible book formats or music releases. Check the evidence and both records before accepting each pair.') }}</p>
+        <p class="text-sm text-shelf-muted">{{ _('Acceptance only adds a format link. It never merges records, changes metadata or guesses adaptations. To undo, open either item and choose Unlink under Related Media.') }}</p>
+        <p class="text-xs text-shelf-muted">{{ _('The scan returns at most %(count)s suggestions and has a bounded candidate budget; it is not an exhaustive duplicate finder.', count=max_suggestions) }}</p>
+    </div>
+
+    {% if connection_notice %}
+    <div role="status" class="rounded-lg border border-shelf-border bg-shelf-bg p-3 space-y-2" data-connection-result="{{ connection_notice.result }}">
+        <p class="text-sm">
+            {% if connection_notice.result == 'accepted' %}{{ _('Format connection saved. No records were merged. Undo with Unlink under Related Media on either item:') }}
+            {% elif connection_notice.result == 'dismissed' %}{{ _('Suggestion dismissed for this evidence. Metadata changes can make it appear again:') }}
+            {% else %}{{ _('Dismissal removed. Review the suggestion before accepting:') }}{% endif %}
+        </p>
+        <div class="flex flex-wrap gap-3 text-sm">
+            {% for item in connection_notice['items'] %}<a href="/item/{{ item.id }}#related-media-panel" class="text-shelf-accent2 hover:underline">{{ item.title }}</a>{% endfor %}
+        </div>
+    </div>
+    {% endif %}
+
+    {% for suggestion in suggestions %}
+    <article data-connection-pair="{{ suggestion.item_a_id }},{{ suggestion.item_b_id }}" class="rounded-lg border border-shelf-border bg-shelf-card p-4 space-y-3">
+        <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            {% for item in (suggestion.item_a, suggestion.item_b) %}
+            <div class="min-w-0 space-y-1">
+                <a href="/item/{{ item.id }}" class="font-medium text-shelf-accent2 hover:underline break-words">{{ item.title }}</a>
+                {% if item.subtitle %}<p class="text-sm break-words">{{ item.subtitle }}</p>{% endif %}
+                {% if item.authors or item.artist_credit %}<p class="text-sm text-shelf-muted break-words">{{ item.authors or item.artist_credit }}</p>{% endif %}
+                <p class="text-xs text-shelf-muted">{{ _(media_types.get(item.media_type, item.media_type)) }} · #{{ item.id }}</p>
+            </div>
+            {% endfor %}
+        </div>
+        <ul class="text-sm space-y-1" data-connection-evidence>
+            {% for evidence in suggestion.evidence %}<li>{{ evidence.label }}: <span class="break-words">{{ evidence.value }}</span></li>{% endfor %}
+        </ul>
+        <div class="flex flex-wrap gap-3">
+            {% for action, label in (('accept', _('Accept format connection')), ('dismiss', _('Not the same work'))) %}
+            <form method="post" action="/api/library/connections/{{ action }}" hx-post="/api/library/connections/{{ action }}" hx-target="#connection-suggestions" hx-swap="outerHTML">
+                {% if request.cookies.get('csrf_token') %}<input type="hidden" name="_csrf" value="{{ request.cookies.get('csrf_token') }}">{% endif %}
+                <input type="hidden" name="item_a_id" value="{{ suggestion.item_a_id }}">
+                <input type="hidden" name="item_b_id" value="{{ suggestion.item_b_id }}">
+                <input type="hidden" name="evidence_key" value="{{ suggestion.evidence_key }}">
+                <button type="submit" class="rounded-lg bg-shelf-hover px-4 py-2 text-sm hover:bg-shelf-border">{{ label }}</button>
+            </form>
+            {% endfor %}
+        </div>
+    </article>
+    {% else %}<p class="text-sm text-shelf-muted">{{ _('No reviewable suggestions in this bounded scan.') }}</p>{% endfor %}
+    {% if connection_scan_limited or has_more.connections %}<p class="text-sm text-shelf-muted">{{ _('The scan or display limit was reached. Review these first; other eligible pairs may not be shown.') }}</p>{% endif %}
+
+    <details class="rounded-lg border border-shelf-border p-3">
+        <summary class="cursor-pointer text-sm">{{ _('Dismissed with the same current evidence') }} ({{ dismissed_connection_count }})</summary>
+        <div class="mt-3 space-y-3">
+            {% for suggestion in dismissed_connections %}
+            <article class="space-y-2 text-sm" data-dismissed-connection="{{ suggestion.item_a_id }},{{ suggestion.item_b_id }}">
+                <div class="flex flex-wrap gap-3">
+                    <a href="/item/{{ suggestion.item_a_id }}" class="text-shelf-accent2 hover:underline">{{ suggestion.item_a.title }}</a>
+                    <a href="/item/{{ suggestion.item_b_id }}" class="text-shelf-accent2 hover:underline">{{ suggestion.item_b.title }}</a>
+                </div>
+                <p class="text-xs text-shelf-muted">{{ suggestion.explanation }}</p>
+                <form method="post" action="/api/library/connections/restore" hx-post="/api/library/connections/restore" hx-target="#connection-suggestions" hx-swap="outerHTML">
+                    {% if request.cookies.get('csrf_token') %}<input type="hidden" name="_csrf" value="{{ request.cookies.get('csrf_token') }}">{% endif %}
+                    <input type="hidden" name="item_a_id" value="{{ suggestion.item_a_id }}">
+                    <input type="hidden" name="item_b_id" value="{{ suggestion.item_b_id }}">
+                    <input type="hidden" name="evidence_key" value="{{ suggestion.evidence_key }}">
+                    <button type="submit" class="rounded-lg bg-shelf-hover px-3 py-1 hover:bg-shelf-border">{{ _('Restore suggestion') }}</button>
+                </form>
+            </article>
+            {% else %}<p class="text-sm text-shelf-muted">{{ _('No current dismissals in this bounded scan.') }}</p>{% endfor %}
+        </div>
+    </details>
+</section>

@@ -31,18 +31,26 @@ _TAB_FEATURE = {tab: key for key, f in FEATURES.items() for tab in f.nav_tabs}
 # — base.html used to skip `settings` with a hardcoded comparison in two
 # places, which is one place too many the moment a second tab moves.
 NAV_TABS = [
+    {"key": "library", "label": N_("Library"), "path": "/library",
+     "roles": ("admin", "editor", "viewer")},
     {"key": "browse", "label": N_("Browse"), "path": "/browse"},
-    {"key": "scan", "label": N_("Scan"), "path": "/scan", "roles": ("admin", "editor")},
+    {"key": "scan", "label": N_("Scan"), "path": "/scan", "roles": ("admin", "editor"), "group": "add"},
     {"key": "intake", "label": N_("Intake"), "path": "/intake", "roles": ("admin", "editor"),
-     "requires": "vision"},
+     "requires": "vision", "group": "add"},
     {"key": "shelf-fill", "label": N_("Shelf Fill"), "path": "/shelf-fill",
-     "roles": ("admin", "editor")},
-    {"key": "store", "label": N_("Store"), "path": "/store"},
+      "roles": ("admin", "editor"), "group": "add"},
+    {"key": "store", "label": N_("Store"), "path": "/store", "group": "add"},
     {"key": "series", "label": N_("Series"), "path": "/series"},
     {"key": "music", "label": N_("Music"), "path": "/music"},
     {"key": "periodicals", "label": N_("Periodicals"), "path": "/periodicals"},
-    {"key": "discover", "label": N_("Discover"), "path": "/discover", "requires": "hardcover"},
-    {"key": "stats", "label": N_("Stats"), "path": "/stats"},
+    {"key": "discover", "label": N_("Discover"), "path": "/discover", "requires": "hardcover", "group": "explore"},
+    {"key": "stats", "label": N_("Stats"), "path": "/stats", "group": "explore"},
+    {"key": "activity", "label": N_("My Activity"), "path": "/activity",
+     "roles": ("admin", "editor", "viewer"), "menu": "account", "heading": N_("Personal")},
+    {"key": "sources", "label": N_("Sources"), "path": "/sources",
+     "roles": ("admin", "editor", "viewer"), "menu": "account", "heading": N_("Library")},
+    {"key": "needs-attention", "label": N_("Needs Attention"), "path": "/needs-attention",
+     "roles": ("admin", "editor"), "menu": "account", "heading": N_("Library")},
     {"key": "trash", "label": N_("Trash"), "path": "/trash", "roles": ("admin", "editor"),
      "menu": "account", "heading": N_("Library")},
     {"key": "labels", "label": N_("Labels"), "path": "/labels", "roles": ("admin", "editor"),
@@ -208,8 +216,25 @@ def visible_tabs(user: dict | None) -> list[dict]:
             "path": tab["path"],
             "menu": tab.get("menu", ""),
             "heading": tab.get("heading", ""),
+            "group": tab.get("group", "library"),
         })
     return tabs
+
+
+def grouped_tabs(tabs: list[dict]) -> list[dict]:
+    """Activity-based navigation over the already-authorized visible tabs.
+
+    This is presentation only: never reintroduce a hidden or feature-disabled
+    tab, and leave account-menu destinations to their existing renderer.
+    """
+    groups = []
+    for key, label in (("library", N_("Library")), ("add", N_("Add / Scan")),
+                       ("explore", N_("Explore"))):
+        members = [tab for tab in tabs if not tab.get("menu")
+                   and tab.get("group", "library") == key]
+        if members:
+            groups.append({"key": key, "label": label, "tabs": members})
+    return groups
 
 
 # Where the item-detail "back" link goes when arriving from somewhere other
@@ -220,6 +245,9 @@ def visible_tabs(user: dict | None) -> list[dict]:
 BACK_TARGETS = {
     "series": ("/series", N_("Back to series")),
     "stats": ("/stats", N_("Back to stats")),
+    "library": ("/library", N_("Back to library")),
+    "activity": ("/activity", N_("Back to my activity")),
+    "needs-attention": ("/needs-attention", N_("Back to maintenance")),
 }
 DEFAULT_BACK_TARGET = ("/browse", N_("Back to collection"))
 

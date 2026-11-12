@@ -1,0 +1,143 @@
+{% extends "base.html" %}
+{% block title %}{{ _('Library') }} — Shelf{% endblock %}
+{% block content %}
+<div class="max-w-7xl mx-auto space-y-6" data-testid="library-page">
+    <header class="flex flex-wrap items-start justify-between gap-4">
+        <div>
+            <h1 class="text-2xl font-bold">{{ _('Library') }}</h1>
+            <p class="text-sm text-shelf-muted mt-1">{{ _('Your local catalogue, physical copies and synced digital holdings in one place.') }}</p>
+        </div>
+        {% if feature_on('connected_library') and user %}
+        <nav aria-label="{{ _('Connected library') }}" class="flex flex-wrap gap-4 text-sm">
+            <a href="/sources" class="text-shelf-accent2 hover:underline">{{ _('Sources') }}</a>
+            <a href="/activity" class="text-shelf-accent2 hover:underline">{{ _('My Activity') }}</a>
+            {% if user.role in ('admin', 'editor') %}<a href="/needs-attention" class="text-shelf-accent2 hover:underline">{{ _('Needs Attention') }}</a>{% endif %}
+        </nav>
+        {% endif %}
+    </header>
+
+    {% if notice %}<p role="status" class="rounded-lg border border-shelf-border bg-shelf-card p-3 text-sm">{{ _(notice) }}</p>{% endif %}
+
+    <nav aria-label="{{ _('Library presets') }}" class="flex flex-wrap gap-2">
+        {% for preset in presets %}<a href="{{ preset.url }}" class="px-3 py-2 rounded-lg bg-shelf-card border border-shelf-border text-sm hover:text-shelf-accent2">{{ _(preset.label) }}</a>{% endfor %}
+    </nav>
+
+    <form method="get" action="/library" class="rounded-xl border border-shelf-border bg-shelf-card p-4 space-y-4" role="search" data-testid="library-filters">
+        {% if saved_view %}<input type="hidden" name="saved_view" value="{{ saved_view.id }}">{% endif %}
+        <div>
+            <label for="library-q" class="block text-sm font-medium mb-1">{{ _('Search your library') }}</label>
+            <div class="flex gap-2">
+                <input id="library-q" name="q" value="{{ filters.q }}" type="search" maxlength="300" class="min-w-0 flex-1 bg-shelf-bg border border-shelf-border rounded-lg px-3 py-2" placeholder="{{ _('Title, creator, ISBN, UPC, ASIN, narrator, series, publisher, tag or external ID') }}">
+                <button type="submit" class="px-4 py-2 rounded-lg bg-shelf-accent text-white hover:bg-shelf-accent2">{{ _('Search') }}</button>
+            </div>
+        </div>
+        {% set active_filters = namespace(count=0) %}
+        {% for key, default in [('media_type', ''), ('family', ''), ('series', ''), ('source', ''), ('availability', ''), ('ownership', ''), ('wishlist', ''), ('view', 'groups'), ('sort', 'title'), ('page_size', '24')] %}
+        {% if filters[key] != default %}{% set active_filters.count = active_filters.count + 1 %}{% endif %}
+        {% endfor %}
+        <details data-testid="library-filter-options">
+            <summary class="cursor-pointer text-sm font-medium">{{ _('Filters and display') }}{% if active_filters.count %} <span class="text-xs text-shelf-muted" data-testid="library-active-filter-count" data-count="{{ active_filters.count }}">· {{ ngettext('%(count)s active option', '%(count)s active options', active_filters.count, count=active_filters.count) }}</span>{% endif %}</summary>
+            <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 mt-4">
+            <label class="text-sm" for="library-media-type">{{ _('Format') }}
+                <select id="library-media-type" name="media_type" class="block w-full mt-1 bg-shelf-bg border border-shelf-border rounded-lg px-3 py-2">
+                    <option value="">{{ _('All formats') }}</option>
+                    {% for key, label in media_types.items() %}<option value="{{ key }}"{% if filters.media_type == key %} selected{% endif %}>{{ _(label) }}</option>{% endfor %}
+                </select>
+            </label>
+            <label class="text-sm" for="library-family">{{ _('Media family') }}
+                <select id="library-family" name="family" class="block w-full mt-1 bg-shelf-bg border border-shelf-border rounded-lg px-3 py-2">
+                    <option value="">{{ _('All media') }}</option>
+                    {% for key, label in family_choices %}<option value="{{ key }}"{% if filters.family == key %} selected{% endif %}>{{ _(label) }}</option>{% endfor %}
+                </select>
+            </label>
+            <label class="text-sm" for="library-series">{{ _('Local series') }}
+                <select id="library-series" name="series" class="block w-full mt-1 bg-shelf-bg border border-shelf-border rounded-lg px-3 py-2">
+                    <option value="">{{ _('All series') }}</option>
+                    {% for series in series_choices %}<option value="{{ series.key }}"{% if filters.series == series.key %} selected{% endif %}>{{ series.name }}</option>{% endfor %}
+                    {% if filters.series and not has_selected_series %}<option value="{{ filters.series }}" selected>{{ filters.series }}</option>{% endif %}
+                </select>
+            </label>
+            <label class="text-sm" for="library-source">{{ _('Holding source') }}
+                <select id="library-source" name="source" class="block w-full mt-1 bg-shelf-bg border border-shelf-border rounded-lg px-3 py-2">
+                    <option value="">{{ _('All sources') }}</option>
+                    {% for source in source_choices %}<option value="{{ source.value }}"{% if filters.source == source.value %} selected{% endif %}>{{ _(source.name) if source.translate else source.name }}{% if source.id %} · #{{ source.id }}{% endif %}{% if not source.enabled %} — {{ _('disabled; cached') }}{% endif %}</option>{% endfor %}
+                    {% if filters.source and not has_selected_source %}<option value="{{ filters.source }}" selected>{{ _('Selected source is unavailable') }}</option>{% endif %}
+                </select>
+            </label>
+            <label class="text-sm" for="library-availability">{{ _('Availability') }}
+                <select id="library-availability" name="availability" class="block w-full mt-1 bg-shelf-bg border border-shelf-border rounded-lg px-3 py-2">
+                    {% for key, label in availability_choices %}<option value="{{ key }}"{% if filters.availability == key %} selected{% endif %}>{{ _(label) }}</option>{% endfor %}
+                </select>
+            </label>
+            <label class="text-sm" for="library-ownership">{{ _('Catalogue ownership') }}
+                <select id="library-ownership" name="ownership" class="block w-full mt-1 bg-shelf-bg border border-shelf-border rounded-lg px-3 py-2">
+                    <option value="">{{ _('Any ownership') }}</option>
+                    <option value="owned"{% if filters.ownership == 'owned' %} selected{% endif %}>{{ _('Owned') }}</option>
+                    <option value="unowned"{% if filters.ownership == 'unowned' %} selected{% endif %}>{{ _('Not owned') }}</option>
+                    <option value="neither"{% if filters.ownership == 'neither' %} selected{% endif %}>{{ _('Neither owned nor wishlisted') }}</option>
+                </select>
+            </label>
+            <label class="text-sm" for="library-wishlist">{{ _('Wishlist') }}
+                <select id="library-wishlist" name="wishlist" class="block w-full mt-1 bg-shelf-bg border border-shelf-border rounded-lg px-3 py-2">
+                    <option value="">{{ _('Any wishlist state') }}</option>
+                    <option value="yes"{% if filters.wishlist == 'yes' %} selected{% endif %}>{{ _('On wishlist') }}</option>
+                    <option value="no"{% if filters.wishlist == 'no' %} selected{% endif %}>{{ _('Not on wishlist') }}</option>
+                </select>
+            </label>
+            <label class="text-sm" for="library-view">{{ _('View') }}
+                <select id="library-view" name="view" class="block w-full mt-1 bg-shelf-bg border border-shelf-border rounded-lg px-3 py-2">
+                    {% for link in view_links %}<option value="{{ link.value }}"{% if filters.view == link.value %} selected{% endif %}>{{ _(link.label) }}</option>{% endfor %}
+                </select>
+            </label>
+            <label class="text-sm" for="library-sort">{{ _('Sort') }}
+                <select id="library-sort" name="sort" class="block w-full mt-1 bg-shelf-bg border border-shelf-border rounded-lg px-3 py-2">
+                    {% for key, label in sort_choices %}<option value="{{ key }}"{% if filters.sort == key %} selected{% endif %}>{{ _(label) }}</option>{% endfor %}
+                </select>
+            </label>
+            <label class="text-sm" for="library-page-size">{{ _('Results per page') }}
+                <select id="library-page-size" name="page_size" class="block w-full mt-1 bg-shelf-bg border border-shelf-border rounded-lg px-3 py-2">
+                    {% for size in [24, 48, 96] %}<option value="{{ size }}"{% if page_size == size %} selected{% endif %}>{{ size }}</option>{% endfor %}
+                    {% if page_size not in [24, 48, 96] %}<option value="{{ page_size }}" selected>{{ page_size }}</option>{% endif %}
+                </select>
+            </label>
+            </div>
+            <div class="flex flex-wrap items-center gap-4 mt-4">
+                <button type="submit" class="px-4 py-2 rounded-lg bg-shelf-accent text-white hover:bg-shelf-accent2">{{ _('Apply filters') }}</button>
+                <a href="/library" class="text-sm text-shelf-accent2 hover:underline">{{ _('Clear filters') }}</a>
+                <span class="text-xs text-shelf-muted">{{ _('Ownership alone does not mean a physical copy is on a shelf.') }}</span>
+            </div>
+        </details>
+    </form>
+
+    <details class="rounded-xl border border-shelf-border bg-shelf-card p-4" data-testid="library-saved-views">
+        <summary class="cursor-pointer font-medium">{{ _('Personal saved views') }}{% if saved_view %} · {{ saved_view.name }}{% endif %}</summary>
+        <div class="mt-4 space-y-4">
+            <p class="text-sm text-shelf-muted">{{ _('Saved views belong to your account. Saving an existing name replaces its filters.') }}</p>
+            <form method="post" action="/api/library/views" class="flex flex-wrap items-end gap-3">
+                <input type="hidden" name="_csrf" value="{{ csrf_token }}">
+                {% for key, value in filters.items() %}<input type="hidden" name="{{ key }}" value="{{ value }}">{% endfor %}
+                <label for="library-view-name" class="text-sm">{{ _('View name') }}
+                    <input id="library-view-name" name="name" required maxlength="80" class="block mt-1 bg-shelf-bg border border-shelf-border rounded-lg px-3 py-2" value="{{ saved_view.name if saved_view else '' }}">
+                </label>
+                <button type="submit" class="px-4 py-2 rounded-lg bg-shelf-accent text-white hover:bg-shelf-accent2">{{ _('Save current view') }}</button>
+            </form>
+            {% if saved_views %}
+            <ul class="space-y-2">
+                {% for saved in saved_views %}
+                <li class="flex flex-wrap items-center justify-between gap-3 text-sm">
+                    <a href="/library?saved_view={{ saved.id }}" class="text-shelf-accent2 hover:underline">{{ saved.name }}</a>
+                    <form method="post" action="/api/library/views/{{ saved.id }}/delete">
+                        <input type="hidden" name="_csrf" value="{{ csrf_token }}">
+                        <button type="submit" class="text-shelf-muted hover:text-white" aria-label="{{ _('Delete saved view: %(name)s', name=saved.name) }}">{{ _('Delete') }}</button>
+                    </form>
+                </li>
+                {% endfor %}
+            </ul>
+            {% else %}<p class="text-sm text-shelf-muted">{{ _('No personal views saved yet.') }}</p>{% endif %}
+            <p class="text-xs text-shelf-muted">{{ _('Up to %(count)s saved views per account.', count=saved_view_limit) }}</p>
+        </div>
+    </details>
+
+    {% include "fragments/library_results.html" %}
+</div>
+{% endblock %}

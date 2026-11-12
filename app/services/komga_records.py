@@ -19,6 +19,7 @@ from typing import Any
 
 from app.config import MEDIA_TYPES
 from app.services import isbn as isbn_svc
+from app.services import metadata_policy
 from app.services.item_write import IdentifierInTrash, insert_item, update_item_fields
 
 KOMGA_KINDS = frozenset({"comic", "manga"})
@@ -104,66 +105,43 @@ def _provider_fields(candidate: dict[str, Any], media_type: str) -> dict[str, An
     }
 
 
-def _refresh_fields(fields: dict[str, Any]) -> dict[str, Any]:
-    """Provider refreshes should not erase metadata Komga omitted this time."""
-    return {
-        name: value
-        for name, value in fields.items()
-        if name in {"title", "media_type"} or value is not None
-    }
-
-
 def _fill_missing_fields(db, item_id: int, candidate: dict[str, Any]) -> None:
-    """Enrich an existing non-Komga item without overwriting user metadata."""
-    row = db.execute("SELECT * FROM items_live WHERE id = ?", (item_id,)).fetchone()
-    if row is None:
-        raise KomgaPersistenceError("Shelf item not found")
-
-    fields: dict[str, Any] = {}
-    for name in (
+    """Keep the adopted-manual-item contract, without claiming its metadata."""
+    source_key = f"komga:{_clean(candidate.get('komga_id'))}"
+    observed = _provider_fields(candidate, _shelf_media_type(_kind(candidate)))
+    fields = {name: observed[name] for name in (
+        "title",
         "authors",
         "series_name",
         "series_position",
         "publish_year",
         "description",
         "page_count",
-    ):
-        incoming = candidate.get(name)
-        current = row[name]
-        if current in (None, "") and incoming not in (None, ""):
-            fields[name] = incoming
-    if fields:
-        update_item_fields(db, item_id, fields)
+    )}
+    updates = metadata_policy.metadata_updates(
+        db, item_id, source_key, fields, fill_only=True,
+    )
+    if updates:
+        update_item_fields(db, item_id, updates)
+    metadata_policy.record_observation(
+        db, item_id, source_key, observed, applied_fields=updates,
+    )
 
 
-def _reclassify_owned_record(db, existing, kind: str, media_type: str) -> None:
-    """Apply a library-kind change without conflating it with Shelf's type.
+def _check_reclassification(existing, media_type: str) -> None:
+    """A library-kind change cannot reclassify an adopted manual item.
 
     A Comic↔Manga change may only require changing the provider record, when
     both kinds project onto the same Shelf media type. Since #105 added
     ``manga`` to MEDIA_TYPES they usually do not, so the Shelf media type
-    really changes — and only a Komga-created catalogue row is safe to
-    reclassify automatically.
+    may change too. Validate the manual-item guard here, but leave the actual
+    type AND identifiers to one safely planned final write, never a temporary
+    type-only identity that may collide with an unrelated edition.
     """
-    if existing["media_type"] != media_type:
-        if existing["source"] != "komga":
-            raise KomgaPersistenceError(
-                "This Komga holding is attached to a manually catalogued item; "
-                "change its Comic/Manga type explicitly in Shelf before re-syncing"
-            )
-        try:
-            update_item_fields(db, existing["item_id"], {"media_type": media_type})
-        except (sqlite3.IntegrityError, IdentifierInTrash) as exc:
-            raise KomgaPersistenceError(
-                "Changing this Komga library between Comic and Manga would collide "
-                "with an existing Shelf edition"
-            ) from exc
-
-    if existing["kind"] != kind:
-        db.execute(
-            "UPDATE komga_records SET kind = ?, updated_at = datetime('now') "
-            "WHERE komga_id = ?",
-            (kind, existing["komga_id"]),
+    if existing["media_type"] != media_type and existing["source"] != "komga":
+        raise KomgaPersistenceError(
+            "This Komga holding is attached to a manually catalogued item; "
+            "change its Comic/Manga type explicitly in Shelf before re-syncing"
         )
 
 
@@ -179,7 +157,8 @@ def persist_candidate(db, candidate: dict[str, Any]) -> dict[str, Any]:
 
     When adopting a manual/physical catalogue item, Komga fills only blank
     descriptive fields and never changes that row's source. When updating a
-    row originally created by Komga, provider metadata may be refreshed.
+    row originally created by Komga, only metadata still equal to that
+    holding's last applied value may be refreshed. Legacy baselines are unknown.
     """
     komga_id = _clean(candidate.get("komga_id"))
     library_id = _clean(candidate.get("komga_library_id"))
@@ -191,22 +170,36 @@ def persist_candidate(db, candidate: dict[str, Any]) -> dict[str, Any]:
     media_type = _shelf_media_type(kind)
     fields = _provider_fields(candidate, media_type)
     isbn = fields["isbn"]
+    source_key = f"komga:{komga_id}"
 
+    metadata_policy.begin_write(db)
     existing = _existing_record(db, komga_id)
     if existing is not None and existing["deleted_at"] is not None:
         return {"item_id": existing["item_id"], "action": "in_trash"}
 
     if existing is not None:
-        _reclassify_owned_record(db, existing, kind, media_type)
+        _check_reclassification(existing, media_type)
         item_id = existing["item_id"]
         if existing["source"] == "komga":
+            updates = metadata_policy.metadata_updates(db, item_id, source_key, fields)
             try:
-                update_item_fields(db, item_id, _refresh_fields(fields))
+                if updates:
+                    update_item_fields(db, item_id, updates)
             except IdentifierInTrash as exc:
+                if "media_type" in updates:
+                    raise KomgaPersistenceError(
+                        "Changing this Komga library between Comic and Manga would collide "
+                        "with an existing Shelf edition"
+                    ) from exc
                 raise KomgaPersistenceError(
                     "Refreshing this Komga holding would give it an ISBN an "
                     "item in Trash already holds"
                 ) from exc
+            except sqlite3.IntegrityError as exc:
+                raise KomgaPersistenceError(
+                    "Refreshing this Komga holding would collide with an existing Shelf edition"
+                ) from exc
+            metadata_policy.record_observation(db, item_id, source_key, fields, applied_fields=updates)
         else:
             _fill_missing_fields(db, item_id, candidate)
         db.execute(
@@ -256,6 +249,8 @@ def persist_candidate(db, candidate: dict[str, Any]) -> dict[str, Any]:
             adopted = True
             _fill_missing_fields(db, item_id, candidate)
 
+    if not adopted:
+        metadata_policy.record_initial(db, item_id, source_key, fields)
     db.execute(
         "INSERT INTO komga_records (komga_id, item_id, library_id, series_id, kind) "
         "VALUES (?, ?, ?, ?, ?)",

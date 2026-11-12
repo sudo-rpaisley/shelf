@@ -133,7 +133,7 @@
                 </select>
             </div>
 
-            <div data-media-types="book audiobook ebook comic manga dvd video_game" data-always-visible="{{ 'true' if item.reading_status or item.date_started or item.date_finished else 'false' }}" class="space-y-4">
+            <div data-media-types="book audiobook ebook comic manga dvd digital_video tv_series video_game" data-always-visible="{{ 'true' if item.reading_status or item.date_started or item.date_finished else 'false' }}" class="space-y-4">
                 <div>
                     <label for="reading_status" class="block text-sm font-medium text-shelf-muted mb-1">{{ _('Status') }}</label>
                     {% set sl = status_labels(item.media_type) %}

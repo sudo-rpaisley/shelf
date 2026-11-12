@@ -74,6 +74,8 @@ async def retry_cover(item_id: int, _=Depends(require_role("editor"))):
         return {"ok": False, "message": i18n.gettext("No ISBN")}
     if item["cover_path"]:
         return {"ok": True, "cover_path": item["cover_path"]}
+    if item["media_type"] in {"digital_video", "tv_series"}:
+        return {"ok": False, "message": i18n.gettext("Use cover search, an image URL or upload a cover for this format")}
     async with httpx.AsyncClient(timeout=HTTP_TIMEOUT) as client:
         if item["media_type"] in BOOK_MEDIA_TYPES:
             cover_path = await items_common.resolve_missing_cover(item_id, client)
@@ -116,11 +118,15 @@ def _search_note(media_type: str | None, creds: dict) -> str | None:
     to report. (The G47 false negative this docstring used to accept —
     a rejected TMDb key reading as "no covers found" — closed with issue #49.)
     """
+    if media_type in covers.MANUAL_COVER_TYPES:
+        return i18n.gettext("TV series cover search is not available. Use an image URL or upload a cover.")
     keys = covers.required_credentials(media_type)
     if not keys:
         return None
     if all((creds.get(key) or "").strip() for key in keys):
         return None
+    if media_type == "digital_video":
+        return i18n.gettext("Digital video cover search needs a TMDb API key — add one in Settings → Integrations.")
     return _SEARCH_NOTES.get(covers.MEDIA_TYPE_PROVIDERS.get(media_type or ""))
 
 
@@ -140,6 +146,8 @@ def _search_status(result) -> tuple[str | None, str | None]:
 
 def _cover_search_credentials(db, media_type: str | None) -> dict[str, str]:
     """Load required provider credentials plus the optional Google book key."""
+    if media_type in covers.MANUAL_COVER_TYPES:
+        return {}
     keys = covers.required_credentials(media_type)
     creds = {key: get_setting(db, key) for key in keys}
     if not keys:
@@ -351,7 +359,9 @@ async def cover_remove(item_id: int, _=Depends(require_role("editor"))):
     that matters — it puts the item in front of a human rather than back into
     the automatic chain.
     """
+    from app.services import cover_sync_policy
     with get_db() as db:
+        db.execute("BEGIN IMMEDIATE")
         item = db.execute("SELECT id FROM items_live WHERE id = ?", (item_id,)).fetchone()
         if not item:
             return HTMLResponse("Not found", status_code=404)
@@ -360,6 +370,7 @@ async def cover_remove(item_id: int, _=Depends(require_role("editor"))):
             "updated_at = datetime('now') WHERE id = ?",
             (item_id,),
         )
+        cover_sync_policy.block(db, item_id)
 
     resp = HTMLResponse("")
     resp.headers["HX-Trigger"] = items_common._toast_header("Cover removed")

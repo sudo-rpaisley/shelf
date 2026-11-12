@@ -47,8 +47,8 @@
     <!-- Nav -->
     <nav class="bg-shelf-card border-b border-shelf-border sticky top-0 z-50">
         <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-            <div class="flex items-center justify-between h-14">
-                <div class="flex items-center gap-1">
+            <div class="flex items-center justify-between min-h-14 py-2 gap-3">
+                <div class="flex items-center gap-1 flex-1 min-w-0">
                     <a href="/" class="text-lg font-bold text-shelf-accent2 tracking-tight mr-6">Shelf</a>
 
                     <!-- Disclosure menu: below lg the full tab row overflows
@@ -62,7 +62,17 @@
                             <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 12h16M4 18h16"/></svg>
                         </button>
                         <div x-show="open" x-cloak data-testid="nav-menu-panel"
-                             class="absolute left-0 top-full mt-2 w-48 bg-shelf-card border border-shelf-border rounded-lg shadow-xl py-1 z-50">
+                             class="absolute left-0 top-full mt-2 w-56 max-h-[70vh] overflow-y-auto bg-shelf-card border border-shelf-border rounded-lg shadow-xl py-1 z-50">
+                            {% if nav_groups %}
+                            {% for group in nav_groups %}
+                            <p class="px-4 pt-3 pb-1 text-xs uppercase tracking-wider text-shelf-muted">{{ _(group.label) }}</p>
+                            {% for tab in group.tabs %}
+                            <a href="{{ tab.path }}" data-nav-menu-tab="{{ tab.key }}" class="block px-4 py-2 text-sm font-medium {% if request.url.path == tab.path %}bg-shelf-hover text-white{% else %}text-shelf-muted hover:text-white hover:bg-shelf-hover{% endif %} transition-colors">
+                                {{ _(tab.label) }}
+                            </a>
+                            {% endfor %}
+                            {% endfor %}
+                            {% else %}
                             {% for tab in nav_tabs %}
                             {% if not tab.menu %}
                             <a href="{{ tab.path }}" data-nav-menu-tab="{{ tab.key }}" class="block px-4 py-2 text-sm font-medium {% if request.url.path == tab.path %}bg-shelf-hover text-white{% else %}text-shelf-muted hover:text-white hover:bg-shelf-hover{% endif %} transition-colors">
@@ -70,10 +80,25 @@
                             </a>
                             {% endif %}
                             {% endfor %}
+                            {% endif %}
                         </div>
                     </div>
 
-                    <div class="hidden lg:flex items-center gap-1">
+                    <div class="hidden lg:flex flex-wrap items-center gap-x-4 gap-y-2 min-w-0" data-testid="nav-activity-groups">
+                        {% if nav_groups %}
+                        {% for group in nav_groups %}
+                        <div class="min-w-0" data-nav-group="{{ group.key }}">
+                            <p class="px-3 text-[10px] uppercase tracking-wider text-shelf-muted">{{ _(group.label) }}</p>
+                            <div class="flex flex-wrap items-center gap-1">
+                                {% for tab in group.tabs %}
+                                <a href="{{ tab.path }}" data-nav-tab="{{ tab.key }}" class="px-3 py-2 rounded-md text-sm font-medium {% if request.url.path == tab.path %}bg-shelf-hover text-white{% else %}text-shelf-muted hover:text-white hover:bg-shelf-hover{% endif %} transition-colors">
+                                    {{ _(tab.label) }}
+                                </a>
+                                {% endfor %}
+                            </div>
+                        </div>
+                        {% endfor %}
+                        {% else %}
                         {% for tab in nav_tabs %}
                         {% if not tab.menu %}
                         <a href="{{ tab.path }}" data-nav-tab="{{ tab.key }}" class="px-3 py-2 rounded-md text-sm font-medium {% if request.url.path == tab.path %}bg-shelf-hover text-white{% else %}text-shelf-muted hover:text-white hover:bg-shelf-hover{% endif %} transition-colors">
@@ -81,6 +106,7 @@
                         </a>
                         {% endif %}
                         {% endfor %}
+                        {% endif %}
                     </div>
                 </div>
                 {% if user %}
@@ -113,7 +139,7 @@
         <div class="bg-shelf-card border border-shelf-border rounded-xl p-6 max-w-md w-full mx-4 shadow-2xl">
             <div class="flex items-center justify-between mb-4">
                 <h3 class="text-lg font-bold">{{ _('Keyboard Shortcuts') }}</h3>
-                <button onclick="this.closest('#shortcut-modal').classList.add('hidden')" class="text-shelf-muted hover:text-white">
+                <button onclick="this.closest('#shortcut-modal').classList.add('hidden')" aria-label="{{ _('Close keyboard shortcuts') }}" class="text-shelf-muted hover:text-white">
                     <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg>
                 </button>
             </div>

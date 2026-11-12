@@ -30,6 +30,8 @@ own conflict rule, and getting one wrong raises ``IntegrityError`` mid-merge:
   the table.
 """
 
+import json
+
 from app.services import item_copies, lists
 
 # The fields a merge fills on the kept row from the merged-away one when the
@@ -127,6 +129,39 @@ def _reparent_copies(db, keep_id: int, other_id: int) -> None:
         item_copies.update_copy(db, row["id"], fields)
 
 
+def _reparent_provenance(db, keep_id: int, other_id: int) -> None:
+    """Keep observations, never inherit permission to overwrite kept metadata.
+
+    Even equal values can have different ownership: choosing a manual record
+    in a merge must not grant a losing provider authority over its title. An
+    editor can explicitly Follow source again in Metadata sources afterwards.
+    Existing baselines belonging to the kept row remain authoritative.
+    """
+    kept = db.execute("SELECT * FROM items_live WHERE id = ?", (keep_id,)).fetchone()
+    if kept is None:
+        return
+    for row in db.execute(
+        "SELECT source_key, field_name, value_json, observed_at "
+        "FROM item_metadata_provenance WHERE item_id = ?", (other_id,),
+    ).fetchall():
+        try:
+            previous = json.loads(row["value_json"])
+        except (TypeError, ValueError, RecursionError):
+            previous = {}
+        snapshot = {
+            "observed": previous.get("observed") if isinstance(previous, dict) else None,
+            "local": kept[row["field_name"]] if row["field_name"] in kept.keys() else None,
+            "overridden": True,
+        }
+        db.execute(
+            "INSERT OR IGNORE INTO item_metadata_provenance "
+            "(item_id, source_key, field_name, value_json, observed_at) VALUES (?, ?, ?, ?, ?)",
+            (keep_id, row["source_key"], row["field_name"],
+             json.dumps(snapshot, ensure_ascii=False), row["observed_at"]),
+        )
+    db.execute("DELETE FROM item_metadata_provenance WHERE item_id = ?", (other_id,))
+
+
 def reparent_children(db, keep_id: int, other_id: int) -> None:
     """Move every child record of ``other_id`` onto ``keep_id``.
 
@@ -160,3 +195,13 @@ def reparent_children(db, keep_id: int, other_id: int) -> None:
     _reparent_links(db, keep_id, other_id)
     _reparent_copies(db, keep_id, other_id)
     lists.reparent(db, keep_id, other_id)
+    # A connected source describes availability, not catalogue identity. Its
+    # instance-scoped external key stays unchanged when duplicate items merge.
+    db.execute("UPDATE source_records SET item_id = ? WHERE item_id = ?", (keep_id, other_id))
+    db.execute(
+        "INSERT OR IGNORE INTO cover_sync_blocks (item_id, blocked, created_at) "
+        "SELECT ?, blocked, created_at FROM cover_sync_blocks WHERE item_id = ?", (keep_id, other_id),
+    )
+    _reparent_provenance(db, keep_id, other_id)
+    from app.services import personal_library
+    personal_library.reparent(db, keep_id, other_id)

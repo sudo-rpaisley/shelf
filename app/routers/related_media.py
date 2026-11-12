@@ -7,6 +7,7 @@ from app import i18n, nav
 from app.auth import require_role
 from app.config import MEDIA_TYPES
 from app.database import get_db
+from app.features import feature_enabled
 from app.services import media_groups
 
 router = APIRouter()
@@ -40,6 +41,11 @@ def _panel_context(db, item_id: int) -> dict | None:
 def _render_panel(request: Request, item_id: int, *, refresh_also_available: bool = False):
     with get_db() as db:
         context = _panel_context(db, item_id)
+        if context is not None and refresh_also_available and feature_enabled("connected_library"):
+            from app.services import availability
+            available_context = availability.available_here(db, item_id) or {}
+            context.update({k: v for k, v in available_context.items() if k != "item"})
+            context["available_here_oob"] = True
     if context is None:
         return HTMLResponse(i18n.gettext("Item not found"), status_code=404)
     context.update({

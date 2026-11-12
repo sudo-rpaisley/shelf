@@ -334,6 +334,10 @@ class TestAudiobookshelfLeavesATrashedTwinAlone:
         live = insert_item(db, title="Live Copy", source="audiobookshelf",
                            media_type="audiobook", abs_id="li_1",
                            abs_library_id="lib_audio")
+        # This pin tests live-first identity selection and provider-owned
+        # refresh, not permission to overwrite an unknown legacy/manual title.
+        from app.services import metadata_policy
+        metadata_policy.record_initial(db, live, "audiobookshelf:li_1", {"title": "Live Copy"})
         db.execute("COMMIT")
 
         _mock_abs(("li_1", "Live Copy Renamed", None))

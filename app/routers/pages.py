@@ -42,6 +42,10 @@ async def index(
     """Render a collection overview while leaving Browse for exploration."""
     with get_db() as db:
         summary = dashboard_summary(db, recent_limit=8)
+        home_activity = None
+        if features.feature_enabled("connected_library"):
+            from app.services import personal_library
+            home_activity = personal_library.dashboard(db, request.state.user["id"], limit=6)
 
     return request.app.state.templates.TemplateResponse(
         request,
@@ -49,6 +53,7 @@ async def index(
         {
             **summary,
             "media_type_labels": MEDIA_TYPES,
+            "home_activity": home_activity,
         },
     )
 
@@ -329,14 +334,21 @@ async def item_detail(
         # and a lookup there would open a nested connection each time.
         abs_public_url_val = get_setting(db, "abs_public_url")
         if abs_url_val:
+            from app.services import availability as availability_svc
             from app.services.audiobookshelf import get_playback_url
             if item["abs_id"]:
-                abs_url = get_playback_url(abs_url_val, item["abs_id"], abs_public_url_val)
-            linked_abs_items = [
-                {"id": li["id"], "media_type": li["media_type"],
-                 "abs_url": get_playback_url(abs_url_val, li["abs_id"], abs_public_url_val)}
-                for li in linked_items if li["abs_id"]
-            ]
+                abs_url = availability_svc.legacy_url(
+                    abs_url_val, abs_public_url_val, item["abs_id"], get_playback_url,
+                )
+            for linked in linked_items:
+                if not linked["abs_id"]:
+                    continue
+                playback = availability_svc.legacy_url(
+                    abs_url_val, abs_public_url_val, linked["abs_id"], get_playback_url,
+                )
+                if playback:
+                    linked_abs_items.append({"id": linked["id"], "media_type": linked["media_type"],
+                                             "abs_url": playback})
 
         # Hardcover token check
         has_hardcover = bool(get_setting(db, "hardcover_token"))
@@ -392,11 +404,28 @@ async def item_detail(
         # the template also gates it on feature_on('price_alerts').
         price_line = price_alerts.price_line(db, item_id) if item["wishlisted"] else None
         buy_links = buy_links_svc.for_item(db, item) if item["wishlisted"] else []
+        from app.services import cover_sync_policy
+        source_cover_blocked = cover_sync_policy.blocked(db, item_id)
+
+        connected_context = {}
+        if features.feature_enabled("connected_library"):
+            from app.services import availability, metadata_review, personal_library
+            availability_context = availability.available_here(db, item_id) or {}
+            personal_context = personal_library.personal_context(
+                db, request.state.user["id"], item_id,
+            ) or {}
+            # The new fragments need their own state, never a replacement for
+            # the fully hydrated catalogue row assembled above.
+            connected_context.update({k: v for k, v in availability_context.items() if k != "item"})
+            connected_context.update({k: v for k, v in personal_context.items() if k != "item"})
+            metadata_context = metadata_review.context_for(db, item_id) or {}
+            connected_context.update({k: v for k, v in metadata_context.items() if k != "item"})
 
     return request.app.state.templates.TemplateResponse(
         request,
         "item_detail.html",
         {
+            **connected_context,
             "item": item,
             "item_id": item_id,
             "back": back,
@@ -422,6 +451,7 @@ async def item_detail(
             "item_authors": item_authors,
             "price_line": price_line,
             "buy_links": buy_links,
+            "source_cover_blocked": source_cover_blocked,
         },
     )
 

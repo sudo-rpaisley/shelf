@@ -5,9 +5,13 @@
     <div class="flex flex-wrap items-center justify-between gap-4 mb-8">
         <div>
             <h1 class="text-2xl font-bold">Home</h1>
-            <p class="text-sm text-shelf-muted mt-1">A quick view of your collection. Use Browse when you want to search, filter or organise it.</p>
+            <p class="text-sm text-shelf-muted mt-1">A quick view of your collection. {% if feature_on('connected_library') %}{{ _('Open Library to find every format and source, or Browse to organise catalogue records.') }}{% else %}Use Browse when you want to search, filter or organise it.{% endif %}</p>
         </div>
         <div class="flex flex-wrap gap-2">
+            {% if feature_on('connected_library') %}
+            <a href="/library" class="px-4 py-2 bg-shelf-accent text-white rounded-lg text-sm hover:bg-shelf-accent2 transition-colors">{{ _('Open library') }}</a>
+            <a href="/activity" class="px-4 py-2 bg-shelf-card border border-shelf-border text-shelf-text rounded-lg text-sm hover:bg-shelf-hover transition-colors">{{ _('My Activity') }}</a>
+            {% endif %}
             <a href="/browse" class="px-4 py-2 bg-shelf-accent text-white rounded-lg text-sm hover:bg-shelf-accent2 transition-colors">Browse collection</a>
             {% if user and user.role in ('admin', 'editor') %}
             <a href="/scan" class="px-4 py-2 bg-shelf-card border border-shelf-border text-shelf-text rounded-lg text-sm hover:bg-shelf-hover transition-colors">Scan item</a>
@@ -52,6 +56,10 @@
         </div>
     </div>
 
+    {% if feature_on('connected_library') and home_activity %}
+    {% include "fragments/home_personal_library.html" %}
+    {% endif %}
+
     <div class="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-8">
         <section class="bg-shelf-card border border-shelf-border rounded-lg p-5">
             <div class="flex items-center justify-between gap-4 mb-4">
@@ -80,6 +88,18 @@
         <section class="bg-shelf-card border border-shelf-border rounded-lg p-5">
             <h2 class="text-lg font-semibold mb-4">Useful places</h2>
             <div class="space-y-3">
+                {% if feature_on('connected_library') %}
+                <a href="/sources" class="block bg-shelf-bg border border-shelf-border rounded-lg px-4 py-3 hover:bg-shelf-hover transition-colors">
+                    <p class="font-medium">{{ _('Sources') }}</p>
+                    <p class="text-xs text-shelf-muted mt-1">{{ _('Connect libraries and review availability and sync health.') }}</p>
+                </a>
+                {% if user and user.role in ('admin', 'editor') %}
+                <a href="/needs-attention" class="block bg-shelf-bg border border-shelf-border rounded-lg px-4 py-3 hover:bg-shelf-hover transition-colors">
+                    <p class="font-medium">{{ _('Needs Attention') }}</p>
+                    <p class="text-xs text-shelf-muted mt-1">{{ _('Review missing metadata, unavailable sources and suggested format connections.') }}</p>
+                </a>
+                {% endif %}
+                {% endif %}
                 <a href="/browse" class="block bg-shelf-bg border border-shelf-border rounded-lg px-4 py-3 hover:bg-shelf-hover transition-colors">
                     <p class="font-medium">Browse</p>
                     <p class="text-xs text-shelf-muted mt-1">Search, filter, sort and bulk-edit the full catalogue.</p>

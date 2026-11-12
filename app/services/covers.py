@@ -157,8 +157,13 @@ async def search_book_covers(
 
 MEDIA_TYPE_PROVIDERS: dict[str, str] = {
     "dvd": "tmdb",
+    "digital_video": "tmdb",
     "video_game": "igdb",
 }
+
+# No TV lookup is implemented yet. Never let a known screen format inherit
+# the legacy unknown-type book fallback; manual URL/upload remain available.
+MANUAL_COVER_TYPES = frozenset({"tv_series"})
 
 CREDENTIAL_KEYS: dict[str, tuple[str, ...]] = {
     "tmdb": ("tmdb_api_key",),
@@ -234,7 +239,10 @@ async def search_covers(
     so the post-redirect allowlist re-check stays on the path. No provider
     fetches an image itself.
     """
-    provider = MEDIA_TYPE_PROVIDERS.get(_col(item, "media_type") or "")
+    media_type = _col(item, "media_type")
+    if media_type in MANUAL_COVER_TYPES:
+        return provider_result.no_match("manual")
+    provider = MEDIA_TYPE_PROVIDERS.get(media_type or "")
     if provider == "tmdb":
         return await _tmdb_candidates(item, query, client, creds)
     if provider == "igdb":

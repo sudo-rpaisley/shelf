@@ -47,6 +47,13 @@
                             class="text-xs px-3 py-1 bg-shelf-accent/20 text-shelf-accent2 rounded-sm hover:bg-shelf-accent/30 transition-colors">
                         {{ _('Find cover') }}
                     </button>
+                    {% if source_cover_blocked %}
+                    <p class="text-xs text-shelf-muted mt-2">{{ _('Source artwork is paused after removal. You can still choose a cover by hand.') }}</p>
+                    <form method="post" action="/api/items/{{ item.id }}/cover-sync/allow">
+                        <input type="hidden" name="_csrf" value="{{ request.cookies.get('csrf_token', '') }}">
+                        <button type="submit" class="text-xs text-shelf-accent2 hover:underline">{{ _('Allow missing-cover sync again') }}</button>
+                    </form>
+                    {% endif %}
                 </div>
                 <div id="cover-candidates"></div>
                 {% endif %}
@@ -120,6 +127,10 @@
                     {% endif %}
                 </div>
 
+                {% if feature_on('connected_library') %}
+                {% include "fragments/available_here.html" %}
+                {% endif %}
+
                 {% if item.description %}
                 <div class="mb-6" x-data="{ expanded: false }">
                     <h3 class="text-xs font-semibold uppercase tracking-wider text-shelf-muted mb-2">{{ _('Synopsis') }}</h3>
@@ -154,6 +165,10 @@
                     <div class="mt-4 text-xs text-shelf-muted">{{ _('Loading related media…') }}</div>
                 </div>
 
+                {% if feature_on('connected_library') %}
+                {% include "fragments/metadata_provenance.html" %}
+                {% endif %}
+
                 {% if item.notes %}
                 <div class="text-sm bg-shelf-bg rounded-lg p-3 mb-6">
                     <span class="text-shelf-muted">{{ _('Notes:') }}</span> {{ item.notes }}
@@ -162,7 +177,7 @@
 
                 {% if abs_url and feature_on('abs_sync') %}
                 <!-- Audiobookshelf Playback -->
-                <div class="mb-4" data-testid="abs-playback">
+                <div class="mb-4" data-testid="abs-playback"{% if feature_on('connected_library') %} hidden{% endif %}>
                     <a href="{{ abs_url }}" target="_blank" rel="noopener"
                        class="inline-flex items-center gap-1 px-3 py-1.5 bg-shelf-accent/20 text-shelf-accent2 rounded-lg text-sm hover:bg-shelf-accent/30 transition-colors">
                         {% if item.media_type == 'ebook' %}&#128214; {{ _('Read on Audiobookshelf') }}{% else %}&#9654; {{ _('Listen on Audiobookshelf') }}{% endif %}
@@ -196,7 +211,7 @@
 
                 {% if not abs_url and linked_abs_items and feature_on('abs_sync') %}
                 <!-- Also in Audiobookshelf (linked digital copy, direct deep link) -->
-                <div class="mb-4" data-testid="abs-also-in">
+                <div class="mb-4" data-testid="abs-also-in"{% if feature_on('connected_library') %} hidden{% endif %}>
                     {% for la in linked_abs_items %}
                     <a href="{{ la.abs_url }}" target="_blank" rel="noopener"
                        class="inline-flex items-center gap-1 px-3 py-1.5 bg-shelf-accent/20 text-shelf-accent2 rounded-lg text-sm hover:bg-shelf-accent/30 transition-colors mr-2">
@@ -216,9 +231,13 @@
                 {% if item.media_type in status_media_types or item.reading_status %}
                 <!-- Status -->
                 <div class="mb-6">
-                    <p class="text-sm font-medium text-shelf-muted mb-2">{{ _('Status') }}</p>
+                    <p class="text-sm font-medium text-shelf-muted mb-2" data-testid="catalogue-status-heading">{% if feature_on('connected_library') %}{{ _('Shared catalogue status') }}{% else %}{{ _('Status') }}{% endif %}</p>
                     {% include "fragments/reading_status.html" %}
                 </div>
+                {% endif %}
+
+                {% if feature_on('connected_library') %}
+                {% include "fragments/personal_library.html" %}
                 {% endif %}
 
                 {% if feature_on('lending') and ((user and user.role in ('admin', 'editor')) or current_checkout or checkout_history) %}

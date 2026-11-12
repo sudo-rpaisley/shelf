@@ -14,7 +14,8 @@ from __future__ import annotations
 
 from typing import Any
 
-from app.services.item_write import insert_item, update_item_fields
+from app.services import metadata_policy
+from app.services.item_write import insert_item
 
 
 class RomMPersistenceError(ValueError):
@@ -71,15 +72,6 @@ def _fields(candidate: dict[str, Any], platform: str) -> dict[str, Any]:
     }
 
 
-def _refresh_fields(fields: dict[str, Any]) -> dict[str, Any]:
-    """A later sparse RomM response must not erase already-known metadata."""
-    return {
-        name: value
-        for name, value in fields.items()
-        if name in {"title", "media_type", "platform"} or value is not None
-    }
-
-
 def persist_candidate(db, candidate: dict[str, Any]) -> dict[str, Any]:
     """Create or refresh one RomM-backed digital catalogue item.
 
@@ -93,13 +85,8 @@ def persist_candidate(db, candidate: dict[str, Any]) -> dict[str, Any]:
     if not romm_id or not romm_platform_id or not title:
         raise RomMPersistenceError("RomM candidate is missing id, platform id or title")
 
-    platform = ensure_platform(
-        db,
-        str(candidate.get("platform") or ""),
-        _clean(candidate.get("platform_name")),
-    )
-    fields = _fields(candidate, platform)
-
+    source_key = f"romm:{romm_id}"
+    metadata_policy.begin_write(db)
     existing = _existing_record(db, romm_id)
     if existing is not None and existing["deleted_at"] is not None:
         # Skipped before any write. RomM rows carry no ISBN or UPC, so the
@@ -107,13 +94,21 @@ def persist_candidate(db, candidate: dict[str, Any]) -> dict[str, Any]:
         # item_id is in the return because the sync loop reads it after
         # counting the action (claude-R3).
         return {"item_id": existing["item_id"], "action": "in_trash"}
+    if existing is not None and existing["source"] != "romm":
+        raise RomMPersistenceError(
+            "RomM identity is attached to a non-RomM catalogue item; "
+            "resolve that link explicitly before syncing"
+        )
+
+    platform = ensure_platform(
+        db,
+        str(candidate.get("platform") or ""),
+        _clean(candidate.get("platform_name")),
+    )
+    fields = _fields(candidate, platform)
+
     if existing is not None:
-        if existing["source"] != "romm":
-            raise RomMPersistenceError(
-                "RomM identity is attached to a non-RomM catalogue item; "
-                "resolve that link explicitly before syncing"
-            )
-        update_item_fields(db, existing["item_id"], _refresh_fields(fields))
+        metadata_policy.refresh_metadata(db, existing["item_id"], source_key, fields)
         db.execute(
             "UPDATE romm_records SET platform_id = ?, updated_at = datetime('now') "
             "WHERE romm_id = ?",
@@ -133,6 +128,7 @@ def persist_candidate(db, candidate: dict[str, Any]) -> dict[str, Any]:
         },
         restore_trashed=False,
     )
+    metadata_policy.record_initial(db, item_id, source_key, fields)
     db.execute(
         "INSERT INTO romm_records (romm_id, item_id, platform_id) VALUES (?, ?, ?)",
         (romm_id, item_id, romm_platform_id),

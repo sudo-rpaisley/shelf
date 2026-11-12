@@ -311,7 +311,7 @@ class TestBookShapedControls:
     RETRY = "retry-cover"
     PUSH = "Push to Hardcover"
     SYNCED = "Synced to Hardcover"
-    HEADING = ">Status</p>"
+    HEADING = 'data-testid="catalogue-status-heading"'
     SECTION = 'id="reading-status-section"'
     CLEAR = 'title="Clear status"'
 

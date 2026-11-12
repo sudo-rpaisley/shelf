@@ -36,6 +36,14 @@ def link_items(
         return False
 
     a_id, b_id = sorted((item_a_id, item_b_id))
+    # Older merges can leave the undirected pair in reverse storage order.
+    # Never add a second edge that contradicts an existing relationship type.
+    if db.execute(
+        "SELECT 1 FROM item_links WHERE (item_a_id = ? AND item_b_id = ?) "
+        "OR (item_a_id = ? AND item_b_id = ?)",
+        (a_id, b_id, b_id, a_id),
+    ).fetchone():
+        return False
     cursor = db.execute(
         "INSERT OR IGNORE INTO item_links (item_a_id, item_b_id, link_type) "
         "VALUES (?, ?, ?)",
@@ -50,8 +58,9 @@ def unlink_items(db, item_a_id: int, item_b_id: int) -> bool:
         return False
     a_id, b_id = sorted((item_a_id, item_b_id))
     cursor = db.execute(
-        "DELETE FROM item_links WHERE item_a_id = ? AND item_b_id = ?",
-        (a_id, b_id),
+        "DELETE FROM item_links WHERE (item_a_id = ? AND item_b_id = ?) "
+        "OR (item_a_id = ? AND item_b_id = ?)",
+        (a_id, b_id, b_id, a_id),
     )
     return bool(cursor.rowcount)
 
@@ -72,6 +81,8 @@ def related_ids(db, item_id: int, *, include_self: bool = False) -> list[int]:
                FROM item_links il
                JOIN connected
                  ON il.item_a_id = connected.id OR il.item_b_id = connected.id
+               JOIN items_live other ON other.id = CASE
+                   WHEN il.item_a_id = connected.id THEN il.item_b_id ELSE il.item_a_id END
            )
            SELECT id FROM connected ORDER BY id""",
         (item_id,),
@@ -97,6 +108,8 @@ def related_items(db, item_id: int, *, include_self: bool = False):
 
 def direct_links(db, item_id: int) -> list[dict]:
     """Return direct neighbours and edge types for edit/detail UIs."""
+    if not db.execute("SELECT 1 FROM items_live WHERE id = ?", (item_id,)).fetchone():
+        return []
     rows = db.execute(
         """SELECT il.link_type,
                   CASE WHEN il.item_a_id = ? THEN il.item_b_id ELSE il.item_a_id END AS item_id,

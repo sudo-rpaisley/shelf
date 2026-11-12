@@ -66,7 +66,9 @@ class TestAbsSyncPassFeatureGate:
         assert _stamp(db, "abs_last_sync") is None
 
         _toggle("abs_sync", True)
-        with patch("app.services.audiobookshelf.sync", new=AsyncMock()) as sync:
+        with patch("app.services.audiobookshelf.sync", new=AsyncMock(return_value={
+            "added": 0, "updated": 0, "unchanged": 0, "skipped": 0, "errors": 0,
+        })) as sync:
             assert await _abs_sync_pass() is True
         sync.assert_awaited_once()
         assert _stamp(db, "abs_last_sync") is not None

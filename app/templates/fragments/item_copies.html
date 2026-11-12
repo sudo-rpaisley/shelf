@@ -102,9 +102,9 @@
     {%- if may_edit %}
     <form hx-post="/api/items/{{ item_id }}/copies"
           hx-target="#item-copies" hx-swap="outerHTML"
-          class="flex flex-wrap items-center gap-2 mt-2">
+          class="flex flex-wrap items-center gap-2 mt-2 min-w-0 max-w-full">
         <select name="location_id" aria-label="{{ _('Location for the new copy') }}" data-narrow-ok
-                class="bg-shelf-bg border border-shelf-border rounded-lg px-2 py-1 text-xs text-shelf-text focus:ring-1 focus:ring-shelf-accent outline-hidden">
+                class="w-full min-w-0 max-w-full bg-shelf-bg border border-shelf-border rounded-lg px-2 py-1 text-xs text-shelf-text focus:ring-1 focus:ring-shelf-accent outline-hidden">
             <option value="">{{ _('No location') }}</option>
             {% for loc in locations %}
             <option value="{{ loc.id }}">{{ loc.name }}</option>

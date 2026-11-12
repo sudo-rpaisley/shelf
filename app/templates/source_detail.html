@@ -1,0 +1,84 @@
+{% extends "base.html" %}
+{% block title %}{{ source.name }} — {{ _('Connected libraries') }} — Shelf{% endblock %}
+{% block content %}
+<div class="max-w-4xl mx-auto space-y-6">
+    <header>
+        <a href="/sources" class="text-sm text-shelf-accent2 hover:underline">{{ _('Connected libraries') }}</a>
+        <h1 class="text-2xl font-bold mt-2 break-words">{{ source.name }}</h1>
+        <p class="text-sm text-shelf-muted">{{ _(source.provider_label) }} · {{ _('Read-only. Shelf never changes or downloads files from this server.') }}</p>
+        <p class="text-sm text-shelf-muted mt-2">{{ _('Imported catalogue records are visible to every Shelf account. Select only the source libraries you want to share in this catalogue.') }}</p>
+    </header>
+    {% if notice %}<p role="status" class="p-3 rounded-lg border border-shelf-border">{{ notice }}</p>{% endif %}
+    <section class="bg-shelf-card rounded-xl border border-shelf-border p-4 space-y-3" data-testid="source-status">
+        <h2 class="text-lg font-semibold">{{ _('Status and report') }}</h2>
+        <p>{{ _('Status') }}: {{ {'never': _('Never'), 'ok': _('Complete'), 'partial': _('Partial'), 'error': _('Error'), 'syncing': _('Syncing')}[source.last_status] }}{% if not source.enabled %} · {{ _('Disabled') }}{% endif %}</p>
+        <p class="text-sm">{{ _('Last attempt') }}: {{ source.last_attempt_at or _('Never') }} · {{ _('Last complete success') }}: {{ source.last_sync_at or _('Never') }}</p>
+        {% if source.last_error %}<p role="alert" class="text-sm">{{ _('Error code') }}: {{ source.last_error }}</p>{% endif %}
+        <dl class="grid grid-cols-2 gap-2 text-sm">{% for key, label in [('fetched', _('Fetched')), ('added', _('Added')), ('linked', _('Linked')), ('updated', _('Updated')), ('unavailable', _('Unavailable')), ('in_trash', _('In Trash')), ('skipped', _('Skipped'))] %}<div><dt class="inline text-shelf-muted">{{ label }}:</dt> <dd class="inline">{{ source.summary.get(key, 0) }}</dd></div>{% endfor %}</dl>
+        {% if source.summary.warnings %}<p class="text-sm">{{ _('Warnings') }}: {{ source.summary.warnings|join(', ') }}</p>{% endif %}
+        <div class="flex flex-wrap gap-3">
+            {% if source.syncable %}
+            <form method="post" action="/api/sources/{{ source.id }}/test"><input type="hidden" name="_csrf" value="{{ request.cookies.get('csrf_token', '') }}"><button type="submit" class="px-4 py-2 bg-shelf-hover rounded-lg" {% if not source.enabled %}disabled{% endif %}>{{ _('Test connection') }}</button></form>
+            <form method="post" action="/api/sources/{{ source.id }}/sync"><input type="hidden" name="_csrf" value="{{ request.cookies.get('csrf_token', '') }}"><button type="submit" class="px-4 py-2 bg-shelf-accent text-white rounded-lg" {% if not source.enabled %}disabled{% endif %}>{{ _('Sync now') }}</button></form>
+            {% else %}<p class="text-sm text-shelf-muted">{{ _('Manual links only. No remote catalogue test or sync is available.') }}</p>{% endif %}
+            {% if source.enabled %}<form method="post" action="/api/sources/{{ source.id }}/disable"><input type="hidden" name="_csrf" value="{{ request.cookies.get('csrf_token', '') }}"><button type="submit" class="px-4 py-2 bg-shelf-hover rounded-lg">{{ _('Disable source') }}</button></form>{% endif %}
+        </div>
+        <p class="text-sm text-shelf-muted">{{ _('Disabling removes opening actions and shows cached holdings as Unknown without deleting catalogue entries. Only complete successful syncs mark missing remote records unavailable. Items in Trash are never restored.') }}</p>
+    </section>
+    <details class="bg-shelf-card rounded-xl border border-shelf-border p-4 space-y-3" data-testid="source-configuration"{% if not source.syncable or source.last_status == 'never' %} open{% endif %}>
+        <summary class="text-lg font-semibold cursor-pointer">{{ _('Configuration') }}</summary>
+        <form method="post" action="/api/sources/{{ source.id }}/settings" class="space-y-3" autocomplete="off">
+            <input type="hidden" name="_csrf" value="{{ request.cookies.get('csrf_token', '') }}">
+            <input type="hidden" name="enabled" value="0">
+            <label class="block">{{ _('Name') }}<input name="name" value="{{ source.name }}" maxlength="200" required class="block w-full bg-shelf-bg border border-shelf-border rounded-lg p-2"></label>
+            <label class="block">{{ _('Server or OPDS feed URL') }}<input type="url" name="base_url" value="{{ source.base_url }}" maxlength="2048" {% if source.syncable %}required{% endif %} class="block w-full bg-shelf-bg border border-shelf-border rounded-lg p-2"></label>
+            <label class="block">{{ _('Browser URL prefix (optional)') }}<input type="url" name="browser_url" value="{{ source.browser_url }}" maxlength="2048" class="block w-full bg-shelf-bg border border-shelf-border rounded-lg p-2"></label>
+            {% if source.provider == 'opds' %}
+            <label class="block">{{ _('Username') }}<input name="username" maxlength="512" autocomplete="off" class="block w-full bg-shelf-bg border border-shelf-border rounded-lg p-2"></label>
+            <label class="block">{{ _('Password') }}<input type="password" name="password" maxlength="4096" autocomplete="new-password" class="block w-full bg-shelf-bg border border-shelf-border rounded-lg p-2"></label>
+            {% elif source.provider == 'jellyfin' %}
+            <label class="block">{{ _('API or access token') }}<input type="password" name="token" maxlength="4096" autocomplete="new-password" class="block w-full bg-shelf-bg border border-shelf-border rounded-lg p-2"></label>
+            {% endif %}
+            {% if source.syncable %}
+            <p class="text-sm text-shelf-muted">{% if source.credentials_saved %}{{ _('Credentials saved. Leave all credential fields blank to keep them, or enter a complete replacement.') }}{% else %}{{ _('No credentials saved.') }}{% endif %}</p>
+            <label class="block"><input type="checkbox" name="clear_credentials" value="1"> {{ _('Clear saved credentials') }}</label>
+            <label class="block">{{ _('Options JSON') }}<textarea name="options_json" rows="4" maxlength="8192" class="block w-full bg-shelf-bg border border-shelf-border rounded-lg p-2 font-mono text-sm">{{ source.options_json }}</textarea></label>
+            {% if source.provider == 'opds' %}<p class="text-sm text-shelf-muted">{{ _('OPDS options: media_type (default ebook), max_pages (1–50), max_entries (1–5000), max_depth (1–4). The configured feed and scoped subsections define the catalogue. A partial traversal never marks missing entries unavailable.') }}</p>{% else %}<p class="text-sm text-shelf-muted">{{ _('Jellyfin options: library_ids (optional list of library IDs), user_id (required for server API keys). Only supported media are imported. Shelf imports at most 5000 records per pass; select libraries to narrow a larger catalogue.') }}</p>{% endif %}
+            {% endif %}
+            <label class="block"><input type="checkbox" name="enabled" value="1" {% if source.enabled %}checked{% endif %}> {{ _('Enabled') }}</label>
+            <button type="submit" class="px-4 py-2 bg-shelf-accent text-white rounded-lg">{{ _('Save settings') }}</button>
+        </form>
+    </details>
+    {% if source.manual_links %}
+    <section class="bg-shelf-card rounded-xl border border-shelf-border p-4 space-y-3">
+        <h2 class="text-lg font-semibold">{{ _('Attach external availability') }}</h2>
+        <form method="post" action="/api/sources/{{ source.id }}/records" class="space-y-3">
+            <input type="hidden" name="_csrf" value="{{ request.cookies.get('csrf_token', '') }}">
+            <label class="block">{{ _('Catalogue item ID') }}<input type="number" name="item_id" min="1" required class="block w-full bg-shelf-bg border border-shelf-border rounded-lg p-2"></label>
+            <label class="block">{{ _('External record ID') }}<input name="external_id" maxlength="512" required class="block w-full bg-shelf-bg border border-shelf-border rounded-lg p-2"></label>
+            <label class="block">{{ _('Open URL (no credentials or tokens)') }}<input type="url" name="open_url" maxlength="2048" required class="block w-full bg-shelf-bg border border-shelf-border rounded-lg p-2"></label>
+            <label class="block">{{ _('Format (optional)') }}<input name="format" maxlength="100" class="block w-full bg-shelf-bg border border-shelf-border rounded-lg p-2"></label>
+            <button type="submit" class="px-4 py-2 bg-shelf-accent text-white rounded-lg" {% if not source.enabled %}disabled{% endif %}>{{ _('Attach link') }}</button>
+        </form>
+    </section>
+    {% endif %}
+    <section class="space-y-3">
+        <h2 class="text-lg font-semibold">{{ _('Live catalogue records') }}</h2>
+        <p class="text-sm text-shelf-muted">{{ _('Up to 2000 records shown. Trashed catalogue entries are hidden.') }}</p>
+        {% for record in records %}
+        <article class="bg-shelf-card rounded-lg border border-shelf-border p-3 space-y-1">
+            <a href="/item/{{ record.item_id }}" class="font-medium hover:text-shelf-accent2 break-words">{{ record.item_title }}</a>
+            <p class="text-sm text-shelf-muted break-words">{{ record.title }} · {{ record.media_type }} · {{ {'available': _('Available'), 'unavailable': _('Unavailable'), 'unknown': _('Unknown')}[record.availability] }}{% if record.format %} · {{ record.format }}{% endif %}</p>
+            <p class="text-xs text-shelf-muted break-all">{{ _('External record ID') }}: {{ record.external_id }}</p>
+            {% if record.open_url and record.availability == 'available' and source.enabled %}<a href="{{ record.open_url }}" target="_blank" rel="noopener noreferrer" referrerpolicy="no-referrer" class="text-sm text-shelf-accent2 hover:underline">{{ _('Open in source') }}</a>{% endif %}
+            {% if source.manual_links %}
+            <form method="post" action="/api/sources/{{ source.id }}/records/{{ record.id }}/detach" class="pt-2">
+                <input type="hidden" name="_csrf" value="{{ request.cookies.get('csrf_token', '') }}">
+                <button type="submit" class="text-sm text-shelf-error hover:underline">{{ _('Remove link only') }}</button>
+            </form>
+            {% endif %}
+        </article>
+        {% else %}<p class="text-shelf-muted">{{ _('No live records attached to this source.') }}</p>{% endfor %}
+    </section>
+</div>
+{% endblock %}

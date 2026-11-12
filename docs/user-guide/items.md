@@ -18,7 +18,8 @@ its home.
   | Media type | What it searches | Tiles are labelled |
   |---|---|---|
   | Books, ebooks, audiobooks, comics | Google Books and Open Library — the exact ISBN edition first, followed by the other editions of the same work Open Library knows; title matches only when neither source has that edition | by source and match (`Open Library · ISBN match`, `Google Books · Check edition`); another edition's tile reads `Open Library · Check edition` with a second line giving its year, publisher and (when known) language, e.g. `1965 · Chilton Book Company` |
-  | DVDs and Blu-rays | the film's poster set on TMDb | by language (`TMDb · EN`) — the same film's posters differ mostly by language |
+  | DVDs, Blu-rays and Digital Video | the film's poster set on TMDb | by language (`TMDb · EN`) — the same film's posters differ mostly by language |
+  | TV Series | no automatic artwork search; use an image URL or upload | no book-cover fallback |
   | Video games | IGDB cover art **and** key artwork, as separate tiles | by game and kind (`IGDB · Portal · cover`) |
 
   For **books and comics**, the default search uses the item's stored ISBN
@@ -31,7 +32,7 @@ its home.
   platform narrows the search when it is set, and a DVD's year is used to
   pick the right film when several share a title.
 
-  **DVD and video game search need credentials.** TMDb needs an API key and
+  **Film and video game search need credentials.** TMDb needs an API key and
   IGDB needs a Twitch Client ID *and* Client Secret — see
   [Configuration](../configuration.md). Without them the picker says which
   credential is missing rather than reporting "No covers found for this
@@ -67,13 +68,18 @@ its home.
   and "Robin", and editing it to `Robin Williams` makes it one. An `&` or an
   `and` inside a name is never split, so a duo such as `Simon & Garfunkel`
   stays one artist.
-- **Status** — with start and finish dates, in words that fit the item:
+- **Shared catalogue status** — with start and finish dates, in words that fit the item:
   books, audiobooks, ebooks, comics and manga are read (Want to read /
-  Reading / Read), DVDs and Blu-rays are watched (Want to watch / Watching /
+  Reading / Read), DVDs, Blu-rays, Digital Video and TV Series are watched (Want to watch / Watching /
   Watched), and video games are played (Want to play / Playing / Played).
-  Viewers can set this too; it's the one thing they can change. Music and
+  Viewers can set this shared status too. Music and
   magazines don't carry one; the section appears on them only while a status
   is still set, so it can be cleared.
+- With **Connected library** enabled, **Available here** brings together local
+  copies and cached digital holdings; **My activity** holds your private plans,
+  progress, rating and notes separately from shared status. **Metadata sources**
+  compares saved provider observations and lets editors keep a local value or
+  explicitly follow a source. See the [connected-library guide](connected-library.md).
 - **Location**. Locations can be nested, and an item shows the full path —
   see [Locations](locations.md). Every location shown here is a link to
   Browse filtered to that location.

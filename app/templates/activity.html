@@ -1,0 +1,71 @@
+{% extends "base.html" %}
+{% from "fragments/personal_library.html" import event_details with context %}
+{% block title %}{{ _('My activity') }} — Shelf{% endblock %}
+{% macro item_section(testid, heading, description, rows, empty) %}
+<section class="mb-8" data-testid="{{ testid }}">
+    <h2 class="text-lg font-semibold">{{ heading }}</h2>
+    <p class="text-sm text-shelf-muted mt-1 mb-4">{{ description }}</p>
+    {% if rows %}
+    <div class="cover-grid">
+        {% for item in rows %}
+        <a href="/item/{{ item.id }}#personal-library" class="group min-w-0">
+            <div class="cover-card bg-shelf-card rounded-lg overflow-hidden border border-shelf-border group-hover:border-shelf-accent/50 transition-colors shadow-lg" data-cover-shape="{{ cover_shape(item.media_type) }}">
+                {% if item.cover_path %}
+                <img src="/{{ item.cover_path }}" alt="{{ item.title }}" loading="lazy">
+                {% else %}
+                <div class="w-full h-full flex flex-col items-center justify-center p-4 text-center bg-linear-to-br from-shelf-card to-shelf-hover">
+                    <p class="text-sm font-medium leading-tight">{{ item.title[:60] }}</p>
+                    {% if item.authors %}<p class="text-xs text-shelf-muted mt-1">{{ item.authors[:40] }}</p>{% endif %}
+                </div>
+                {% endif %}
+            </div>
+            <p class="text-sm font-medium truncate mt-2">{{ item.title }}</p>
+            {% if item.authors %}<p class="text-xs text-shelf-muted truncate">{{ item.authors }}</p>{% endif %}
+            <p class="text-xs text-shelf-muted mt-1">
+                {{ _(personal_status_labels.get(item.status, 'No personal status')) }}
+                {% if item.progress is not none %} · {{ item.progress }}%{% endif %}
+                {% if item.rating is not none %} · {{ _('Rating: %(rating)s/5', rating=item.rating) }}{% endif %}
+            </p>
+        </a>
+        {% endfor %}
+    </div>
+    {% else %}
+    <div class="bg-shelf-card border border-shelf-border rounded-lg p-5 text-sm text-shelf-muted">{{ empty }}</div>
+    {% endif %}
+</section>
+{% endmacro %}
+{% block content %}
+<div data-testid="activity-page">
+    <div class="flex flex-wrap items-center justify-between gap-4 mb-8">
+        <div>
+            <h1 class="text-2xl font-bold">{{ _('My activity') }}</h1>
+            <p class="text-sm text-shelf-muted mt-1">{{ _('Your progress, plans and favourites — private to your account, separate from the shared catalogue.') }}</p>
+        </div>
+        <a href="/library" class="px-4 py-2 bg-shelf-accent text-white rounded-lg text-sm hover:bg-shelf-accent2 transition-colors">{{ _('Find something in Library') }}</a>
+    </div>
+
+    {{ item_section('activity-continue', _('Continue'), _('Items you have marked in progress.'), continue_items, _('Nothing in progress. Open an item and set your personal status to get started.')) }}
+    {{ item_section('activity-up-next', _('My List / Up Next'), _('Items you explicitly added to My List or marked Planned. This is not the shared wishlist.'), up_next_items, _('Your list is empty. Add an item from its personal activity panel.')) }}
+    {{ item_section('activity-favourites', _('Favourites'), _('Your personal favourites across all media.'), favourite_items, _('No favourites yet.')) }}
+
+    <section data-testid="activity-history">
+        <h2 class="text-lg font-semibold mb-4">{{ _('My recent history') }}</h2>
+        {% if personal_events %}
+        <ol class="space-y-3">
+            {% for event in personal_events %}
+            <li class="bg-shelf-card border border-shelf-border rounded-lg p-4">
+                <div class="flex flex-wrap items-center justify-between gap-2">
+                    <a href="/item/{{ event.item_id }}#personal-library" class="font-medium text-shelf-accent2 hover:text-shelf-accent">{{ event.title }}</a>
+                    <time datetime="{{ event.created_at }}" class="text-xs text-shelf-muted">{{ event.created_at }}</time>
+                </div>
+                <p class="text-xs text-shelf-muted mt-1">{% if event.event_type == 'reset' %}{{ _('Reset — previous state') }}{% elif event.event_type == 'merged' %}{{ _('Duplicate merged') }}{% else %}{{ _('Updated') }}{% endif %}</p>
+                <div class="text-sm text-shelf-muted mt-2">{{ event_details(event) }}</div>
+            </li>
+            {% endfor %}
+        </ol>
+        {% else %}
+        <div class="bg-shelf-card border border-shelf-border rounded-lg p-5 text-sm text-shelf-muted">{{ _('No personal activity yet.') }}</div>
+        {% endif %}
+    </section>
+</div>
+{% endblock %}

@@ -164,7 +164,7 @@ def test_disabled_feature_can_be_turned_on_from_settings(admin_client):
 
 # --- Profiles row ---
 
-_STANDARD = {"lending", "series", "stats", "store", "music", "periodicals", "shelf_fill"}
+_STANDARD = {"lending", "series", "stats", "store", "music", "periodicals", "shelf_fill", "connected_library"}
 
 
 def _profiles_block(page):

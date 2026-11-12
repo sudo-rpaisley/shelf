@@ -6,7 +6,7 @@ All under Settings → Data. Four mechanisms, each for a different job.
 |---|---|---|---|
 | **CSV** | Spreadsheets, other apps, quick bulk entry | No (re-fetched) | No |
 | **Reading tracker & catalogue app import** (Goodreads, StoryGraph, LibraryThing, Libib, Audible via audible-cli or Libation) | Migrating a reading history, another catalogue or an Audible library | No (re-fetched) | No |
-| **Portable archive** | Moving Shelf to a new server, giving someone your library | **Yes** | No |
+| **Portable archive** | Moving shared collection data, giving someone your catalogue; not the experiment's personal/source state | **Yes** | No |
 | **Database backup** | Disaster recovery of *this* instance | No | Yes (hashed/encrypted) |
 
 **All three exports carry [Trash](items.md#trash).** The database backup,
@@ -179,6 +179,10 @@ summary names the format it detected.
   Wishlist filters, and isn't valued
 - ISBN / title / author → lookup and covers
 
+These are **shared catalogue** statuses/dates, not the experiment's account-local
+My Activity. Tracker/catalogue imports do not create personal progress, ratings,
+notes or history for the account doing the import.
+
 **LibraryThing** — the tab-separated export or the spreadsheet (CSV) export:
 
 - title, authors (primary, then secondary and other authors — LibraryThing's
@@ -289,16 +293,27 @@ their reading history, now neither owned nor wishlisted. Nothing does this
 automatically: a book you read and then want to buy belongs on the wishlist,
 so the choice is yours.
 
-Ratings and reviews are **not** imported yet (Shelf has no ratings; that's
-on the roadmap) and the summary lists them under **Not imported**.
+Ratings and reviews are **not imported** and the summary lists them under
+**Not imported**. The experimental branch does have personal 1–5 ratings in
+[My Activity](connected-library.md#my-activity-is-account-local), separate from
+shared catalogue status; those personal records are not mapped from these files.
 
 ## Portable archive
 
 **Portable archive → Export** produces a zip of your items, tags, locations,
 series, reading log, checkouts, **your physical copies**, **which items are
 on your wishlist** and **the cover images**. No users, passwords, API
-credentials, [API tokens](../homelab-integration.md), settings or certificates — so it's safe to hand to someone else
-or keep in a shared drive.
+credentials, [API tokens](../homelab-integration.md), settings or certificates.
+It is credential-free, but review shared notes and history before sharing it.
+
+**Connected-library experiment:** an archive excludes new connection
+configuration/credentials, source bindings and cached provider IDs, personal
+state/history (including ratings and notes), saved Library views, connection
+dismissals, metadata provenance and cover-sync suppression/opt-in decisions.
+It carries shared reading status/logs, not My Activity, and is **not** a
+personal/source portability or full-instance backup. Imported catalogue fields
+remain shared with all Shelf accounts; a source's visibility selection does not
+make those items private in Shelf.
 
 **The archive includes [Trash](items.md#trash)** — the items you deleted and
 the copies you removed on their own, each with the date it was deleted.
@@ -378,6 +393,15 @@ not delete everything you have restored since: an import can bring an item
 out of Trash, but it never puts a live one in.
 
 ## Database backup & restore
+
+For the experiment, a full database backup retains the additive source,
+personal, saved-view, dismissal, provenance and cover-sync-policy tables.
+The download contains **no cover images or external encryption/signing keys**;
+keep covers and matching keys separately. A backup passphrase protects the
+download but cannot replace the key that decrypts stored source credentials.
+Protect the database as private data: it includes personal notes/history and
+password hashes as well as encrypted credentials. See
+[Connected-library backup limits](connected-library.md#backup-and-portability).
 
 See [Upgrading & backups](../upgrading-and-backups.md#three-kinds-of-backup).
 

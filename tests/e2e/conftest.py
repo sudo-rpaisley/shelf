@@ -369,9 +369,16 @@ def playwright_instance():
 
 @pytest.fixture(scope="session")
 def browser(playwright_instance):
-    """Headless Chromium browser, shared across session."""
+    """Headless Chromium, with an explicit opt-in native-browser override.
+
+    The default remains Playwright's pinned browser. Alpine developers may
+    point SHELF_E2E_CHROMIUM_EXECUTABLE at their native Chromium; verification
+    reports must identify that different runtime rather than claim pinned CI.
+    """
+    executable = os.environ.get("SHELF_E2E_CHROMIUM_EXECUTABLE") or None
     b = playwright_instance.chromium.launch(
         headless=True,
+        executable_path=executable,
         # Grant getUserMedia without a prompt and back it with Chromium's
         # synthetic video device, so the camera-path tests can actually start
         # a stream. Inert for every test that never calls getUserMedia.

@@ -815,7 +815,8 @@ async def manual_add(request: Request, _=Depends(require_role("editor"))):
 
         # If no upload, check for preview cover from scan, then try Amazon —
         # unless this restored a row that keeps its stored cover.
-        if not cover_path and isbn13 and not restore_report.keeps_stored_cover(item_id):
+        if (not cover_path and isbn13 and media_type not in {"digital_video", "tv_series"}
+                and not restore_report.keeps_stored_cover(item_id)):
             preview_path = covers.COVERS_DIR / f"preview_{isbn13}.jpg"
             if preview_path.exists():
                 # Rename preview to permanent cover
@@ -1537,5 +1538,4 @@ async def test_igdb_key(request: Request, _=Depends(require_role("admin"))):
         return {"ok": False, "message": "Both Client ID and Client Secret are required"}
     async with httpx.AsyncClient(timeout=HTTP_TIMEOUT) as client:
         return await igdb.test_credentials(client_id, client_secret, client)
-
 

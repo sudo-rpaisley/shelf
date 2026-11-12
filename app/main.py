@@ -63,6 +63,8 @@ from app.services.browse_counts import source_label
 from app.database import init_db, get_db
 from app.routers import pages, items, item_copies, items_covers, cover_review, cover_review_actions, items_csv, items_catalog, locations, location_order, platforms, settings, sync, checkouts, valuation, hardcover, store, series, share, tags, intake, archive, shelf_fill, romm, komga, periodicals, music, related_media, trash, labels, audits, duplicates, upcoming, api_v1
 from app.routers import auth_routes
+from app.routers import availability, library, library_attention, metadata_review, personal_library, sources
+from app.routers import cover_sync_policy as cover_sync_routes
 # Aliased: `api_tokens` inside the middlewares is the service module.
 from app.routers import api_tokens as api_token_routes
 
@@ -97,6 +99,14 @@ class SecurityHeadersMiddleware(BaseHTTPMiddleware):
         response.headers["Permissions-Policy"] = (
             "camera=(self), microphone=(), geolocation=(), payment=(), usb=()"
         )
+        # Item and Home pages now contain account-private activity, not only
+        # shared catalogue data. Do not let a browser/proxy reuse that HTML
+        # after an account switch. Store's explicitly offline shell and static
+        # asset revalidation keep their existing, separate caching contracts.
+        if (getattr(request.state, "user", None)
+                and request.url.path != "/store"
+                and not request.url.path.startswith(("/static/", "/covers/"))):
+            response.headers.setdefault("Cache-Control", "no-store")
         return response
 
 
@@ -170,7 +180,17 @@ class CSRFMiddleware(BaseHTTPMiddleware):
         if not submitted:
             content_type = request.headers.get("content-type", "")
             if "application/x-www-form-urlencoded" in content_type or "multipart/form-data" in content_type:
-                body_bytes = await request.body()  # caches in request._body
+                # This small decision form has no uploads. Enforce its limit
+                # here as well as in the route: plain-form CSRF parsing must
+                # not buffer the entire body before the route can refuse it.
+                if re.fullmatch(r"/api/library/items/[^/]+/metadata/resolve", path.rstrip("/")):
+                    from app.http_body import BodyTooLarge, METADATA_FORM_BYTES, bounded_body
+                    try:
+                        body_bytes = await bounded_body(request, METADATA_FORM_BYTES)
+                    except BodyTooLarge:
+                        return Response("Metadata review form too large", status_code=413)
+                else:
+                    body_bytes = await request.body()  # caches in request._body
                 form = await request.form()
                 submitted = form.get("_csrf")
 
@@ -369,8 +389,8 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
 
 
 async def _abs_sync_pass() -> bool:
-    """One ABS-sync check-and-maybe-run. Returns True when it synced."""
-    from app.services import audiobookshelf
+    """One ABS-sync check-and-maybe-run. True only after a complete success."""
+    from app.services import audiobookshelf, legacy_sources
 
     if not feature_enabled("abs_sync"):
         return False
@@ -396,7 +416,12 @@ async def _abs_sync_pass() -> bool:
         abs_token_val = get_setting(db, "abs_token")
 
     if abs_url_val and abs_token_val:
-        await audiobookshelf.sync(abs_url_val, abs_token_val)
+        stats = await legacy_sources.run_tracked(
+            "abs", audiobookshelf.sync, abs_url_val, abs_token_val,
+        )
+        if legacy_sources.result_health(stats)[0] != "ok":
+            logger.warning("Periodic Audiobookshelf sync did not complete; cached holdings retained")
+            return False
         with get_db() as db:
             db.execute(
                 "INSERT INTO settings (key, value) VALUES ('abs_last_sync', ?) "
@@ -793,7 +818,7 @@ def _template_response_with_user(request_or_self, *args, **kwargs):
         return _original_template_response(request_or_self, *args, **kwargs)
 
     # Find the context dict and inject user + the nav tabs that user can see
-    from app.nav import visible_tabs
+    from app.nav import grouped_tabs, visible_tabs
     user = getattr(request.state, "user", None)
     trash_nag = _trash_nag(user)
     context = kwargs.get('context', None)
@@ -803,11 +828,13 @@ def _template_response_with_user(request_or_self, *args, **kwargs):
             if isinstance(a, dict):
                 a.setdefault("user", user)
                 a.setdefault("nav_tabs", visible_tabs(user))
+                a.setdefault("nav_groups", grouped_tabs(a["nav_tabs"]))
                 a.setdefault("trash_nag", trash_nag)
                 break
     else:
         context.setdefault("user", user)
         context.setdefault("nav_tabs", visible_tabs(user))
+        context.setdefault("nav_groups", grouped_tabs(context["nav_tabs"]))
         context.setdefault("trash_nag", trash_nag)
 
     return _original_template_response(request_or_self, *args, **kwargs)
@@ -893,3 +920,11 @@ app.include_router(audits.router)
 app.include_router(audits.page_router)
 app.include_router(duplicates.router)
 app.include_router(duplicates.page_router)
+app.include_router(library.router)
+app.include_router(availability.router)
+app.include_router(sources.page_router)
+app.include_router(sources.api_router)
+app.include_router(personal_library.router)
+app.include_router(library_attention.router)
+app.include_router(metadata_review.router)
+app.include_router(cover_sync_routes.router)

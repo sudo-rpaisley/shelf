@@ -231,7 +231,8 @@
             <p x-show="mediaType === 'dvd'" class="text-xs text-shelf-muted mb-4" style="display:none">Search TMDb for movies by title.</p>
             {# Was true under Auto, which asserted a book search under a
                setting that means "I don't know". Auto gets its own arm. #}
-            <p x-show="mediaType !== 'video_game' && mediaType !== 'dvd' && mediaType !== 'auto'" class="text-xs text-shelf-muted mb-4">Search Open Library for books by title, author, or keyword.</p>
+            <p x-show="mediaType !== 'video_game' && mediaType !== 'dvd' && mediaType !== 'auto' && mediaType !== 'digital_video' && mediaType !== 'tv_series'" class="text-xs text-shelf-muted mb-4">Search Open Library for books by title, author, or keyword.</p>
+            <p x-show="mediaType === 'digital_video' || mediaType === 'tv_series'" class="text-xs text-shelf-muted mb-4" style="display:none">{{ _('Digital video and television can be added by hand or imported from Sources. Title lookup is not available for these formats.') }}</p>
             <p x-show="mediaType === 'auto'" class="text-xs text-shelf-muted mb-4" style="display:none">Title search has no barcode to detect from, so it searches books. Pick a media type above to search TMDb or IGDB instead.</p>
             <div class="flex gap-3">
                 <input type="text" id="title-search-input"

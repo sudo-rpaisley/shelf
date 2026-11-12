@@ -63,7 +63,9 @@ def test_sync_adopts_existing_same_format_isbn_without_abs_id(db):
     assert len(rows) == 1
     row = rows[0]
     assert row["id"] == existing_id
-    assert row["title"] == "Synced Audiobook"
+    # Adopting the remote identity must not grant it ownership of manual
+    # descriptive metadata. The local title remains the user's choice.
+    assert row["title"] == "Manual Audiobook"
     assert row["isbn"] == ISBN
     assert row["media_type"] == "audiobook"
     assert row["abs_id"] == "li_1"

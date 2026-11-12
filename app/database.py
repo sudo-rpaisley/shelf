@@ -405,6 +405,20 @@ MIGRATIONS: Sequence[tuple[int, str, str]] = (
     # libraries. An edition identifier like isbn/upc.
     (56, "Add items ASIN", "ALTER TABLE items ADD COLUMN asin TEXT"),
     (57, "Index items ASIN", "CREATE INDEX IF NOT EXISTS idx_items_asin ON items(asin)"),
+    # Preserve a deliberately minimal installation. The new feature performs
+    # no automatic network work, but its extra surfaces should not undo the
+    # user's choice to turn off every Standard feature (G135).
+    (58, "Keep connected library off on minimal upgrades",
+     """INSERT OR IGNORE INTO settings (key, value)
+        SELECT 'feature.connected_library', '0'
+        WHERE (SELECT COUNT(*) FROM settings WHERE value = '0' AND key IN
+               ('feature.lending', 'feature.series', 'feature.stats',
+                'feature.store', 'feature.music', 'feature.periodicals',
+                'feature.shelf_fill')) = 7"""),
+    # The state owns its ordering identity; merged/reset historical events
+    # must never make an older progress tuple look newer than it really is.
+    (59, "Add personal state event order",
+     "ALTER TABLE user_item_state ADD COLUMN last_event_id INTEGER NOT NULL DEFAULT 0"),
 )
 
 MIGRATION_TABLES = """
@@ -807,6 +821,118 @@ CREATE TABLE IF NOT EXISTS api_tokens (
     prefix       TEXT NOT NULL,
     last_used_at TEXT,
     created_at   TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+-- Connected-library tables are additive, without seeds or backfills. Like
+-- the integration side tables above, they are created on every boot for both
+-- new and upgraded databases. Credentials and account-scoped state are not
+-- part of the portable collection archive; full database backups retain them.
+CREATE TABLE IF NOT EXISTS source_instances (
+    id                INTEGER PRIMARY KEY AUTOINCREMENT,
+    provider          TEXT NOT NULL,
+    name              TEXT NOT NULL,
+    base_url          TEXT NOT NULL,
+    browser_url       TEXT,
+    credentials_enc   TEXT,
+    options_json      TEXT NOT NULL DEFAULT '{}',
+    enabled           INTEGER NOT NULL DEFAULT 1 CHECK(enabled IN (0, 1)),
+    config_revision   INTEGER NOT NULL DEFAULT 1,
+    sync_token        TEXT,
+    last_attempt_at   TEXT,
+    last_sync_at      TEXT,
+    last_status       TEXT NOT NULL DEFAULT 'never'
+                      CHECK(last_status IN ('never', 'ok', 'partial', 'error', 'syncing')),
+    last_error        TEXT,
+    last_summary_json TEXT NOT NULL DEFAULT '{}',
+    created_at        TEXT NOT NULL DEFAULT (datetime('now')),
+    updated_at        TEXT NOT NULL DEFAULT (datetime('now'))
+);
+CREATE TABLE IF NOT EXISTS source_records (
+    id            INTEGER PRIMARY KEY AUTOINCREMENT,
+    source_id     INTEGER NOT NULL REFERENCES source_instances(id) ON DELETE CASCADE,
+    item_id       INTEGER NOT NULL REFERENCES items(id) ON DELETE CASCADE,
+    external_id   TEXT NOT NULL,
+    library_id    TEXT,
+    title         TEXT NOT NULL,
+    media_type    TEXT NOT NULL,
+    format        TEXT,
+    open_url      TEXT,
+    availability  TEXT NOT NULL DEFAULT 'available'
+                  CHECK(availability IN ('available', 'unavailable', 'unknown')),
+    last_seen_at  TEXT,
+    metadata_json TEXT NOT NULL DEFAULT '{}',
+    created_at    TEXT NOT NULL DEFAULT (datetime('now')),
+    updated_at    TEXT NOT NULL DEFAULT (datetime('now')),
+    UNIQUE(source_id, external_id)
+);
+CREATE INDEX IF NOT EXISTS idx_source_records_item ON source_records(item_id);
+CREATE INDEX IF NOT EXISTS idx_source_records_source ON source_records(source_id, availability);
+
+CREATE TABLE IF NOT EXISTS user_item_state (
+    user_id     INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    item_id     INTEGER NOT NULL REFERENCES items(id) ON DELETE CASCADE,
+    status      TEXT CHECK(status IS NULL OR status IN
+                ('planned', 'in_progress', 'finished', 'paused', 'abandoned')),
+    progress    INTEGER CHECK(progress IS NULL OR progress BETWEEN 0 AND 100),
+    rating      INTEGER CHECK(rating IS NULL OR rating BETWEEN 1 AND 5),
+    favourite   INTEGER NOT NULL DEFAULT 0 CHECK(favourite IN (0, 1)),
+    on_list     INTEGER NOT NULL DEFAULT 0 CHECK(on_list IN (0, 1)),
+    notes       TEXT NOT NULL DEFAULT '',
+    started_at  TEXT,
+    finished_at TEXT,
+    last_event_id INTEGER NOT NULL DEFAULT 0,
+    updated_at  TEXT NOT NULL DEFAULT (datetime('now')),
+    PRIMARY KEY(user_id, item_id)
+);
+CREATE INDEX IF NOT EXISTS idx_user_item_state_activity
+    ON user_item_state(user_id, status, updated_at);
+CREATE TABLE IF NOT EXISTS user_item_events (
+    id            INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id       INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    item_id       INTEGER NOT NULL REFERENCES items(id) ON DELETE CASCADE,
+    event_type    TEXT NOT NULL,
+    snapshot_json TEXT NOT NULL,
+    created_at    TEXT NOT NULL DEFAULT (datetime('now'))
+);
+CREATE INDEX IF NOT EXISTS idx_user_item_events_user
+    ON user_item_events(user_id, created_at, id);
+
+CREATE TABLE IF NOT EXISTS library_saved_views (
+    id           INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id      INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    name         TEXT NOT NULL COLLATE NOCASE,
+    filters_json TEXT NOT NULL,
+    created_at   TEXT NOT NULL DEFAULT (datetime('now')),
+    updated_at   TEXT NOT NULL DEFAULT (datetime('now')),
+    UNIQUE(user_id, name)
+);
+
+CREATE TABLE IF NOT EXISTS connection_dismissals (
+    item_a_id    INTEGER NOT NULL REFERENCES items(id) ON DELETE CASCADE,
+    item_b_id    INTEGER NOT NULL REFERENCES items(id) ON DELETE CASCADE,
+    evidence_key TEXT NOT NULL,
+    created_at   TEXT NOT NULL DEFAULT (datetime('now')),
+    PRIMARY KEY(item_a_id, item_b_id),
+    CHECK(item_a_id < item_b_id)
+);
+
+-- Three-way refresh baselines let source updates fill missing metadata without
+-- replacing fields a person has edited since the previous provider observation.
+CREATE TABLE IF NOT EXISTS item_metadata_provenance (
+    item_id     INTEGER NOT NULL REFERENCES items(id) ON DELETE CASCADE,
+    source_key  TEXT NOT NULL,
+    field_name  TEXT NOT NULL,
+    value_json  TEXT NOT NULL,
+    observed_at TEXT NOT NULL DEFAULT (datetime('now')),
+    PRIMARY KEY(item_id, source_key, field_name)
+);
+
+-- Removing artwork queues human review without letting the next provider
+-- sync immediately undo the removal. This is independent of queue dismissal.
+CREATE TABLE IF NOT EXISTS cover_sync_blocks (
+    item_id    INTEGER PRIMARY KEY REFERENCES items(id) ON DELETE CASCADE,
+    blocked    INTEGER NOT NULL DEFAULT 1 CHECK(blocked IN (0, 1)),
+    created_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
 """
 

@@ -1,0 +1,41 @@
+<section id="metadata-provenance" data-testid="metadata-provenance" class="mb-6">
+    <details class="rounded-lg border border-shelf-border bg-shelf-bg p-3"{% if metadata_open %} open{% endif %}>
+        <summary class="cursor-pointer text-sm font-semibold">{{ _('Metadata sources') }}</summary>
+        <div class="mt-3 space-y-4">
+            <p class="text-xs text-shelf-muted">{{ _('Saved source observations only; opening this panel does not contact a provider. Identity fields are read-only here.') }}</p>
+            <p class="text-xs text-shelf-muted">{{ _('Following a source lets future refreshes update only this unmodified provider-owned field. Your next local edit is preserved. Keep local locks the current value, including a blank.') }}</p>
+            {% if metadata_error %}<p role="alert" class="text-sm text-shelf-error">{{ metadata_error }}</p>{% endif %}
+            {% if metadata_notice %}<p role="status" class="text-sm">{{ metadata_notice }}</p>{% endif %}
+            {% for row in metadata_rows %}
+            <article class="rounded-lg border border-shelf-border bg-shelf-card p-3 space-y-2" data-metadata-field="{{ row.field_name }}">
+                <div class="flex flex-wrap items-center gap-2 text-sm">
+                    <h3 class="font-medium">{{ _(row.field_label) }}</h3>
+                    <span class="text-shelf-muted">{{ _(row.source_label) }}</span>
+                    {% if row.different %}<span class="text-xs text-shelf-muted">{{ _('Different values') }}</span>{% else %}<span class="text-xs text-shelf-muted">{{ _('Same value') }}</span>{% endif %}
+                    {% if row.user_overridden %}<span class="text-xs text-shelf-muted">{{ _('Local override') }}</span>
+                    {% elif row.provider_owned %}<span class="text-xs text-shelf-muted">{{ _('Following this source') }}</span>
+                    {% else %}<span class="text-xs text-shelf-muted">{{ _('Not source-owned') }}</span>{% endif %}
+                </div>
+                <dl class="grid grid-cols-1 sm:grid-cols-2 gap-3 text-sm">
+                    <div class="min-w-0"><dt class="text-xs text-shelf-muted">{{ _('Current local value') }}</dt><dd class="whitespace-pre-wrap break-words">{{ row.current_display if row.current_display else _('Not set') }}</dd></div>
+                    <div class="min-w-0"><dt class="text-xs text-shelf-muted">{{ _('Source-observed value') }}</dt><dd class="whitespace-pre-wrap break-words">{{ row.observed_display if row.observed_display else _('Not set') }}</dd></div>
+                </dl>
+                <p class="text-xs text-shelf-muted">{{ _('Observed') }}: {% if row.observed_at %}<time datetime="{{ row.observed_at }}">{{ row.observed_at }}</time>{% else %}{{ _('Unknown') }}{% endif %}</p>
+                {% if not row.resolvable %}<p class="text-xs text-shelf-muted">{{ _('Read-only identity field') }}</p>
+                {% elif user and user.role in ('admin', 'editor') %}
+                <form method="post" action="/api/library/items/{{ item.id }}/metadata/resolve" hx-post="/api/library/items/{{ item.id }}/metadata/resolve" hx-target="#metadata-provenance" hx-swap="outerHTML" class="flex flex-wrap gap-2">
+                    <input type="hidden" name="_csrf" value="{{ request.cookies.get('csrf_token', '') }}">
+                    <input type="hidden" name="source_key" value="{{ row.source_key }}">
+                    <input type="hidden" name="field_name" value="{{ row.field_name }}">
+                    <input type="hidden" name="fingerprint" value="{{ row.fingerprint }}">
+                    <button type="submit" name="decision" value="keep_local" class="rounded-lg bg-shelf-hover px-3 py-2 text-sm hover:bg-shelf-border">{{ _('Keep local') }}</button>
+                    {% if row.can_follow %}<button type="submit" name="decision" value="follow_source" class="rounded-lg bg-shelf-hover px-3 py-2 text-sm hover:bg-shelf-border">{{ _('Follow source') }}</button>{% endif %}
+                </form>
+                {% if not row.can_follow %}<p class="text-xs text-shelf-muted">{{ _('A source title must be non-empty before it can be followed.') }}</p>{% endif %}
+                {% endif %}
+            </article>
+            {% else %}<p class="text-sm text-shelf-muted">{{ _('No reviewable source observations have been saved for this item.') }}</p>{% endfor %}
+            {% if metadata_limited %}<p class="text-xs text-shelf-muted">{{ _('This panel shows a limited number of saved source fields; additional observations may not be shown.') }}</p>{% endif %}
+        </div>
+    </details>
+</section>

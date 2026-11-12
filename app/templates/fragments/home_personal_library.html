@@ -1,0 +1,30 @@
+<section class="mb-8" data-testid="home-personal-library">
+    <div class="flex flex-wrap items-center justify-between gap-3 mb-4">
+        <h2 class="text-lg font-semibold">{{ _('Your library') }}</h2>
+        <a href="/activity" class="text-sm text-shelf-accent2 hover:underline">{{ _('All my activity') }}</a>
+    </div>
+    <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+        {% for heading, entries in [(_('Continue'), home_activity.continue_items), (_('Up Next'), home_activity.up_next_items)] %}
+        <div class="bg-shelf-card border border-shelf-border rounded-lg p-5">
+            <h3 class="font-medium mb-3">{{ heading }}</h3>
+            {% if entries %}
+            <ul class="space-y-3">
+                {% for entry in entries %}
+                <li>
+                    <a href="/item/{{ entry.id }}?from=activity" class="flex items-center gap-3 min-w-0 group">
+                        {% if entry.cover_path %}<img src="/{{ entry.cover_path }}" alt="" loading="lazy" class="w-10 h-14 object-cover rounded-sm shrink-0" data-cover-shape="{{ cover_shape(entry.media_type) }}">{% endif %}
+                        <span class="min-w-0 flex-1">
+                            <span class="block truncate text-sm font-medium group-hover:text-shelf-accent2">{{ entry.title }}</span>
+                            <span class="block truncate text-xs text-shelf-muted">{{ media_type_labels.get(entry.media_type, entry.media_type) }}{% if entry.progress is not none %} · {{ entry.progress }}%{% endif %}</span>
+                        </span>
+                    </a>
+                </li>
+                {% endfor %}
+            </ul>
+            {% else %}
+            <p class="text-sm text-shelf-muted">{{ _('Open an item to set your personal status or add it to My List. Your plans are separate from the shared wishlist.') }}</p>
+            {% endif %}
+        </div>
+        {% endfor %}
+    </div>
+</section>

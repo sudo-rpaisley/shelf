@@ -13,7 +13,7 @@ Each flag is one `settings` row, `feature.<key>`. Only the exact value "0"
 disables a feature: an absent row (every upgraded install) or any other value
 means enabled, so an upgrade changes nothing until an admin turns something
 off. Flags are rows only; no env var overrides them. A new install writes all
-nineteen rows explicitly, from the profile chosen at setup; an upgraded
+registered rows explicitly, from the profile chosen at setup; an upgraded
 install has none, and reads as Everything.
 
 `nav.py` imports this module, never the reverse at module level.
@@ -251,6 +251,18 @@ FEATURES: dict[str, Feature] = {
         nav_tabs=("shelf-fill",),
         entry_path="/shelf-fill",
         modules=("app.routers.shelf_fill",),
+    ),
+    "connected_library": Feature(
+        label="Connected library",
+        description="Unified format stacks, source availability, read-only connectors, personal activity and catalogue maintenance.",
+        profile="standard",
+        nav_tabs=("library", "activity", "sources", "needs-attention"),
+        entry_path="/library",
+        modules=(
+            "app.routers.library", "app.routers.availability",
+            "app.routers.sources", "app.routers.personal_library",
+            "app.routers.library_attention", "app.routers.metadata_review",
+        ),
     ),
     "intake": Feature(
         label="Photo Intake",

@@ -38,6 +38,8 @@ _URL_ATTRS = {"href", "action", "src", "hx-get", "hx-post", "hx-put", "hx-patch"
 #   which nav.visible_tabs filters and the negative half still reads. Photo
 #   Intake's and Discogs' Settings cards are configuration only.
 SWEPT = frozenset({
+    "connected_library",  # Home links and item availability/personal-state forms
+    "collector",  # Needs Attention links admins to duplicate review
     "api",        # account modal tokens tab (client apiTokensPanel);
                   # Settings → Users card (client adminTokensPanel)
     "hardcover",  # item page push (client hardcoverPush)
@@ -131,6 +133,8 @@ def _hits(html: str, key: str, gated: dict[str, list[re.Pattern]], *, body_only:
 
 def _pages(item_id: int, key: str | None) -> list[str]:
     pages = ["/", "/browse", "/browse?view=list", f"/item/{item_id}", "/scan", "/settings", "/trash"]
+    if key != "connected_library":
+        pages.extend(["/library", "/activity", "/sources", "/needs-attention"])
     if key != "stats":
         pages.insert(5, "/stats")
     return pages

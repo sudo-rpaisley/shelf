@@ -3,8 +3,8 @@
 [![Release](https://img.shields.io/github/v/release/dgahagan/shelf)](https://github.com/dgahagan/shelf/releases)
 [![Docker Pulls](https://img.shields.io/docker/pulls/dangahagan/shelf)](https://hub.docker.com/r/dangahagan/shelf)
 [![CI](https://github.com/dgahagan/shelf/actions/workflows/test.yml/badge.svg)](https://github.com/dgahagan/shelf/actions/workflows/test.yml)
-[![Unit tests](https://img.shields.io/badge/unit%20tests-6249%20passing-brightgreen)](https://github.com/dgahagan/shelf/actions/workflows/test.yml)
-[![E2E tests](https://img.shields.io/badge/e2e%20tests-370%20passing-brightgreen)](https://github.com/dgahagan/shelf/actions/workflows/test.yml)
+[![Unit tests](https://img.shields.io/badge/unit%20tests-7515%20passing-brightgreen)](https://github.com/dgahagan/shelf/actions/workflows/test.yml)
+[![E2E tests](https://img.shields.io/badge/e2e%20tests-384%20passing-brightgreen)](https://github.com/dgahagan/shelf/actions/workflows/test.yml)
 [![License: AGPL-3.0](https://img.shields.io/github/license/dgahagan/shelf)](LICENSE)
 
 A self-hosted home library catalog with barcode scanning, multi-mode scanning workflows, automatic metadata lookup, cover art, and collection management — all in a single Docker container.
@@ -35,6 +35,32 @@ Most home library apps are cloud-hosted, mobile-only, or require you to manually
 - **Find duplicates** — admins see records filed twice, by ISBN/barcode or by title and author, side by side, pick the one to keep and merge the rest into it. Every physical copy, tag, loan and audit entry is kept: two records of one book become one record with two copies. "Not duplicates" hides a group until a new record joins it, and Restore brings it back. See [Items → Duplicates](docs/user-guide/items.md#duplicates-and-merging)
 - **Delete without fear** — deleting an item or removing a copy moves it to Trash with its tags, loans, copies and history intact. Editors restore in one click; admins empty it, prompted once rows pass a retention window (180 days by default). Nothing is deleted on a timer
 - **Know what you own** — ISBNdb integration estimates your collection's value and generates a location-grouped, print-ready valuation report for insurance documentation
+
+## Connected library experiment (`new-test`)
+
+This branch adds a unified **Library** front end while preserving Browse for
+catalogue administration:
+
+- **Format stacks and local series** — search across media, identifiers, tags
+  and sources; filter availability; save personal views. Adaptations stay
+  separate from interchangeable formats.
+- **Available here** — see physical copies and cached digital holdings together,
+  with links to their own readers and players.
+- **Sources** — multiple read-only OPDS and Jellyfin connections, plus manual
+  external links. Existing Audiobookshelf, Komga and RomM integrations retain
+  their configuration and gain durable sync-health reporting.
+- **My Activity** — account-local progress, plans, ratings, favourites, notes and
+  history, with Continue and Up Next; the shared wishlist and catalogue status
+  remain separate.
+- **Needs Attention** — catalogue-quality queues and explicitly reviewed format
+  connections. Source refreshes preserve local metadata edits.
+
+**Experimental, not a release:** back up before trying this branch. Catalogue
+data is still shared between all Shelf accounts; this is not household
+isolation. New source bindings and personal data require a full database backup,
+not the portable collection archive. See the
+[Connected library guide](docs/user-guide/connected-library.md) for setup,
+security, backup details and supported-source limits.
 
 ## Screenshots
 

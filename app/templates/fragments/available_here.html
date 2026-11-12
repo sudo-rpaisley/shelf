@@ -1,0 +1,27 @@
+<section id="available-here" data-testid="available-here" class="mb-6"{% if available_here_oob %} hx-swap-oob="true"{% endif %}>
+    <h2 class="text-xs font-semibold uppercase tracking-wider text-shelf-muted mb-2">{{ _('Available here') }}</h2>
+    <p class="text-xs text-shelf-muted mb-3">{{ _('Local copies and cached source records. No live connection check.') }}</p>
+    {% if rows %}
+    <ul class="space-y-2">
+        {% for row in rows %}
+        <li class="flex items-center gap-3 bg-shelf-bg border border-shelf-border rounded-lg p-3" data-availability-item="{{ row.item_id }}" data-availability-state="{{ row.state }}" data-availability-source="{{ row.source_key }}">
+            <div class="min-w-0 flex-1">
+                <a href="/item/{{ row.item_id }}" class="text-sm font-medium hover:text-shelf-accent2 break-words">{{ row.item_title }}</a>
+                <p class="text-xs text-shelf-muted mt-1 break-words">
+                    {{ _(media_types.get(row.media_type, row.media_type)) }} · {{ row.location or row.source_name }}
+                    {% if row.location %} · {{ _(row.source_name) }}{% endif %}
+                    · {% if row.state == 'available' %}{{ _('Available') }}{% elif row.state == 'lent' %}{{ _('Lent out') }}{% elif row.state == 'missing' %}{{ _('Missing') }}{% elif row.state == 'unavailable' %}{{ _('Unavailable') }}{% else %}{{ _('Unknown') }}{% endif %}
+                </p>
+                <p class="text-xs text-shelf-muted mt-1">{{ _('Last seen:') }} {{ row.last_seen or _('Not recorded') }}</p>
+                {% if row.detail %}<p class="text-xs text-shelf-muted mt-1">{{ row.detail }}</p>{% endif %}
+            </div>
+            {% if row.url and row.state not in ('unavailable', 'missing', 'lent') %}
+            <a href="{{ row.url }}" target="_blank" rel="noopener noreferrer" class="text-sm text-shelf-accent2 hover:underline shrink-0">{{ _(row.action or 'Open') }}</a>
+            {% endif %}
+        </li>
+        {% endfor %}
+    </ul>
+    {% else %}
+    <p class="text-sm text-shelf-muted">{{ _('No physical copies or connected source records are recorded for these editions.') }}</p>
+    {% endif %}
+</section>

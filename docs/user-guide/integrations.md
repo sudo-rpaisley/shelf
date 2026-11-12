@@ -1,9 +1,67 @@
 # Integrations
 
 Shelf works fully with no accounts anywhere. Each integration below adds
-something specific. All are configured under Settings → Integrations, each
-card has an inline setup guide, and every key is stored encrypted and shown
-write-only.
+something specific. Existing provider cards live under Settings → Integrations,
+with inline setup guides; credentials are encrypted and shown write-only.
+
+## Connected sources (experimental)
+
+On the experimental `new-test` branch, **Sources** (`/sources`, account menu →
+Library) adds multi-instance OPDS, Jellyfin and manual **External library
+links**. Admins configure and sync these there, not in the legacy integration
+cards. Enable **Connected library** in Settings → Features first. See the
+[Connected library guide](connected-library.md#connect-sources) for exact
+options, supported Jellyfin media types, OPDS traversal/open-link limits and
+manual setup.
+
+These are read-only catalogue/availability connections, not playback or progress
+sync. New imports are neither owned nor wishlisted and create no physical
+copies. **Every imported catalogue entry is visible to every Shelf user**;
+the source account's access scope does not provide Shelf privacy isolation.
+Availability is cached, not a live reachability test. New sources sync manually;
+there is no new scheduler.
+
+Audiobookshelf, Komga and RomM remain their existing **singleton** integrations,
+with their original settings, IDs and schedules (Audiobookshelf only). Their
+holdings participate in **Available here** without being converted into new
+writable source instances. Sources also shows their last-attempt/last-complete
+health and cached-record counts. Hardcover's existing shared status sync is
+unchanged; the new account-local My Activity does not send anything to it.
+
+Back up before experimenting. A full database backup retains connection and
+personal tables and cover-sync decisions, but the portable archive intentionally
+excludes them and does not make personal/source state portable. See
+[Backup and portability](connected-library.md#backup-and-portability).
+
+### Refreshes and local edits
+
+The experiment's Audiobookshelf, Komga, RomM and new OPDS/Jellyfin refresh paths
+use per-source, per-field three-way provenance. Nonempty legacy fields without
+a known applied baseline are preserved; an observation equal to a local value
+does not claim it.
+Genuinely missing fields can be filled, and source-applied fields may follow
+corrections until manually overridden. Known local edits, including explicit
+blanks, survive repeated syncs. Komga's adopted manual rows are fill-only unless
+an editor explicitly follows a field in its adopted-item refresh set.
+Covers are filled when missing rather than replaced by metadata refresh.
+Removing one pauses Audiobookshelf/Komga/RomM source artwork independently of
+queue dismissal; **Allow missing-cover sync again** explicitly re-enables it.
+See [Removed covers](connected-library.md#removed-covers-and-source-artwork)
+for the separate book-cover queue/retry boundary.
+
+New sources project validated descriptive metadata and retain bounded provider
+IDs for supported Library searches, without refreshing local identity fields.
+Editors can choose **Keep local** / **Follow source** under an item's
+**Metadata sources**. Merges retain observations without granting a losing
+provider authority over kept manual fields. See
+[Metadata refresh policy](connected-library.md#local-metadata-edits-survive-provider-refresh).
+
+Changing a new syncable source's roots, scope/limits or credentials resets
+health and cached availability to Unknown; cosmetic/no-op changes preserve
+them. Use a new instance for an unrelated server. Disabling retains data and
+removes open actions; re-enabling alone is not a live check. Manual sources
+offer **Remove link only** without deleting the catalogue item. See
+[Configuration changes](connected-library.md#change-configuration-disable-or-re-enable).
 
 ## Hardcover
 
@@ -240,9 +298,11 @@ can be starved at once. See
 
 ## Supplying keys by environment instead
 
-Every key except the vision providers can come from an environment variable
+The legacy integration credentials listed here can come from environment variables
 (`HARDCOVER_TOKEN`, `GOOGLE_BOOKS_API_KEY`, `ABS_URL`/`ABS_TOKEN`, `ISBNDB_API_KEY`, `TMDB_API_KEY`,
 `IGDB_CLIENT_ID`/`IGDB_CLIENT_SECRET`, `LIBRARYTHING_TOKEN`), which overrides whatever is stored. The
 secret field stays blank in Settings — Shelf never echoes a secret back — but
 **Test key** still works against it, so you can confirm the key without pasting
 a second copy in. See [Configuration](../configuration.md#credential-overrides).
+New multi-instance OPDS/Jellyfin credentials are saved on **Sources**, not
+supplied through these overrides.

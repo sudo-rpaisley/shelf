@@ -205,6 +205,11 @@ async def title_search(
         return await search_games(request, q=q, platform=platform, _=_)
     if media_type == "dvd":
         return await search_dvds(request, q=q, _=_)
+    if media_type in {"digital_video", "tv_series"}:
+        return request.app.state.templates.TemplateResponse(
+            request, "fragments/unsupported_title_search.html",
+            {"media_type_label": MEDIA_TYPES[media_type]},
+        )
     # The `auto` guard. `scan.html`'s hx-include carries #media-type here, so once
     # Auto is in that picker this route receives `auto` — and there is no
     # barcode on this path, so `auto` has nothing to mean. Resolve it (and any

@@ -1,0 +1,111 @@
+{% macro state_label(state) -%}
+    {% if state == 'available' %}{{ _('Available') }}{% elif state == 'lent' %}{{ _('Lent out') }}{% elif state == 'missing' %}{{ _('Missing') }}{% elif state == 'unavailable' %}{{ _('Unavailable') }}{% else %}{{ _('Unknown') }}{% endif %}
+{%- endmacro %}
+{% macro item_card(item) %}
+<div class="min-w-0 space-y-3" data-library-member="{{ item.id }}" data-matches="{{ 'true' if item.matches else 'false' }}">
+    <div class="flex gap-3">
+        {% if item.cover_path %}<img src="/{{ item.cover_path }}" alt="" loading="lazy" class="w-16 h-24 object-cover rounded bg-shelf-bg shrink-0" data-cover-shape="{{ cover_shape(item.media_type) }}">
+        {% else %}<div class="w-16 h-24 rounded bg-shelf-bg shrink-0 flex items-center justify-center text-shelf-muted" data-cover-shape="{{ cover_shape(item.media_type) }}" aria-hidden="true">{{ item.title[:1] }}</div>{% endif %}
+        <div class="min-w-0 space-y-1">
+            <h3 class="font-semibold break-words"><a href="/item/{{ item.id }}?from=library" class="hover:text-shelf-accent2">{{ item.title }}</a></h3>
+            {% if item.subtitle %}<p class="text-sm text-shelf-muted break-words">{{ item.subtitle }}</p>{% endif %}
+            {% if item.authors %}<p class="text-sm break-words" aria-label="{{ _(creator_label(item.media_type)) }}">{{ item.authors }}</p>{% endif %}
+            <p class="text-xs text-shelf-muted">{{ _(media_types.get(item.media_type, item.media_type)) }} · #{{ item.id }}</p>
+            {% if item.series_key %}<p class="text-sm">{{ item.series_name }}{% if item.series_position is not none %} · {{ item.series_position }}{% endif %}</p>{% endif %}
+            <p class="text-xs {% if item.matches %}text-shelf-accent2{% else %}text-shelf-muted{% endif %}">{% if item.matches %}{{ _('Matches filters') }}{% else %}{{ _('Other format — does not match filters') }}{% endif %}</p>
+        </div>
+    </div>
+    <div class="flex flex-wrap gap-2 text-xs">
+        {% if item.owned %}<span class="rounded bg-shelf-hover px-2 py-1">{{ _('Owned') }}</span>{% endif %}
+        {% if item.wishlisted %}<span class="rounded bg-shelf-hover px-2 py-1">{{ _('Wishlist') }}</span>{% endif %}
+        {% if item.copy_count %}<span class="rounded bg-shelf-hover px-2 py-1">{{ ngettext('%(count)s physical copy', '%(count)s physical copies', item.copy_count, count=item.copy_count) }}</span>{% endif %}
+        {% for tag in item.tags %}<span class="rounded border border-shelf-border px-2 py-1">{{ tag }}</span>{% endfor %}
+    </div>
+    {% if item.holdings %}
+    <ul class="space-y-2 text-xs" aria-label="{{ _('Copies and sources') }}">
+        {% for holding in item.holdings %}
+        <li class="rounded-lg bg-shelf-bg border border-shelf-border px-3 py-2" data-holding-source="{{ holding.source_key }}" data-holding-state="{{ holding.state }}">
+            <div class="flex flex-wrap items-center justify-between gap-2">
+                <span>{{ _('Physical copy') if holding.kind == 'physical' else holding.source_name }}{% if holding.location %} · {{ holding.location }}{% endif %} · <strong>{{ state_label(holding.state) }}</strong></span>
+                {% if holding.url and holding.state in ('available', 'unknown') %}<a href="{{ holding.url }}" target="_blank" rel="noopener noreferrer" class="font-medium text-shelf-accent2 hover:underline">{{ _(holding.action or 'Open') }}<span class="sr-only"> · {{ holding.source_name }}</span></a>{% endif %}
+            </div>
+            {% if holding.last_seen %}<p class="text-shelf-muted mt-1">{{ _('Last seen: %(when)s', when=holding.last_seen) }}</p>{% endif %}
+            {% if holding.detail %}<p class="text-shelf-muted mt-1">{{ holding.detail }}</p>{% endif %}
+        </li>
+        {% endfor %}
+    </ul>
+    {% else %}<p class="text-xs text-shelf-muted">{{ _('No recorded holdings · availability unknown') }}</p>{% endif %}
+</div>
+{% endmacro %}
+
+<section id="library-results" class="space-y-4" aria-label="{{ _('Library results') }}" data-testid="library-results">
+    <div class="flex flex-wrap items-center justify-between gap-3">
+        <p class="text-sm" role="status" data-testid="library-counts" data-matching-count="{{ matching_count }}" data-group-count="{{ group_count }}">{{ ngettext('%(count)s matching item', '%(count)s matching items', matching_count, count=matching_count) }} {{ _('in') }} {{ ngettext('%(count)s group', '%(count)s groups', group_count, count=group_count) }}</p>
+        <nav aria-label="{{ _('Result view') }}" class="flex flex-wrap gap-3 text-sm">
+            {% for link in view_links %}<a href="{{ link.url }}" class="{% if filters.view == link.value %}font-semibold text-shelf-text{% else %}text-shelf-accent2 hover:underline{% endif %}"{% if filters.view == link.value %} aria-current="page"{% endif %}>{{ _(link.label) }}</a>{% endfor %}
+        </nav>
+    </div>
+    <p class="text-xs text-shelf-muted">{{ _('Availability uses local copies and cached source records, not a live connection check. All filters must match the same item; source and availability must match the same holding.') }}</p>
+    {% if filters.series %}
+    <div class="flex flex-wrap items-center gap-3">
+        <a href="{{ series_index_url }}" class="text-sm text-shelf-accent2 hover:underline">{{ _('All local series') }}</a>
+        <h2 class="text-lg font-semibold">{{ selected_series }}</h2>
+        <span class="text-xs text-shelf-muted">{{ _('Numeric series order; unknown positions last.') }}</span>
+    </div>
+    {% endif %}
+    {% if result_kind == 'groups' and groups %}
+    <p class="text-xs text-shelf-muted">{{ _('Groups use explicit format links only. Every live edition is shown, including editions that do not match your filters.') }}</p>
+    <div class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
+        {% for group in groups %}
+        <article class="rounded-xl bg-shelf-card border border-shelf-border p-4 space-y-4" data-library-group="{{ group.id }}" data-member-ids="{{ group.member_ids|join(',') }}" data-matching-ids="{{ group.matching_ids|join(',') }}">
+            {{ item_card(group.representative) }}
+            {% if group.members|length > 1 %}
+            <details class="border-t border-shelf-border pt-3">
+                <summary class="cursor-pointer text-sm font-medium">{{ _('%(formats)s live editions · %(matches)s matching — show other formats', formats=group.members|length, matches=group.matching_count) }}</summary>
+                <div class="mt-4 space-y-4">
+                    {% for member in group.members if member.id != group.representative.id %}<div class="border-t border-shelf-border pt-4">{{ item_card(member) }}</div>{% endfor %}
+                </div>
+            </details>
+            {% endif %}
+        </article>
+        {% endfor %}
+    </div>
+    {% elif result_kind == 'items' and items %}
+    <div class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
+        {% for item in items %}<article class="rounded-xl bg-shelf-card border border-shelf-border p-4">{{ item_card(item) }}</article>{% endfor %}
+    </div>
+    {% elif result_kind == 'series' and series_results %}
+    <p class="text-xs text-shelf-muted">{{ _('Series are grouped by their local names, preserving punctuation and scripts. No remote series lookup is needed.') }}</p>
+    <div class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
+        {% for series in series_results %}
+        <article class="rounded-xl bg-shelf-card border border-shelf-border p-4" data-library-series="{{ series.key }}">
+            <a href="{{ series.url }}" class="flex gap-3 hover:text-shelf-accent2">
+                {% set item = series.representative %}
+                {% if item.cover_path %}<img src="/{{ item.cover_path }}" alt="" loading="lazy" class="w-12 h-16 object-cover rounded bg-shelf-bg shrink-0" data-cover-shape="{{ cover_shape(item.media_type) }}">{% endif %}
+                <div>
+                    <h3 class="font-semibold break-words">{{ series.name }}</h3>
+                    <p class="text-sm text-shelf-muted">{{ ngettext('%(count)s matching item', '%(count)s matching items', series.item_count, count=series.item_count) }} · {{ ngettext('%(count)s group', '%(count)s groups', series.group_count, count=series.group_count) }}</p>
+                    <p class="text-xs text-shelf-accent2 mt-1">{{ _('Explore series') }}</p>
+                </div>
+            </a>
+        </article>
+        {% endfor %}
+    </div>
+    {% else %}
+    <div class="rounded-xl bg-shelf-card border border-shelf-border p-8 text-center space-y-3">
+        <h2 class="font-semibold">{{ _('No matching results') }}</h2>
+        <p class="text-sm text-shelf-muted">{{ _('Try fewer filters or sync a source. Only locally catalogued, live items are searched.') }}</p>
+        <a href="/library" class="text-sm text-shelf-accent2 hover:underline">{{ _('Show all library items') }}</a>
+    </div>
+    {% endif %}
+    {% if pages > 1 %}
+    <nav aria-label="{{ _('Library result pages') }}" class="flex flex-wrap justify-center items-center gap-2" data-testid="library-pagination">
+        {% if previous_url %}<a href="{{ previous_url }}" rel="prev" class="px-3 py-2 rounded-lg border border-shelf-border text-sm text-shelf-accent2">{{ _('Previous') }}</a>{% endif %}
+        {% for link in page_links %}
+            {% if link.number %}<a href="{{ link.url }}"{% if link.current %} aria-current="page"{% endif %} aria-label="{{ _('Page %(number)s', number=link.number) }}" class="px-3 py-2 rounded-lg border border-shelf-border text-sm{% if link.current %} bg-shelf-hover font-semibold{% else %} text-shelf-accent2{% endif %}">{{ link.number }}</a>
+            {% else %}<span aria-hidden="true">…</span>{% endif %}
+        {% endfor %}
+        {% if next_url %}<a href="{{ next_url }}" rel="next" class="px-3 py-2 rounded-lg border border-shelf-border text-sm text-shelf-accent2">{{ _('Next') }}</a>{% endif %}
+    </nav>
+    {% endif %}
+</section>

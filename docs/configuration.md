@@ -1,9 +1,9 @@
 # Configuration
 
-Shelf is configured in two places: **environment variables** for things the
-container needs before it starts (port, certificate, secret keys), and the
-**Settings page** (admin only) for everything else. You can run Shelf with no
-configuration at all.
+Shelf uses **environment variables** for things the container needs before it
+starts (port, certificate, secret keys), and the admin-only **Settings page**
+for most other options. The experimental branch also has an admin **Sources**
+configuration page for new connections. You can run Shelf with no configuration.
 
 ## Environment variables
 
@@ -29,9 +29,9 @@ Set these in your `.env` file next to `docker-compose.yml`, or with `-e` on
 
 ### Credential overrides
 
-Integration credentials are normally entered in Settings and stored encrypted.
-Each can instead be supplied as an environment variable, which **takes
-priority** over anything stored:
+The existing integration credentials below are normally entered in Settings
+and stored encrypted. Each listed credential can instead be supplied as an
+environment variable, which **takes priority** over anything stored:
 
 | Variable | Setting |
 |---|---|
@@ -104,6 +104,46 @@ Each card has a short inline setup guide for obtaining its credential. Keys
 are **write-only** — once saved you see a masked placeholder and a "clear"
 checkbox, never the value. See [Integrations](user-guide/integrations.md).
 
+#### Connected sources (experimental)
+
+The `new-test` branch adds a separate **Sources** page (`/sources`, account
+menu → Library), gated by **Connected library**. Admins can configure multiple
+OPDS, Jellyfin and manual External library links instances there; the existing
+Audiobookshelf, Komga and RomM cards remain singletons and are not converted.
+All Shelf users can see imported catalogue entries, regardless of which source
+account supplied them. There is no per-source catalogue privacy isolation.
+
+Source configuration fields are `name`, `base_url`, optional `browser_url`,
+`enabled`, write-only provider credentials, and `options_json` (a JSON object).
+OPDS credentials are `username`/`password`; Jellyfin uses `token`; manual links
+have none. Blank credential fields retain the saved set; enter a complete
+replacement or use **Clear saved credentials**. These new credentials are
+stored encrypted with the existing external key, not environment overrides.
+URLs must be credential-free HTTP(S); roots cannot contain queries or fragments.
+
+| Provider | Options JSON keys |
+|---|---|
+| `opds` | `media_type` (default `ebook`; `book`, `ebook`, `audiobook`, `comic`, `manga`), `max_pages` (default 20, 1–50), `max_entries` (default 2000, 1–5000), `max_depth` (default 2, 1–4) |
+| `jellyfin` | `user_id` (required for server API keys; user tokens can resolve `Users/Me`), `library_ids` (optional list of visible library/view ID strings; empty means all visible views) |
+| `links` | No options; manually attach an existing `item_id`, stable `external_id`, credential-free `open_url` and optional `format` |
+
+Unknown option keys are refused. New sources are read-only and manually synced,
+not scheduled. **Test connection** does not import or update sync timestamps.
+Disabling retains catalogue/source data; it removes new-source open links and
+leaves cached holdings unknown unless absence was already confirmed. See
+[Connected library](user-guide/connected-library.md#connect-sources) for
+capabilities, partial/error/complete semantics and adapter limits.
+
+For syncable sources, changing `base_url`, `browser_url`, effective options
+(scope or limits) or credentials resets cached availability to Unknown and clears
+last-attempt/last-complete/report state. Display-name/no-op changes and reordered
+equivalent Jellyfin library selections preserve health. Re-entering a nonblank
+credential counts as replacement; blank fields do not. Root edits retain old
+external-ID bindings: use a new instance for an unrelated server. Re-enable a
+disabled source through **Enabled → Save settings**; unchanged cached verdicts
+return without a live check, while material changes need a new sync. Manual
+links need no sync and have an admin **Remove link only** action.
+
 ### Data
 
 | Card | Options |
@@ -112,7 +152,13 @@ checkbox, never the value. See [Integrations](user-guide/integrations.md).
 | **Import / Export** | CSV export; CSV / Goodreads / StoryGraph / LibraryThing / Libib / Audible (audible-cli or Libation) import with "fetch covers" and "to-read → wishlist" options |
 | **Sharing** | Create and revoke public read-only wishlist / collection links |
 | **Backup & Restore** | Download a database backup (optionally passphrase-encrypted), restore from one |
-| **Portable archive** | Export the whole library as a zip including physical copies and covers; import with a preview step |
+| **Portable archive** | Export shared collection data as a zip including physical copies and covers; import with a preview step. Excludes the experiment's connection configuration/bindings, credentials, personal state/history, saved views, connection dismissals, metadata provenance and cover-sync decisions |
+
+For the experiment, **Backup & Restore** retains all eight additive
+connected-library tables, including encrypted credentials and personal data,
+but not covers or the external encryption/signing keys. Keep matching keys and
+covers separately; a portable archive is not a full-instance or personal-state
+backup. See [Backup and portability](user-guide/connected-library.md#backup-and-portability).
 
 ### Users
 
@@ -123,14 +169,16 @@ Add users, set roles, reset passwords. See [Users & roles](user-guide/users-and-
 Turn optional parts of Shelf on or off: Lending, Series, Statistics, Store
 Mode, Sharing, Valuation, Price alerts, Buy links, Music, Periodicals, Shelf Fill, Photo
 Intake, Hardcover, Release radar, Audiobookshelf sync, Komga, RomM,
-Collector tools and API tokens. An
+Collector tools, API tokens and the experimental Connected library. An
 upgrade leaves every existing feature as it was. A feature new in a release
 starts on, except where an upgrade would switch on something the install's
 profile left out: Price alerts, Buy links and Collector tools start off on an
 upgrade where Valuation is off, and Release radar starts off on an upgrade where
 Hardcover is off. API tokens start off on every upgrade: turn them on to use
 [Homelab integration](homelab-integration.md). Release radar also needs
-Hardcover on to do anything. A new
+Hardcover on to do anything. On the experimental branch, migration 58 starts
+Connected library off when all seven pre-existing Standard features were
+explicitly off, preserving a minimal upgrade and any already-saved choice. A new
 install starts with the profile chosen in the
 setup wizard.
 Scanning, Browse, items, locations, tags, Trash, settings, users, backups and
@@ -143,7 +191,7 @@ saved under Library → **Buy links**.
 | Profile | Features on |
 |---|---|
 | **Minimal** | None — only the core above |
-| **Standard** | Lending, Series, Statistics, Store Mode, Music, Periodicals, Shelf Fill |
+| **Standard** | Lending, Series, Statistics, Store Mode, Music, Periodicals, Shelf Fill; Connected library on the experimental `new-test` branch |
 | **Everything** | Standard, plus Sharing, Valuation, Price alerts, Buy links, Photo Intake, Hardcover, Release radar, Audiobookshelf sync, Komga, RomM, Collector tools and API tokens |
 
 The **Profiles** row at the top of Features applies one in a single step and
@@ -178,6 +226,14 @@ configured. The card says the feature is turned off, links back here, and
 keeps only its setup controls: sync, import, export and run buttons go until
 the feature is back on.
 
+**Connected library** is the exception to that configuration rule: its Sources
+pages and setup actions are gated too. Turning it off hides Library, Sources,
+My Activity, Needs Attention and their item/Home panels without deleting data.
+It adds no background scheduler and does not switch off the separate legacy
+integration features. See the [experimental guide](user-guide/connected-library.md).
+The editor's **Allow missing-cover sync again** control is core, not part of
+that switch; it manages a separate source-cover decision, not queue dismissal.
+
 **Collector tools** covers copy labels, the **Audits** pages and the
 **Duplicates** page (admin only). The audit
 strip on Scan → Inventory is not part of it: with Collector tools off you can
@@ -193,6 +249,10 @@ pause.
 
 Every user (any role) can change their own display name and password, and
 manage their own API tokens, from the account menu — not from Settings.
+With Connected library enabled on `new-test`, every role can also manage its
+own saved Library views and **My Activity** (`/activity`). Progress, ratings,
+favourites, notes, history and My List are account-local and edition-specific;
+they do not change shared catalogue state or Hardcover.
 
 ## Where things are *not* configurable
 
@@ -204,11 +264,14 @@ manage their own API tokens, from the account menu — not from Settings.
   SBN, DNB, BnF, KB or NeoDB.
 - Outbound API pacing per host is fixed to each provider's published limit.
 - Media types are a fixed list: book, audiobook, eBook, magazine,
-  DVD / Blu-ray, vinyl, cassette, CD, digital music, comic / graphic novel,
+  DVD / Blu-ray, Digital Video (`digital_video`), TV Series (`tv_series`),
+  vinyl, cassette, CD, digital music, comic / graphic novel,
   Manga, video game. A kids' book is a **book carrying a `Kids` tag**, not a
   media type of its own — see [Items → Tags](user-guide/items.md).
   `kids_book` is still accepted on *input* (a CSV, an archive, or a device
   whose cached form still offers it) and is stored as `book`; from a CSV or
   an archive it also adds the `Kids` tag. The scan tab's **Auto** is a choice about how to scan,
   not a stored media type — it is never stored on an item; see
-  [Scanning → Media types](user-guide/scanning.md#media-types).
+  [Scanning → Media types](user-guide/scanning.md#media-types). The experimental
+  digital video/series types are distinct from physical DVDs; they do not
+  imply a physical copy or native playback support.

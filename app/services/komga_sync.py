@@ -18,7 +18,7 @@ import httpx
 from app.config import HTTP_TIMEOUT
 from app.crypto import decrypt_value, encrypt_value, get_encryption_key
 from app.database import get_db
-from app.services import covers, komga_books, komga_libraries, komga_records
+from app.services import covers, komga_books, komga_libraries, komga_records, legacy_sources
 from app.services.item_write import update_item_fields
 
 logger = logging.getLogger(__name__)
@@ -154,29 +154,55 @@ async def _ingest_cover(
     item_id: int,
     komga_id: str,
 ) -> bool:
+    from app.services import cover_sync_policy
     with get_db() as db:
-        row = db.execute("SELECT cover_path FROM items_live WHERE id = ?", (item_id,)).fetchone()
-    if row is None or row["cover_path"]:
+        row = db.execute(
+            "SELECT cover_path, cover_review_dismissed FROM items_live WHERE id = ?",
+            (item_id,),
+        ).fetchone()
+        preference = cover_sync_policy.decision(db, item_id)
+    if row is None or row["cover_path"] or row["cover_review_dismissed"] or preference is True:
         return False
     try:
         response = await client.get(
             f"{server}/api/v1/books/{quote(str(komga_id), safe='')}/thumbnail",
             headers=komga_libraries._headers(api_key),
+            follow_redirects=False,
         )
     except httpx.HTTPError:
         return False
-    if response.status_code != 200 or len(response.content) > covers.MAX_COVER_SIZE:
+    if response.status_code != 200:
         return False
-    path = covers.save_uploaded_cover(item_id, response.content)
-    if not path:
+    content = response.content
+    if not covers.validate_uploaded_cover(content):
         return False
     with get_db() as db:
+        db.execute("BEGIN IMMEDIATE")
+        # The HTTP request ran without a lock. A human may have selected a
+        # cover, dismissed it, or trashed the item since the first read (G18).
+        row = db.execute(
+            "SELECT cover_path, cover_review_dismissed FROM items_live WHERE id = ?",
+            (item_id,),
+        ).fetchone()
+        preference = cover_sync_policy.decision(db, item_id)
+        if row is None or row["cover_path"] or row["cover_review_dismissed"] or preference is True:
+            return False
+        # Remove cover deliberately leaves this file behind with a NULL path.
+        # Do not overwrite those bytes (or any other unreferenced local cover).
+        if (covers.COVERS_DIR / f"{item_id}.jpg").exists() and preference is not False:
+            cover_sync_policy.block(db, item_id)
+            return False
+        path = covers.write_uploaded_cover(item_id, content)
         update_item_fields(db, item_id, {"cover_path": path})
     return True
 
 
 async def sync(on_progress: ProgressCallback | None = None) -> dict[str, int]:
     """Synchronise all included Komga libraries into Shelf."""
+    return await legacy_sources.run_tracked("komga", _sync, on_progress=on_progress)
+
+
+async def _sync(on_progress: ProgressCallback | None = None) -> dict[str, int]:
     config = configuration()
     server = clean_url(config["url"])
     key = str(config["api_key"] or "").strip()

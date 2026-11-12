@@ -1,0 +1,62 @@
+{% extends "base.html" %}
+{% block title %}{{ _('Connected libraries') }} — Shelf{% endblock %}
+{% block content %}
+<div class="max-w-4xl mx-auto space-y-6">
+    <header>
+        <h1 class="text-2xl font-bold">{{ _('Connected libraries') }}</h1>
+        <p class="text-sm text-shelf-muted mt-1">{{ _('Read-only availability from your other libraries. Imports are not owned or wishlisted. Your local edits and physical copies stay unchanged.') }}</p>
+        <p class="text-sm text-shelf-muted mt-2">{{ _('Imported catalogue records are visible to every Shelf account. Choose source libraries accordingly; personal activity remains private to each account.') }}</p>
+        <a href="/library" class="inline-block text-sm text-shelf-accent2 hover:underline mt-3">{{ _('Open library') }}</a>
+    </header>
+    {% if notice %}<p role="status" class="p-3 rounded-lg border border-shelf-border">{{ notice }}</p>{% endif %}
+    {% if legacy_sources %}
+    <section class="space-y-3" data-testid="legacy-sources">
+        <h2 class="text-lg font-semibold">{{ _('Existing integrations') }}</h2>
+        <p class="text-sm text-shelf-muted">{{ _('These integrations retain their existing configuration. Health describes the last recorded sync, not a live connection check.') }}</p>
+        {% for source in legacy_sources %}
+        <article class="bg-shelf-card rounded-xl border border-shelf-border p-4 space-y-2" data-legacy-source="{{ source.key }}">
+            <h3 class="font-semibold">{{ source.name }}</h3>
+            <p class="text-sm text-shelf-muted">{% if not source.enabled %}{{ _('Disabled') }}{% elif source.configured %}{{ _('Configured') }}{% else %}{{ _('Not configured') }}{% endif %} · {{ _('Cached records: %(count)s', count=source.records_count) }}</p>
+            <p class="text-sm">{{ _('Sync status') }}: {{ {'never': _('Never checked'), 'ok': _('Complete'), 'partial': _('Partial'), 'error': _('Error')}[source.last_status] }}</p>
+            <p class="text-xs text-shelf-muted">{{ _('Last attempt') }}: {{ source.last_attempt_at or _('Never') }} · {{ _('Last complete success') }}: {{ source.last_sync_at or _('Never') }}</p>
+            {% if source.last_error %}<p class="text-xs text-shelf-muted">{{ _('Error code') }}: {{ source.last_error }}</p>{% endif %}
+            {% if user.role == 'admin' %}<a href="{{ source.settings_path }}" class="inline-block text-sm text-shelf-accent2 hover:underline">{{ _('Configure in Settings') }}</a>{% endif %}
+        </article>
+        {% endfor %}
+    </section>
+    {% endif %}
+    <h2 class="text-lg font-semibold">{{ _('Additional sources') }}</h2>
+    <div class="space-y-3" data-testid="sources-list">
+        {% for source in sources %}
+        <article class="bg-shelf-card rounded-xl border border-shelf-border p-4 space-y-2" data-source-id="{{ source.id }}">
+            <h3 class="font-semibold break-words">
+                {% if user.role == 'admin' %}<a class="hover:text-shelf-accent2" href="/sources/{{ source.id }}">{{ source.name }}</a>{% else %}{{ source.name }}{% endif %}
+            </h3>
+            <p class="text-sm text-shelf-muted">{{ _(source.provider_label) }} · {% if source.enabled %}{{ _('Enabled') }}{% else %}{{ _('Disabled') }}{% endif %}</p>
+            <p class="text-sm text-shelf-muted">{{ _('Cached records: %(count)s', count=source.records_count) }}</p>
+            {% if source.syncable %}
+            <p class="text-sm">{{ _('Sync status') }}: {{ {'never': _('Never'), 'ok': _('Complete'), 'partial': _('Partial'), 'error': _('Error'), 'syncing': _('Syncing')}[source.last_status] }} · {{ _('Last complete success') }}: {{ source.last_sync_at or _('Never') }}</p>
+            {% else %}
+            <p class="text-sm">{{ _('Manually attached external links. This source does not support sync.') }}</p>
+            {% endif %}
+            {% if source.summary %}<p class="text-sm text-shelf-muted">{{ _('Added') }}: {{ source.summary.get('added', 0) }} · {{ _('Linked') }}: {{ source.summary.get('linked', 0) }} · {{ _('Unavailable') }}: {{ source.summary.get('unavailable', 0) }}</p>{% endif %}
+        </article>
+        {% else %}<p class="text-shelf-muted">{{ _('No connected libraries yet.') }}</p>{% endfor %}
+    </div>
+    {% if user.role == 'admin' %}
+    <section class="bg-shelf-card rounded-xl border border-shelf-border p-4 space-y-4">
+        <h2 class="text-lg font-semibold">{{ _('Add source') }}</h2>
+        <form method="post" action="/api/sources" class="space-y-3">
+            <input type="hidden" name="_csrf" value="{{ request.cookies.get('csrf_token', '') }}">
+            <input type="hidden" name="enabled" value="1">
+            <label class="block">{{ _('Provider') }}<select name="provider" class="block w-full bg-shelf-bg border border-shelf-border rounded-lg p-2">{% for key, provider in providers.items() %}<option value="{{ key }}">{{ _(provider.label) }}</option>{% endfor %}</select></label>
+            <label class="block">{{ _('Name') }}<input name="name" required maxlength="200" class="block w-full bg-shelf-bg border border-shelf-border rounded-lg p-2"></label>
+            <label class="block">{{ _('Server or OPDS feed URL') }}<input name="base_url" type="url" maxlength="2048" placeholder="https://library.example/opds" class="block w-full bg-shelf-bg border border-shelf-border rounded-lg p-2"></label>
+            <p class="text-sm text-shelf-muted">{{ _('LAN and localhost servers are supported. External library links may leave the server URL empty. Credentials and query strings must not be included in server URLs.') }}</p>
+            <button class="px-4 py-2 bg-shelf-accent text-white rounded-lg" type="submit">{{ _('Add source') }}</button>
+        </form>
+        <p class="text-sm text-shelf-muted">{{ _('After adding a source, configure its credentials and scope on its detail page before testing or syncing.') }}</p>
+    </section>
+    {% endif %}
+</div>
+{% endblock %}

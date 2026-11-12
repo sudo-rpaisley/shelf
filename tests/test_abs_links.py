@@ -18,9 +18,9 @@ class TestAuthorsCompatible:
     def test_different_authors(self):
         assert _authors_compatible("Isaac Asimov", "Peter Ackroyd") is False
 
-    def test_missing_side_allows(self):
-        assert _authors_compatible(None, "Frank Herbert") is True
-        assert _authors_compatible("Frank Herbert", "") is True
+    def test_missing_side_refuses(self):
+        assert _authors_compatible(None, "Frank Herbert") is False
+        assert _authors_compatible("Frank Herbert", "") is False
 
 
 class TestAutoLink:
@@ -48,13 +48,13 @@ class TestAutoLink:
         _auto_link_items()
         assert (min(a, b), max(a, b)) in [tuple(r) for r in _links(db)]
 
-    def test_title_match_when_authors_missing(self, db):
+    def test_title_match_refused_when_authors_missing(self, db):
         a = _insert_item(db, title="Dune", isbn=None, media_type="book", authors=None)
         b = _insert_item(db, title="Dune", isbn=None, media_type="audiobook",
                          authors="Frank Herbert", abs_id="li_abc")
         db.execute("COMMIT")
         _auto_link_items()
-        assert (min(a, b), max(a, b)) in [tuple(r) for r in _links(db)]
+        assert _links(db) == []
 
 
 class TestAutoLinkOrigins:

@@ -1,0 +1,8 @@
+<div class="bg-shelf-bg border border-shelf-border rounded-lg p-4 text-sm" data-testid="unsupported-title-search">
+    <p>{{ _('Title lookup is not available for this format.') }} {{ _(media_type_label) }}</p>
+    <p class="text-shelf-muted mt-2">{{ _('Add it by hand, or import its availability from a connected source. No book search was made.') }}</p>
+    <div class="flex flex-wrap gap-3 mt-3">
+        <a href="/scan?add=manual" class="text-shelf-accent2 hover:underline">{{ _('Add by hand') }}</a>
+        {% if feature_on('connected_library') %}<a href="/sources" class="text-shelf-accent2 hover:underline">{{ _('Sources') }}</a>{% endif %}
+    </div>
+</div>

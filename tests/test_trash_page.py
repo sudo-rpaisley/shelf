@@ -299,11 +299,14 @@ def test_admin_account_menu_shows_both_headings(admin_client):
     assert 'data-testid="account-menu-settings"' in panel
 
 
-def test_viewer_account_menu_shows_neither_heading(viewer_client):
+def test_viewer_account_menu_offers_connected_library_without_management(viewer_client):
     panel = _panel(viewer_client.get("/browse").text)
-    assert "Library" not in panel
+    assert "Library" in panel
+    assert 'data-testid="account-menu-sources"' in panel
+    assert 'data-testid="account-menu-activity"' in panel
     assert "Administration" not in panel
     assert 'data-testid="account-menu-trash"' not in panel
+    assert 'data-testid="account-menu-settings"' not in panel
 
 
 # --- The two-action pin (rev 1 R1) --------------------------------------------

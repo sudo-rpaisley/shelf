@@ -1,0 +1,114 @@
+{% macro event_details(event) -%}
+{% set snapshot = event.snapshot %}
+<span>{{ _(personal_status_labels.get(snapshot.status, 'No personal status')) }}</span>
+{% if snapshot.progress is defined and snapshot.progress is not none %} · {{ snapshot.progress }}%{% endif %}
+{% if snapshot.rating is defined and snapshot.rating is not none %} · {{ _('Rating: %(rating)s/5', rating=snapshot.rating) }}{% endif %}
+{% if snapshot.favourite %} · {{ _('Favourite') }}{% endif %}
+{% if snapshot.on_list %} · {{ _('My List') }}{% endif %}
+{% if snapshot.notes %}<p class="mt-1 whitespace-pre-wrap break-words">{{ snapshot.notes }}</p>{% endif %}
+{% if snapshot.merged_states %}
+<details class="mt-1">
+    <summary class="cursor-pointer text-shelf-accent2">{{ _('Original notes before merge') }}</summary>
+    {% for original in snapshot.merged_states %}
+    {% if original.notes %}<p class="mt-1 whitespace-pre-wrap break-words">{{ original.notes }}</p>{% endif %}
+    {% endfor %}
+</details>
+{% endif %}
+{%- endmacro %}
+{% if item is defined and personal is defined %}
+<section id="personal-library" data-testid="personal-library" class="bg-shelf-card border border-shelf-border rounded-lg p-5 mt-6">
+    <div class="flex flex-wrap items-center justify-between gap-2 mb-2">
+        <h2 class="text-lg font-semibold">{{ _('My activity') }}</h2>
+        <a href="/activity" class="text-sm text-shelf-accent2 hover:text-shelf-accent">{{ _('All my activity') }}</a>
+    </div>
+    <p class="text-sm text-shelf-muted mb-4">{{ _('Only for your account. This does not change catalogue status, ownership, the shared wishlist or external services.') }}</p>
+    <p class="text-sm mb-3" data-testid="personal-library-summary">
+        <span>{{ _(personal_status_labels.get(personal.status, 'No personal status')) }}</span>
+        {% if personal.progress is not none %} · {{ _('Progress') }}: {{ personal.progress }}%{% endif %}
+        {% if personal.rating is not none %} · {{ _('Rating: %(rating)s/5', rating=personal.rating) }}{% endif %}
+        {% if personal.favourite %} · {{ _('Favourite') }}{% endif %}
+        {% if personal.on_list %} · {{ _('My List / Up Next') }}{% endif %}
+    </p>
+    {% if personal_error %}<p role="alert" class="text-sm text-shelf-error mb-4">{{ personal_error }}</p>{% endif %}
+    <details data-testid="personal-library-editor"{% if personal_editor_open or personal_error %} open{% endif %}>
+        <summary class="cursor-pointer text-sm font-medium">{{ _('Update my activity') }}</summary>
+        <div class="mt-4">
+    {# Disable both forms together while a request is in flight. Dropping competing
+       requests avoids queuing a form that an outerHTML response will remove. #}
+    <form method="post" action="/api/library/items/{{ item.id }}/personal"
+          hx-post="/api/library/items/{{ item.id }}/personal" hx-target="#personal-library" hx-swap="outerHTML"
+          hx-sync="closest section:drop"
+          hx-disabled-elt="#personal-library input, #personal-library select, #personal-library textarea, #personal-library button"
+          class="space-y-4" data-testid="personal-library-form">
+        <input type="hidden" name="_csrf" value="{{ request.cookies.get('csrf_token', '') }}">
+        <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+            <div>
+                <label for="personal-status" class="block text-sm mb-1">{{ _('My status') }}</label>
+                <select id="personal-status" name="status" class="w-full bg-shelf-bg border border-shelf-border rounded-lg px-3 py-2 text-sm">
+                    <option value=""{% if not personal.status %} selected{% endif %}>{{ _('No personal status') }}</option>
+                    {% for value, label in personal_status_labels.items() %}
+                    <option value="{{ value }}"{% if personal.status == value %} selected{% endif %}>{{ _(label) }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+            <div>
+                <label for="personal-progress" class="block text-sm mb-1">{{ _('Progress') }} (%)</label>
+                <input id="personal-progress" name="progress" type="number" min="0" max="100" step="1" inputmode="numeric"
+                       value="{{ personal.progress if personal.progress is not none else '' }}" placeholder="{{ _('Optional') }}"
+                       class="w-full bg-shelf-bg border border-shelf-border rounded-lg px-3 py-2 text-sm">
+            </div>
+            <div>
+                <label for="personal-rating" class="block text-sm mb-1">{{ _('My rating (1–5)') }}</label>
+                <input id="personal-rating" name="rating" type="number" min="1" max="5" step="1" inputmode="numeric"
+                       value="{{ personal.rating if personal.rating is not none else '' }}" placeholder="{{ _('Optional') }}"
+                       class="w-full bg-shelf-bg border border-shelf-border rounded-lg px-3 py-2 text-sm">
+            </div>
+        </div>
+        <p class="text-xs text-shelf-muted">{{ _('Finished items are marked %(percent)s. Leave progress or rating blank to clear it.', percent='100%') }}</p>
+        <div class="flex flex-wrap gap-6 text-sm">
+            <label class="flex items-center gap-2"><input type="checkbox" name="favourite" value="1"{% if personal.favourite %} checked{% endif %}>{{ _('Favourite') }}</label>
+            <label class="flex items-center gap-2"><input type="checkbox" name="on_list" value="1"{% if personal.on_list %} checked{% endif %}>{{ _('My List / Up Next') }}</label>
+        </div>
+        <div>
+            <label for="personal-notes" class="block text-sm mb-1">{{ _('My notes') }}</label>
+            <textarea id="personal-notes" name="notes" rows="4" maxlength="5000" class="w-full bg-shelf-bg border border-shelf-border rounded-lg px-3 py-2 text-sm">{{ personal.notes }}</textarea>
+            <p class="text-xs text-shelf-muted mt-1">{{ _('Up to 5000 characters. Private to this account.') }}</p>
+        </div>
+        {% if personal.started_at or personal.finished_at %}
+        <p class="text-xs text-shelf-muted">
+            {% if personal.started_at %}{{ _('Started: %(date)s', date=personal.started_at) }}{% endif %}
+            {% if personal.finished_at %} · {{ _('Finished: %(date)s', date=personal.finished_at) }}{% endif %}
+        </p>
+        {% endif %}
+        <button type="submit" class="px-4 py-2 bg-shelf-accent text-white rounded-lg text-sm hover:bg-shelf-accent2 transition-colors disabled:opacity-50 disabled:cursor-not-allowed">{{ _('Save my activity') }}</button>
+    </form>
+    {% if personal.updated_at %}
+    <form method="post" action="/api/library/items/{{ item.id }}/personal/reset"
+          hx-post="/api/library/items/{{ item.id }}/personal/reset" hx-target="#personal-library" hx-swap="outerHTML"
+          hx-sync="closest section:drop"
+          hx-disabled-elt="#personal-library input, #personal-library select, #personal-library textarea, #personal-library button"
+          class="mt-3">
+        <input type="hidden" name="_csrf" value="{{ request.cookies.get('csrf_token', '') }}">
+        <button type="submit" class="text-sm text-shelf-error hover:underline disabled:opacity-50 disabled:cursor-not-allowed">{{ _('Reset my activity for this item') }}</button>
+        <p class="text-xs text-shelf-muted mt-1">{{ _('Clears your current state; your private history is kept.') }}</p>
+    </form>
+    {% endif %}
+        </div>
+    </details>
+    <details class="mt-5"{% if personal_error %} open{% endif %}>
+        <summary class="text-sm font-medium cursor-pointer">{{ _('My recent history') }}</summary>
+        {% if personal_events %}
+        <ol class="space-y-3 mt-3" data-testid="personal-library-history">
+            {% for event in personal_events %}
+            <li class="border-t border-shelf-border pt-3 text-xs text-shelf-muted">
+                <p><time datetime="{{ event.created_at }}">{{ event.created_at }}</time> · {% if event.event_type == 'reset' %}{{ _('Reset — previous state') }}{% elif event.event_type == 'merged' %}{{ _('Duplicate merged') }}{% else %}{{ _('Updated') }}{% endif %}</p>
+                <div class="mt-1">{{ event_details(event) }}</div>
+            </li>
+            {% endfor %}
+        </ol>
+        {% else %}
+        <p class="text-sm text-shelf-muted mt-3">{{ _('No personal activity yet.') }}</p>
+        {% endif %}
+    </details>
+</section>
+{% endif %}

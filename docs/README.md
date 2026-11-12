@@ -27,6 +27,7 @@ New here? Start with **[Installation](installation.md)**, then
 | [Editing barcodes](user-guide/editing-barcodes.md) | Scanning or typing a retail UPC/EAN on the item edit page |
 | [Photo Intake](user-guide/photo-intake.md) | Bulk-add from a shelf photo: vision backends, tiling, cost, reviewing results |
 | [Browse & search](user-guide/browse-and-search.md) | Filters, views, sorting, tags, bulk editing |
+| [Connected library (experimental)](user-guide/connected-library.md) | The `new-test` experiment: format stacks, cached availability, OPDS/Jellyfin/manual sources, personal activity, metadata/connection review and backup limits |
 | [Items](user-guide/items.md) | The item page, editing, covers, synopses, status (read, watched, played), locations, merging |
 | [Music](user-guide/music.md) | Cataloguing exact releases from MusicBrainz: formats, track lists, multi-disc, identifiers |
 | [Periodicals](user-guide/periodicals.md) | Magazines as publication plus issue, and what a 977 barcode resolves to |
@@ -40,11 +41,11 @@ New here? Start with **[Installation](installation.md)**, then
 | [Sharing](user-guide/sharing.md) | Public read-only wishlist and collection links |
 | [Stats & valuation](user-guide/stats-and-valuation.md) | Stats dashboard, ISBNdb valuation, the insurance report, display currency |
 | [Import & export](user-guide/import-and-export.md) | CSV, Goodreads/StoryGraph/LibraryThing/Libib migration, Audible library import, portable archive, database backup |
-| [Integrations](user-guide/integrations.md) | Hardcover, Audiobookshelf, IGDB, TMDb, ISBNdb, Google Books, vision providers — what each adds and how to connect it |
+| [Integrations](user-guide/integrations.md) | Existing provider setup and the experimental connected-source distinction |
 | [RomM](romm.md) | Connecting a self-hosted RomM server for digital games |
 | [Komga](komga.md) | Connecting a self-hosted Komga server for digital comics and manga |
 | [Homelab integration](homelab-integration.md) | API tokens, the `/api/v1/stats` document, Homepage and Home Assistant recipes |
-| [Users & roles](user-guide/users-and-roles.md) | Admin / editor / viewer, adding users, passwords, the log viewer |
+| [Users & roles](user-guide/users-and-roles.md) | Admin / editor / viewer, shared status versus personal activity, users, passwords and logs |
 | [Settings](user-guide/settings.md) | The five Settings sections and what lives in each |
 
 ## Help
@@ -62,6 +63,8 @@ New here? Start with **[Installation](installation.md)**, then
 | [Architecture](architecture.md) | Request path, middleware, data model, metadata pipeline, background jobs |
 | [Physical copies](item-copies.md) | The `item_copies` model, and how the item's own location field still drives the primary copy |
 | [Related Media](related-media.md) | Linking a work to its other formats, related items and adaptations; how a group is derived rather than stored |
+| [Connected-library experiment](connected-library-plan.md) | Implemented boundaries on `new-test`, not a release plan |
+| [Connected-library verification](connected-library-verification.md) | Completed local test gates, runtime caveats and exclusions |
 | [Contributing](../CONTRIBUTING.md) | How to report bugs and send changes |
 | [Security policy](../SECURITY.md) | Reporting vulnerabilities; hardening posture |
 | [Roadmap](roadmap.md) | Where Shelf is likely to go next, by theme — direction, not a schedule |

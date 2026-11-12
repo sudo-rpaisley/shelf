@@ -1,5 +1,7 @@
 (function () {
     async function addAction() {
+        // The unified panel already resolves every holding and its safe URL.
+        if (document.getElementById('available-here')) return;
         const match = window.location.pathname.match(/^\/item\/(\d+)$/);
         if (!match) return;
         let data;

@@ -1,0 +1,91 @@
+{% extends "base.html" %}
+{% block title %}{{ _('Needs attention') }} — Shelf{% endblock %}
+{% block content %}
+<div class="max-w-5xl mx-auto space-y-6">
+    <header class="space-y-2">
+        <h1 class="text-2xl font-bold">{{ _('Needs attention') }}</h1>
+        <p class="text-sm text-shelf-muted">{{ _('Review catalogue quality and cached source information. Opening this page makes no network requests and changes no records. Trash is excluded.') }}</p>
+        <div class="flex flex-wrap gap-4 text-sm">
+            <a href="/cover-review" class="text-shelf-accent2 hover:underline">{{ _('Open cover review') }}</a>
+            {% if user and user.role == 'admin' and feature_on('collector') %}
+            <a href="/duplicates" class="text-shelf-accent2 hover:underline">{{ _('Review duplicate records (admin)') }}</a>
+            {% endif %}
+        </div>
+    </header>
+
+    <nav aria-label="{{ _('Attention queues') }}" class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+        {% for key, label in categories %}
+        <a href="/needs-attention?category={{ key }}&amp;limit={{ limit }}" data-attention-count="{{ key }}"
+           class="rounded-lg border border-shelf-border bg-shelf-card p-3 hover:bg-shelf-hover">
+            <span class="text-sm">{{ _(label) }}</span>
+            <span class="block text-2xl font-semibold">{{ counts[key] }}{% if key == 'connections' and connection_scan_limited %}+{% endif %}</span>
+            {% if key == 'locations' %}<span class="text-xs text-shelf-muted">{{ _('Physical copies, not catalogue ownership') }}</span>{% endif %}
+            {% if key == 'connections' %}<span class="text-xs text-shelf-muted">{{ _('Bounded evidence scan, not an exhaustive total') }}</span>{% endif %}
+        </a>
+        {% endfor %}
+    </nav>
+
+    <form method="get" action="/needs-attention" class="flex flex-wrap items-end gap-3">
+        <label class="text-sm">{{ _('Queue') }}
+            <select name="category" class="block mt-1 rounded-lg border border-shelf-border bg-shelf-card px-3 py-2">
+                <option value="all" {% if category == 'all' %}selected{% endif %}>{{ _('All queues') }}</option>
+                {% for key, label in categories %}<option value="{{ key }}" {% if category == key %}selected{% endif %}>{{ _(label) }}</option>{% endfor %}
+            </select>
+        </label>
+        <label class="text-sm">{{ _('Rows per queue') }}
+            <input type="number" name="limit" min="1" max="100" value="{{ limit }}" class="block mt-1 w-24 rounded-lg border border-shelf-border bg-shelf-card px-3 py-2">
+        </label>
+        <button type="submit" class="rounded-lg bg-shelf-hover px-4 py-2 text-sm">{{ _('Apply') }}</button>
+    </form>
+
+    {% for key, label in categories if category in ('all', key) %}
+    {% if key == 'connections' %}
+        {% include "fragments/connection_suggestions.html" %}
+    {% else %}
+    <section data-attention-queue="{{ key }}" class="space-y-3">
+        <h2 class="text-lg font-semibold">{{ _(label) }} <span class="text-shelf-muted">({{ counts[key] }})</span></h2>
+        {% if key == 'covers' %}<p class="text-sm text-shelf-muted">{{ _('Only undismissed missing covers appear. Choose a cover, upload one, or dismiss it in cover review; nothing is retried automatically here.') }}</p>{% endif %}
+        {% if key == 'creators' %}<p class="text-sm text-shelf-muted">{{ _('Review missing named creators where meaningful. Periodical issues do not require an author byline; music release artist credits count.') }}</p>{% endif %}
+        {% if key == 'locations' %}<p class="text-sm text-shelf-muted">{{ _('These are existing physical copies without a location. A remote holding or an owned catalogue record alone is not a physical copy.') }}</p>{% endif %}
+        {% if key == 'periodicals' %}<p class="text-sm text-shelf-muted">{{ _('An issue needs a publication and an issue number, issue date or printed cover-date label. Check the item metadata rather than guessing an issue.') }}</p>{% endif %}
+        {% if key == 'sources' %}<p class="text-sm text-shelf-muted">{{ _('Enabled syncable sources that were never checked, returned a partial result or error, or have no recent successful complete check. Configured Audiobookshelf, Komga and RomM integrations are included; manual availability links need no sync. Stale means over seven days since the last success, not since the last attempt.') }}</p>{% endif %}
+        {% if key == 'unavailable' %}<p class="text-sm text-shelf-muted">{{ _('Only explicitly confirmed unavailable source records appear. A failed or partial check does not prove an item disappeared. Catalogue records are retained.') }}</p>{% endif %}
+
+        {% if queues[key] %}
+        <ul class="space-y-2">
+            {% for row in queues[key] %}
+            <li class="rounded-lg border border-shelf-border bg-shelf-card p-3 space-y-2">
+                {% if key == 'sources' %}
+                <a href="{% if user and user.role == 'admin' %}{% if row.legacy %}/settings{% else %}/sources/{{ row.source_id }}{% endif %}{% else %}/sources{% endif %}" data-attention-source="{{ row.key }}" class="font-medium text-shelf-accent2 hover:underline">{{ row.name }}</a>
+                <ul class="text-sm text-shelf-muted">{% for reason in row.reasons %}<li>{{ reason }}</li>{% endfor %}</ul>
+                <dl class="text-xs text-shelf-muted space-y-1">
+                    <div><dt class="inline">{{ _('Last successful complete check:') }}</dt> <dd class="inline">{{ row.last_sync_at or _('Never') }}</dd></div>
+                    <div><dt class="inline">{{ _('Last attempt:') }}</dt> <dd class="inline">{{ row.last_attempt_at or _('Never') }}</dd></div>
+                </dl>
+                {% else %}
+                <div class="flex flex-wrap items-center gap-3">
+                    <a href="/item/{{ row.item_id }}" class="font-medium hover:text-shelf-accent2 break-words">{{ row.title }}</a>
+                    <span class="text-xs text-shelf-muted">{{ _(media_types.get(row.media_type, row.media_type)) }}</span>
+                    {% if key == 'locations' %}<span class="text-sm">{{ _('Copy %(number)s', number=row.copy_number) }}</span>{% endif %}
+                    <a href="/item/{{ row.item_id }}/edit" class="text-sm text-shelf-accent2 hover:underline">{{ _('Edit item') }}</a>
+                </div>
+                {% if key == 'covers' %}<a href="/cover-review" class="text-sm text-shelf-accent2 hover:underline">{{ _('Review missing covers') }}</a>{% endif %}
+                {% if key == 'unavailable' %}
+                <a href="{% if user and user.role == 'admin' %}/sources/{{ row.source_id }}{% else %}/sources{% endif %}" data-attention-unavailable-source="{{ row.source_id }}" class="text-sm text-shelf-accent2 hover:underline">{{ row.source_name }}</a>
+                <dl class="text-xs text-shelf-muted space-y-1">
+                    <div><dt class="inline">{{ _('Last seen:') }}</dt> <dd class="inline">{{ row.last_seen_at or _('Not recorded') }}</dd></div>
+                    <div><dt class="inline">{{ _('Last successful complete check:') }}</dt> <dd class="inline">{{ row.last_sync_at or _('Never') }}</dd></div>
+                    <div><dt class="inline">{{ _('Last attempt:') }}</dt> <dd class="inline">{{ row.last_attempt_at or _('Never') }}</dd></div>
+                </dl>
+                {% endif %}
+                {% endif %}
+            </li>
+            {% endfor %}
+        </ul>
+        {% else %}<p class="text-sm text-shelf-muted">{{ _('Nothing in this queue.') }}</p>{% endif %}
+        {% if has_more[key] %}<p class="text-sm text-shelf-muted">{{ _('Showing the first %(shown)s of %(total)s. Work through these or increase the row limit (maximum 100).', shown=queues[key]|length, total=counts[key]) }}</p>{% endif %}
+    </section>
+    {% endif %}
+    {% endfor %}
+</div>
+{% endblock %}

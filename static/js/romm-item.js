@@ -1,5 +1,7 @@
 (function () {
     async function addAction() {
+        // Fall back to the legacy action only when the unified panel is absent.
+        if (document.getElementById('available-here')) return;
         const match = window.location.pathname.match(/^\/item\/(\d+)$/);
         if (!match) return;
         let data;

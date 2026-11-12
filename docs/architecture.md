@@ -71,6 +71,10 @@ browser-facing scheme, such as OIDC redirect URIs (#89), must use the same rule.
 
 Routes live in `app/routers/`, one module per feature. Pages render full
 templates; HTMX endpoints render fragments from `app/templates/fragments/`.
+Authenticated responses default centrally to `Cache-Control: no-store` in
+`SecurityHeaders`, including Home/item HTML that now carries personal activity.
+Explicit response policies are preserved; `/store`, static assets and covers
+keep their separate caching contracts.
 `TemplateResponse` is wrapped to inject `user`, `nav_tabs` and `trash_nag`
 into every context. `trash_nag` is the admin Trash banner's state: the wrapper
 checks the role **before** any service call, so a non-admin render runs no
@@ -113,10 +117,12 @@ be turned off.
   `feature_disabled.html` (with an Enable form for admins), an htmx request
   with a 403 and an `HX-Trigger` toast, and any other `/api/` request with a
   403 JSON body.
-- **Use is gated, configuration is not.** Each integration's status, settings,
+- **Use is gated, legacy configuration is not.** The existing integrations' status, settings,
   test and library/platform routes stay reachable while it is off, as do
   `/api/tmdb/test-key` (TMDb is core DVD scanning), the periodical 977
-  scan-confirmation routes (they belong to scanning) and `/sw.js`.
+  scan-confirmation routes (they belong to scanning) and `/sw.js`. The experimental
+  connected-source pages and configuration actions are all gated by
+  `connected_library`; they have no configuration exemption.
 - **The share page is gated inline.** `/share/{token}` has no user, so a
   disabled Sharing feature takes the same statement as an unknown token and
   answers byte for byte like one: an anonymous visitor cannot tell that
@@ -205,10 +211,11 @@ what to act on.
 ## Data
 
 SQLite in WAL mode at `data/shelf.db`, accessed with the stdlib `sqlite3`
-module — hand-written SQL, no ORM. `app/database.py` holds the full
-`SCHEMA` for fresh databases and an append-only, versioned `MIGRATIONS`
-tuple for upgrades, tracked in `schema_version`. Migrations are idempotent
-so an interrupted upgrade replays safely.
+module — hand-written SQL, no ORM. `app/database.py` owns the schema: base
+`SCHEMA`, an append-only, versioned `MIGRATIONS` tuple tracked in
+`schema_version`, and additive `MIGRATION_TABLES` DDL run on every boot.
+Fresh databases replay the migrations too. Migrations are idempotent so an
+interrupted upgrade replays safely.
 
 Main tables: `items` (everything — books, discs, games; ~38 columns incl.
 `media_type`, `owned`, `reading_status`, `series_name`/`position`,
@@ -482,10 +489,13 @@ the item for the same reason the table exists at all: two copies of one book are
 two objects, and they may sit apart.
 
 **Media families are declared in `app/config.py`, beside the types themselves.**
-`MEDIA_TYPES` is the flat list of twelve; three frozensets name the families
-over it — `BOOK_MEDIA_TYPES` (book, audiobook, eBook, comic, manga),
+`MEDIA_TYPES` is the flat list of fourteen on the experimental branch; three
+frozensets name the families over it — `BOOK_MEDIA_TYPES` (book, audiobook,
+eBook, comic, manga),
 `PERIODICAL_MEDIA_TYPES` (magazine) and `MUSIC_MEDIA_TYPES` (vinyl, cassette,
-cd, digital music). `dvd` and `video_game` belong to no family, deliberately.
+cd, digital music). `dvd`, `digital_video`, `tv_series` and `video_game` belong
+to none of those three families, deliberately. Library's own filter family
+`video` includes the three screen types, without making a digital title a disc.
 Routes, templates and services share one membership test rather than each
 re-deciding what counts as a book. `manga` is what the arrangement is for: it
 needed a `MEDIA_TYPES` entry and a place in `BOOK_MEDIA_TYPES` and no table at
@@ -539,14 +549,18 @@ Only two callers infer a `format` link, and both after their own
 transaction has committed, on a fresh connection:
 `audiobookshelf.auto_link(origin_ids)` runs after every Audiobookshelf sync
 for the synced rows, and after an Audible CSV import for the audiobooks it
-created or matched. It links an origin to a live row of a different media
-type that shares its ISBN, or else its normalized title and first author.
-The Related Media panel never infers one: a `related` or `adaptation` link
-exists because someone made it.
+created or matched. It links different compatible book formats (prose and
+graphic formats kept apart) by valid ISBN, or else by exact Unicode-preserving
+whole title and a real shared creator. Missing/placeholder creators and title
+substrings are not evidence. The experimental connection-review route can
+also add a format link, but only after explicit review. The Related Media panel
+never infers one: a `related` or `adaptation` link exists because someone made it.
 
-Secrets in `settings` are encrypted with a key kept *outside* the database
-(`data/encryption.key` or `SHELF_ENCRYPTION_KEY`), so a DB backup contains
-ciphertext only. Environment variables can override any secret.
+Secrets in `settings` and new source-instance credentials are encrypted with a
+key kept *outside* the database (`data/encryption.key` or
+`SHELF_ENCRYPTION_KEY`), so a DB backup contains ciphertext only. Environment
+variables can override the [listed legacy credentials](configuration.md#credential-overrides);
+new source-instance credentials are saved through Sources.
 
 ## Metadata pipeline
 
@@ -1263,6 +1277,166 @@ stated rather than incidental:
   `komga_records.kind` (`comic` or `manga`, checked in the schema) is for.
   Changing a library's kind on the Komga side must not reclassify an item the
   user catalogued by hand.
+
+## Connected library experiment
+
+This is implemented on `new-test`, not a release or upstream commitment. See
+the [user guide](user-guide/connected-library.md) for setup and limits. It is
+additive: Browse stays core, the catalogue remains shared by all Shelf users,
+and ABS/Komga/RomM stay singleton integrations in their existing storage. A
+source account scopes ingestion, not visibility to Shelf accounts; no household
+or per-source catalogue isolation is introduced.
+
+**Surfaces and permissions.** `connected_library` belongs to Standard and owns
+`routers/library.py`, `availability.py`, `sources.py`, `personal_library.py`,
+`library_attention.py` and `metadata_review.py`. `main.py` registers Sources'
+`page_router` and `api_router` separately (there is no combined `sources.router`).
+Library, cached availability, the redacted source
+overview, personal state and saved views are viewer-readable; own-state/view
+writes also allow viewers. Source detail/configuration/test/sync/manual-link
+actions, including manual detach, are admin-only; Needs Attention, connection
+review and metadata resolution require editor.
+Role checks precede feature checks, mutations use POST and CSRF, and disabling
+the feature hides/refuses surfaces without deleting data. It adds no lifespan
+task or scheduler. New-source configuration is gated too.
+
+**Persistence is additive, not a backfill.** Eight tables live in
+`MIGRATION_TABLES`, created on fresh boots and upgrades even with the feature off:
+
+| Table | Record |
+|---|---|
+| `source_instances` | Provider, roots, encrypted credentials, options, enablement, configuration revision, sync lease and health |
+| `source_records` | Item binding and safe remote snapshot, `UNIQUE(source_id, external_id)`, cached availability and last seen |
+| `user_item_state` / `user_item_events` | Per-account, per-item state with state-owned `last_event_id`, and snapshot history |
+| `library_saved_views` | Account-owned, allowlisted filter JSON; case-insensitive name unique within the account |
+| `connection_dismissals` | Ordered item pair plus evidence fingerprint |
+| `item_metadata_provenance` | Per-item/source/field observed/local/applied baseline and override decision |
+| `cover_sync_blocks` | Per-item blocked/explicit-allow source-cover decision, independent of `cover_review_dismissed` |
+
+Migration 58 only writes `feature.connected_library = '0'` when all seven
+pre-existing Standard flags were explicitly off; `INSERT OR IGNORE` preserves
+an existing choice. It does not seed personal state or convert legacy sources.
+Migration 59 adds `user_item_state.last_event_id INTEGER NOT NULL DEFAULT 0`;
+the additive CREATE includes it for fresh databases too. Unknown old recency
+stays 0 rather than being inferred from reset/merged history.
+Full database backups (`settings._vacuum_backup`, `VACUUM INTO`) retain these
+tables, not covers or external encryption/signing keys. Preserve matching keys
+separately. The portable collection archive's explicit export contract excludes
+all eight tables: no new connection config/credentials/bindings, personal
+state/history, saved views, connection dismissals, metadata provenance or
+cover-sync suppression/opt-in decisions travel with it. This is not
+personal/source portability.
+
+**Local query contract.** `services/library_catalog.py` reads one live-catalogue
+snapshot, resolves cached holdings, matches per item, then builds format-only
+components (`format_groups.py`), counts, orders and paginates. All compound
+filters must match one member; source and availability must match one holding.
+`matching_count` counts matching editions and `group_count` distinct matching
+stacks before pagination. A displayed stack includes its full live component
+and explicit match flags; Individual items shows only matches. Group pages
+never split/repeat a stack. Local series use trimmed, casefolded names without
+discarding punctuation/scripts, with numeric/fractional position order and
+unknown positions last. Saved views hold only normalized filters, not SQL,
+account IDs or page number. GET `/api/library/items` shares the HTML contract;
+`/api/library/search` returns an HTML fragment, not the versioned bearer API.
+
+**Availability is observation, not a probe.** `services/availability.py` uses
+`copies_live`, legacy bindings/health and `source_records`, with no network
+requests or repairs. Owned alone never manufactures a copy. Missing precedes
+lent, and item-level loans conservatively affect all that item's copies.
+Only `format` edges extend Available here; related/adaptation edges and paths
+through Trash do not. Failed/partial checks make retained holdings unknown,
+not absent; disabled new sources suppress open links while retaining cached
+rows. Explicit unavailability remains distinct. Legacy health lives in
+`connection.<provider>.*` settings via `legacy_sources.run_tracked`, separating
+last attempt from last complete success rather than reusing `abs_last_sync`.
+Sources displays those legacy health cards alongside new instances; it does
+not convert them into writable multi-instance rows.
+
+**Bounded read-only connectors.** `services/source_connectors/` declares OPDS
+1/2, Jellyfin and manual `links` capabilities. OPDS accepts safe generic
+acquisition (including Calibre) and open-access links, not priced/buy/borrow/
+sample offers, and fetches neither acquisitions nor images. `sources.py` claims
+a short lease,
+fetches/decrypts outside write locks, then applies under `BEGIN IMMEDIATE` only
+if configuration revision and token still match. A new binding may adopt a
+unique validated same-format ISBN, never a similar title; otherwise it creates
+an unowned, non-wishlisted item without copies. Its validated descriptive
+projection supplies initial metadata and subsequent three-way refresh, without
+refreshing ISBN/media-type identity. Subtitle is creation-only. Bounded shaped
+`provider_ids` persist in snapshots and supported names are indexed by Library;
+raw provider JSON is not searched. Provenance uses
+`source:<instance id>:<sha256(external id)>`, not raw URL-shaped/Unicode IDs.
+Only warning-free complete enumeration reconciles
+unseen live bindings to unavailable, without deleting items. Partial/error
+results preserve absence uncertainty and the last complete success. Trash is
+not restored. Credentials use the existing external encryption key; DTOs and
+browser links contain no raw credentials, and diagnostics are safe codes.
+Material server/browser-root, effective scope/limit or credential changes reset
+cached availability to unknown and clear attempt/success/report state; cosmetic
+or effectively identical edits preserve it. Root edits retain identity bindings,
+so unrelated servers need new instances. Disable/re-enable changes presentation,
+not a live check. `services/source_links.py` permits admin POST removal of manual
+bindings only, without deleting catalogue entries.
+
+**Review and personal state.** Needs Attention computes local quality/health
+queues; connection proposals are a bounded evidence scan, not an exhaustive
+duplicate finder. `connection_suggestions.py` requires compatible prose/music
+families and identifiers or whole title/subtitle plus named creator overlap.
+Accept/dismiss/restore recheck evidence under the write lock. Acceptance only
+adds a format edge; existing Related Media unlink is the undo. A dismissal
+expires logically when its evidence fingerprint changes. `personal_library.py`
+reads/writes only the authenticated account's item state/events; Continue is
+In progress and Up Next is explicit My List or Planned. Progress is
+edition-specific, not propagated through format links. These writes never
+alter shared status/reading logs, ownership, wishlist or Hardcover. Item merges
+reparent bindings and personal history in the existing merge transaction.
+Merge recency compares each state's `(updated_at, last_event_id)`, keeping the
+chosen row on an exact tie. Only a real personal save advances that identity;
+reset/merge history cannot promote stale progress. Flags/notes are combined
+without truncating the originals kept in personal merge history. The separate
+shared catalogue-status endpoint still permits viewers.
+
+**Refresh provenance.** `services/metadata_policy.py` supplies the
+ABS/Komga/RomM and new-source three-way refresh policy: observations do not claim
+manual or unknown-baseline fields, genuine gaps can be filled, and actually source-applied
+values may follow corrections until a local override (including a known clear).
+Empty remote values do not erase metadata; adopted manual Komga rows are
+fill-only unless an editor explicitly follows that reviewable field. A merge
+keeps losing source observations as overrides, stripping their applied authority
+over kept manual fields even when values agree; kept baselines remain intact.
+Covers remain fill-only and outside descriptive metadata refresh.
+
+**Metadata review.** `services/metadata_review.py`,
+`routers/metadata_review.py` and `fragments/metadata_provenance.html` implement
+bounded saved-observation review, included by `pages.item_detail` and its
+template while the feature is on. Routes are viewer GET
+`/api/library/items/{item_id}/metadata` and editor POST
+`/api/library/items/{item_id}/metadata/resolve`, gated by `connected_library`.
+The form carries `source_key`, `field_name`, `fingerprint` and `decision`
+(`keep_local` or `follow_source`), never a submitted source value. Under the
+write lock, a fingerprint rechecks the exact saved observation and current
+local value. Keep local records an override, including blank; Follow source
+applies one allowed descriptive field through the write funnel and resets
+that source's baseline. Identity fields are read-only; future updates still
+obey that explicit per-field opt-in and preserve subsequent local edits. No
+remote request or new observation time is manufactured. The panel bounds its
+saved-field count and display text; the fingerprint covers full values.
+The decision form has a 4096-byte streaming body limit, enforced before form
+parsing in both the route and plain-form CSRF path; uploads do not belong there.
+
+**Cover decisions are separate.** `items_covers.cover_remove` clears the cover
+and queue dismissal but writes `cover_sync_blocks.blocked = 1`. The editor-only
+POST `/api/items/{item_id}/cover-sync/allow` records explicit allowance (0) and
+clears queue dismissal; the item page offers **Allow missing-cover sync again**.
+These core controls are not gated by Connected library. They neither restore
+the removed file nor imply that a new cover has been downloaded. The separate
+decision table, not queue dismissal, records deliberate source-artwork removal.
+ABS/Komga/RomM cover paths read the decision before fetching and recheck under
+the write lock before touching artwork; explicit allowance permits missing-cover
+fill despite retained-file/old-removal evidence, never replacement of a selected
+cover. The existing book-cover worker/startup requeue is a separate path, not
+gated by this source-sync policy.
 
 ## Frontend
 

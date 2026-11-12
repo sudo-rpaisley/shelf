@@ -17,6 +17,8 @@ MEDIA_TYPES = {
     "ebook": N_("eBook"),
     "magazine": N_("Magazine"),
     "dvd": N_("DVD / Blu-ray"),
+    "digital_video": N_("Digital Video"),
+    "tv_series": N_("TV Series"),
     "vinyl": N_("Vinyl"),
     "cassette": N_("Cassette"),
     "cd": N_("CD"),
@@ -29,7 +31,7 @@ MEDIA_TYPES = {
 # The book family: media types that are read, carry ISBNs, and belong to a
 # series. Everything else is deliberately outside it and, where it needs one,
 # names its own family below — periodicals are issue-based, music is
-# release-based. `dvd` and `video_game` belong to no family; `cd` belongs to
+# release-based. Video and game types belong to no family; `cd` belongs to
 # the music one. Declared here, beside the types themselves.
 BOOK_MEDIA_TYPES = frozenset({"book", "audiobook", "ebook", "comic", "manga"})
 
@@ -58,7 +60,12 @@ PLAY_LABELS = StatusLabels("play", N_("Want to Play"), N_("Playing"), N_("Played
 NEUTRAL_LABELS = StatusLabels("neutral", N_("Want to"), N_("In progress"), N_("Finished"), "finished")
 
 # Overrides only, as CREATOR_LABELS does; every other type reads.
-STATUS_VERBS = {"dvd": WATCH_LABELS, "video_game": PLAY_LABELS}
+STATUS_VERBS = {
+    "dvd": WATCH_LABELS,
+    "digital_video": WATCH_LABELS,
+    "tv_series": WATCH_LABELS,
+    "video_game": PLAY_LABELS,
+}
 
 # A type with its own verb gets its own status control on the item page.
 STATUS_MEDIA_TYPES = BOOK_MEDIA_TYPES | frozenset(STATUS_VERBS)
@@ -126,6 +133,8 @@ DEFAULT_CREATOR_LABEL = N_("Author(s)")
 CREATOR_LABELS = {
     "video_game": N_("Developer"),
     "dvd": N_("Director"),
+    "digital_video": N_("Director"),
+    "tv_series": N_("Creator"),
     # Derived from MUSIC_MEDIA_TYPES rather than retyped, so a fifth music
     # format added above cannot silently fall back to "Author(s)".
     **{media_type: N_("Artist") for media_type in MUSIC_MEDIA_TYPES},
@@ -171,6 +180,8 @@ TAG_SUGGESTIONS = {
     "book": ["Fiction", "Non-fiction", "Kids", "Cookbook", "Reference",
              "Signed", "First edition", "Book club"],
     "dvd": ["Movie", "TV series", "Kids", "Documentary", "Blu-ray", "4K"],
+    "digital_video": ["Movie", "Kids", "Documentary", "Animation", "4K"],
+    "tv_series": ["TV series", "Kids", "Documentary", "Animation", "Miniseries"],
     "video_game": ["Multiplayer", "Co-op", "Kids", "Collector's edition", "Sealed"],
     "cd": MUSIC_GENRES,
     "vinyl": MUSIC_GENRES,

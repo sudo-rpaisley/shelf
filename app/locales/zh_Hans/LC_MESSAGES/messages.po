@@ -6,7 +6,7 @@
 msgid ""
 msgstr ""
 "Report-Msgid-Bugs-To: EMAIL@ADDRESS\n"
-"PO-Revision-Date: 2026-11-10 11:59-0500\n"
+"PO-Revision-Date: 2026-11-12 12:47+0000\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language: zh_Hans\n"
 "Language-Team: zh_Hans <LL@li.org>\n"
@@ -15,11 +15,12 @@ msgstr ""
 "Content-Type: text/plain; charset=utf-8\n"
 "Content-Transfer-Encoding: 8bit"
 
-#: app/browse_columns.py:62 app/templates/item_edit.html:103
+#: app/browse_columns.py:62 app/services/library_catalog.py:50
+#: app/services/metadata_review.py:34 app/templates/item_edit.html:103
 msgid "Title"
 msgstr "标题"
 
-#: app/browse_columns.py:63 app/browse_filters.py:220 app/config.py:156
+#: app/browse_columns.py:63 app/browse_filters.py:220 app/config.py:165
 msgid "Author"
 msgstr "作者"
 
@@ -36,7 +37,8 @@ msgid "Location"
 msgstr "位置"
 
 #: app/browse_columns.py:66 app/browse_filters.py:213
-#: app/templates/item_detail.html:230 app/templates/item_edit.html:138
+#: app/templates/item_detail.html:234 app/templates/item_edit.html:138
+#: app/templates/source_detail.html:14
 msgid "Status"
 msgstr "状态"
 
@@ -44,14 +46,16 @@ msgstr "状态"
 msgid "Value"
 msgstr "价值"
 
-#: app/browse_columns.py:68 app/nav.py:41 app/templates/browse.html:49
+#: app/browse_columns.py:68 app/nav.py:43 app/services/metadata_review.py:38
+#: app/templates/browse.html:49
 #: app/templates/fragments/manual_add_form.html:155
 #: app/templates/item_edit.html:79 app/templates/item_edit.html:217
 #: app/templates/item_edit.html:221
 msgid "Series"
 msgstr "系列"
 
-#: app/browse_columns.py:69 app/templates/fragments/manual_add_form.html:96
+#: app/browse_columns.py:69 app/services/metadata_review.py:36
+#: app/templates/fragments/manual_add_form.html:96
 #: app/templates/item_edit.html:118
 msgid "Publisher"
 msgstr "出版社"
@@ -66,16 +70,19 @@ msgid "Pages"
 msgstr "页数"
 
 #: app/browse_columns.py:72 app/browse_filters.py:221
-#: app/templates/browse.html:65 app/templates/fragments/account_menu.html:116
+#: app/services/metadata_review.py:38 app/templates/browse.html:65
+#: app/templates/fragments/account_menu.html:116
 #: app/templates/item_edit.html:123
 msgid "Language"
 msgstr "语言"
 
-#: app/browse_columns.py:73
+#: app/browse_columns.py:73 app/templates/source_detail.html:17
+#: app/templates/sources.html:42
 msgid "Added"
 msgstr "添加日期"
 
-#: app/browse_columns.py:74 app/templates/item_edit.html:355
+#: app/browse_columns.py:74 app/services/metadata_review.py:42
+#: app/templates/item_edit.html:355
 msgid "Platform"
 msgstr "平台"
 
@@ -88,7 +95,7 @@ msgstr "ISBN/UPC"
 msgid "Tags"
 msgstr "标签"
 
-#: app/browse_filters.py:208
+#: app/browse_filters.py:208 app/templates/library.html:31
 msgid "Search"
 msgstr "搜索"
 
@@ -96,7 +103,7 @@ msgstr "搜索"
 msgid "Source"
 msgstr "来源"
 
-#: app/browse_filters.py:212
+#: app/browse_filters.py:212 app/templates/library.html:92
 msgid "Sort"
 msgstr "排序"
 
@@ -125,174 +132,225 @@ msgid "DVD / Blu-ray"
 msgstr "DVD / 蓝光"
 
 #: app/config.py:20
+msgid "Digital Video"
+msgstr ""
+
+#: app/config.py:21
+msgid "TV Series"
+msgstr ""
+
+#: app/config.py:22
 msgid "Vinyl"
 msgstr "黑胶唱片"
 
-#: app/config.py:21
+#: app/config.py:23
 msgid "Cassette"
 msgstr "磁带"
 
-#: app/config.py:22
+#: app/config.py:24
 msgid "CD"
 msgstr "CD"
 
-#: app/config.py:23
+#: app/config.py:25
 msgid "Digital Music"
 msgstr "数字音乐"
 
-#: app/config.py:24
+#: app/config.py:26
 msgid "Comic / Graphic Novel"
 msgstr "漫画 / 图像小说"
 
-#: app/config.py:25
+#: app/config.py:27
 msgid "Manga"
 msgstr "日漫"
 
-#: app/config.py:26
+#: app/config.py:28
 msgid "Video Game"
 msgstr "电子游戏"
 
-#: app/config.py:54
+#: app/config.py:56
 msgid "Want to Read"
 msgstr "想读"
 
-#: app/config.py:54
+#: app/config.py:56
 msgid "Reading"
 msgstr "在读"
 
-#: app/config.py:54
+#: app/config.py:56
 msgid "Read"
 msgstr "已读"
 
-#: app/config.py:55
+#: app/config.py:57
 msgid "Want to Watch"
 msgstr "想看"
 
-#: app/config.py:55
+#: app/config.py:57
 msgid "Watching"
 msgstr "在看"
 
-#: app/config.py:55
+#: app/config.py:57
 msgid "Watched"
 msgstr "已看"
 
-#: app/config.py:56
+#: app/config.py:58
 msgid "Want to Play"
 msgstr "想玩"
 
-#: app/config.py:56
+#: app/config.py:58
 msgid "Playing"
 msgstr "在玩"
 
-#: app/config.py:56
+#: app/config.py:58
 msgid "Played"
 msgstr "已玩"
 
-#: app/config.py:58
+#: app/config.py:60
 msgid "Want to"
 msgstr "想要"
 
-#: app/config.py:58
+#: app/config.py:60 app/services/personal_library.py:18
 msgid "In progress"
 msgstr "进行中"
 
-#: app/config.py:58
+#: app/config.py:60 app/services/personal_library.py:19
 msgid "Finished"
 msgstr "已完成"
 
-#: app/config.py:124
+#: app/config.py:131
 msgid "Author(s)"
 msgstr "作者"
 
-#: app/config.py:127
+#: app/config.py:134
 msgid "Developer"
 msgstr "开发商"
 
-#: app/config.py:128
+#: app/config.py:135 app/config.py:136
 msgid "Director"
 msgstr "导演"
 
-#: app/config.py:131
+#: app/config.py:137 app/services/library_catalog.py:50
+msgid "Creator"
+msgstr ""
+
+#: app/config.py:140
 msgid "Artist"
 msgstr "艺术家"
 
-#: app/nav.py:34 app/templates/browse.html:2
-msgid "Browse"
-msgstr "浏览"
-
-#: app/nav.py:35
-msgid "Scan"
-msgstr "扫码"
-
-#: app/nav.py:36
-msgid "Intake"
-msgstr "拍照入库"
-
-#: app/nav.py:38
-msgid "Shelf Fill"
-msgstr "定位上架"
-
-#: app/nav.py:40
-msgid "Store"
-msgstr "书店模式"
-
-#: app/nav.py:42
-msgid "Music"
-msgstr "音乐"
-
-#: app/nav.py:43
-msgid "Periodicals"
-msgstr "期刊"
-
-#: app/nav.py:44
-msgid "Discover"
-msgstr "发现"
-
-#: app/nav.py:45
-msgid "Stats"
-msgstr "统计"
-
-#: app/nav.py:46
-msgid "Trash"
-msgstr "回收站"
-
-#: app/nav.py:47 app/nav.py:49 app/nav.py:51 app/nav.py:53
+#: app/nav.py:34 app/nav.py:51 app/nav.py:53 app/nav.py:55 app/nav.py:57
+#: app/nav.py:59 app/nav.py:61 app/nav.py:231 app/templates/library.html:2
+#: app/templates/library.html:7
 msgid "Library"
 msgstr "书库"
 
-#: app/nav.py:48
+#: app/nav.py:36 app/templates/browse.html:2
+msgid "Browse"
+msgstr "浏览"
+
+#: app/nav.py:37
+msgid "Scan"
+msgstr "扫码"
+
+#: app/nav.py:38
+msgid "Intake"
+msgstr "拍照入库"
+
+#: app/nav.py:40
+msgid "Shelf Fill"
+msgstr "定位上架"
+
+#: app/nav.py:42
+msgid "Store"
+msgstr "书店模式"
+
+#: app/nav.py:44 app/services/library_catalog.py:38
+msgid "Music"
+msgstr "音乐"
+
+#: app/nav.py:45 app/services/library_catalog.py:39
+msgid "Periodicals"
+msgstr "期刊"
+
+#: app/nav.py:46
+msgid "Discover"
+msgstr "发现"
+
+#: app/nav.py:47
+msgid "Stats"
+msgstr "统计"
+
+#: app/nav.py:48 app/templates/home.html:13 app/templates/library.html:13
+msgid "My Activity"
+msgstr ""
+
+#: app/nav.py:49
+msgid "Personal"
+msgstr ""
+
+#: app/nav.py:50 app/templates/fragments/unsupported_title_search.html:6
+#: app/templates/home.html:93 app/templates/library.html:12
+msgid "Sources"
+msgstr ""
+
+#: app/nav.py:52 app/templates/home.html:98 app/templates/library.html:14
+msgid "Needs Attention"
+msgstr ""
+
+#: app/nav.py:54
+msgid "Trash"
+msgstr "回收站"
+
+#: app/nav.py:56
 msgid "Labels"
 msgstr "条码标签"
 
-#: app/nav.py:50
+#: app/nav.py:58
 msgid "Audits"
 msgstr "盘点记录"
 
-#: app/nav.py:52
+#: app/nav.py:60
 msgid "Duplicates"
 msgstr "重复项"
 
-#: app/nav.py:54
+#: app/nav.py:62
 msgid "Settings"
 msgstr "设置"
 
-#: app/nav.py:55 app/nav.py:57
+#: app/nav.py:63 app/nav.py:65
 msgid "Administration"
 msgstr "管理"
 
-#: app/nav.py:56
+#: app/nav.py:64
 msgid "Logs"
 msgstr "日志"
 
-#: app/nav.py:221
+#: app/nav.py:231
+msgid "Add / Scan"
+msgstr ""
+
+#: app/nav.py:232
+msgid "Explore"
+msgstr ""
+
+#: app/nav.py:246
 msgid "Back to series"
 msgstr ""
 
-#: app/nav.py:222
+#: app/nav.py:247
 msgid "Back to stats"
 msgstr ""
 
-#: app/nav.py:224
+#: app/nav.py:248
+msgid "Back to library"
+msgstr ""
+
+#: app/nav.py:249
+msgid "Back to my activity"
+msgstr ""
+
+#: app/nav.py:250
+msgid "Back to maintenance"
+msgstr ""
+
+#: app/nav.py:252
 msgid "Back to collection"
 msgstr ""
 
@@ -359,15 +417,18 @@ msgstr "显示名称已更新"
 msgid "Unknown language"
 msgstr "未知语言"
 
-#: app/routers/checkouts.py:127
-msgid "Due date is out of range"
+#: app/routers/availability.py:26 app/routers/checkouts.py:138
+#: app/routers/cover_sync_policy.py:25 app/routers/item_copies.py:174
+#: app/routers/item_copies.py:231 app/routers/library_attention.py:67
+#: app/routers/metadata_review.py:20 app/routers/personal_library.py:18
+#: app/routers/related_media.py:50 app/routers/related_media.py:86
+#: app/routers/related_media.py:109 app/routers/related_media.py:126
+#: app/services/metadata_review.py:243
+msgid "Item not found"
 msgstr ""
 
-#: app/routers/checkouts.py:138 app/routers/item_copies.py:174
-#: app/routers/item_copies.py:231 app/routers/related_media.py:36
-#: app/routers/related_media.py:67 app/routers/related_media.py:89
-#: app/routers/related_media.py:106
-msgid "Item not found"
+#: app/routers/checkouts.py:127
+msgid "Due date is out of range"
 msgstr ""
 
 #: app/routers/checkouts.py:144
@@ -380,6 +441,10 @@ msgstr ""
 
 #: app/routers/checkouts.py:171 app/routers/checkouts.py:180
 msgid "Checkout already checked in"
+msgstr ""
+
+#: app/routers/cover_sync_policy.py:30
+msgid "Missing-cover sync is allowed again"
 msgstr ""
 
 #: app/routers/item_copies.py:157
@@ -400,19 +465,19 @@ msgstr ""
 msgid "Could not save that copy."
 msgstr ""
 
-#: app/routers/items.py:996
+#: app/routers/items.py:997
 msgid "No items or updates specified"
 msgstr "未指定条目或更新内容"
 
-#: app/routers/items.py:1001 app/routers/tags.py:71 app/routers/tags.py:76
+#: app/routers/items.py:1002 app/routers/tags.py:71 app/routers/tags.py:76
 msgid "Invalid item IDs"
 msgstr "无效的条目 ID"
 
-#: app/routers/items.py:1006
+#: app/routers/items.py:1007
 msgid "No valid fields to update"
 msgstr "没有可更新的有效字段"
 
-#: app/routers/items.py:1012
+#: app/routers/items.py:1013
 msgid "Series name cannot be empty"
 msgstr "系列名称不能为空"
 
@@ -424,23 +489,23 @@ msgstr ""
 msgid "Failed to fetch game details from IGDB"
 msgstr ""
 
-#: app/routers/items_catalog.py:269
+#: app/routers/items_catalog.py:274
 msgid "Unrecognised media type — pick one and try again"
 msgstr ""
 
-#: app/routers/items_catalog.py:277
+#: app/routers/items_catalog.py:282
 msgid "Invalid ISBN"
 msgstr ""
 
-#: app/routers/items_catalog.py:319
+#: app/routers/items_catalog.py:324
 msgid "Could not fetch metadata for this ISBN"
 msgstr ""
 
-#: app/routers/items_catalog.py:439
+#: app/routers/items_catalog.py:444
 msgid "Title is required"
 msgstr ""
 
-#: app/routers/items_catalog.py:447
+#: app/routers/items_catalog.py:452
 msgid "Invalid publish year"
 msgstr ""
 
@@ -449,16 +514,204 @@ msgstr ""
 msgid "No ISBN"
 msgstr ""
 
-#: app/routers/items_covers.py:87
+#: app/routers/items_covers.py:78
+msgid "Use cover search, an image URL or upload a cover for this format"
+msgstr ""
+
+#: app/routers/items_covers.py:89
 msgid "No cover found"
 msgstr ""
 
-#: app/routers/related_media.py:85
+#: app/routers/items_covers.py:122
+msgid "TV series cover search is not available. Use an image URL or upload a cover."
+msgstr ""
+
+#: app/routers/items_covers.py:129
+msgid "Digital video cover search needs a TMDb API key — add one in Settings → Integrations."
+msgstr ""
+
+#: app/routers/library.py:22
+msgid "Personal view saved."
+msgstr ""
+
+#: app/routers/library.py:23
+msgid "Personal view deleted."
+msgstr ""
+
+#: app/routers/library.py:24
+msgid "Choose a view name between 1 and 80 characters."
+msgstr ""
+
+#: app/routers/library.py:25
+msgid "You can save up to 50 personal views. Delete one or reuse an existing name."
+msgstr ""
+
+#: app/routers/library.py:26
+msgid "Submit the saved-view form to save a personal view."
+msgstr ""
+
+#: app/routers/library.py:77
+msgid "Grouped formats"
+msgstr ""
+
+#: app/routers/library.py:78
+msgid "Individual items"
+msgstr ""
+
+#: app/routers/library.py:79 app/templates/library.html:53
+msgid "Local series"
+msgstr ""
+
+#: app/routers/library_attention.py:64
+msgid "Choose two different items"
+msgstr ""
+
+#: app/routers/library_attention.py:77
+msgid "These items already have a different relationship; review it under Related Media"
+msgstr ""
+
+#: app/routers/library_attention.py:80
+msgid "The connection evidence changed; reload and review the current records"
+msgstr ""
+
+#: app/routers/library_attention.py:83
+msgid "These items are already connected; manage the link under Related Media"
+msgstr ""
+
+#: app/routers/library_attention.py:165
+msgid "The dismissal evidence changed; reload and review the current records"
+msgstr ""
+
+#: app/routers/metadata_review.py:73
+msgid "Submit metadata decisions using the review form"
+msgstr ""
+
+#: app/routers/metadata_review.py:77
+msgid "The metadata review form is too large; reload Metadata sources"
+msgstr ""
+
+#: app/routers/metadata_review.py:82
+msgid "Submit a valid metadata review form"
+msgstr ""
+
+#: app/routers/metadata_review.py:99
+msgid "Local value kept, including any blank value. This source will not replace it."
+msgstr ""
+
+#: app/routers/metadata_review.py:101
+msgid "Source value saved. Future refreshes may update this field only while you leave it unmodified."
+msgstr ""
+
+#: app/routers/personal_library.py:80
+msgid "Submit personal changes using the form"
+msgstr ""
+
+#: app/routers/related_media.py:105
 msgid "An item cannot be related to itself"
 msgstr ""
 
-#: app/routers/related_media.py:108
+#: app/routers/related_media.py:128
 msgid "Related-media link not found"
+msgstr ""
+
+#: app/routers/sources.py:25
+msgid "Source settings saved."
+msgstr ""
+
+#: app/routers/sources.py:26
+msgid "Source added."
+msgstr ""
+
+#: app/routers/sources.py:27
+msgid "External availability link saved."
+msgstr ""
+
+#: app/routers/sources.py:28
+msgid "External availability link removed. The catalogue item is unchanged."
+msgstr ""
+
+#: app/routers/sources.py:29
+msgid "Source disabled. Existing catalogue entries are unchanged."
+msgstr ""
+
+#: app/routers/sources.py:30
+msgid "Connection successful. No catalogue entries were changed."
+msgstr ""
+
+#: app/routers/sources.py:31
+msgid "Sync complete."
+msgstr ""
+
+#: app/routers/sources.py:32
+msgid "Partial catalogue received. Missing records were not marked unavailable."
+msgstr ""
+
+#: app/routers/sources.py:33
+msgid "Use a credential-free HTTP or HTTPS URL. Put credentials in the credential fields."
+msgstr ""
+
+#: app/routers/sources.py:34
+msgid "Check the source name and field lengths."
+msgstr ""
+
+#: app/routers/sources.py:35
+msgid "Check the options JSON and supported limits."
+msgstr ""
+
+#: app/routers/sources.py:36
+msgid "Check the credential fields."
+msgstr ""
+
+#: app/routers/sources.py:37
+msgid "Saved credentials could not be decrypted. Enter them again."
+msgstr ""
+
+#: app/routers/sources.py:38
+msgid "Unknown source provider."
+msgstr ""
+
+#: app/routers/sources.py:39 app/routers/sources.py:40
+msgid "The server refused authentication."
+msgstr ""
+
+#: app/routers/sources.py:41
+msgid "The server refused access."
+msgstr ""
+
+#: app/routers/sources.py:42
+msgid "The server rate limit was reached. Try again later."
+msgstr ""
+
+#: app/routers/sources.py:43
+msgid "The server timed out. Existing availability was preserved."
+msgstr ""
+
+#: app/routers/sources.py:44
+msgid "A sync is already running. An interrupted sync can be retried after three minutes."
+msgstr ""
+
+#: app/routers/sources.py:45
+msgid "Settings changed during sync. The stale result was discarded."
+msgstr ""
+
+#: app/routers/sources.py:46
+msgid "This action is not supported by this provider."
+msgstr ""
+
+#: app/routers/sources.py:47
+msgid "That external identity is already attached to another catalogue entry."
+msgstr ""
+
+#: app/routers/sources.py:48
+msgid "The source or live catalogue entry was not found."
+msgstr ""
+
+#: app/routers/sources.py:49
+msgid "A safety limit was reached."
+msgstr ""
+
+#: app/routers/sources.py:144
+msgid "Source not found"
 msgstr ""
 
 #: app/routers/tags.py:78
@@ -498,6 +751,254 @@ msgstr "书店模式队列"
 #: app/services/browse_counts.py:34
 msgid "CSV Import"
 msgstr "CSV 导入"
+
+#: app/services/connection_suggestions.py:118
+msgid "Same Hardcover book ID"
+msgstr ""
+
+#: app/services/connection_suggestions.py:121
+msgid "Same validated ISBN"
+msgstr ""
+
+#: app/services/connection_suggestions.py:127
+msgid "Same MusicBrainz release group"
+msgstr ""
+
+#: app/services/connection_suggestions.py:132
+msgid "Whole title and subtitle agree; shared named creator"
+msgstr ""
+
+#: app/services/library_attention.py:17
+msgid "Missing covers"
+msgstr ""
+
+#: app/services/library_attention.py:18
+msgid "Missing creators"
+msgstr ""
+
+#: app/services/library_attention.py:19
+msgid "Unlocated physical copies"
+msgstr ""
+
+#: app/services/library_attention.py:20
+msgid "Incomplete periodical issues"
+msgstr ""
+
+#: app/services/library_attention.py:21
+msgid "Source checks"
+msgstr ""
+
+#: app/services/library_attention.py:22
+msgid "Confirmed unavailable source records"
+msgstr ""
+
+#: app/services/library_attention.py:23
+#: app/templates/fragments/connection_suggestions.html:3
+msgid "Review format connections"
+msgstr ""
+
+#: app/services/library_attention.py:52 app/templates/sources.html:20
+msgid "Never checked"
+msgstr ""
+
+#: app/services/library_attention.py:54
+msgid "Last attempt failed; cached records were retained"
+msgstr ""
+
+#: app/services/library_attention.py:56
+msgid "Last attempt was partial; absence was not confirmed"
+msgstr ""
+
+#: app/services/library_attention.py:58
+msgid "No successful complete check recorded"
+msgstr ""
+
+#: app/services/library_attention.py:60
+msgid "Last successful complete check is over seven days old"
+msgstr ""
+
+#: app/services/library_attention.py:62
+msgid "Last-success timestamp needs review"
+msgstr ""
+
+#: app/services/library_catalog.py:37
+msgid "Books and comics"
+msgstr ""
+
+#: app/services/library_catalog.py:40
+msgid "Video"
+msgstr ""
+
+#: app/services/library_catalog.py:41
+msgid "Games"
+msgstr ""
+
+#: app/services/library_catalog.py:44
+msgid "Any availability"
+msgstr ""
+
+#: app/services/library_catalog.py:44 app/services/library_catalog.py:57
+#: app/templates/fragments/available_here.html:13
+#: app/templates/fragments/library_results.html:2
+#: app/templates/source_detail.html:71
+msgid "Available"
+msgstr ""
+
+#: app/services/library_catalog.py:45 app/services/library_catalog.py:54
+msgid "Available digitally"
+msgstr ""
+
+#: app/services/library_catalog.py:45 app/services/library_catalog.py:55
+msgid "On my shelves"
+msgstr ""
+
+#: app/services/library_catalog.py:46 app/services/library_catalog.py:58
+#: app/templates/fragments/available_here.html:13
+#: app/templates/fragments/library_results.html:2
+msgid "Lent out"
+msgstr ""
+
+#: app/services/library_catalog.py:46
+msgid "Missing copies"
+msgstr ""
+
+#: app/services/library_catalog.py:47
+msgid "Unavailable holdings"
+msgstr ""
+
+#: app/services/library_catalog.py:47
+msgid "Unknown availability"
+msgstr ""
+
+#: app/services/library_catalog.py:51 app/services/metadata_review.py:39
+msgid "Series position"
+msgstr ""
+
+#: app/services/library_catalog.py:51
+msgid "Recently added"
+msgstr ""
+
+#: app/services/library_catalog.py:54 app/templates/browse.html:233
+#: app/templates/fragments/filter_counts_oob.html:26
+msgid "All"
+msgstr "全部"
+
+#: app/services/library_catalog.py:56 app/templates/browse.html:235
+#: app/templates/fragments/filter_counts_oob.html:28
+#: app/templates/fragments/item_card.html:7
+#: app/templates/fragments/item_row.html:51
+#: app/templates/fragments/library_results.html:20
+#: app/templates/item_detail.html:64 app/templates/library.html:80
+msgid "Wishlist"
+msgstr "心愿单"
+
+#: app/services/library_catalog.py:191
+msgid "Physical copies"
+msgstr ""
+
+#: app/services/library_catalog.py:192
+msgid "Audiobookshelf"
+msgstr ""
+
+#: app/services/library_catalog.py:192
+msgid "Komga"
+msgstr ""
+
+#: app/services/library_catalog.py:192
+msgid "RomM"
+msgstr ""
+
+#: app/services/metadata_review.py:34
+msgid "Authors"
+msgstr ""
+
+#: app/services/metadata_review.py:35 app/templates/item_edit.html:366
+msgid "Narrator"
+msgstr ""
+
+#: app/services/metadata_review.py:35 app/templates/item_edit.html:155
+msgid "Description"
+msgstr ""
+
+#: app/services/metadata_review.py:36
+msgid "Publication year"
+msgstr ""
+
+#: app/services/metadata_review.py:37
+msgid "Page count"
+msgstr ""
+
+#: app/services/metadata_review.py:37
+msgid "Duration (minutes)"
+msgstr ""
+
+#: app/services/metadata_review.py:40 app/templates/item_edit.html:233
+msgid "ISBN"
+msgstr ""
+
+#: app/services/metadata_review.py:40
+msgid "ISBN-10"
+msgstr ""
+
+#: app/services/metadata_review.py:41
+msgid "ASIN"
+msgstr ""
+
+#: app/services/metadata_review.py:41
+msgid "UPC"
+msgstr ""
+
+#: app/services/metadata_review.py:42
+msgid "Media type"
+msgstr ""
+
+#: app/services/metadata_review.py:83
+msgid "Unknown source"
+msgstr ""
+
+#: app/services/metadata_review.py:216
+msgid "Submit only the metadata review form; source values cannot be supplied"
+msgstr ""
+
+#: app/services/metadata_review.py:220
+msgid "Submit each metadata review field exactly once"
+msgstr ""
+
+#: app/services/metadata_review.py:234
+msgid "Choose a valid saved metadata source"
+msgstr ""
+
+#: app/services/metadata_review.py:236
+msgid "This field is read-only in metadata review; edit it on the item instead"
+msgstr ""
+
+#: app/services/metadata_review.py:238
+msgid "Choose Keep local or Follow source"
+msgstr ""
+
+#: app/services/metadata_review.py:240
+msgid "Reload Metadata sources before resolving this field"
+msgstr ""
+
+#: app/services/metadata_review.py:250
+msgid "This saved source observation no longer exists; reload Metadata sources"
+msgstr ""
+
+#: app/services/metadata_review.py:255
+msgid "This saved source value is not safe to resolve; edit the item directly"
+msgstr ""
+
+#: app/services/metadata_review.py:257
+msgid "The local value or source observation changed; reload Metadata sources and review again"
+msgstr ""
+
+#: app/services/metadata_review.py:261
+msgid "The source must provide a non-empty title before you can follow it"
+msgstr ""
+
+#: app/services/metadata_review.py:265
+msgid "This source value cannot be stored; edit the item directly instead"
+msgstr ""
 
 #: app/services/national.py:89
 msgid "English"
@@ -563,63 +1064,215 @@ msgstr "中文"
 msgid "Korean"
 msgstr "韩语"
 
+#: app/services/personal_library.py:17
+msgid "Planned"
+msgstr ""
+
+#: app/services/personal_library.py:20
+msgid "Paused"
+msgstr ""
+
+#: app/services/personal_library.py:21
+msgid "Abandoned"
+msgstr ""
+
+#: app/services/personal_library.py:125
+msgid "Submit each personal field only once"
+msgstr ""
+
+#: app/services/personal_library.py:128
+msgid "Personal fields must be text"
+msgstr ""
+
+#: app/services/personal_library.py:133
+msgid "Choose a valid personal status"
+msgstr ""
+
+#: app/services/personal_library.py:141
+#, python-format
+msgid "%(field)s must be a whole number from %(min)s to %(max)s"
+msgstr ""
+
+#: app/services/personal_library.py:142
+#: app/templates/fragments/personal_library.html:27
+#: app/templates/fragments/personal_library.html:55
+msgid "Progress"
+msgstr ""
+
+#: app/services/personal_library.py:142
+msgid "Rating"
+msgstr ""
+
+#: app/services/personal_library.py:153
+msgid "Choose a valid personal checkbox value"
+msgstr ""
+
+#: app/services/personal_library.py:156
+msgid "Keep personal notes to 5000 characters or fewer"
+msgstr ""
+
+#: app/services/personal_library.py:158
+msgid "Personal notes cannot contain null characters"
+msgstr ""
+
+#: app/services/source_connectors/__init__.py:26
+msgid "OPDS catalogue"
+msgstr ""
+
+#: app/services/source_connectors/__init__.py:28
+msgid "Jellyfin"
+msgstr ""
+
+#: app/services/source_connectors/__init__.py:30
+msgid "External library links"
+msgstr ""
+
+#: app/templates/activity.html:3 app/templates/activity.html:41
+#: app/templates/fragments/personal_library.html:21
+msgid "My activity"
+msgstr ""
+
+#: app/templates/activity.html:27
+#: app/templates/fragments/personal_library.html:5
+#: app/templates/fragments/personal_library.html:28
+#, python-format
+msgid "Rating: %(rating)s/5"
+msgstr ""
+
+#: app/templates/activity.html:42
+msgid "Your progress, plans and favourites — private to your account, separate from the shared catalogue."
+msgstr ""
+
+#: app/templates/activity.html:44
+msgid "Find something in Library"
+msgstr ""
+
+#: app/templates/activity.html:47
+#: app/templates/fragments/home_personal_library.html:7
+msgid "Continue"
+msgstr ""
+
+#: app/templates/activity.html:47
+msgid "Items you have marked in progress."
+msgstr ""
+
+#: app/templates/activity.html:47
+msgid "Nothing in progress. Open an item and set your personal status to get started."
+msgstr ""
+
+#: app/templates/activity.html:48
+#: app/templates/fragments/personal_library.html:30
+#: app/templates/fragments/personal_library.html:70
+msgid "My List / Up Next"
+msgstr ""
+
+#: app/templates/activity.html:48
+msgid "Items you explicitly added to My List or marked Planned. This is not the shared wishlist."
+msgstr ""
+
+#: app/templates/activity.html:48
+msgid "Your list is empty. Add an item from its personal activity panel."
+msgstr ""
+
+#: app/templates/activity.html:49
+msgid "Favourites"
+msgstr ""
+
+#: app/templates/activity.html:49
+msgid "Your personal favourites across all media."
+msgstr ""
+
+#: app/templates/activity.html:49
+msgid "No favourites yet."
+msgstr ""
+
+#: app/templates/activity.html:52
+#: app/templates/fragments/personal_library.html:99
+msgid "My recent history"
+msgstr ""
+
+#: app/templates/activity.html:61
+#: app/templates/fragments/personal_library.html:104
+msgid "Reset — previous state"
+msgstr ""
+
+#: app/templates/activity.html:61
+#: app/templates/fragments/personal_library.html:104
+msgid "Duplicate merged"
+msgstr ""
+
+#: app/templates/activity.html:61
+#: app/templates/fragments/personal_library.html:104
+#: app/templates/source_detail.html:17
+msgid "Updated"
+msgstr ""
+
+#: app/templates/activity.html:67
+#: app/templates/fragments/personal_library.html:110
+msgid "No personal activity yet."
+msgstr ""
+
 #: app/templates/base.html:60
 msgid "Main menu"
 msgstr "主菜单"
 
-#: app/templates/base.html:109
+#: app/templates/base.html:135
 msgid "Keyboard shortcuts (?)"
 msgstr "键盘快捷键 (?)"
 
-#: app/templates/base.html:115
+#: app/templates/base.html:141
 msgid "Keyboard Shortcuts"
 msgstr "键盘快捷键"
 
-#: app/templates/base.html:122
+#: app/templates/base.html:142
+msgid "Close keyboard shortcuts"
+msgstr ""
+
+#: app/templates/base.html:148
 msgid "Global"
 msgstr "全局"
 
-#: app/templates/base.html:124
+#: app/templates/base.html:150
 msgid "Focus search"
 msgstr "定位到搜索框"
 
-#: app/templates/base.html:125
+#: app/templates/base.html:151
 msgid "Go to Scan"
 msgstr "前往扫码"
 
-#: app/templates/base.html:126
+#: app/templates/base.html:152
 msgid "Go to Browse"
 msgstr "前往浏览"
 
-#: app/templates/base.html:127
+#: app/templates/base.html:153
 msgid "Show shortcuts"
 msgstr "显示快捷键"
 
-#: app/templates/base.html:131
+#: app/templates/base.html:157
 msgid "Browse Page"
 msgstr "浏览页"
 
-#: app/templates/base.html:133
+#: app/templates/base.html:159
 msgid "Toggle grid / list view"
 msgstr "切换网格 / 列表视图"
 
-#: app/templates/base.html:134
+#: app/templates/base.html:160
 msgid "Toggle select mode"
 msgstr "开关选择模式"
 
-#: app/templates/base.html:135
+#: app/templates/base.html:161
 msgid "Toggle filters (mobile)"
 msgstr "显示/隐藏筛选（移动端）"
 
-#: app/templates/base.html:136 app/templates/fragments/item_grid.html:61
+#: app/templates/base.html:162 app/templates/fragments/item_grid.html:61
 msgid "Clear all filters"
 msgstr "清除全部筛选"
 
-#: app/templates/base.html:137
+#: app/templates/base.html:163
 msgid "Exit select / blur search"
 msgstr "退出选择 / 离开搜索框"
 
-#: app/templates/base.html:142
+#: app/templates/base.html:168
 msgid "Shortcuts are disabled when typing in inputs"
 msgstr "在输入框中打字时快捷键不生效"
 
@@ -630,6 +1283,7 @@ msgstr "移动到位置…"
 #: app/templates/browse.html:19 app/templates/browse.html:27
 #: app/templates/browse.html:37 app/templates/browse.html:44
 #: app/templates/browse.html:59 app/templates/browse.html:74
+#: app/templates/needs_attention.html:38
 msgid "Apply"
 msgstr "应用"
 
@@ -744,22 +1398,12 @@ msgstr "全部位置"
 msgid "No location"
 msgstr ""
 
-#: app/templates/browse.html:233
-#: app/templates/fragments/filter_counts_oob.html:26
-msgid "All"
-msgstr "全部"
-
 #: app/templates/browse.html:234
 #: app/templates/fragments/filter_counts_oob.html:27
+#: app/templates/fragments/library_results.html:19
+#: app/templates/library.html:75
 msgid "Owned"
 msgstr "已拥有"
-
-#: app/templates/browse.html:235
-#: app/templates/fragments/filter_counts_oob.html:28
-#: app/templates/fragments/item_card.html:7
-#: app/templates/fragments/item_row.html:51 app/templates/item_detail.html:57
-msgid "Wishlist"
-msgstr "心愿单"
 
 #: app/templates/browse.html:236
 #: app/templates/fragments/filter_counts_oob.html:29
@@ -820,6 +1464,22 @@ msgstr "年份（从旧到新）"
 msgid "Clear all"
 msgstr "全部清除"
 
+#: app/templates/home.html:8
+msgid "Open Library to find every format and source, or Browse to organise catalogue records."
+msgstr ""
+
+#: app/templates/home.html:12 app/templates/sources.html:9
+msgid "Open library"
+msgstr ""
+
+#: app/templates/home.html:94
+msgid "Connect libraries and review availability and sync health."
+msgstr ""
+
+#: app/templates/home.html:99
+msgid "Review missing metadata, unavailable sources and suggested format connections."
+msgstr ""
+
 #: app/templates/item_detail.html:24
 msgid "English cover from another edition"
 msgstr ""
@@ -837,245 +1497,253 @@ msgstr ""
 msgid "Find cover"
 msgstr ""
 
-#: app/templates/item_detail.html:58
+#: app/templates/item_detail.html:51
+msgid "Source artwork is paused after removal. You can still choose a cover by hand."
+msgstr ""
+
+#: app/templates/item_detail.html:54
+msgid "Allow missing-cover sync again"
+msgstr ""
+
+#: app/templates/item_detail.html:65
 #, python-format
 msgid "List price %(price)s"
 msgstr ""
 
-#: app/templates/item_detail.html:58 app/templates/item_detail.html:119
+#: app/templates/item_detail.html:65 app/templates/item_detail.html:126
 #, python-format
 msgid "as of %(date)s"
 msgstr ""
 
-#: app/templates/item_detail.html:58
+#: app/templates/item_detail.html:65
 #, python-format
 msgid "was %(price)s on %(date)s"
 msgstr ""
 
-#: app/templates/item_detail.html:76
+#: app/templates/item_detail.html:83
 msgid "Type:"
 msgstr ""
 
-#: app/templates/item_detail.html:79
+#: app/templates/item_detail.html:86
 msgid "Language:"
 msgstr ""
 
-#: app/templates/item_detail.html:82
+#: app/templates/item_detail.html:89
 msgid "Platform:"
 msgstr ""
 
-#: app/templates/item_detail.html:85
+#: app/templates/item_detail.html:92
 msgid "Publisher:"
 msgstr ""
 
-#: app/templates/item_detail.html:88
+#: app/templates/item_detail.html:95
 msgid "Year:"
 msgstr ""
 
-#: app/templates/item_detail.html:91
+#: app/templates/item_detail.html:98
 msgid "Pages:"
 msgstr ""
 
-#: app/templates/item_detail.html:94
+#: app/templates/item_detail.html:101
 msgid "ISBN:"
 msgstr ""
 
-#: app/templates/item_detail.html:97
+#: app/templates/item_detail.html:104
 msgid "Series:"
 msgstr ""
 
-#: app/templates/item_detail.html:104
+#: app/templates/item_detail.html:111
 #, python-format
 msgid "you own %(owned)s of 1–%(top)s"
 msgstr ""
 
-#: app/templates/item_detail.html:104
+#: app/templates/item_detail.html:111
 msgid "missing"
 msgstr ""
 
-#: app/templates/item_detail.html:105
+#: app/templates/item_detail.html:112
 #, python-format
 msgid "%(count)s in series (Hardcover)"
 msgstr ""
 
-#: app/templates/item_detail.html:110
+#: app/templates/item_detail.html:117
 msgid "Narrator:"
 msgstr ""
 
-#: app/templates/item_detail.html:113
+#: app/templates/item_detail.html:120
 msgid "Duration:"
 msgstr ""
 
-#: app/templates/item_detail.html:117
+#: app/templates/item_detail.html:124
 msgid "Value:"
 msgstr ""
 
-#: app/templates/item_detail.html:117
+#: app/templates/item_detail.html:124
 msgid "(manual)"
 msgstr ""
 
-#: app/templates/item_detail.html:119
+#: app/templates/item_detail.html:126
 msgid "Est. Value:"
 msgstr ""
 
-#: app/templates/item_detail.html:125
+#: app/templates/item_detail.html:136
 msgid "Synopsis"
 msgstr ""
 
-#: app/templates/item_detail.html:132
+#: app/templates/item_detail.html:143
 msgid "Read more"
 msgstr ""
 
-#: app/templates/item_detail.html:132
+#: app/templates/item_detail.html:143
 msgid "Show less"
 msgstr ""
 
-#: app/templates/item_detail.html:141
+#: app/templates/item_detail.html:152
 msgid "Fetch synopsis"
 msgstr ""
 
-#: app/templates/item_detail.html:142
+#: app/templates/item_detail.html:153
 msgid "Searching…"
 msgstr ""
 
-#: app/templates/item_detail.html:144
+#: app/templates/item_detail.html:155
 msgid "No synopsis found on Open Library or Google Books."
 msgstr ""
 
-#: app/templates/item_detail.html:154
+#: app/templates/item_detail.html:165
 msgid "Loading related media…"
 msgstr ""
 
-#: app/templates/item_detail.html:159
+#: app/templates/item_detail.html:174
 msgid "Notes:"
 msgstr ""
 
-#: app/templates/item_detail.html:168
+#: app/templates/item_detail.html:183
 msgid "Read on Audiobookshelf"
 msgstr ""
 
-#: app/templates/item_detail.html:168
+#: app/templates/item_detail.html:183
 msgid "Listen on Audiobookshelf"
 msgstr ""
 
-#: app/templates/item_detail.html:184
+#: app/templates/item_detail.html:199
 msgid "Synced to Hardcover"
 msgstr ""
 
-#: app/templates/item_detail.html:184
+#: app/templates/item_detail.html:199
 msgid "Push to Hardcover"
 msgstr ""
 
-#: app/templates/item_detail.html:185
+#: app/templates/item_detail.html:200
 msgid "Syncing..."
 msgstr ""
 
-#: app/templates/item_detail.html:191
+#: app/templates/item_detail.html:206
 msgid "Added to your Hardcover library"
 msgstr ""
 
-#: app/templates/item_detail.html:203
+#: app/templates/item_detail.html:218
 #, python-format
 msgid "Also in Audiobookshelf (%(type)s)"
 msgstr ""
 
-#: app/templates/item_detail.html:212
-msgid "Also available as:"
+#: app/templates/item_detail.html:234
+msgid "Shared catalogue status"
 msgstr ""
 
-#: app/templates/item_detail.html:238
+#: app/templates/item_detail.html:246
 msgid "Lending"
 msgstr ""
 
-#: app/templates/item_detail.html:241
+#: app/templates/item_detail.html:249
 msgid "Lent to"
 msgstr ""
 
-#: app/templates/item_detail.html:242
+#: app/templates/item_detail.html:250
 #, python-format
 msgid "on %(date)s"
 msgstr ""
 
-#: app/templates/item_detail.html:244
+#: app/templates/item_detail.html:252
 msgid "Due:"
 msgstr ""
 
-#: app/templates/item_detail.html:250
+#: app/templates/item_detail.html:258
 msgid "Check In"
 msgstr ""
 
-#: app/templates/item_detail.html:258
+#: app/templates/item_detail.html:266
 msgid "Lend this item"
 msgstr ""
 
-#: app/templates/item_detail.html:269
+#: app/templates/item_detail.html:277
 msgid "2 weeks"
 msgstr ""
 
-#: app/templates/item_detail.html:270
+#: app/templates/item_detail.html:278
 msgid "1 week"
 msgstr ""
 
-#: app/templates/item_detail.html:271
+#: app/templates/item_detail.html:279
 msgid "1 month"
 msgstr ""
 
-#: app/templates/item_detail.html:272
+#: app/templates/item_detail.html:280
 msgid "No due date"
 msgstr ""
 
-#: app/templates/item_detail.html:274
+#: app/templates/item_detail.html:282
 msgid "Check Out"
 msgstr ""
 
-#: app/templates/item_detail.html:277
+#: app/templates/item_detail.html:285
 msgid "Add borrowers in <a href=\"/settings\" class=\"text-shelf-accent2\">Settings</a> first."
 msgstr ""
 
-#: app/templates/item_detail.html:284
+#: app/templates/item_detail.html:292
 msgid "Checkout history"
 msgstr ""
 
-#: app/templates/item_detail.html:291
+#: app/templates/item_detail.html:299
 #, python-format
 msgid "returned %(date)s"
 msgstr ""
 
-#: app/templates/item_detail.html:293
+#: app/templates/item_detail.html:301
 msgid "out"
 msgstr ""
 
 #: app/templates/fragments/item_copies.html:87
 #: app/templates/fragments/item_copies.html:90
 #: app/templates/fragments/item_copies.html:95
-#: app/templates/item_detail.html:307
+#: app/templates/item_detail.html:315
 msgid "Edit"
 msgstr ""
 
-#: app/templates/item_detail.html:310
+#: app/templates/item_detail.html:318
 msgid "Add another like this"
 msgstr ""
 
-#: app/templates/item_detail.html:316
+#: app/templates/item_detail.html:324 app/templates/library.html:131
 msgid "Delete"
 msgstr ""
 
-#: app/templates/item_detail.html:322
+#: app/templates/item_detail.html:330
 #, python-format
 msgid "Added %(date)s"
 msgstr ""
 
-#: app/templates/item_detail.html:322
+#: app/templates/item_detail.html:330
 #, python-format
 msgid "Updated %(date)s"
 msgstr ""
 
-#: app/templates/item_detail.html:322
+#: app/templates/item_detail.html:330
 #, python-format
 msgid "via %(source)s"
 msgstr ""
 
-#: app/templates/item_detail.html:327
+#: app/templates/item_detail.html:335
 msgid "Integration IDs"
 msgstr ""
 
@@ -1088,7 +1756,7 @@ msgstr ""
 msgid "Back to item"
 msgstr ""
 
-#: app/templates/item_edit.html:13
+#: app/templates/item_edit.html:13 app/templates/needs_attention.html:70
 msgid "Edit item"
 msgstr ""
 
@@ -1178,7 +1846,10 @@ msgstr ""
 msgid "Media Type"
 msgstr ""
 
-#: app/templates/item_edit.html:126
+#: app/templates/fragments/available_here.html:13
+#: app/templates/fragments/library_results.html:2
+#: app/templates/fragments/metadata_provenance.html:23
+#: app/templates/item_edit.html:126 app/templates/source_detail.html:71
 msgid "Unknown"
 msgstr ""
 
@@ -1193,10 +1864,6 @@ msgstr ""
 
 #: app/templates/item_edit.html:150
 msgid "Date Finished"
-msgstr ""
-
-#: app/templates/item_edit.html:155
-msgid "Description"
 msgstr ""
 
 #: app/templates/item_edit.html:161
@@ -1246,10 +1913,6 @@ msgstr ""
 
 #: app/templates/item_edit.html:230
 msgid "Identifiers printed on this edition."
-msgstr ""
-
-#: app/templates/item_edit.html:233
-msgid "ISBN"
 msgstr ""
 
 #: app/templates/item_edit.html:237
@@ -1314,10 +1977,6 @@ msgstr ""
 msgid "Fields specific to the selected media type."
 msgstr ""
 
-#: app/templates/item_edit.html:366
-msgid "Narrator"
-msgstr ""
-
 #: app/templates/item_edit.html:367
 msgid "Duration (min)"
 msgstr ""
@@ -1337,6 +1996,155 @@ msgstr ""
 msgid "Tags save as you add or remove them."
 msgstr ""
 
+#: app/templates/library.html:8
+msgid "Your local catalogue, physical copies and synced digital holdings in one place."
+msgstr ""
+
+#: app/templates/library.html:11
+msgid "Connected library"
+msgstr ""
+
+#: app/templates/library.html:21
+msgid "Library presets"
+msgstr ""
+
+#: app/templates/library.html:28
+msgid "Search your library"
+msgstr ""
+
+#: app/templates/library.html:30
+msgid "Title, creator, ISBN, UPC, ASIN, narrator, series, publisher, tag or external ID"
+msgstr ""
+
+#: app/templates/library.html:39
+msgid "Filters and display"
+msgstr ""
+
+#: app/templates/library.html:39
+#, python-format
+msgid "%(count)s active option"
+msgid_plural "%(count)s active options"
+msgstr[0] ""
+
+#: app/templates/fragments/related_media_search.html:15
+#: app/templates/library.html:41
+msgid "Format"
+msgstr ""
+
+#: app/templates/library.html:43
+msgid "All formats"
+msgstr ""
+
+#: app/templates/library.html:47
+msgid "Media family"
+msgstr ""
+
+#: app/templates/library.html:49
+msgid "All media"
+msgstr ""
+
+#: app/templates/library.html:55
+msgid "All series"
+msgstr ""
+
+#: app/templates/library.html:60
+msgid "Holding source"
+msgstr ""
+
+#: app/templates/library.html:62
+msgid "All sources"
+msgstr ""
+
+#: app/templates/library.html:63
+msgid "disabled; cached"
+msgstr ""
+
+#: app/templates/library.html:64
+msgid "Selected source is unavailable"
+msgstr ""
+
+#: app/templates/library.html:67
+msgid "Availability"
+msgstr ""
+
+#: app/templates/library.html:72
+msgid "Catalogue ownership"
+msgstr ""
+
+#: app/templates/library.html:74
+msgid "Any ownership"
+msgstr ""
+
+#: app/templates/library.html:76
+msgid "Not owned"
+msgstr ""
+
+#: app/templates/library.html:77
+msgid "Neither owned nor wishlisted"
+msgstr ""
+
+#: app/templates/library.html:82
+msgid "Any wishlist state"
+msgstr ""
+
+#: app/templates/library.html:83
+msgid "On wishlist"
+msgstr ""
+
+#: app/templates/library.html:84
+msgid "Not on wishlist"
+msgstr ""
+
+#: app/templates/library.html:87
+msgid "View"
+msgstr ""
+
+#: app/templates/library.html:97
+msgid "Results per page"
+msgstr ""
+
+#: app/templates/library.html:105
+msgid "Apply filters"
+msgstr ""
+
+#: app/templates/library.html:106
+msgid "Clear filters"
+msgstr ""
+
+#: app/templates/library.html:107
+msgid "Ownership alone does not mean a physical copy is on a shelf."
+msgstr ""
+
+#: app/templates/library.html:113
+msgid "Personal saved views"
+msgstr ""
+
+#: app/templates/library.html:115
+msgid "Saved views belong to your account. Saving an existing name replaces its filters."
+msgstr ""
+
+#: app/templates/library.html:119
+msgid "View name"
+msgstr ""
+
+#: app/templates/library.html:122
+msgid "Save current view"
+msgstr ""
+
+#: app/templates/library.html:131
+#, python-format
+msgid "Delete saved view: %(name)s"
+msgstr ""
+
+#: app/templates/library.html:136
+msgid "No personal views saved yet."
+msgstr ""
+
+#: app/templates/library.html:137
+#, python-format
+msgid "Up to %(count)s saved views per account."
+msgstr ""
+
 #: app/templates/login.html:6 app/templates/login.html:37
 msgid "Sign In"
 msgstr "登录"
@@ -1346,14 +2154,125 @@ msgid "Sign in to your library"
 msgstr "登录你的书库"
 
 #: app/templates/fragments/account_menu.html:100 app/templates/login.html:24
-#: app/templates/setup.html:27
+#: app/templates/setup.html:27 app/templates/source_detail.html:37
 msgid "Username"
 msgstr "用户名"
 
 #: app/templates/fragments/account_menu.html:91 app/templates/login.html:30
-#: app/templates/setup.html:40
+#: app/templates/setup.html:40 app/templates/source_detail.html:38
 msgid "Password"
 msgstr "密码"
+
+#: app/templates/needs_attention.html:2 app/templates/needs_attention.html:6
+msgid "Needs attention"
+msgstr ""
+
+#: app/templates/needs_attention.html:7
+msgid "Review catalogue quality and cached source information. Opening this page makes no network requests and changes no records. Trash is excluded."
+msgstr ""
+
+#: app/templates/needs_attention.html:9
+msgid "Open cover review"
+msgstr ""
+
+#: app/templates/needs_attention.html:11
+msgid "Review duplicate records (admin)"
+msgstr ""
+
+#: app/templates/needs_attention.html:16
+msgid "Attention queues"
+msgstr ""
+
+#: app/templates/needs_attention.html:22
+msgid "Physical copies, not catalogue ownership"
+msgstr ""
+
+#: app/templates/needs_attention.html:23
+msgid "Bounded evidence scan, not an exhaustive total"
+msgstr ""
+
+#: app/templates/needs_attention.html:29
+msgid "Queue"
+msgstr ""
+
+#: app/templates/needs_attention.html:31
+msgid "All queues"
+msgstr ""
+
+#: app/templates/needs_attention.html:35
+msgid "Rows per queue"
+msgstr ""
+
+#: app/templates/needs_attention.html:47
+msgid "Only undismissed missing covers appear. Choose a cover, upload one, or dismiss it in cover review; nothing is retried automatically here."
+msgstr ""
+
+#: app/templates/needs_attention.html:48
+msgid "Review missing named creators where meaningful. Periodical issues do not require an author byline; music release artist credits count."
+msgstr ""
+
+#: app/templates/needs_attention.html:49
+msgid "These are existing physical copies without a location. A remote holding or an owned catalogue record alone is not a physical copy."
+msgstr ""
+
+#: app/templates/needs_attention.html:50
+msgid "An issue needs a publication and an issue number, issue date or printed cover-date label. Check the item metadata rather than guessing an issue."
+msgstr ""
+
+#: app/templates/needs_attention.html:51
+msgid "Enabled syncable sources that were never checked, returned a partial result or error, or have no recent successful complete check. Configured Audiobookshelf, Komga and RomM integrations are included; manual availability links need no sync. Stale means over seven days since the last success, not since the last attempt."
+msgstr ""
+
+#: app/templates/needs_attention.html:52
+msgid "Only explicitly confirmed unavailable source records appear. A failed or partial check does not prove an item disappeared. Catalogue records are retained."
+msgstr ""
+
+#: app/templates/needs_attention.html:62 app/templates/needs_attention.html:77
+msgid "Last successful complete check:"
+msgstr ""
+
+#: app/templates/needs_attention.html:62 app/templates/needs_attention.html:63
+#: app/templates/needs_attention.html:77 app/templates/needs_attention.html:78
+#: app/templates/source_detail.html:14 app/templates/source_detail.html:15
+#: app/templates/sources.html:21 app/templates/sources.html:38
+msgid "Never"
+msgstr ""
+
+#: app/templates/needs_attention.html:63 app/templates/needs_attention.html:78
+msgid "Last attempt:"
+msgstr ""
+
+#: app/templates/needs_attention.html:69
+#, python-format
+msgid "Copy %(number)s"
+msgstr ""
+
+#: app/templates/needs_attention.html:72
+msgid "Review missing covers"
+msgstr ""
+
+#: app/templates/fragments/available_here.html:15
+#: app/templates/needs_attention.html:76
+msgid "Last seen:"
+msgstr ""
+
+#: app/templates/fragments/available_here.html:15
+#: app/templates/needs_attention.html:76
+msgid "Not recorded"
+msgstr ""
+
+#: app/templates/needs_attention.html:85
+msgid "Nothing in this queue."
+msgstr ""
+
+#: app/templates/needs_attention.html:86
+#, python-format
+msgid "Showing the first %(shown)s of %(total)s. Work through these or increase the row limit (maximum 100)."
+msgstr ""
+
+#: app/templates/scan.html:235
+msgid "Digital video and television can be added by hand or imported from Sources. Title lookup is not available for these formats."
+msgstr ""
 
 #: app/templates/setup.html:6
 msgid "Welcome"
@@ -1407,6 +2326,268 @@ msgstr "创建账号"
 #: app/templates/setup.html:85
 msgid "This will be the admin account with full access to your library."
 msgstr "这将是管理员账号，拥有书库的全部权限。"
+
+#: app/templates/source_detail.html:2 app/templates/source_detail.html:6
+#: app/templates/sources.html:2 app/templates/sources.html:6
+msgid "Connected libraries"
+msgstr ""
+
+#: app/templates/source_detail.html:8
+msgid "Read-only. Shelf never changes or downloads files from this server."
+msgstr ""
+
+#: app/templates/source_detail.html:9
+msgid "Imported catalogue records are visible to every Shelf account. Select only the source libraries you want to share in this catalogue."
+msgstr ""
+
+#: app/templates/source_detail.html:13
+msgid "Status and report"
+msgstr ""
+
+#: app/templates/source_detail.html:14 app/templates/sources.html:20
+#: app/templates/sources.html:38
+msgid "Complete"
+msgstr ""
+
+#: app/templates/source_detail.html:14 app/templates/sources.html:20
+#: app/templates/sources.html:38
+msgid "Partial"
+msgstr ""
+
+#: app/templates/source_detail.html:14 app/templates/sources.html:20
+#: app/templates/sources.html:38
+msgid "Error"
+msgstr ""
+
+#: app/templates/source_detail.html:14 app/templates/sources.html:38
+msgid "Syncing"
+msgstr ""
+
+#: app/templates/source_detail.html:14 app/templates/sources.html:19
+#: app/templates/sources.html:35
+msgid "Disabled"
+msgstr ""
+
+#: app/templates/source_detail.html:15 app/templates/sources.html:21
+msgid "Last attempt"
+msgstr ""
+
+#: app/templates/source_detail.html:15 app/templates/sources.html:21
+#: app/templates/sources.html:38
+msgid "Last complete success"
+msgstr ""
+
+#: app/templates/source_detail.html:16 app/templates/sources.html:22
+msgid "Error code"
+msgstr ""
+
+#: app/templates/source_detail.html:17
+msgid "Fetched"
+msgstr ""
+
+#: app/templates/source_detail.html:17 app/templates/sources.html:42
+msgid "Linked"
+msgstr ""
+
+#: app/templates/fragments/available_here.html:13
+#: app/templates/fragments/library_results.html:2
+#: app/templates/source_detail.html:17 app/templates/source_detail.html:71
+#: app/templates/sources.html:42
+msgid "Unavailable"
+msgstr ""
+
+#: app/templates/source_detail.html:17
+msgid "In Trash"
+msgstr ""
+
+#: app/templates/source_detail.html:17
+msgid "Skipped"
+msgstr ""
+
+#: app/templates/source_detail.html:18
+msgid "Warnings"
+msgstr ""
+
+#: app/templates/source_detail.html:21
+msgid "Test connection"
+msgstr ""
+
+#: app/templates/source_detail.html:22
+msgid "Sync now"
+msgstr ""
+
+#: app/templates/source_detail.html:23
+msgid "Manual links only. No remote catalogue test or sync is available."
+msgstr ""
+
+#: app/templates/source_detail.html:24
+msgid "Disable source"
+msgstr ""
+
+#: app/templates/source_detail.html:26
+msgid "Disabling removes opening actions and shows cached holdings as Unknown without deleting catalogue entries. Only complete successful syncs mark missing remote records unavailable. Items in Trash are never restored."
+msgstr ""
+
+#: app/templates/source_detail.html:29
+msgid "Configuration"
+msgstr ""
+
+#: app/templates/source_detail.html:33 app/templates/sources.html:53
+msgid "Name"
+msgstr ""
+
+#: app/templates/source_detail.html:34 app/templates/sources.html:54
+msgid "Server or OPDS feed URL"
+msgstr ""
+
+#: app/templates/source_detail.html:35
+msgid "Browser URL prefix (optional)"
+msgstr ""
+
+#: app/templates/source_detail.html:40
+msgid "API or access token"
+msgstr ""
+
+#: app/templates/source_detail.html:43
+msgid "Credentials saved. Leave all credential fields blank to keep them, or enter a complete replacement."
+msgstr ""
+
+#: app/templates/source_detail.html:43
+msgid "No credentials saved."
+msgstr ""
+
+#: app/templates/source_detail.html:44
+msgid "Clear saved credentials"
+msgstr ""
+
+#: app/templates/source_detail.html:45
+msgid "Options JSON"
+msgstr ""
+
+#: app/templates/source_detail.html:46
+msgid "OPDS options: media_type (default ebook), max_pages (1–50), max_entries (1–5000), max_depth (1–4). The configured feed and scoped subsections define the catalogue. A partial traversal never marks missing entries unavailable."
+msgstr ""
+
+#: app/templates/source_detail.html:46
+msgid "Jellyfin options: library_ids (optional list of library IDs), user_id (required for server API keys). Only supported media are imported. Shelf imports at most 5000 records per pass; select libraries to narrow a larger catalogue."
+msgstr ""
+
+#: app/templates/source_detail.html:48 app/templates/sources.html:35
+msgid "Enabled"
+msgstr ""
+
+#: app/templates/source_detail.html:49
+msgid "Save settings"
+msgstr ""
+
+#: app/templates/source_detail.html:54
+msgid "Attach external availability"
+msgstr ""
+
+#: app/templates/source_detail.html:57
+msgid "Catalogue item ID"
+msgstr ""
+
+#: app/templates/source_detail.html:58 app/templates/source_detail.html:72
+msgid "External record ID"
+msgstr ""
+
+#: app/templates/source_detail.html:59
+msgid "Open URL (no credentials or tokens)"
+msgstr ""
+
+#: app/templates/source_detail.html:60
+msgid "Format (optional)"
+msgstr ""
+
+#: app/templates/source_detail.html:61
+msgid "Attach link"
+msgstr ""
+
+#: app/templates/source_detail.html:66
+msgid "Live catalogue records"
+msgstr ""
+
+#: app/templates/source_detail.html:67
+msgid "Up to 2000 records shown. Trashed catalogue entries are hidden."
+msgstr ""
+
+#: app/templates/source_detail.html:73
+msgid "Open in source"
+msgstr ""
+
+#: app/templates/source_detail.html:77
+msgid "Remove link only"
+msgstr ""
+
+#: app/templates/source_detail.html:81
+msgid "No live records attached to this source."
+msgstr ""
+
+#: app/templates/sources.html:7
+msgid "Read-only availability from your other libraries. Imports are not owned or wishlisted. Your local edits and physical copies stay unchanged."
+msgstr ""
+
+#: app/templates/sources.html:8
+msgid "Imported catalogue records are visible to every Shelf account. Choose source libraries accordingly; personal activity remains private to each account."
+msgstr ""
+
+#: app/templates/sources.html:14
+msgid "Existing integrations"
+msgstr ""
+
+#: app/templates/sources.html:15
+msgid "These integrations retain their existing configuration. Health describes the last recorded sync, not a live connection check."
+msgstr ""
+
+#: app/templates/sources.html:19
+msgid "Configured"
+msgstr ""
+
+#: app/templates/sources.html:19
+msgid "Not configured"
+msgstr ""
+
+#: app/templates/sources.html:19 app/templates/sources.html:36
+#, python-format
+msgid "Cached records: %(count)s"
+msgstr ""
+
+#: app/templates/sources.html:20 app/templates/sources.html:38
+msgid "Sync status"
+msgstr ""
+
+#: app/templates/sources.html:23
+msgid "Configure in Settings"
+msgstr ""
+
+#: app/templates/sources.html:28
+msgid "Additional sources"
+msgstr ""
+
+#: app/templates/sources.html:40
+msgid "Manually attached external links. This source does not support sync."
+msgstr ""
+
+#: app/templates/sources.html:44
+msgid "No connected libraries yet."
+msgstr ""
+
+#: app/templates/sources.html:48 app/templates/sources.html:56
+msgid "Add source"
+msgstr ""
+
+#: app/templates/sources.html:52
+msgid "Provider"
+msgstr ""
+
+#: app/templates/sources.html:55
+msgid "LAN and localhost servers are supported. External library links may leave the server URL empty. Credentials and query strings must not be included in server URLs."
+msgstr ""
+
+#: app/templates/sources.html:58
+msgid "After adding a source, configure its credentials and scope on its detail page before testing or syncing."
+msgstr ""
 
 #: app/templates/fragments/account_menu.html:3
 msgid "Account menu"
@@ -1501,6 +2682,27 @@ msgstr "最近使用"
 msgid "Revoke"
 msgstr "撤销"
 
+#: app/templates/fragments/also_available_as.html:4
+msgid "Also available as:"
+msgstr ""
+
+#: app/templates/fragments/available_here.html:2
+msgid "Available here"
+msgstr ""
+
+#: app/templates/fragments/available_here.html:3
+msgid "Local copies and cached source records. No live connection check."
+msgstr ""
+
+#: app/templates/fragments/available_here.html:13
+#: app/templates/fragments/library_results.html:2
+msgid "Missing"
+msgstr ""
+
+#: app/templates/fragments/available_here.html:25
+msgid "No physical copies or connected source records are recorded for these editions."
+msgstr ""
+
 #: app/templates/fragments/book_search_results.html:31
 #: app/templates/fragments/dvd_search_results.html:29
 #: app/templates/fragments/game_search_results.html:31
@@ -1516,6 +2718,59 @@ msgstr ""
 #: app/templates/fragments/dvd_search_results.html:43
 #: app/templates/fragments/game_search_results.html:45
 msgid "Add it by hand"
+msgstr ""
+
+#: app/templates/fragments/connection_suggestions.html:4
+msgid "Suggestions use exact identifiers or a whole title and subtitle with a shared named creator, only within compatible book formats or music releases. Check the evidence and both records before accepting each pair."
+msgstr ""
+
+#: app/templates/fragments/connection_suggestions.html:5
+msgid "Acceptance only adds a format link. It never merges records, changes metadata or guesses adaptations. To undo, open either item and choose Unlink under Related Media."
+msgstr ""
+
+#: app/templates/fragments/connection_suggestions.html:6
+#, python-format
+msgid "The scan returns at most %(count)s suggestions and has a bounded candidate budget; it is not an exhaustive duplicate finder."
+msgstr ""
+
+#: app/templates/fragments/connection_suggestions.html:12
+msgid "Format connection saved. No records were merged. Undo with Unlink under Related Media on either item:"
+msgstr ""
+
+#: app/templates/fragments/connection_suggestions.html:13
+msgid "Suggestion dismissed for this evidence. Metadata changes can make it appear again:"
+msgstr ""
+
+#: app/templates/fragments/connection_suggestions.html:14
+msgid "Dismissal removed. Review the suggestion before accepting:"
+msgstr ""
+
+#: app/templates/fragments/connection_suggestions.html:38
+msgid "Accept format connection"
+msgstr ""
+
+#: app/templates/fragments/connection_suggestions.html:38
+msgid "Not the same work"
+msgstr ""
+
+#: app/templates/fragments/connection_suggestions.html:49
+msgid "No reviewable suggestions in this bounded scan."
+msgstr ""
+
+#: app/templates/fragments/connection_suggestions.html:50
+msgid "The scan or display limit was reached. Review these first; other eligible pairs may not be shown."
+msgstr ""
+
+#: app/templates/fragments/connection_suggestions.html:53
+msgid "Dismissed with the same current evidence"
+msgstr ""
+
+#: app/templates/fragments/connection_suggestions.html:67
+msgid "Restore suggestion"
+msgstr ""
+
+#: app/templates/fragments/connection_suggestions.html:70
+msgid "No current dismissals in this bounded scan."
 msgstr ""
 
 #: app/templates/fragments/cover_review_item.html:18
@@ -1644,6 +2899,23 @@ msgstr ""
 
 #: app/templates/fragments/hardcover_search_results.html:52
 msgid "Not in your library"
+msgstr ""
+
+#: app/templates/fragments/home_personal_library.html:3
+msgid "Your library"
+msgstr ""
+
+#: app/templates/fragments/home_personal_library.html:4
+#: app/templates/fragments/personal_library.html:22
+msgid "All my activity"
+msgstr ""
+
+#: app/templates/fragments/home_personal_library.html:7
+msgid "Up Next"
+msgstr ""
+
+#: app/templates/fragments/home_personal_library.html:25
+msgid "Open an item to set your personal status or add it to My List. Your plans are separate from the shared wishlist."
 msgstr ""
 
 #: app/templates/fragments/item_card.html:12
@@ -1793,6 +3065,121 @@ msgstr "开始扫码录入图书"
 msgid "+ tag"
 msgstr ""
 
+#: app/templates/fragments/library_results.html:15
+msgid "Matches filters"
+msgstr ""
+
+#: app/templates/fragments/library_results.html:15
+msgid "Other format — does not match filters"
+msgstr ""
+
+#: app/templates/fragments/library_results.html:21
+#, python-format
+msgid "%(count)s physical copy"
+msgid_plural "%(count)s physical copies"
+msgstr[0] ""
+
+#: app/templates/fragments/library_results.html:25
+msgid "Copies and sources"
+msgstr ""
+
+#: app/templates/fragments/library_results.html:29
+msgid "Physical copy"
+msgstr ""
+
+#: app/templates/fragments/library_results.html:32
+#, python-format
+msgid "Last seen: %(when)s"
+msgstr ""
+
+#: app/templates/fragments/library_results.html:37
+msgid "No recorded holdings · availability unknown"
+msgstr ""
+
+#: app/templates/fragments/library_results.html:41
+msgid "Library results"
+msgstr ""
+
+#: app/templates/fragments/library_results.html:43
+#: app/templates/fragments/library_results.html:87
+#, python-format
+msgid "%(count)s matching item"
+msgid_plural "%(count)s matching items"
+msgstr[0] ""
+
+#: app/templates/fragments/library_results.html:43
+msgid "in"
+msgstr ""
+
+#: app/templates/fragments/library_results.html:43
+#: app/templates/fragments/library_results.html:87
+#, python-format
+msgid "%(count)s group"
+msgid_plural "%(count)s groups"
+msgstr[0] ""
+
+#: app/templates/fragments/library_results.html:44
+msgid "Result view"
+msgstr ""
+
+#: app/templates/fragments/library_results.html:48
+msgid "Availability uses local copies and cached source records, not a live connection check. All filters must match the same item; source and availability must match the same holding."
+msgstr ""
+
+#: app/templates/fragments/library_results.html:51
+msgid "All local series"
+msgstr ""
+
+#: app/templates/fragments/library_results.html:53
+msgid "Numeric series order; unknown positions last."
+msgstr ""
+
+#: app/templates/fragments/library_results.html:57
+msgid "Groups use explicit format links only. Every live edition is shown, including editions that do not match your filters."
+msgstr ""
+
+#: app/templates/fragments/library_results.html:64
+#, python-format
+msgid "%(formats)s live editions · %(matches)s matching — show other formats"
+msgstr ""
+
+#: app/templates/fragments/library_results.html:78
+msgid "Series are grouped by their local names, preserving punctuation and scripts. No remote series lookup is needed."
+msgstr ""
+
+#: app/templates/fragments/library_results.html:88
+msgid "Explore series"
+msgstr ""
+
+#: app/templates/fragments/library_results.html:96
+msgid "No matching results"
+msgstr ""
+
+#: app/templates/fragments/library_results.html:97
+msgid "Try fewer filters or sync a source. Only locally catalogued, live items are searched."
+msgstr ""
+
+#: app/templates/fragments/library_results.html:98
+msgid "Show all library items"
+msgstr ""
+
+#: app/templates/fragments/library_results.html:102
+msgid "Library result pages"
+msgstr ""
+
+#: app/templates/fragments/library_results.html:103
+msgid "Previous"
+msgstr ""
+
+#: app/templates/fragments/library_results.html:105
+#, python-format
+msgid "Page %(number)s"
+msgstr ""
+
+#: app/templates/fragments/library_results.html:108
+msgid "Next"
+msgstr ""
+
 #: app/templates/fragments/manual_add_form.html:51
 msgid "ISBN or barcode (optional)"
 msgstr ""
@@ -1837,18 +3224,157 @@ msgstr ""
 msgid "Add to Collection"
 msgstr ""
 
-#: app/templates/fragments/reading_status.html:22
-msgid "Clear status"
+#: app/templates/fragments/metadata_provenance.html:3
+msgid "Metadata sources"
 msgstr ""
 
+#: app/templates/fragments/metadata_provenance.html:5
+msgid "Saved source observations only; opening this panel does not contact a provider. Identity fields are read-only here."
+msgstr ""
+
+#: app/templates/fragments/metadata_provenance.html:6
+msgid "Following a source lets future refreshes update only this unmodified provider-owned field. Your next local edit is preserved. Keep local locks the current value, including a blank."
+msgstr ""
+
+#: app/templates/fragments/metadata_provenance.html:14
+msgid "Different values"
+msgstr ""
+
+#: app/templates/fragments/metadata_provenance.html:14
+msgid "Same value"
+msgstr ""
+
+#: app/templates/fragments/metadata_provenance.html:15
+msgid "Local override"
+msgstr ""
+
+#: app/templates/fragments/metadata_provenance.html:16
+msgid "Following this source"
+msgstr ""
+
+#: app/templates/fragments/metadata_provenance.html:17
+msgid "Not source-owned"
+msgstr ""
+
+#: app/templates/fragments/metadata_provenance.html:20
+msgid "Current local value"
+msgstr ""
+
+#: app/templates/fragments/metadata_provenance.html:20
+#: app/templates/fragments/metadata_provenance.html:21
+msgid "Not set"
+msgstr ""
+
+#: app/templates/fragments/metadata_provenance.html:21
+msgid "Source-observed value"
+msgstr ""
+
+#: app/templates/fragments/metadata_provenance.html:23
+msgid "Observed"
+msgstr ""
+
+#: app/templates/fragments/metadata_provenance.html:24
+msgid "Read-only identity field"
+msgstr ""
+
+#: app/templates/fragments/metadata_provenance.html:31
+msgid "Keep local"
+msgstr ""
+
+#: app/templates/fragments/metadata_provenance.html:32
+msgid "Follow source"
+msgstr ""
+
+#: app/templates/fragments/metadata_provenance.html:34
+msgid "A source title must be non-empty before it can be followed."
+msgstr ""
+
+#: app/templates/fragments/metadata_provenance.html:37
+msgid "No reviewable source observations have been saved for this item."
+msgstr ""
+
+#: app/templates/fragments/metadata_provenance.html:38
+msgid "This panel shows a limited number of saved source fields; additional observations may not be shown."
+msgstr ""
+
+#: app/templates/fragments/personal_library.html:6
+#: app/templates/fragments/personal_library.html:29
+#: app/templates/fragments/personal_library.html:69
+msgid "Favourite"
+msgstr ""
+
+#: app/templates/fragments/personal_library.html:7
+msgid "My List"
+msgstr ""
+
+#: app/templates/fragments/personal_library.html:11
+msgid "Original notes before merge"
+msgstr ""
+
+#: app/templates/fragments/personal_library.html:24
+msgid "Only for your account. This does not change catalogue status, ownership, the shared wishlist or external services."
+msgstr ""
+
+#: app/templates/fragments/personal_library.html:34
+msgid "Update my activity"
+msgstr ""
+
+#: app/templates/fragments/personal_library.html:46
+msgid "My status"
+msgstr ""
+
+#: app/templates/fragments/personal_library.html:48
+msgid "No personal status"
+msgstr ""
+
+#: app/templates/fragments/personal_library.html:57
+#: app/templates/fragments/personal_library.html:63
+msgid "Optional"
+msgstr ""
+
+#: app/templates/fragments/personal_library.html:61
+msgid "My rating (1–5)"
+msgstr ""
+
+#: app/templates/fragments/personal_library.html:67
+#, python-format
+msgid "Finished items are marked %(percent)s. Leave progress or rating blank to clear it."
+msgstr ""
+
+#: app/templates/fragments/personal_library.html:73
+msgid "My notes"
+msgstr ""
+
+#: app/templates/fragments/personal_library.html:75
+msgid "Up to 5000 characters. Private to this account."
+msgstr ""
+
+#: app/templates/fragments/personal_library.html:79
 #: app/templates/fragments/reading_status.html:29
 #, python-format
 msgid "Started: %(date)s"
 msgstr ""
 
+#: app/templates/fragments/personal_library.html:80
 #: app/templates/fragments/reading_status.html:31
 #, python-format
 msgid "Finished: %(date)s"
+msgstr ""
+
+#: app/templates/fragments/personal_library.html:83
+msgid "Save my activity"
+msgstr ""
+
+#: app/templates/fragments/personal_library.html:92
+msgid "Reset my activity for this item"
+msgstr ""
+
+#: app/templates/fragments/personal_library.html:93
+msgid "Clears your current state; your private history is kept."
+msgstr ""
+
+#: app/templates/fragments/reading_status.html:22
+msgid "Clear status"
 msgstr ""
 
 #: app/templates/fragments/reading_status.html:36
@@ -1861,7 +3387,7 @@ msgid "Related media"
 msgstr ""
 
 #: app/templates/fragments/related_media_panel.html:5
-msgid "Shelf links an audiobook or ebook to its print copy when the title and first author match. Connect related works, adaptations or other formats here."
+msgid "Format links connect editions of the same work. Adaptations and other related works stay distinct. Review each connection before adding it."
 msgstr ""
 
 #: app/templates/fragments/related_media_panel.html:18
@@ -1887,10 +3413,6 @@ msgstr ""
 #: app/templates/fragments/related_media_search.html:2
 #, python-format
 msgid "No unlinked catalogue items matched “%(query)s”."
-msgstr ""
-
-#: app/templates/fragments/related_media_search.html:15
-msgid "Format"
 msgstr ""
 
 #: app/templates/fragments/related_media_search.html:16
@@ -1922,5 +3444,17 @@ msgstr ""
 #: app/templates/fragments/search_status_notice.html:22
 #, python-format
 msgid "Could not reach %(provider)s &mdash; check connectivity and try again."
+msgstr ""
+
+#: app/templates/fragments/unsupported_title_search.html:2
+msgid "Title lookup is not available for this format."
+msgstr ""
+
+#: app/templates/fragments/unsupported_title_search.html:3
+msgid "Add it by hand, or import its availability from a connected source. No book search was made."
+msgstr ""
+
+#: app/templates/fragments/unsupported_title_search.html:5
+msgid "Add by hand"
 msgstr ""
 

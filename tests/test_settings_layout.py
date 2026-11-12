@@ -49,16 +49,32 @@ def test_non_admin_account_menus_do_not_offer_admin_settings(editor_client, view
 
 
 def test_settings_is_not_rendered_in_primary_nav(admin_client):
-    html = admin_client.get("/browse").text
-    desktop_start = html.index('<div class="hidden lg:flex items-center gap-1">')
-    desktop_end = html.index("</div>", desktop_start)
-    desktop_nav = html[desktop_start:desktop_end]
-    assert 'data-nav-tab="settings"' not in desktop_nav
+    from html.parser import HTMLParser
 
-    mobile_start = html.index('data-testid="nav-menu-panel"')
-    mobile_end = html.index("</div>", mobile_start)
-    mobile_nav = html[mobile_start:mobile_end]
-    assert 'data-nav-menu-tab="settings"' not in mobile_nav
+    class NavLinks(HTMLParser):
+        def __init__(self, root_id):
+            super().__init__()
+            self.root_id, self.depth, self.links = root_id, 0, []
+
+        def handle_starttag(self, tag, attrs):
+            attrs = dict(attrs)
+            if tag == "div" and attrs.get("data-testid") == self.root_id:
+                self.depth = 1
+            elif self.depth and tag == "div":
+                self.depth += 1
+            if self.depth and tag == "a":
+                self.links.append(attrs)
+
+        def handle_endtag(self, tag):
+            if self.depth and tag == "div":
+                self.depth -= 1
+
+    html = admin_client.get("/browse").text
+    for root_id, key in (("nav-activity-groups", "data-nav-tab"), ("nav-menu-panel", "data-nav-menu-tab")):
+        nav = NavLinks(root_id)
+        nav.feed(html)
+        assert any(link.get(key) == "browse" for link in nav.links)
+        assert all(link.get(key) != "settings" and link.get("href") != "/settings" for link in nav.links)
 
 
 def test_account_menu_controller_is_registered():

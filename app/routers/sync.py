@@ -11,7 +11,7 @@ from app.auth import require_role
 from app.features import require_feature
 from app.config import HTTP_TIMEOUT
 from app.database import get_db, get_setting
-from app.services import audiobookshelf, item_write
+from app.services import audiobookshelf, item_write, legacy_sources
 
 logger = logging.getLogger(__name__)
 
@@ -203,7 +203,9 @@ async def sync_audiobookshelf(request: Request):
     if url_err:
         return {"error": url_err}
 
-    stats = await audiobookshelf.sync(abs_url_val, abs_token_val)
+    stats = await legacy_sources.run_tracked(
+        "abs", audiobookshelf.sync, abs_url_val, abs_token_val
+    )
     return stats
 
 
@@ -238,7 +240,9 @@ async def sync_audiobookshelf_stream(request: Request):
 
     async def run_sync():
         try:
-            stats = await audiobookshelf.sync(abs_url_val, abs_token_val, on_progress=on_progress)
+            stats = await legacy_sources.run_tracked(
+                "abs", audiobookshelf.sync, abs_url_val, abs_token_val, on_progress=on_progress
+            )
             await queue.put({"type": "done", **stats})
         except Exception:
             logger.exception("Audiobookshelf sync failed")
