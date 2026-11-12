@@ -1,7 +1,7 @@
 {% extends "base.html" %}
 {% block title %}Arrange {{ location.label or location.name }} — Shelf{% endblock %}
 {% block content %}
-<div class="max-w-4xl mx-auto" data-location-order data-location-id="{{ location.id }}" data-can-edit="{{ '1' if can_edit else '0' }}">
+<div class="page-layout" data-location-order data-location-id="{{ location.id }}" data-can-edit="{{ '1' if can_edit else '0' }}">
     <div class="flex flex-wrap items-start justify-between gap-3 mb-6">
         <div>
             <a href="/settings" class="text-sm text-shelf-muted hover:text-shelf-text">← Settings</a>

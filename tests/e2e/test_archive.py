@@ -18,9 +18,26 @@ import zipfile
 import pytest
 from playwright.sync_api import expect
 
-from tests.e2e.conftest import assert_page_clean, insert_item
+from tests.e2e.conftest import _run_setup_wizard, assert_page_clean, insert_item
 
 pytestmark = pytest.mark.e2e
+
+
+@pytest.fixture
+def live_server(server_factory, browser):
+    """Archive restore destroys catalogue state: never share another file's DB.
+
+    loadfile workers need not run this file first, and identifier-less rows
+    from other journeys intentionally cannot dedupe during archive reimport.
+    """
+    server = server_factory()
+    server["credentials"] = _run_setup_wizard(browser, server["url"])
+    return server
+
+
+@pytest.fixture
+def setup_admin(live_server):
+    return live_server["credentials"]
 
 # Minimal valid JPEG-signature bytes, well above covers.MIN_COVER_SIZE (100
 # bytes) and under MAX_COVER_SIZE — same convention as tests/test_archive.py.
@@ -262,20 +279,14 @@ def test_archive_preview_deselect_reading_log(live_server, authed_page):
     _open_data_tab(authed_page, live_server)
     zip_path = _download_archive(authed_page)
 
-    # live_server is session-scoped (shared across the whole e2e run), so
-    # the archive just downloaded also carries whatever earlier tests in
-    # this file (and only this file — it runs first, alphabetically) left
-    # behind. Read the exact item count out of the zip itself rather than
-    # assuming this test's 2 items are the only ones in it.
+    # Read the exact item count from the archive rather than inferring it
+    # from the seeds. This server belongs only to this test.
     with zipfile.ZipFile(zip_path) as zf:
         archive_items = json.loads(zf.read("library.json"))["items"]
     expected_item_count = len(archive_items)
     assert expected_item_count >= 2, archive_items
 
-    # Restore target: a fresh instance with nothing in it. Safe precisely
-    # because this is the last test in the first file to run in the e2e
-    # session — nothing downstream depends on items seeded before this
-    # point still existing.
+    # Restore target: empty this test's disposable instance only.
     _wipe_library(live_server)
     assert _item_count(live_server) == 0
 

@@ -5,10 +5,12 @@
 <script src="/static/vendor/zxing-browser-0.1.5.min.js"></script>
 {% endblock %}
 {% block content %}
-<div class="max-w-3xl mx-auto" x-data="shelfFillPage">
+<div class="page-layout" x-data="shelfFillPage">
     <h1 class="text-2xl font-bold mb-1">Shelf Fill</h1>
     <p class="text-sm text-shelf-muted mb-6">Choose the physical shelf once, then scan items onto it in the order they sit there — each scan takes the next position on that shelf. Pick a different shelf and its numbering starts again. Items already catalogued move without a fresh metadata lookup; unknown barcodes go through Shelf's normal Add pipeline first. Reorder any shelf later on its <span class="text-shelf-text">Arrange</span> page.</p>
 
+    <div class="workspace-layout" data-testid="shelf-fill-workspace">
+    <div>
     <div class="bg-shelf-card rounded-xl border border-shelf-border p-6 mb-6">
         <div class="grid grid-cols-1 sm:grid-cols-3 gap-4">
             <div>
@@ -93,8 +95,12 @@
         </div>
     </form>
 
+    </div>
+    <section>
     <h2 class="text-lg font-semibold mb-3">Filed this session</h2>
     <div id="shelf-fill-results" class="space-y-3"></div>
+    </section>
+    </div>
 </div>
 <script src="/static/js/scanner-engine.js"></script>
 <script src="/static/js/shelf-fill.js"></script>

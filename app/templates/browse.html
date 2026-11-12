@@ -7,7 +7,7 @@
          so that height changes with the viewport width (issue #159). -->
     <div x-show="selectMode && selectedIds.length > 0" x-transition
          class="order-last sticky bottom-0 z-40 -mx-4 sm:-mx-6 lg:-mx-8 -mb-6 bg-shelf-card border-t border-shelf-border py-3 px-4 sm:px-6 lg:px-8 shadow-lg">
-        <div class="max-w-7xl mx-auto flex items-center gap-3 flex-wrap">
+        <div class="flex items-center gap-3 flex-wrap">
             <span class="text-sm text-shelf-muted" x-text="selectedLabel"></span>
             <select x-model="bulkLocationVal" class="bg-shelf-bg border border-shelf-border rounded-lg px-2 py-1 text-sm text-shelf-text">
                 <option value="">{{ _('Move to location...') }}</option>

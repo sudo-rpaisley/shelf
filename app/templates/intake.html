@@ -1,7 +1,7 @@
 {% extends "base.html" %}
 {% block title %}Photo Intake — Shelf{% endblock %}
 {% block content %}
-<div class="max-w-3xl mx-auto" x-data="intakePage" id="intake-page" data-creator-labels='{{ translated_creator_labels() | tojson }}'>
+<div class="page-layout" x-data="intakePage" id="intake-page" data-creator-labels='{{ translated_creator_labels() | tojson }}'>
     <h1 class="text-2xl font-bold mb-1">Photo Intake</h1>
     <p class="text-sm text-shelf-muted mb-6">Photograph books on a shelf, in a stack, or face-up &mdash; front cover is fine. The vision model reads spines and recognizes covers; a readable back-cover barcode gives exact-edition metadata. Review the list, then confirm.</p>
 
@@ -38,7 +38,7 @@
         <!-- Desktop webcam viewfinder. Always in the DOM (x-show, not x-if): the
              <video> must exist before createPhotoCapture() resolves it, and an
              x-if would re-create it on every retake. -->
-        <div data-testid="intake-viewfinder" x-show="viewfinder" x-cloak class="mt-4">
+        <div data-testid="intake-viewfinder" x-show="viewfinder" x-cloak class="mt-4 max-w-2xl">
             <div class="rounded-xl overflow-hidden border border-shelf-border bg-black">
                 <video id="intake-video" class="w-full" autoplay muted playsinline></video>
             </div>
@@ -145,7 +145,7 @@
 
     <!-- Step 2: review candidates -->
     <div x-show="books.length > 0" x-cloak class="bg-shelf-card rounded-xl border border-shelf-border p-6 mb-6">
-        <div class="flex items-center justify-between mb-4">
+        <div class="flex flex-wrap items-center justify-between gap-3 mb-4">
             <h2 class="text-lg font-semibold">Found <span x-text="books.length"></span> books</h2>
             <div class="flex gap-2 text-xs">
                 <button @click="selectAll()" class="text-shelf-accent2 hover:text-shelf-accent">Select all</button>
@@ -200,7 +200,7 @@
                 </div>
             </template>
         </div>
-        <div class="flex flex-col sm:flex-row sm:items-center gap-3 pt-3 border-t border-shelf-border">
+        <div class="flex flex-col sm:flex-row sm:flex-wrap sm:items-center gap-3 pt-3 border-t border-shelf-border">
             <select x-model="locationId" aria-label="Location" class="bg-shelf-bg border border-shelf-border rounded-lg px-3 py-2 text-sm text-shelf-text focus:ring-2 focus:ring-shelf-accent outline-hidden">
                 <option value="">No location</option>
                 {% for loc in locations %}

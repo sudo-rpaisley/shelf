@@ -9,7 +9,7 @@
 </head>
 <body class="min-h-screen">
     <header class="bg-shelf-card border-b border-shelf-border">
-        <div class="max-w-6xl mx-auto px-4 py-5">
+        <div class="app-shell py-5">
             <h1 class="text-2xl font-bold">{{ link.label or ('Wishlist' if scope == 'wishlist' else 'Library') }}</h1>
             <p class="text-sm text-shelf-muted mt-1">
                 {{ items|length }} {{ 'book on this wishlist' if items|length == 1 else ('books on this wishlist' if scope == 'wishlist' else 'items in this collection') }}
@@ -18,7 +18,7 @@
         </div>
     </header>
 
-    <main class="max-w-6xl mx-auto px-4 py-6">
+    <main class="app-shell py-6">
         {% if not items %}
         <p class="text-center text-shelf-muted py-16">Nothing here yet.</p>
         {% endif %}

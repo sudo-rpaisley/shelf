@@ -1,7 +1,7 @@
 {% extends "base.html" %}
 {% block title %}{{ _('Needs attention') }} — Shelf{% endblock %}
 {% block content %}
-<div class="max-w-5xl mx-auto space-y-6">
+<div class="page-layout space-y-6">
     <header class="space-y-2">
         <h1 class="text-2xl font-bold">{{ _('Needs attention') }}</h1>
         <p class="text-sm text-shelf-muted">{{ _('Review catalogue quality and cached source information. Opening this page makes no network requests and changes no records. Trash is excluded.') }}</p>
@@ -33,7 +33,7 @@
             </select>
         </label>
         <label class="text-sm">{{ _('Rows per queue') }}
-            <input type="number" name="limit" min="1" max="100" value="{{ limit }}" class="block mt-1 w-24 rounded-lg border border-shelf-border bg-shelf-card px-3 py-2">
+            <input type="number" name="limit" min="1" max="100" value="{{ limit }}" class="block mt-1 w-28 rounded-lg border border-shelf-border bg-shelf-card px-3 py-2">
         </label>
         <button type="submit" class="rounded-lg bg-shelf-hover px-4 py-2 text-sm">{{ _('Apply') }}</button>
     </form>

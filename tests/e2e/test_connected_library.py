@@ -718,7 +718,14 @@ def test_admin_configures_local_opds_sync_and_preserves_local_edits_on_resync(co
     report = page.get_by_role("heading", name="Status and report", exact=True).locator("..")
     expect(report).to_contain_text("Status: Complete")
     expect(configuration).not_to_have_attribute("open", "")
-    assert report.bounding_box()["y"] < configuration.bounding_box()["y"]
+    report_box, configuration_box = report.bounding_box(), configuration.bounding_box()
+    # The report is first in reading order; a laptop places Configuration
+    # beside it, while narrow screens stack the same two sections.
+    if page.viewport_size["width"] >= 1280:
+        assert abs(report_box["y"] - configuration_box["y"]) <= 1
+        assert report_box["x"] + report_box["width"] < configuration_box["x"]
+    else:
+        assert report_box["y"] + report_box["height"] < configuration_box["y"]
     with _db(server) as db:
         source = dict(db.execute("SELECT * FROM source_instances WHERE id = ?", (source_id,)).fetchone())
         item = dict(db.execute("SELECT * FROM items").fetchone())

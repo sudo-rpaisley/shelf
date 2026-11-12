@@ -33,7 +33,7 @@
 <script src="/static/js/labels.js" defer></script>
 {% endblock %}
 {% block content %}
-<div class="no-print max-w-5xl mx-auto mb-4 space-y-3">
+<div class="no-print page-layout mb-4 space-y-3">
     <div class="flex flex-wrap items-center justify-between gap-3">
         <div>
             <h1 class="text-2xl font-bold">Label sheet</h1>
@@ -70,6 +70,6 @@
     {% endfor %}
 </div></div>
 {% else %}
-<p class="max-w-5xl mx-auto text-sm text-shelf-muted" data-testid="labels-sheet-empty">No labels match this selection.</p>
+<p class="text-sm text-shelf-muted" data-testid="labels-sheet-empty">No labels match this selection.</p>
 {% endif %}
 {% endblock %}

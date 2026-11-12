@@ -4,7 +4,7 @@
 <script src="/static/js/labels.js" defer></script>
 {% endblock %}
 {% block content %}
-<div class="max-w-3xl mx-auto space-y-6">
+<div class="page-layout space-y-6">
     <div>
         <h1 class="text-2xl font-bold">Copy labels</h1>
         <p class="text-sm text-shelf-muted mt-1">
@@ -13,6 +13,7 @@
         </p>
     </div>
 
+    <div class="grid grid-cols-1 lg:grid-cols-2 gap-6 items-start" data-testid="labels-workspace">
     <!-- Assign -->
     <div class="bg-shelf-card rounded-xl border border-shelf-border p-6">
         <h2 class="text-lg font-semibold mb-1">Assign codes</h2>
@@ -37,10 +38,10 @@
         <form method="get" action="/labels/sheet" class="space-y-4" data-labels-scope-form data-labels-print-form>
             {% with prefix='print' %}{% include "fragments/labels_scope.html" %}{% endwith %}
             <div class="flex flex-wrap gap-4">
-                <div>
+                <div class="min-w-0 w-full">
                     <label for="labels-preset" class="block text-sm font-medium text-shelf-muted mb-1">Label sheet</label>
                     <select id="labels-preset" name="preset" data-labels-preset
-                            class="bg-shelf-bg border border-shelf-border rounded-lg px-3 py-2 text-shelf-text">
+                            class="w-full bg-shelf-bg border border-shelf-border rounded-lg px-3 py-2 text-shelf-text">
                         {% for p in presets %}
                         <option value="{{ p.key }}" data-per-sheet="{{ p.per_sheet }}" {% if p.key == default_preset %}selected{% endif %}>{{ p.label }}</option>
                         {% endfor %}
@@ -49,7 +50,7 @@
                 <div>
                     <label for="labels-start" class="block text-sm font-medium text-shelf-muted mb-1">Start at label</label>
                     <input type="number" id="labels-start" name="start" min="1" max="30" value="1" data-labels-start
-                           class="w-24 bg-shelf-bg border border-shelf-border rounded-lg px-3 py-2 text-shelf-text">
+                            class="w-28 bg-shelf-bg border border-shelf-border rounded-lg px-3 py-2 text-shelf-text">
                 </div>
             </div>
             <p class="text-xs text-shelf-muted">Start at a later position to use up a part-used sheet. Print at 100% scale with no fit-to-page.</p>
@@ -58,6 +59,7 @@
                 Print sheet
             </button>
         </form>
+    </div>
     </div>
 </div>
 {% endblock %}

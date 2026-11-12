@@ -46,7 +46,7 @@
 
     <!-- Nav -->
     <nav class="bg-shelf-card border-b border-shelf-border sticky top-0 z-50">
-        <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+        <div class="app-shell">
             <div class="flex items-center justify-between min-h-14 py-2 gap-3">
                 <div class="flex items-center gap-1 flex-1 min-w-0">
                     <a href="/" class="text-lg font-bold text-shelf-accent2 tracking-tight mr-6">Shelf</a>
@@ -122,7 +122,7 @@
     {% if trash_nag %}{% include "fragments/trash_nag.html" %}{% endif %}
 
     <!-- Content -->
-    <main class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6">
+    <main class="app-shell py-6">
         {% block content %}{% endblock %}
     </main>
 

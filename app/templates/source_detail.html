@@ -1,7 +1,7 @@
 {% extends "base.html" %}
 {% block title %}{{ source.name }} — {{ _('Connected libraries') }} — Shelf{% endblock %}
 {% block content %}
-<div class="max-w-4xl mx-auto space-y-6">
+<div class="page-layout space-y-6">
     <header>
         <a href="/sources" class="text-sm text-shelf-accent2 hover:underline">{{ _('Connected libraries') }}</a>
         <h1 class="text-2xl font-bold mt-2 break-words">{{ source.name }}</h1>
@@ -9,6 +9,7 @@
         <p class="text-sm text-shelf-muted mt-2">{{ _('Imported catalogue records are visible to every Shelf account. Select only the source libraries you want to share in this catalogue.') }}</p>
     </header>
     {% if notice %}<p role="status" class="p-3 rounded-lg border border-shelf-border">{{ notice }}</p>{% endif %}
+    <div class="grid grid-cols-1 xl:grid-cols-2 gap-6 items-start" data-testid="source-workspace">
     <section class="bg-shelf-card rounded-xl border border-shelf-border p-4 space-y-3" data-testid="source-status">
         <h2 class="text-lg font-semibold">{{ _('Status and report') }}</h2>
         <p>{{ _('Status') }}: {{ {'never': _('Never'), 'ok': _('Complete'), 'partial': _('Partial'), 'error': _('Error'), 'syncing': _('Syncing')}[source.last_status] }}{% if not source.enabled %} · {{ _('Disabled') }}{% endif %}</p>
@@ -49,6 +50,7 @@
             <button type="submit" class="px-4 py-2 bg-shelf-accent text-white rounded-lg">{{ _('Save settings') }}</button>
         </form>
     </details>
+    </div>
     {% if source.manual_links %}
     <section class="bg-shelf-card rounded-xl border border-shelf-border p-4 space-y-3">
         <h2 class="text-lg font-semibold">{{ _('Attach external availability') }}</h2>

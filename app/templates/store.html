@@ -15,20 +15,21 @@
 </head>
 <body class="min-h-screen">
     <header class="bg-shelf-card border-b border-shelf-border sticky top-0 z-50">
-        <div class="max-w-md mx-auto px-4 h-14 flex items-center justify-between">
+        <div class="app-shell h-14 flex items-center justify-between">
             <a href="/browse" class="text-sm text-shelf-muted hover:text-white transition-colors">&larr; Shelf</a>
             <h1 class="text-lg font-bold text-shelf-accent2 tracking-tight">Store Mode</h1>
             <span id="net-dot" class="w-2.5 h-2.5 rounded-full bg-shelf-muted" title="Connection status"></span>
         </div>
     </header>
 
-    <main class="max-w-md mx-auto px-4 py-4 space-y-4">
-        <!-- Data freshness / status line -->
-        <p id="status-line" class="text-xs text-shelf-muted text-center" data-testid="status-line">Loading library data&hellip;</p>
+    <main class="app-shell py-6">
+        <div class="workspace-layout" data-testid="store-workspace">
+        <section class="bg-shelf-card border border-shelf-border rounded-xl p-4 sm:p-6 space-y-4">
+        <h2 class="text-lg font-semibold">{{ _('Check your library') }}</h2>
 
         <!-- Camera scanner -->
-        <div id="reader" class="rounded-xl overflow-hidden border border-shelf-border hidden"></div>
-        <div id="store-zxing-container" class="rounded-xl overflow-hidden border border-shelf-border hidden">
+        <div id="reader" class="w-full max-w-lg mx-auto rounded-xl overflow-hidden border border-shelf-border hidden"></div>
+        <div id="store-zxing-container" class="w-full max-w-lg mx-auto rounded-xl overflow-hidden border border-shelf-border hidden">
             <video id="store-zxing-video" class="w-full" autoplay muted playsinline></video>
         </div>
         <button id="camera-toggle" data-testid="camera-toggle"
@@ -46,6 +47,22 @@
                 Check
             </button>
         </form>
+
+        <!-- PWA install (revealed only when the browser fires beforeinstallprompt) -->
+        <button id="install-app" data-testid="install-app"
+                class="hidden w-full px-4 py-3 bg-shelf-card border border-shelf-accent/40 text-shelf-accent2 rounded-xl text-sm font-medium hover:bg-shelf-hover transition-colors">
+            Install Shelf on this device
+        </button>
+
+        <p class="text-xs text-shelf-muted">
+            Scans of books not in your library are added to your wishlist automatically when you're back online.
+        </p>
+        </section>
+
+        <section class="bg-shelf-card border border-shelf-border rounded-xl p-4 sm:p-6 space-y-4">
+        <h2 class="text-lg font-semibold">{{ _('Results and sync') }}</h2>
+        <!-- Data freshness / status line -->
+        <p id="status-line" class="text-xs text-shelf-muted" data-testid="status-line">Loading library data&hellip;</p>
 
         <!-- Verdict -->
         <div id="verdict" data-testid="verdict" class="hidden rounded-xl border p-5 text-center space-y-1">
@@ -74,15 +91,8 @@
         <p id="sync-result" data-testid="sync-result"
            class="hidden text-xs text-shelf-warning text-center"></p>
 
-        <!-- PWA install (revealed only when the browser fires beforeinstallprompt) -->
-        <button id="install-app" data-testid="install-app"
-                class="hidden w-full px-4 py-3 bg-shelf-card border border-shelf-accent/40 text-shelf-accent2 rounded-xl text-sm font-medium hover:bg-shelf-hover transition-colors">
-            Install Shelf on this device
-        </button>
-
-        <p class="text-[11px] text-shelf-muted/70 text-center pt-2">
-            Scans of books not in your library are added to your wishlist automatically when you're back online.
-        </p>
+        </section>
+        </div>
     </main>
 </body>
 </html>

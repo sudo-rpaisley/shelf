@@ -5,7 +5,7 @@
 <script src="/static/vendor/zxing-browser-0.1.5.min.js"></script>
 {% endblock %}
 {% block content %}
-<div class="max-w-3xl mx-auto" x-data="scanPage" data-off-modes="{{ off_scan_modes }}"
+<div class="page-layout" x-data="scanPage" data-off-modes="{{ off_scan_modes }}"
      {% if seed_mode %}data-seed-mode="{{ seed_mode }}"{% endif %}{% if seed_code %} data-seed-code="{{ seed_code }}"{% endif %}
      data-status-labels='{{ status_label_sets | tojson }}'>
 
@@ -32,6 +32,8 @@
     <div id="audit-strip" x-show="mode === 'inventory'" style="display:none"
          class="bg-shelf-card rounded-xl border border-shelf-border p-4 mb-6" data-testid="audit-strip"></div>
 
+    <div class="workspace-layout" data-testid="scan-workspace">
+    <div>
     <!-- Camera Scanner -->
     <div class="mb-6">
         <button @click="toggleCamera()" type="button"
@@ -172,7 +174,7 @@
                 </div>
 
                 <!-- ISBN / Barcode Input (always shown) -->
-                <div>
+                <div class="sm:col-span-3">
                     <label for="isbn-input" class="block text-sm font-medium text-shelf-muted mb-1"
                            x-text="['lend','return','move','inventory','lookup','quick_rate'].includes(mode) ? 'Barcode' : 'ISBN / UPC'"></label>
                     <input type="text" id="isbn-input" name="isbn" autofocus autocomplete="off"
@@ -186,7 +188,8 @@
                datalist from GET /api/tags. :disabled, not only x-show, keeps it
                out of other modes' submissions (G90). No x-model: every reader
                reads the DOM value (G91). #}
-            <div x-show="mode === 'add' || mode === 'wishlist'" x-transition class="mt-4">
+            <div class="grid grid-cols-1 sm:grid-cols-2 gap-4 mt-4">
+            <div x-show="mode === 'add' || mode === 'wishlist'" x-transition>
                 <label for="default-tags" class="block text-sm font-medium text-shelf-muted mb-1">Default tags</label>
                 <input type="text" id="default-tags" name="tags" list="tag-suggestions"
                        data-tag-suggest data-storage-key="shelf_tags" data-type-source="#media-type"
@@ -202,7 +205,7 @@
                of other modes' submissions and off types with no status (G90);
                the server checks the type again. The option words follow the
                media type, from data-status-labels on the root. #}
-            <div x-show="mode === 'add' || mode === 'wishlist'" x-transition class="mt-4">
+            <div x-show="mode === 'add' || mode === 'wishlist'" x-transition>
                 <label for="default-reading-status" class="block text-sm font-medium text-shelf-muted mb-1">Default status</label>
                 <select id="default-reading-status" name="reading_status"
                         x-model="readingStatus" @change="persistReadingStatus()"
@@ -214,6 +217,7 @@
                     <option value="read" x-text="statusDone">Finished</option>
                 </select>
                 <p class="text-xs text-shelf-muted mt-1">Set on every new item. No dates are recorded.</p>
+            </div>
             </div>
 
             <!-- Validation warnings -->
@@ -278,6 +282,8 @@
         </div>
     </div>
 
+    </div>
+    <section>
     <!-- Scan Results -->
     <h2 class="text-lg font-semibold mb-3"
         x-text="mode === 'add' ? 'Recently Added' :
@@ -290,6 +296,8 @@
                 mode === 'quick_rate' ? 'Marked as finished' : 'Results'">
     </h2>
     <div id="scan-results" class="space-y-3">
+    </div>
+    </section>
     </div>
 </div>
 

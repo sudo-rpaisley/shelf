@@ -1497,6 +1497,23 @@ must be simple, which is why the lint exists. Tailwind compiled locally to
 (`static/js/scanner-engine.js`) choosing ZXing on iOS Safari and
 html5-qrcode elsewhere.
 
+**Application pages share one responsive shell.** `.app-shell` in
+`static/css/input.css` owns the 96rem maximum width and 1rem / 1.5rem / 2rem
+gutters at phone / 640px / 1024px widths. Navigation, the Trash banner,
+`base.html`'s main landmark, public shares and standalone Store mode use it.
+Page roots use the shell's content width, not another centered `max-w-*`.
+Scan, Shelf Fill and Store put inputs beside results from 1280px;
+item editing puts General beside the supplementary sections at that seam.
+Labels and source cards use responsive grids. Login/setup cards, scanner
+previews, wrap-up export artwork and physical label sheets keep their own
+intentional dimensions. Valuation tables scroll within their card on small
+screens and return to normal overflow for printing.
+`tests/e2e/test_page_layout.py` walks every routable top-level template,
+checks width use as well as overflow and squeezed fields at phone, tablet,
+breakpoint and laptop/desktop widths, and optionally saves screenshots with
+`SHELF_LAYOUT_ARTIFACTS`. `test_responsive.py` retains its complementary
+interaction and breakpoint regressions.
+
 **A click- or submit-triggered htmx control is guarded by default.** A
 delegated listener in `static/js/app.js` marks the control that issued a
 request `aria-busy` (a spinner in CSS) and disables it — a form's submitter,

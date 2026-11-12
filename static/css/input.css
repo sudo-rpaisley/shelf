@@ -35,6 +35,24 @@
 
 /* App-wide styles previously inlined in base.html */
 body { background-color: #0f1117; color: #e2e8f0; }
+/* One shell for navigation, pages, public shares and Store mode. Page roots
+   must not add a second max-width: constrain artwork/cards, not the workspace. */
+.app-shell { width: 100%; max-width: 96rem; margin-inline: auto; padding-inline: 1rem; }
+.page-layout { width: 100%; min-width: 0; }
+.workspace-layout, .edit-layout { display: grid; grid-template-columns: minmax(0, 1fr); gap: 1.5rem; align-items: start; }
+.workspace-layout > *, .edit-layout > * { min-width: 0; }
+@media (min-width: 40rem) {
+    .app-shell { padding-inline: 1.5rem; }
+}
+@media (min-width: 64rem) {
+    .app-shell { padding-inline: 2rem; }
+}
+/* Wait until both columns have room for their own multi-field form rows. */
+@media (min-width: 80rem) {
+    .workspace-layout { grid-template-columns: minmax(0, 3fr) minmax(0, 2fr); }
+    .edit-layout { grid-template-columns: minmax(0, 1.2fr) minmax(0, 1fr); }
+    .edit-actions { grid-column: 1 / -1; }
+}
 .cover-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(160px, 1fr)); gap: 1.25rem; }
 .cover-card { aspect-ratio: 2/3; }
 .cover-card img { width: 100%; height: 100%; object-fit: cover; border-radius: 0.5rem; }

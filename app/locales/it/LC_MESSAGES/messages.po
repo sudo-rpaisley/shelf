@@ -3,7 +3,7 @@
 msgid ""
 msgstr ""
 "Report-Msgid-Bugs-To: andrea@bergamasco.me\n"
-"PO-Revision-Date: 2026-11-12 12:47+0000\n"
+"PO-Revision-Date: 2026-11-12 17:33+0000\n"
 "Last-Translator: Andrea Bergamasco\n"
 "Language: it\n"
 "Language-Team: Italian\n"
@@ -28,14 +28,14 @@ msgstr "Tipo"
 #: app/browse_columns.py:65 app/browse_filters.py:211
 #: app/templates/fragments/item_copy_edit.html:37
 #: app/templates/fragments/manual_add_form.html:160
-#: app/templates/item_edit.html:81 app/templates/item_edit.html:301
-#: app/templates/item_edit.html:306
+#: app/templates/item_edit.html:81 app/templates/item_edit.html:302
+#: app/templates/item_edit.html:307
 msgid "Location"
 msgstr "Posizione"
 
 #: app/browse_columns.py:66 app/browse_filters.py:213
 #: app/templates/item_detail.html:234 app/templates/item_edit.html:138
-#: app/templates/source_detail.html:14
+#: app/templates/source_detail.html:15
 msgid "Status"
 msgstr "Stato"
 
@@ -46,8 +46,8 @@ msgstr "Valore"
 #: app/browse_columns.py:68 app/nav.py:43 app/services/metadata_review.py:38
 #: app/templates/browse.html:49
 #: app/templates/fragments/manual_add_form.html:155
-#: app/templates/item_edit.html:79 app/templates/item_edit.html:217
-#: app/templates/item_edit.html:221
+#: app/templates/item_edit.html:79 app/templates/item_edit.html:218
+#: app/templates/item_edit.html:222
 msgid "Series"
 msgstr "Serie"
 
@@ -62,7 +62,7 @@ msgstr "Editore"
 msgid "Year"
 msgstr "Anno"
 
-#: app/browse_columns.py:71 app/templates/item_edit.html:223
+#: app/browse_columns.py:71 app/templates/item_edit.html:224
 msgid "Pages"
 msgstr "Pagine"
 
@@ -73,13 +73,13 @@ msgstr "Pagine"
 msgid "Language"
 msgstr "Lingua"
 
-#: app/browse_columns.py:73 app/templates/source_detail.html:17
-#: app/templates/sources.html:42
+#: app/browse_columns.py:73 app/templates/source_detail.html:18
+#: app/templates/sources.html:44
 msgid "Added"
 msgstr "Aggiunto il"
 
 #: app/browse_columns.py:74 app/services/metadata_review.py:42
-#: app/templates/item_edit.html:355
+#: app/templates/item_edit.html:356
 msgid "Platform"
 msgstr "Piattaforma"
 
@@ -88,7 +88,7 @@ msgid "ISBN/UPC"
 msgstr "ISBN/UPC"
 
 #: app/browse_columns.py:76 app/templates/fragments/item_tags.html:3
-#: app/templates/item_edit.html:83 app/templates/item_edit.html:390
+#: app/templates/item_edit.html:83 app/templates/item_edit.html:392
 msgid "Tags"
 msgstr "Tag"
 
@@ -794,7 +794,7 @@ msgstr ""
 msgid "Review format connections"
 msgstr ""
 
-#: app/services/library_attention.py:52 app/templates/sources.html:20
+#: app/services/library_attention.py:52 app/templates/sources.html:21
 msgid "Never checked"
 msgstr ""
 
@@ -837,7 +837,7 @@ msgstr ""
 #: app/services/library_catalog.py:44 app/services/library_catalog.py:57
 #: app/templates/fragments/available_here.html:13
 #: app/templates/fragments/library_results.html:2
-#: app/templates/source_detail.html:71
+#: app/templates/source_detail.html:73
 msgid "Available"
 msgstr ""
 
@@ -909,7 +909,7 @@ msgstr ""
 msgid "Authors"
 msgstr ""
 
-#: app/services/metadata_review.py:35 app/templates/item_edit.html:366
+#: app/services/metadata_review.py:35 app/templates/item_edit.html:367
 msgid "Narrator"
 msgstr "Voce narrante"
 
@@ -929,7 +929,7 @@ msgstr ""
 msgid "Duration (minutes)"
 msgstr ""
 
-#: app/services/metadata_review.py:40 app/templates/item_edit.html:233
+#: app/services/metadata_review.py:40 app/templates/item_edit.html:234
 msgid "ISBN"
 msgstr "ISBN"
 
@@ -1200,7 +1200,7 @@ msgstr ""
 
 #: app/templates/activity.html:61
 #: app/templates/fragments/personal_library.html:104
-#: app/templates/source_detail.html:17
+#: app/templates/source_detail.html:18
 msgid "Updated"
 msgstr ""
 
@@ -1818,15 +1818,15 @@ msgstr "Sezioni da modificare"
 msgid "General"
 msgstr "Generale"
 
-#: app/templates/item_edit.html:78 app/templates/item_edit.html:168
+#: app/templates/item_edit.html:78 app/templates/item_edit.html:169
 msgid "Artwork"
 msgstr "Copertina"
 
-#: app/templates/item_edit.html:80 app/templates/item_edit.html:229
+#: app/templates/item_edit.html:80 app/templates/item_edit.html:230
 msgid "Identifiers"
 msgstr "Identificativi"
 
-#: app/templates/item_edit.html:82 app/templates/item_edit.html:350
+#: app/templates/item_edit.html:82 app/templates/item_edit.html:351
 msgid "Media Details"
 msgstr "Dettagli del media"
 
@@ -1846,12 +1846,12 @@ msgstr "Tipo di media"
 #: app/templates/fragments/available_here.html:13
 #: app/templates/fragments/library_results.html:2
 #: app/templates/fragments/metadata_provenance.html:23
-#: app/templates/item_edit.html:126 app/templates/source_detail.html:71
+#: app/templates/item_edit.html:126 app/templates/source_detail.html:73
 msgid "Unknown"
 msgstr "Sconosciuto"
 
-#: app/templates/item_edit.html:142 app/templates/item_edit.html:178
-#: app/templates/item_edit.html:309 app/templates/item_edit.html:358
+#: app/templates/item_edit.html:142 app/templates/item_edit.html:179
+#: app/templates/item_edit.html:310 app/templates/item_edit.html:359
 msgid "None"
 msgstr "Nessuno"
 
@@ -1867,129 +1867,129 @@ msgstr "Data di fine"
 msgid "Notes"
 msgstr "Note"
 
-#: app/templates/item_edit.html:169
+#: app/templates/item_edit.html:170
 msgid "Preview the current cover, upload a replacement, or use a public image URL."
 msgstr "Guarda la copertina attuale, caricane una nuova o usa l'URL di un'immagine pubblica."
 
 #: app/templates/fragments/cover_search.html:40
-#: app/templates/item_edit.html:175
+#: app/templates/item_edit.html:176
 msgid "Current cover"
 msgstr "Copertina attuale"
 
-#: app/templates/item_edit.html:177
+#: app/templates/item_edit.html:178
 msgid "Cover preview"
 msgstr "Anteprima copertina"
 
-#: app/templates/item_edit.html:188
+#: app/templates/item_edit.html:189
 msgid "Drop an image here or click to browse"
 msgstr "Trascina qui un'immagine o fai clic per sceglierla"
 
-#: app/templates/item_edit.html:190
+#: app/templates/item_edit.html:191
 msgid "The replacement is applied when you save the item."
 msgstr "La nuova copertina viene applicata quando salvi l'elemento."
 
-#: app/templates/item_edit.html:196
+#: app/templates/item_edit.html:197
 msgid "Cover image URL"
 msgstr "URL dell'immagine di copertina"
 
-#: app/templates/item_edit.html:208
+#: app/templates/item_edit.html:209
 msgid "Use URL"
 msgstr "Usa l'URL"
 
-#: app/templates/item_edit.html:211
+#: app/templates/item_edit.html:212
 msgid "Public HTTPS image links only. Use URL applies the cover immediately; your other edits are still saved with Save Changes."
 msgstr "Solo link HTTPS pubblici. \"Usa l'URL\" applica subito la copertina; le altre modifiche si salvano comunque con Salva modifiche."
 
-#: app/templates/item_edit.html:218
+#: app/templates/item_edit.html:219
 msgid "Series membership, position and page count."
 msgstr "Serie di appartenenza, posizione e numero di pagine."
 
-#: app/templates/item_edit.html:222
+#: app/templates/item_edit.html:223
 msgid "Series #"
 msgstr "N. nella serie"
 
-#: app/templates/item_edit.html:230
+#: app/templates/item_edit.html:231
 msgid "Identifiers printed on this edition."
 msgstr "Identificativi stampati su questa edizione."
 
-#: app/templates/item_edit.html:237
+#: app/templates/item_edit.html:238
 msgid "The stored ISBN fails its check digit. It is kept as-is unless you change it here — correcting or clearing it is checked as usual."
 msgstr "L'ISBN salvato non supera la cifra di controllo. Resta così finché non lo cambi qui; se lo correggi o lo svuoti, viene verificato come al solito."
 
-#: app/templates/item_edit.html:242 app/templates/item_edit.html:249
+#: app/templates/item_edit.html:243 app/templates/item_edit.html:250
 msgid "Scan ISBN"
 msgstr "Scansiona ISBN"
 
-#: app/templates/item_edit.html:250 app/templates/item_edit.html:283
+#: app/templates/item_edit.html:251 app/templates/item_edit.html:284
 msgid "Close scanner"
 msgstr "Chiudi scanner"
 
-#: app/templates/item_edit.html:266
+#: app/templates/item_edit.html:267
 msgid "UPC / EAN"
 msgstr "UPC / EAN"
 
-#: app/templates/item_edit.html:266
+#: app/templates/item_edit.html:267
 msgid "UPC-A or EAN-13"
 msgstr "UPC-A o EAN-13"
 
-#: app/templates/item_edit.html:270
+#: app/templates/item_edit.html:271
 msgid "The stored UPC / EAN fails its check digit. It is kept as-is unless you change it here — correcting or clearing it is checked as usual."
 msgstr "L'UPC / EAN salvato non supera la cifra di controllo. Resta così finché non lo cambi qui; se lo correggi o lo svuoti, viene verificato come al solito."
 
-#: app/templates/item_edit.html:275 app/templates/item_edit.html:282
+#: app/templates/item_edit.html:276 app/templates/item_edit.html:283
 msgid "Scan UPC / EAN"
 msgstr "Scansiona UPC / EAN"
 
-#: app/templates/item_edit.html:302
+#: app/templates/item_edit.html:303
 msgid "Ownership, physical location and collection value."
 msgstr "Possesso, posizione fisica e valore nella collezione."
 
-#: app/templates/item_edit.html:323
+#: app/templates/item_edit.html:324
 msgid "I own this item"
 msgstr "Possiedo questo elemento"
 
-#: app/templates/item_edit.html:334
+#: app/templates/item_edit.html:335
 msgid "On my wishlist"
 msgstr "Nella mia lista desideri"
 
-#: app/templates/item_edit.html:336
+#: app/templates/item_edit.html:337
 msgid "Uncheck both for a book you read but don't own — reading history stays."
 msgstr "Deseleziona entrambi per un libro letto ma non posseduto (la cronologia di lettura resta)."
 
-#: app/templates/item_edit.html:341
+#: app/templates/item_edit.html:342
 #, python-format
 msgid "Value (%(symbol)s)"
 msgstr "Valore (%(symbol)s)"
 
-#: app/templates/item_edit.html:344
+#: app/templates/item_edit.html:345
 msgid "Overrides the ISBNdb estimate everywhere it's shown"
 msgstr "Sostituisce ovunque la stima di ISBNdb"
 
-#: app/templates/item_edit.html:344
+#: app/templates/item_edit.html:345
 #, python-format
 msgid "ISBNdb estimate: %(value)s"
 msgstr "Stima ISBNdb: %(value)s"
 
-#: app/templates/item_edit.html:351
+#: app/templates/item_edit.html:352
 msgid "Fields specific to the selected media type."
 msgstr "Campi specifici del tipo di media scelto."
 
-#: app/templates/item_edit.html:367
+#: app/templates/item_edit.html:368
 msgid "Duration (min)"
 msgstr "Durata (min)"
 
 #: app/templates/fragments/account_menu.html:132
 #: app/templates/fragments/item_copy_edit.html:99
-#: app/templates/item_edit.html:374
+#: app/templates/item_edit.html:376
 msgid "Save"
 msgstr "Salva"
 
 #: app/templates/fragments/item_copy_edit.html:103
-#: app/templates/item_edit.html:377
+#: app/templates/item_edit.html:379
 msgid "Cancel"
 msgstr "Annulla"
 
-#: app/templates/item_edit.html:391
+#: app/templates/item_edit.html:393
 msgid "Tags save as you add or remove them."
 msgstr "I tag si salvano mentre li aggiungi o li rimuovi."
 
@@ -2152,12 +2152,12 @@ msgid "Sign in to your library"
 msgstr "Accedi alla tua biblioteca"
 
 #: app/templates/fragments/account_menu.html:100 app/templates/login.html:24
-#: app/templates/setup.html:27 app/templates/source_detail.html:37
+#: app/templates/setup.html:27 app/templates/source_detail.html:38
 msgid "Username"
 msgstr "Nome utente"
 
 #: app/templates/fragments/account_menu.html:91 app/templates/login.html:30
-#: app/templates/setup.html:40 app/templates/source_detail.html:38
+#: app/templates/setup.html:40 app/templates/source_detail.html:39
 msgid "Password"
 msgstr "Password"
 
@@ -2231,8 +2231,8 @@ msgstr ""
 
 #: app/templates/needs_attention.html:62 app/templates/needs_attention.html:63
 #: app/templates/needs_attention.html:77 app/templates/needs_attention.html:78
-#: app/templates/source_detail.html:14 app/templates/source_detail.html:15
-#: app/templates/sources.html:21 app/templates/sources.html:38
+#: app/templates/source_detail.html:15 app/templates/source_detail.html:16
+#: app/templates/sources.html:22 app/templates/sources.html:40
 msgid "Never"
 msgstr ""
 
@@ -2268,7 +2268,7 @@ msgstr ""
 msgid "Showing the first %(shown)s of %(total)s. Work through these or increase the row limit (maximum 100)."
 msgstr ""
 
-#: app/templates/scan.html:235
+#: app/templates/scan.html:239
 msgid "Digital video and television can be added by hand or imported from Sources. Title lookup is not available for these formats."
 msgstr ""
 
@@ -2338,187 +2338,187 @@ msgstr ""
 msgid "Imported catalogue records are visible to every Shelf account. Select only the source libraries you want to share in this catalogue."
 msgstr ""
 
-#: app/templates/source_detail.html:13
+#: app/templates/source_detail.html:14
 msgid "Status and report"
 msgstr ""
 
-#: app/templates/source_detail.html:14 app/templates/sources.html:20
-#: app/templates/sources.html:38
+#: app/templates/source_detail.html:15 app/templates/sources.html:21
+#: app/templates/sources.html:40
 msgid "Complete"
 msgstr ""
 
-#: app/templates/source_detail.html:14 app/templates/sources.html:20
-#: app/templates/sources.html:38
+#: app/templates/source_detail.html:15 app/templates/sources.html:21
+#: app/templates/sources.html:40
 msgid "Partial"
 msgstr ""
 
-#: app/templates/source_detail.html:14 app/templates/sources.html:20
-#: app/templates/sources.html:38
+#: app/templates/source_detail.html:15 app/templates/sources.html:21
+#: app/templates/sources.html:40
 msgid "Error"
 msgstr ""
 
-#: app/templates/source_detail.html:14 app/templates/sources.html:38
+#: app/templates/source_detail.html:15 app/templates/sources.html:40
 msgid "Syncing"
 msgstr ""
 
-#: app/templates/source_detail.html:14 app/templates/sources.html:19
-#: app/templates/sources.html:35
+#: app/templates/source_detail.html:15 app/templates/sources.html:20
+#: app/templates/sources.html:37
 msgid "Disabled"
 msgstr ""
 
-#: app/templates/source_detail.html:15 app/templates/sources.html:21
+#: app/templates/source_detail.html:16 app/templates/sources.html:22
 msgid "Last attempt"
 msgstr ""
 
-#: app/templates/source_detail.html:15 app/templates/sources.html:21
-#: app/templates/sources.html:38
+#: app/templates/source_detail.html:16 app/templates/sources.html:22
+#: app/templates/sources.html:40
 msgid "Last complete success"
 msgstr ""
 
-#: app/templates/source_detail.html:16 app/templates/sources.html:22
+#: app/templates/source_detail.html:17 app/templates/sources.html:23
 msgid "Error code"
 msgstr ""
 
-#: app/templates/source_detail.html:17
+#: app/templates/source_detail.html:18
 msgid "Fetched"
 msgstr ""
 
-#: app/templates/source_detail.html:17 app/templates/sources.html:42
+#: app/templates/source_detail.html:18 app/templates/sources.html:44
 msgid "Linked"
 msgstr ""
 
 #: app/templates/fragments/available_here.html:13
 #: app/templates/fragments/library_results.html:2
-#: app/templates/source_detail.html:17 app/templates/source_detail.html:71
-#: app/templates/sources.html:42
+#: app/templates/source_detail.html:18 app/templates/source_detail.html:73
+#: app/templates/sources.html:44
 msgid "Unavailable"
 msgstr ""
 
-#: app/templates/source_detail.html:17
+#: app/templates/source_detail.html:18
 msgid "In Trash"
 msgstr ""
 
-#: app/templates/source_detail.html:17
+#: app/templates/source_detail.html:18
 msgid "Skipped"
 msgstr ""
 
-#: app/templates/source_detail.html:18
+#: app/templates/source_detail.html:19
 msgid "Warnings"
 msgstr ""
 
-#: app/templates/source_detail.html:21
+#: app/templates/source_detail.html:22
 msgid "Test connection"
 msgstr ""
 
-#: app/templates/source_detail.html:22
+#: app/templates/source_detail.html:23
 msgid "Sync now"
 msgstr ""
 
-#: app/templates/source_detail.html:23
+#: app/templates/source_detail.html:24
 msgid "Manual links only. No remote catalogue test or sync is available."
 msgstr ""
 
-#: app/templates/source_detail.html:24
+#: app/templates/source_detail.html:25
 msgid "Disable source"
 msgstr ""
 
-#: app/templates/source_detail.html:26
+#: app/templates/source_detail.html:27
 msgid "Disabling removes opening actions and shows cached holdings as Unknown without deleting catalogue entries. Only complete successful syncs mark missing remote records unavailable. Items in Trash are never restored."
 msgstr ""
 
-#: app/templates/source_detail.html:29
+#: app/templates/source_detail.html:30
 msgid "Configuration"
 msgstr ""
 
-#: app/templates/source_detail.html:33 app/templates/sources.html:53
+#: app/templates/source_detail.html:34 app/templates/sources.html:55
 msgid "Name"
 msgstr ""
 
-#: app/templates/source_detail.html:34 app/templates/sources.html:54
+#: app/templates/source_detail.html:35 app/templates/sources.html:56
 msgid "Server or OPDS feed URL"
 msgstr ""
 
-#: app/templates/source_detail.html:35
+#: app/templates/source_detail.html:36
 msgid "Browser URL prefix (optional)"
 msgstr ""
 
-#: app/templates/source_detail.html:40
+#: app/templates/source_detail.html:41
 msgid "API or access token"
 msgstr ""
 
-#: app/templates/source_detail.html:43
+#: app/templates/source_detail.html:44
 msgid "Credentials saved. Leave all credential fields blank to keep them, or enter a complete replacement."
 msgstr ""
 
-#: app/templates/source_detail.html:43
+#: app/templates/source_detail.html:44
 msgid "No credentials saved."
 msgstr ""
 
-#: app/templates/source_detail.html:44
+#: app/templates/source_detail.html:45
 msgid "Clear saved credentials"
 msgstr ""
 
-#: app/templates/source_detail.html:45
+#: app/templates/source_detail.html:46
 msgid "Options JSON"
 msgstr ""
 
-#: app/templates/source_detail.html:46
+#: app/templates/source_detail.html:47
 msgid "OPDS options: media_type (default ebook), max_pages (1–50), max_entries (1–5000), max_depth (1–4). The configured feed and scoped subsections define the catalogue. A partial traversal never marks missing entries unavailable."
 msgstr ""
 
-#: app/templates/source_detail.html:46
+#: app/templates/source_detail.html:47
 msgid "Jellyfin options: library_ids (optional list of library IDs), user_id (required for server API keys). Only supported media are imported. Shelf imports at most 5000 records per pass; select libraries to narrow a larger catalogue."
 msgstr ""
 
-#: app/templates/source_detail.html:48 app/templates/sources.html:35
+#: app/templates/source_detail.html:49 app/templates/sources.html:37
 msgid "Enabled"
 msgstr ""
 
-#: app/templates/source_detail.html:49
+#: app/templates/source_detail.html:50
 msgid "Save settings"
 msgstr ""
 
-#: app/templates/source_detail.html:54
+#: app/templates/source_detail.html:56
 msgid "Attach external availability"
 msgstr ""
 
-#: app/templates/source_detail.html:57
+#: app/templates/source_detail.html:59
 msgid "Catalogue item ID"
 msgstr ""
 
-#: app/templates/source_detail.html:58 app/templates/source_detail.html:72
+#: app/templates/source_detail.html:60 app/templates/source_detail.html:74
 msgid "External record ID"
 msgstr ""
 
-#: app/templates/source_detail.html:59
+#: app/templates/source_detail.html:61
 msgid "Open URL (no credentials or tokens)"
 msgstr ""
 
-#: app/templates/source_detail.html:60
+#: app/templates/source_detail.html:62
 msgid "Format (optional)"
 msgstr ""
 
-#: app/templates/source_detail.html:61
+#: app/templates/source_detail.html:63
 msgid "Attach link"
 msgstr ""
 
-#: app/templates/source_detail.html:66
+#: app/templates/source_detail.html:68
 msgid "Live catalogue records"
 msgstr ""
 
-#: app/templates/source_detail.html:67
+#: app/templates/source_detail.html:69
 msgid "Up to 2000 records shown. Trashed catalogue entries are hidden."
 msgstr ""
 
-#: app/templates/source_detail.html:73
+#: app/templates/source_detail.html:75
 msgid "Open in source"
 msgstr ""
 
-#: app/templates/source_detail.html:77
+#: app/templates/source_detail.html:79
 msgid "Remove link only"
 msgstr ""
 
-#: app/templates/source_detail.html:81
+#: app/templates/source_detail.html:83
 msgid "No live records attached to this source."
 msgstr ""
 
@@ -2538,54 +2538,62 @@ msgstr ""
 msgid "These integrations retain their existing configuration. Health describes the last recorded sync, not a live connection check."
 msgstr ""
 
-#: app/templates/sources.html:19
+#: app/templates/sources.html:20
 msgid "Configured"
 msgstr ""
 
-#: app/templates/sources.html:19
+#: app/templates/sources.html:20
 msgid "Not configured"
 msgstr ""
 
-#: app/templates/sources.html:19 app/templates/sources.html:36
+#: app/templates/sources.html:20 app/templates/sources.html:38
 #, python-format
 msgid "Cached records: %(count)s"
 msgstr ""
 
-#: app/templates/sources.html:20 app/templates/sources.html:38
+#: app/templates/sources.html:21 app/templates/sources.html:40
 msgid "Sync status"
 msgstr ""
 
-#: app/templates/sources.html:23
+#: app/templates/sources.html:24
 msgid "Configure in Settings"
 msgstr ""
 
-#: app/templates/sources.html:28
+#: app/templates/sources.html:30
 msgid "Additional sources"
 msgstr ""
 
-#: app/templates/sources.html:40
+#: app/templates/sources.html:42
 msgid "Manually attached external links. This source does not support sync."
 msgstr ""
 
-#: app/templates/sources.html:44
+#: app/templates/sources.html:46
 msgid "No connected libraries yet."
 msgstr ""
 
-#: app/templates/sources.html:48 app/templates/sources.html:56
+#: app/templates/sources.html:50 app/templates/sources.html:58
 msgid "Add source"
 msgstr ""
 
-#: app/templates/sources.html:52
+#: app/templates/sources.html:54
 msgid "Provider"
 msgstr ""
 
-#: app/templates/sources.html:55
+#: app/templates/sources.html:57
 msgid "LAN and localhost servers are supported. External library links may leave the server URL empty. Credentials and query strings must not be included in server URLs."
 msgstr ""
 
-#: app/templates/sources.html:58
+#: app/templates/sources.html:60
 msgid "After adding a source, configure its credentials and scope on its detail page before testing or syncing."
 msgstr ""
+
+#: app/templates/store.html:28
+msgid "Check your library"
+msgstr "Controlla la tua libreria"
+
+#: app/templates/store.html:63
+msgid "Results and sync"
+msgstr "Risultati e sincronizzazione"
 
 #: app/templates/fragments/account_menu.html:3
 msgid "Account menu"
