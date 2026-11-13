@@ -11,6 +11,12 @@ Remote contract (no catalogue/server credentials are read):
   (Unix milliseconds). If userId is supplied it must match the verified self;
   ABS versions omitting it are scoped by the authenticated /me endpoint.
   Only whole audiobook progress is supported.
+  With any library exclusions, a valid stamped abs_library_id is mandatory:
+  unknown identity cannot prove membership is allowed. No per-item remote
+  lookup guesses membership. Legacy NULL stamps are accepted ONLY when the
+  validated exclusion list is empty (the explicit all-libraries policy).
+  Non-NULL library stamps and exclusion entries must be valid opaque IDs;
+  blank/malformed values are never normalized into an inclusion or empty scope.
 
 Every link requires the owner to supply their own token, confirm the resolved
 remote user ID, and consent to pull_v1. Within one configured source, a remote
@@ -129,6 +135,22 @@ def _enabled(db, key: str) -> bool:
     return row is None or row[0] != "0"
 
 
+def _valid_abs_library_id(value) -> bool:
+    try:
+        _identity(value)
+    except ProgressError:
+        return False
+    return True
+
+
+def _abs_library_in_scope(library_id, excluded: list[str]) -> bool:
+    # NULL is the legacy "unstamped" state, not evidence of an included library.
+    # Only an all-libraries policy makes that unknown membership irrelevant.
+    if library_id is None:
+        return not excluded
+    return _valid_abs_library_id(library_id) and library_id not in excluded
+
+
 def _actor(db, user_id: int, expected: dict | None = None) -> dict:
     """Revalidate session/consent authority using the caller's connection/lock.
 
@@ -164,7 +186,8 @@ def _source(db, key: str) -> dict:
                                    "('abs_excluded_libraries', 'connection.abs.last_status')").fetchall())
         try:
             excluded = json.loads(settings.get("abs_excluded_libraries") or "[]")
-            if not isinstance(excluded, list) or len(excluded) > 1000 or any(not isinstance(v, str) for v in excluded):
+            if (not isinstance(excluded, list) or len(excluded) > 1000
+                    or any(not _valid_abs_library_id(value) for value in excluded)):
                 raise ValueError
         except (ValueError, TypeError, RecursionError):
             raise ProgressError("relink_required") from None
@@ -364,7 +387,7 @@ def _binding(db, account: dict, source: dict, item_id: int) -> dict:
     if source["provider"] == "abs":
         if item["media_type"] != "audiobook" or not item["abs_id"]:
             raise ProgressError("unsupported")
-        if item["abs_library_id"] in source["excluded"]:
+        if not _abs_library_in_scope(item["abs_library_id"], source["excluded"]):
             raise ProgressError("not_found")
         if db.execute("SELECT COUNT(*) FROM items_live WHERE abs_id = ?", (item["abs_id"],)).fetchone()[0] != 1:
             raise ProgressError("ambiguous_binding")
@@ -703,9 +726,19 @@ def _scheduled_items(db, account: dict, source: dict, after: int, limit: int) ->
     # SQL bounds the work before fetching. The exact scope/uniqueness/eligibility
     # is rechecked by pull_item before HTTP and again after every await.
     if source["provider"] == "abs":
+        scope, parameters = "", [after]
+        if source["excluded"]:
+            # Filter the common legacy/blank/excluded cases BEFORE LIMIT so
+            # they cannot consume every bounded batch ahead of allowed items.
+            # Binding validation still rejects all malformed stamps before HTTP.
+            # json_each keeps a large exclusion list to one bound parameter.
+            scope = (" AND abs_library_id IS NOT NULL AND trim(abs_library_id) != '' "
+                     "AND abs_library_id NOT IN (SELECT value FROM json_each(?))")
+            parameters.append(_json(source["excluded"]))
+        parameters.append(limit)
         return [row[0] for row in db.execute(
             "SELECT id FROM items_live WHERE id > ? AND media_type = 'audiobook' "
-            "AND abs_id IS NOT NULL AND abs_id != '' ORDER BY id LIMIT ?", (after, limit),
+            "AND abs_id IS NOT NULL AND abs_id != ''" + scope + " ORDER BY id LIMIT ?", parameters,
         )]
     return [row[0] for row in db.execute(
         "SELECT DISTINCT i.id FROM source_records r JOIN items_live i ON i.id = r.item_id "
