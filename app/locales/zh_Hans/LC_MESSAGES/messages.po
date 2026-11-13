@@ -103,6 +103,7 @@ msgid "Search"
 msgstr "搜索"
 
 #: app/browse_filters.py:210 app/templates/fragments/item_copy_edit.html:67
+#: app/templates/source_migration_openings.html:3
 msgid "Source"
 msgstr "来源"
 
@@ -874,6 +875,7 @@ msgstr ""
 #: app/templates/fragments/available_here.html:13
 #: app/templates/fragments/library_results.html:2
 #: app/templates/source_detail.html:73
+#: app/templates/source_migration_openings.html:3
 msgid "Available"
 msgstr ""
 
@@ -1232,7 +1234,7 @@ msgstr ""
 msgid "This form was already used. Reload before creating another entry."
 msgstr ""
 
-#: app/services/reading_life.py:369
+#: app/services/reading_life.py:362
 msgid "This goal already exists. Edit its target instead."
 msgstr ""
 
@@ -1978,13 +1980,14 @@ msgstr ""
 #: app/templates/fragments/library_results.html:2
 #: app/templates/fragments/metadata_provenance.html:23
 #: app/templates/item_edit.html:126 app/templates/source_detail.html:73
+#: app/templates/source_migration_openings.html:3
 msgid "Unknown"
 msgstr ""
 
 #: app/templates/item_edit.html:142 app/templates/item_edit.html:179
 #: app/templates/item_edit.html:310 app/templates/item_edit.html:359
-#: app/templates/source_migration_review.html:21
-#: app/templates/source_migration_review.html:22
+#: app/templates/source_migration_review.html:24
+#: app/templates/source_migration_review.html:25
 msgid "None"
 msgstr ""
 
@@ -2741,7 +2744,7 @@ msgid "This will be the admin account with full access to your library."
 msgstr "这将是管理员账号，拥有书库的全部权限。"
 
 #: app/templates/source_detail.html:2 app/templates/source_detail.html:6
-#: app/templates/source_migration.html:6 app/templates/sources.html:2
+#: app/templates/source_migration.html:7 app/templates/sources.html:2
 #: app/templates/sources.html:6
 msgid "Connected libraries"
 msgstr ""
@@ -2806,7 +2809,7 @@ msgstr ""
 #: app/templates/fragments/available_here.html:13
 #: app/templates/fragments/library_results.html:2
 #: app/templates/source_detail.html:18 app/templates/source_detail.html:73
-#: app/templates/sources.html:44
+#: app/templates/source_migration_openings.html:3 app/templates/sources.html:44
 msgid "Unavailable"
 msgstr ""
 
@@ -2938,160 +2941,167 @@ msgstr ""
 msgid "No live records attached to this source."
 msgstr ""
 
-#: app/templates/source_migration.html:2 app/templates/source_migration.html:7
-#: app/templates/source_migration_review.html:6
+#: app/templates/source_migration.html:3 app/templates/source_migration.html:8
+#: app/templates/source_migration_review.html:7
 msgid "Source replacement and binding repair"
 msgstr ""
 
-#: app/templates/source_migration.html:8
+#: app/templates/source_migration.html:9
 msgid "Configure and sync a new instance separately before replacing an old server. Editing a source URL keeps its old external-ID bindings; it does not migrate identities."
 msgstr ""
 
-#: app/templates/source_migration.html:9
+#: app/templates/source_migration.html:10
 msgid "This workflow only changes saved machine bindings. It never merges or deletes catalogue entries, copies or activity, copies credentials, fetches a server, or changes local metadata or covers. Duplicate imported catalogue entries remain for separate review."
 msgstr ""
 
-#: app/templates/source_migration.html:13
+#: app/templates/source_migration.html:14
 msgid "1. Compare saved source records"
 msgstr ""
 
-#: app/templates/source_migration.html:15
+#: app/templates/source_migration.html:16
 msgid "Old instance"
 msgstr ""
 
-#: app/templates/source_migration.html:15
 #: app/templates/source_migration.html:16
-#: app/templates/source_migration.html:54
-#: app/templates/source_migration.html:66
+#: app/templates/source_migration.html:17
+#: app/templates/source_migration.html:57
+#: app/templates/source_migration.html:70
 msgid "Choose a source"
 msgstr ""
 
-#: app/templates/source_migration.html:16
+#: app/templates/source_migration.html:17
 msgid "Replacement instance"
 msgstr ""
 
-#: app/templates/source_migration.html:17
+#: app/templates/source_migration.html:18
 msgid "Compare local snapshots"
 msgstr ""
 
-#: app/templates/source_migration.html:19
+#: app/templates/source_migration.html:20
 msgid "Only unique, conflict-free remote ISBN or provider-identifier evidence suggests pairs. Titles and server-local external IDs are never automatic identity evidence. No suggestion is applied without review."
 msgstr ""
 
-#: app/templates/source_migration.html:24
+#: app/templates/source_migration.html:21
+msgid "Opening previews use saved credential-free URLs only. They do not test a server, download content or promise a working link. The dry-run review shows the actions before and after apply, including the loss of old-source actions on retirement. Other holdings are unchanged."
+msgstr ""
+
+#: app/templates/source_migration.html:26
 msgid "2. Review old/new record IDs and evidence"
 msgstr ""
 
-#: app/templates/source_migration.html:25
+#: app/templates/source_migration.html:27
 msgid "Suggested record pair"
 msgstr ""
 
-#: app/templates/source_migration.html:25
+#: app/templates/source_migration.html:27
 msgid "No unambiguous identifier pairs. Review the records yourself; identical titles are not evidence."
 msgstr ""
 
-#: app/templates/source_migration.html:26
+#: app/templates/source_migration.html:28
+#: app/templates/source_migration_review.html:10
 msgid "Old source records"
 msgstr ""
 
-#: app/templates/source_migration.html:26
+#: app/templates/source_migration.html:28
+#: app/templates/source_migration_review.html:10
 msgid "Replacement source records"
 msgstr ""
 
-#: app/templates/source_migration.html:31
-#: app/templates/source_migration.html:58
+#: app/templates/source_migration.html:33
+#: app/templates/source_migration.html:61
+#: app/templates/source_migration_openings.html:3
 msgid "Record ID"
 msgstr ""
 
-#: app/templates/source_migration.html:32
-#: app/templates/source_migration.html:59
-#: app/templates/source_migration_review.html:21
-#: app/templates/source_migration_review.html:22
+#: app/templates/source_migration.html:34
+#: app/templates/source_migration.html:62
+#: app/templates/source_migration_review.html:24
+#: app/templates/source_migration_review.html:25
 msgid "External ID"
 msgstr ""
 
-#: app/templates/source_migration.html:33
-#: app/templates/source_migration.html:60
+#: app/templates/source_migration.html:35
+#: app/templates/source_migration.html:63
 msgid "Currently attached catalogue item"
 msgstr ""
 
-#: app/templates/source_migration.html:33
-#: app/templates/source_migration.html:60
+#: app/templates/source_migration.html:35
+#: app/templates/source_migration.html:63
 msgid "In Trash; cannot migrate"
 msgstr ""
 
-#: app/templates/source_migration.html:34
-#: app/templates/source_migration.html:61
+#: app/templates/source_migration.html:36
+#: app/templates/source_migration.html:64
 msgid "No saved remote identity evidence"
 msgstr ""
 
-#: app/templates/source_migration.html:36
-#: app/templates/source_migration.html:63
+#: app/templates/source_migration.html:39
+#: app/templates/source_migration.html:67
 msgid "No saved records. Sync this instance first."
 msgstr ""
 
-#: app/templates/source_migration.html:42
+#: app/templates/source_migration.html:45
 msgid "Old record ID,new record ID — one pair per line, at most 100"
 msgstr ""
 
-#: app/templates/source_migration.html:43
+#: app/templates/source_migration.html:46
 msgid "I manually checked these old/new IDs, including any missing, ambiguous or conflicting identity evidence. Permit explicitly reviewed pairs, not title matching."
 msgstr ""
 
-#: app/templates/source_migration.html:44
+#: app/templates/source_migration.html:47
 msgid "Disable the entire old instance on apply, including unmatched holdings. Keep its configuration and records. Otherwise I can retire it after verification."
 msgstr ""
 
-#: app/templates/source_migration.html:45
+#: app/templates/source_migration.html:48
 msgid "Create dry-run preview"
 msgstr ""
 
-#: app/templates/source_migration.html:51
+#: app/templates/source_migration.html:54
 msgid "Correct a wrong machine attachment"
 msgstr ""
 
-#: app/templates/source_migration.html:52
+#: app/templates/source_migration.html:55
 msgid "Find the record ID in the comparison above or on its review receipt. Enter the correct existing catalogue item ID. The stable source/external identity will follow this corrected binding on every later sync. Manual links keep their existing detach workflow; legacy integrations are not modified."
 msgstr ""
 
-#: app/templates/source_migration.html:54
+#: app/templates/source_migration.html:57
 msgid "Look up saved machine record IDs"
 msgstr ""
 
-#: app/templates/source_migration.html:55
+#: app/templates/source_migration.html:58
 msgid "Show saved records"
 msgstr ""
 
-#: app/templates/source_migration.html:57
+#: app/templates/source_migration.html:60
 msgid "Machine records"
 msgstr ""
 
-#: app/templates/source_migration.html:62
+#: app/templates/source_migration.html:66
 msgid "Review this attachment"
 msgstr ""
 
-#: app/templates/source_migration.html:66
+#: app/templates/source_migration.html:70
 msgid "Machine source"
 msgstr ""
 
-#: app/templates/source_migration.html:67
-#: app/templates/source_migration_review.html:20
+#: app/templates/source_migration.html:71
+#: app/templates/source_migration_review.html:23
 msgid "Machine record ID"
 msgstr ""
 
-#: app/templates/source_migration.html:68
+#: app/templates/source_migration.html:72
 msgid "Correct catalogue item ID"
 msgstr ""
 
-#: app/templates/source_migration.html:69
+#: app/templates/source_migration.html:73
 msgid "I checked the external record identity and the correct local item, not just their titles."
 msgstr ""
 
-#: app/templates/source_migration.html:70
+#: app/templates/source_migration.html:74
 msgid "Preview binding repair"
 msgstr ""
 
-#: app/templates/source_migration.html:73
+#: app/templates/source_migration.html:77
 msgid "Your recent reviews"
 msgstr ""
 
@@ -3108,145 +3118,207 @@ msgstr ""
 msgid "Start a fresh source review"
 msgstr ""
 
-#: app/templates/source_migration_review.html:2
-#: app/templates/source_migration_review.html:7
+#: app/templates/source_migration_openings.html:3
+msgid "Catalogue item"
+msgstr ""
+
+#: app/templates/source_migration_openings.html:3
+msgid "Cached availability"
+msgstr ""
+
+#: app/templates/source_migration_openings.html:5
+msgid "Opening action unavailable or unconfirmed"
+msgstr ""
+
+#: app/templates/source_migration_openings.html:5
+msgid "Saved safe URL (not an opening action)"
+msgstr ""
+
+#: app/templates/source_migration_openings.html:12
+msgid "No usable opening action among these reviewed records."
+msgstr ""
+
+#: app/templates/source_migration_openings.html:14
+msgid "Opening actions were not recorded by this older review, or its records no longer exist. Inspect the current saved actions before starting a fresh review."
+msgstr ""
+
+#: app/templates/source_migration_review.html:3
+#: app/templates/source_migration_review.html:8
 msgid "Review source bindings"
 msgstr ""
 
-#: app/templates/source_migration_review.html:8
+#: app/templates/source_migration_review.html:9
 msgid "Review state"
 msgstr ""
 
-#: app/templates/source_migration_review.html:8
+#: app/templates/source_migration_review.html:9
 msgid "Old source"
 msgstr ""
 
-#: app/templates/source_migration_review.html:8
+#: app/templates/source_migration_review.html:9
 msgid "New source"
 msgstr ""
 
-#: app/templates/source_migration_review.html:9
+#: app/templates/source_migration_review.html:10
+msgid "Current saved coverage"
+msgstr ""
+
+#: app/templates/source_migration_review.html:10
 msgid "Selected pairs"
 msgstr ""
 
-#: app/templates/source_migration_review.html:9
+#: app/templates/source_migration_review.html:10
+#: app/templates/source_migration_review.html:11
 msgid "Unmapped old records"
 msgstr ""
 
-#: app/templates/source_migration_review.html:9
+#: app/templates/source_migration_review.html:10
+#: app/templates/source_migration_review.html:11
 msgid "Unmapped replacement records"
 msgstr ""
 
-#: app/templates/source_migration_review.html:9
-msgid "Unmapped records and their catalogue entries remain unchanged. Retirement disables the entire old instance, including any unmatched holdings; review coverage before retiring it."
-msgstr ""
-
-#: app/templates/source_migration_review.html:10
-msgid "Dry run only. No source bindings or catalogue values have changed. This preview expires at"
-msgstr ""
-
-#: app/templates/source_migration_review.html:10
-msgid "Reviewed bindings applied. Verify the correct source availability on each catalogue item before retiring the old source."
-msgstr ""
-
-#: app/templates/source_migration_review.html:10
-msgid "Bindings rolled back. Local edits and metadata-authority protections remain; rollback does not restore old automatic metadata claims."
+#: app/templates/source_migration_review.html:11
+msgid "Coverage at original preview"
 msgstr ""
 
 #: app/templates/source_migration_review.html:11
+msgid "Unmapped records and their catalogue entries remain unchanged. Retirement disables the entire old instance, including any unmatched holdings. Changed inventories require a fresh complete review, not just a refreshed receipt."
+msgstr ""
+
+#: app/templates/source_migration_review.html:12
+msgid "Dry run only. No source bindings or catalogue values have changed. This preview expires at"
+msgstr ""
+
+#: app/templates/source_migration_review.html:12
+msgid "Reviewed bindings applied. Verify the correct source availability on each catalogue item before retiring the old source."
+msgstr ""
+
+#: app/templates/source_migration_review.html:12
+msgid "Bindings rolled back. Local edits and metadata-authority protections remain; rollback does not restore old automatic metadata claims."
+msgstr ""
+
+#: app/templates/source_migration_review.html:13
 msgid "The old instance was disabled, not deleted. Rollback restores its previous enabled state only if its settings have not changed."
 msgstr ""
 
-#: app/templates/source_migration_review.html:14
+#: app/templates/source_migration_review.html:16
 msgid "Safety boundary"
 msgstr ""
 
-#: app/templates/source_migration_review.html:15
+#: app/templates/source_migration_review.html:17
 msgid "Only source-record attachments change. Catalogue entries, duplicate imported entries, copies, activity, ownership, personal notes, identifiers, manual fields, cover files and cover decisions stay in place. Credentials are never transferred. No remote server is contacted."
 msgstr ""
 
-#: app/templates/source_migration_review.html:16
-msgid "Existing descriptive metadata authority is frozen for the affected source identities on both the old and correct local items, including blank fields. No applied or Follow source claims move to another item. Inspect Metadata sources to explicitly follow the correct provider again. Rollback never resurrects the old claims."
+#: app/templates/source_migration_review.html:18
+msgid "Existing descriptive metadata authority is frozen for the affected source identities on both the old and correct local items, including blank fields. No applied or Follow source claims move to another item. Inspect Metadata sources to explicitly follow the correct provider again. Rollback never resurrects old claims or silently resets a newer Follow source decision. Binding-no-op rollback leaves metadata provenance untouched."
 msgstr ""
 
-#: app/templates/source_migration_review.html:20
+#: app/templates/source_migration_review.html:19
+msgid "Opening previews describe only the reviewed source records, not other holdings. They use saved credential-free URLs without contacting a server. Missing, incompatible or unconfirmed actions are shown explicitly; retirement removes every old-source opening action, including unmatched holdings."
+msgstr ""
+
+#: app/templates/source_migration_review.html:23
 msgid "Reviewed old record ID"
 msgstr ""
 
-#: app/templates/source_migration_review.html:21
+#: app/templates/source_migration_review.html:24
 msgid "Replacement remote identifiers"
 msgstr ""
 
-#: app/templates/source_migration_review.html:21
+#: app/templates/source_migration_review.html:24
 msgid "The machine record no longer exists."
 msgstr ""
 
-#: app/templates/source_migration_review.html:22
+#: app/templates/source_migration_review.html:25
 msgid "Old record"
 msgstr ""
 
-#: app/templates/source_migration_review.html:22
+#: app/templates/source_migration_review.html:25
 msgid "Old remote identifiers"
 msgstr ""
 
-#: app/templates/source_migration_review.html:23
+#: app/templates/source_migration_review.html:26
 msgid "Before"
 msgstr ""
 
-#: app/templates/source_migration_review.html:23
-#: app/templates/source_migration_review.html:24
+#: app/templates/source_migration_review.html:26
+#: app/templates/source_migration_review.html:27
 msgid "Missing or in Trash"
 msgstr ""
 
-#: app/templates/source_migration_review.html:24
+#: app/templates/source_migration_review.html:27
 msgid "After"
 msgstr ""
 
-#: app/templates/source_migration_review.html:25
+#: app/templates/source_migration_review.html:28
 msgid "Explicit administrator review of old/new record IDs"
 msgstr ""
 
-#: app/templates/source_migration_review.html:25
+#: app/templates/source_migration_review.html:28
 msgid "Explicit administrator review of record/item IDs"
 msgstr ""
 
-#: app/templates/source_migration_review.html:25
+#: app/templates/source_migration_review.html:28
 msgid "Exact remote identifier evidence"
 msgstr ""
 
-#: app/templates/source_migration_review.html:26
+#: app/templates/source_migration_review.html:29
 msgid "Manually reviewed; no local metadata will be replaced."
 msgstr ""
 
-#: app/templates/source_migration_review.html:29
-msgid "This review is stale, expired, busy or superseded by another binding decision. No action is available. Start a fresh preview; do not reuse an old confirmation."
+#: app/templates/source_migration_review.html:30
+msgid "Before binding change (reviewed snapshot)"
+msgstr ""
+
+#: app/templates/source_migration_review.html:31
+msgid "After apply (reviewed projection)"
+msgstr ""
+
+#: app/templates/source_migration_review.html:32
+msgid "After retiring old source (reviewed projection)"
 msgstr ""
 
 #: app/templates/source_migration_review.html:33
-msgid "Apply will also disable the old instance, keeping all its records and settings."
+msgid "Current saved opening actions"
 msgstr ""
 
 #: app/templates/source_migration_review.html:34
-msgid "I reviewed every before/after ID, the identity evidence and conflicts, and the metadata-authority warning above."
+msgid "If old source retired now (current projection)"
 msgstr ""
 
-#: app/templates/source_migration_review.html:35
-msgid "Apply reviewed bindings"
-msgstr ""
-
-#: app/templates/source_migration_review.html:40
-msgid "I verified the replacement and unmapped records. Disable the entire old source, including unmatched holdings; keep its records, catalogue entries and credentials."
+#: app/templates/source_migration_review.html:37
+msgid "This review is stale, expired, busy or superseded by another binding decision. No action is available. Start a fresh preview; do not reuse an old confirmation."
 msgstr ""
 
 #: app/templates/source_migration_review.html:41
-msgid "Retire old source"
+msgid "Apply will also disable the old instance, keeping all its records and settings."
 msgstr ""
 
-#: app/templates/source_migration_review.html:45
-msgid "Restore the before bindings only. Keep current local edits, snapshots, activity, covers and the conservative metadata protections."
+#: app/templates/source_migration_review.html:42
+msgid "I reviewed every before/after ID, the identity evidence and conflicts, and the metadata-authority warning above."
+msgstr ""
+
+#: app/templates/source_migration_review.html:43
+msgid "Apply reviewed bindings"
 msgstr ""
 
 #: app/templates/source_migration_review.html:46
+msgid "Review the complete current source inventories"
+msgstr ""
+
+#: app/templates/source_migration_review.html:49
+msgid "I verified the replacement and unmapped records. Disable the entire old source, including unmatched holdings; keep its records, catalogue entries and credentials."
+msgstr ""
+
+#: app/templates/source_migration_review.html:50
+msgid "Retire old source"
+msgstr ""
+
+#: app/templates/source_migration_review.html:55
+msgid "Restore the before bindings only. Keep current local edits, snapshots, activity, covers and the conservative metadata protections."
+msgstr ""
+
+#: app/templates/source_migration_review.html:56
 msgid "Roll back bindings"
 msgstr ""
 
@@ -4249,15 +4321,15 @@ msgstr ""
 msgid "Private journal entry"
 msgstr ""
 
-#: app/templates/fragments/reading_life_forms.html:48
+#: app/templates/fragments/reading_life_forms.html:51
 msgid "Up to 10000 characters. Earlier versions remain in your private revision history when you edit an entry."
 msgstr ""
 
-#: app/templates/fragments/reading_life_forms.html:50
+#: app/templates/fragments/reading_life_forms.html:53
 msgid "Save journal correction"
 msgstr ""
 
-#: app/templates/fragments/reading_life_forms.html:50
+#: app/templates/fragments/reading_life_forms.html:53
 msgid "Add journal entry"
 msgstr ""
 
