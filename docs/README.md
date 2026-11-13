@@ -63,7 +63,7 @@ New here? Start with **[Installation](installation.md)**, then
 | [Architecture](architecture.md) | Request path, middleware, data model, metadata pipeline, background jobs |
 | [Physical copies](item-copies.md) | The `item_copies` model, and how the item's own location field still drives the primary copy |
 | [Related Media](related-media.md) | Linking a work to its other formats, related items and adaptations; how a group is derived rather than stored |
-| [Connected-library experiment](connected-library-plan.md) | Implemented boundaries on `new-test`, not a release plan |
+| [Connected-library experiment and frontend backlog](connected-library-plan.md) | Implemented boundaries, remaining frontend work and roadmap reconciliation on `new-test`; not a release schedule |
 | [Connected-library verification](connected-library-verification.md) | Completed local test gates, runtime caveats and exclusions |
 | [Contributing](../CONTRIBUTING.md) | How to report bugs and send changes |
 | [Security policy](../SECURITY.md) | Reporting vulnerabilities; hardening posture |

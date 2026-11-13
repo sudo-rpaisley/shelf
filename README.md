@@ -61,6 +61,9 @@ isolation. New source bindings and personal data require a full database backup,
 not the portable collection archive. See the
 [Connected library guide](docs/user-guide/connected-library.md) for setup,
 security, backup details and supported-source limits.
+The [frontend backlog](docs/connected-library-plan.md#remaining-library-frontend-work)
+combines the remaining library experience work with outstanding roadmap items,
+separating them from features already implemented on this branch.
 
 ## Screenshots
 
