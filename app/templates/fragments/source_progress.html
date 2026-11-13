@@ -1,0 +1,72 @@
+<section id="source-progress-accounts" class="mb-6">
+    <h2 class="text-lg font-semibold mb-3">{{ _('My linked accounts') }}</h2>
+    {% for account in progress.accounts %}
+    <div class="bg-shelf-card border border-shelf-border rounded-lg p-4 mb-3">
+        <p class="font-medium">{{ account.name }} · {{ account.remote_user_id }}</p>
+        <p class="text-xs text-shelf-muted mt-1">{{ _('Pull-only consent recorded:') }} {{ account.consented_at }}</p>
+        {% if not account.available %}<p class="text-sm text-shelf-muted mt-2">{{ _('Source disabled or changed. Re-link before pulling; local progress is unchanged.') }}</p>{% endif %}
+        {% if account.pullable %}
+        <form method="post" action="/api/source-progress/accounts/{{ account.id }}/items/{{ progress.item_id }}/pull" class="mt-3">
+            <input type="hidden" name="_csrf" value="{{ request.cookies.get('csrf_token', '') }}">
+            <button type="submit" class="text-sm text-shelf-accent2 hover:underline">{{ _('Pull this edition; preview conflicts') }}</button>
+        </form>
+        {% elif progress.item_id and account.available %}<p class="text-sm text-shelf-muted mt-2">{{ _('No unambiguous supported binding for this edition. Progress is never copied from another format.') }}</p>{% endif %}
+        <form method="post" action="/api/source-progress/accounts/{{ account.id }}/disconnect" class="mt-3">
+            <input type="hidden" name="_csrf" value="{{ request.cookies.get('csrf_token', '') }}">
+            <button type="submit" class="text-sm text-shelf-error hover:underline">{{ _('Disconnect and forget my token') }}</button>
+        </form>
+    </div>
+    {% else %}<p class="text-sm text-shelf-muted">{{ _('No remote account linked. Catalogue API keys never supply personal progress.') }}</p>{% endfor %}
+    {% if progress.linkable %}
+    <details class="mt-4">
+        <summary class="cursor-pointer font-medium">{{ _('Link or replace my remote account') }}</summary>
+        <form method="post" action="/api/source-progress/accounts/link" class="space-y-3 mt-4">
+            <input type="hidden" name="_csrf" value="{{ request.cookies.get('csrf_token', '') }}">
+            <label class="block text-sm">{{ _('Source') }}
+                <select name="source_key" required class="block w-full bg-shelf-bg border border-shelf-border rounded-lg p-2 mt-1">
+                    {% for source in progress.linkable %}<option value="{{ source.key }}">{{ source.name }}</option>{% endfor %}
+                </select>
+            </label>
+            <label class="block text-sm">{{ _('Confirm my remote user ID (not my username)') }}
+                <input name="remote_user_id" required maxlength="200" autocomplete="off" class="block w-full bg-shelf-bg border border-shelf-border rounded-lg p-2 mt-1">
+            </label>
+            <label class="block text-sm">{{ _('My remote user access token') }}
+                <input name="token" type="password" required maxlength="4096" autocomplete="new-password" class="block w-full bg-shelf-bg border border-shelf-border rounded-lg p-2 mt-1">
+            </label>
+            <p class="text-xs text-shelf-muted">{{ _('Use your own user token, not a server-wide catalogue key. Shelf verifies its current user without an administrator-selected user ID. Tokens stay encrypted on the server; disconnect forgets them but does not revoke them remotely.') }}</p>
+            <label class="flex items-start gap-2 text-sm"><input name="consent" type="checkbox" required value="{{ progress.consent_version }}"><span>{{ _('This is my remote account. I consent to explicit pull-only progress imports into my Shelf account and conflict/history storage. No automatic sync or remote writeback.') }}</span></label>
+            <button type="submit" class="text-sm px-4 py-2 bg-shelf-accent text-white rounded-lg">{{ _('Verify and link my account') }}</button>
+        </form>
+    </details>
+    {% endif %}
+</section>
+<section id="source-progress-conflicts" class="mb-6">
+    <h2 class="text-lg font-semibold mb-3">{{ _('Conflict previews') }}</h2>
+    {% for entry in progress.pending %}
+    <div class="bg-shelf-card border border-shelf-border rounded-lg p-4 mb-3" data-progress-review="{{ entry.id }}">
+        <a href="/item/{{ entry.item_id }}" class="font-medium text-shelf-accent2">{{ entry.title }}</a>
+        <p class="text-sm text-shelf-muted mt-2">{{ _(progress_reasons.get(entry.reason, 'Review this observation before replacing local progress.')) }}</p>
+        <p class="text-sm mt-2">{{ _('Local:') }} {{ entry.local.status or _('No personal status') }} · {{ entry.local.progress if entry.local.progress is not none else '—' }}%</p>
+        <p class="text-sm mt-1">{{ _('Remote:') }} {{ entry.remote.status }} · {{ entry.remote.progress }}% · {{ entry.remote.position }} / {{ entry.remote.total }} {{ _('seconds') }}</p>
+        <p class="text-xs text-shelf-muted mt-1">{{ _('Remote playback/update timestamp:') }} {{ entry.remote.updated_at or _('Not supplied') }}</p>
+        <form method="post" action="/api/source-progress/reviews/{{ entry.id }}" class="flex flex-wrap gap-4 mt-3">
+            <input type="hidden" name="_csrf" value="{{ request.cookies.get('csrf_token', '') }}">
+            <input type="hidden" name="review_token" value="{{ entry.review_token }}">
+            <button name="decision" value="kept_local" type="submit" class="text-sm text-shelf-accent2 hover:underline">{{ _('Keep my local progress') }}</button>
+            <button name="decision" value="accepted" type="submit" class="text-sm text-shelf-error hover:underline">{{ _('Replace local progress with this remote observation') }}</button>
+        </form>
+    </div>
+    {% else %}<p class="text-sm text-shelf-muted">{{ _('No pending progress conflicts.') }}</p>{% endfor %}
+    {% if progress.next_review_id %}<a href="/account/source-progress?review_before={{ progress.next_review_id }}{% if progress.item_id %}&amp;item_id={{ progress.item_id }}{% endif %}" class="text-sm text-shelf-accent2 hover:underline">{{ _('Show older conflict previews') }}</a>{% endif %}
+</section>
+<section id="source-progress-history">
+    <h2 class="text-lg font-semibold mb-3">{{ _('My remote progress history') }}</h2>
+    {% for event in progress.history %}
+    <div class="text-sm border-t border-shelf-border py-3">
+        <p><a href="/item/{{ event.item_id }}" class="text-shelf-accent2">{{ event.title }}</a> · {{ event.created_at }}</p>
+        <p class="text-shelf-muted">{{ _('Accepted remote progress') if event.decision == 'accepted' else _('Kept local progress') }} · {{ event.source_key }} · {{ event.snapshot.remote.progress }}%</p>
+        <p class="text-xs text-shelf-muted">{{ _('Local before → after:') }} {{ event.snapshot.before.status or '—' }} {{ event.snapshot.before.progress if event.snapshot.before.progress is not none else '—' }}% → {{ event.snapshot.after.status or '—' }} {{ event.snapshot.after.progress if event.snapshot.after.progress is not none else '—' }}%</p>
+    </div>
+    {% else %}<p class="text-sm text-shelf-muted">{{ _('No remote progress decisions yet.') }}</p>{% endfor %}
+    {% if progress.next_history_id %}<a href="/account/source-progress?history_before={{ progress.next_history_id }}{% if progress.item_id %}&amp;item_id={{ progress.item_id }}{% endif %}" class="text-sm text-shelf-accent2 hover:underline">{{ _('Show older progress history') }}</a>{% endif %}
+</section>

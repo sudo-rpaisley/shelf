@@ -1,0 +1,12 @@
+{% extends "base.html" %}
+{% block title %}{{ _('My source progress') }} — Shelf{% endblock %}
+{% block content %}
+<div data-testid="source-progress-page" class="max-w-3xl mx-auto">
+    <h1 class="text-2xl font-bold mb-3">{{ _('My source progress') }}</h1>
+    <p class="text-sm text-shelf-muted mb-4">{{ _('Link your own remote account, then explicitly pull one edition at a time. Newer remote progress can update your personal state; local changes, resets and uncertain timestamps require review. Nothing is sent back, and nothing syncs automatically.') }}</p>
+    <p class="text-sm text-shelf-muted mb-4">{{ _('Supported: Jellyfin movies and audiobooks; Audiobookshelf whole audiobooks. No page/time conversion, series/album aggregation or progress sharing with other Shelf accounts.') }}</p>
+    {% if progress_item %}<p class="mb-4"><a href="/item/{{ progress_item.id }}#personal-library" class="text-shelf-accent2 hover:underline">{{ progress_item.title }}</a></p>{% endif %}
+    {% if notice %}<p role="status" class="bg-shelf-card border border-shelf-border rounded-lg p-3 mb-4">{{ notice }}</p>{% endif %}
+    {% include "fragments/source_progress.html" %}
+</div>
+{% endblock %}

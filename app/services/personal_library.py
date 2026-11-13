@@ -192,6 +192,26 @@ def save(db, user_id: int, item_id: int, values: dict) -> dict | None:
     Finishing sets progress to 100; reopening clears the finished timestamp.
     Only an actual change creates history and advances ``last_event_id``.
     """
+    return _save(db, user_id, item_id, values)
+
+
+def apply_source_progress(db, user_id: int, item_id: int, *, status: str,
+                          progress: int, provenance: dict) -> dict | None:
+    """Apply reviewed/consented progress only, preserving all other own fields.
+
+    The source-progress service owns consent, clocks, baselines and conflicts.
+    This helper owns the same completion/reopen/date and atomic event rules as
+    a manual save. It never writes to a remote source or commits the caller.
+    """
+    if status not in {"planned", "in_progress", "finished"} or type(progress) is not int or not 0 <= progress <= 100:
+        raise ValueError("Invalid source progress")
+    previous = state_for(db, user_id, item_id)
+    values = {name: previous[name] for name in _FORM_FIELDS}
+    values.update(status=status, progress=progress)
+    return _save(db, user_id, item_id, values, provenance=provenance)
+
+
+def _save(db, user_id: int, item_id: int, values: dict, *, provenance=None) -> dict | None:
     if db.execute("SELECT id FROM items_live WHERE id = ?", (item_id,)).fetchone() is None:
         return None
     previous = state_for(db, user_id, item_id)
@@ -212,7 +232,10 @@ def save(db, user_id: int, item_id: int, values: dict) -> dict | None:
     # a recency index: resets/merges can move or add later events without any
     # new personal save. Only this event becomes the state's recency identity.
     snapshot = {name: value for name, value in state.items() if name != "last_event_id"}
-    state["last_event_id"] = _record(db, user_id, item_id, "updated", snapshot)
+    if provenance is not None:
+        snapshot["source_progress"] = provenance
+    state["last_event_id"] = _record(db, user_id, item_id,
+                                     "source_progress" if provenance is not None else "updated", snapshot)
     _store(db, state)
     return state
 
