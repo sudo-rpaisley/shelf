@@ -341,7 +341,10 @@ def test_preview_and_receipt_show_safe_opening_actions_and_loss_on_retirement(ad
         assert "After retiring old source (reviewed projection)" in page.text
         before = page.text.split('data-testid="opening-before"', 1)[1].split("</section>", 1)[0]
         after = page.text.split('data-testid="opening-after"', 1)[1].split("</section>", 1)[0]
-        assert f'href="{old_url}"' in before and "Read —" in before
+        assert f'href="{old_url}"' in before
+        old_action = before.split(f'href="{old_url}"', 1)[1].split("</a>", 1)[0]
+        assert old_action.split(">", 1)[1] == "Read"
+        assert f'<p class="break-all">{old_url}</p>' in before
         assert "No usable opening action among these reviewed records" in after
         assert "Source is disabled" in after and notice in after
         assert "do-not-display-this-token" not in page.text and "test-only" not in page.text and "gAAAAA" not in page.text
