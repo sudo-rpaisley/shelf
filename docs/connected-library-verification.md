@@ -36,6 +36,7 @@ coverage. Subsequent implementation lanes remain outside this candidate.
 | `a4103d4d` | Reading-life, delivery and all-page/eight-width layout browsers | **21 passed**, exit 0, 510.92 s |
 | `a4103d4d` | Complete expanded non-live browser suite | **417 passed**, exit 0, 1741.12 s |
 | `a4103d4d` | `make checks-fast`, whitespace checks | Passed; private roadmap-map lint explicitly skipped because `.devdocs` is absent |
+| `38c73f97` (application unchanged from `a4103d4d`) | Complete non-live unit/integration suite, frozen sibling worktree | **8162 passed**, exit 0, 3265.91 s |
 
 The `3cbecaa4` browser run initially reported **15 passed / 3 failed**:
 opening-action labels, a macro incorrectly placed among top-level pages, and
@@ -45,9 +46,11 @@ The later candidate corrects these issues without weakening the layout gates,
 stale-inventory checks, real-binding ABA guards or metadata-authority protections.
 Its full browser pass includes the unchanged 80-pixel content-width threshold.
 
-The full 8158-test unit result predates those final small fixes; the later
-1264-test gate covers the affected features. It must not be presented as a
-full 8162-test run or verification of the unmerged programme. Warnings were
+The original full 8158-test unit result predates those final small fixes;
+the later 1264-test gate covers the affected features. A subsequent frozen
+run at `38c73f97` independently passed all **8162** units, including those fixes.
+That commit changes only delivery documentation relative to `a4103d4d`.
+Neither full result verifies any unmerged programme candidate. Warnings were
 existing Starlette/httpx, deliberate duplicate-ZIP-fixture and browser-stack
 deprecations; no blanket warning suppression or xfail was added.
 
@@ -67,6 +70,18 @@ PATH=/tmp/shelf-new-test-compatible-venv/bin:$PATH make checks-fast
 Application/static/test files remained frozen during each gate; delivery
 documentation and isolated sibling worktrees did not change the served code.
 No production data, keys, Portainer resources, ports or deployment were changed.
+
+The final 8162-test command ran in
+`/workspace/shelf/swarm-20261113/first-batch-fullgate`:
+
+```bash
+PATH=/tmp/shelf-new-test-compatible-venv/bin:$PATH \
+  make test PYTEST_PAR='-n 2 --dist loadfile'
+```
+
+It reported four existing warnings (Starlette/httpx and the deliberate
+duplicate-ZIP fixture). Its result does not transfer to the later source,
+household, history, browser-storage, portability or translation branches.
 
 GitHub explicitly paused Actions execution on this fork because of usage
 volume. The operator selected **continue local only** rather than re-enabling

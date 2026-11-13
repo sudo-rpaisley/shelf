@@ -160,8 +160,12 @@ integration, **not closure of the full backlog or its dependent acceptance gates
   review continuity, **1264** focused tests passed in 276.06 seconds and
   **21** browser/layout tests passed in 510.92 seconds. Fast offline checks pass.
 - `a4103d4d`: the expanded full browser suite passed **417 tests** in
-  1741.12 seconds. The full 8158-test unit result belongs to `3cbecaa4`, not
-  to the later candidate or any unmerged implementation branch. No full
+  1741.12 seconds. The original full 8158-test unit result belongs to
+  `3cbecaa4`.
+- `38c73f97`: a subsequent frozen full unit run passed **8162 tests** in
+  3265.91 seconds. Its application/static/test code is unchanged from
+  `a4103d4d`; only delivery documentation differs. This verifies the first
+  application batch, not any unmerged implementation branch. No full
   expanded-programme gate is claimed.
 
 The operator chose **continue local only** when offered pinned CI/runner
@@ -172,6 +176,9 @@ passed. Named live-provider and IdP evidence remains separately incomplete.
 All 53 initial translation maps have structural validation: **4154 entries,
 4223 forms**, with no placeholder/plural/whitespace errors. Eleven independent
 language reviews supplied 15 corrections and flagged source-context problems.
-Mappings are not yet applied to application catalogues; source changes, retired
-messages, existing translations and newly integrated feature strings must be
-reconciled before R9 can close.
+Secondary-only catalogue candidate `f89df61c` has applied **3922 exact matches**,
+preserved **798 existing translations** and retired **232 mappings** without
+reusing fragments. **334 locale identities remain untranslated**. Application
+and linguistic review, a remaining source-escaping fix and coverage of newly
+integrated feature strings are still required; these catalogues are not pushed
+or enabled by default. R9 remains incomplete.
