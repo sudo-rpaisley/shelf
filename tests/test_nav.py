@@ -40,7 +40,7 @@ VIEWER = {"id": 3, "username": "viewer", "role": "viewer"}
 def test_registry_covers_the_designed_tabs():
     assert [t["key"] for t in NAV_TABS] == [
         "library", "browse", "scan", "intake", "shelf-fill", "store", "series",
-        "music", "periodicals", "discover", "stats", "activity", "reading-life", "sources", "source-migrations",
+        "music", "periodicals", "discover", "stats", "activity", "reading-life", "source-progress", "sources", "source-migrations",
         "needs-attention", "trash", "labels", "audits",
         "duplicates", "settings", "logs",
     ]
@@ -55,7 +55,7 @@ def test_management_and_personal_destinations_render_in_the_account_menu():
     template learning its name, so pin the membership rather than the flag.
     """
     assert [t["key"] for t in NAV_TABS if t.get("menu") == "account"] == [
-        "activity", "reading-life", "sources", "source-migrations", "needs-attention", "trash", "labels", "audits",
+        "activity", "reading-life", "source-progress", "sources", "source-migrations", "needs-attention", "trash", "labels", "audits",
         "duplicates", "settings", "logs",
     ]
     assert all(t.get("menu", "") in ("", "account") for t in NAV_TABS)

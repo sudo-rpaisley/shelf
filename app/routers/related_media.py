@@ -42,8 +42,8 @@ def _render_panel(request: Request, item_id: int, *, refresh_also_available: boo
     with get_db() as db:
         context = _panel_context(db, item_id)
         if context is not None and refresh_also_available and feature_enabled("connected_library"):
-            from app.services import availability
-            available_context = availability.available_here(db, item_id) or {}
+            from app.services import source_handoff
+            available_context = source_handoff.context(db, request.state.user["id"], item_id) or {}
             context.update({k: v for k, v in available_context.items() if k != "item"})
             context["available_here_oob"] = True
     if context is None:

@@ -350,3 +350,59 @@ def test_preview_and_receipt_show_safe_opening_actions_and_loss_on_retirement(ad
         assert "do-not-display-this-token" not in page.text and "test-only" not in page.text and "gAAAAA" not in page.text
         if applied:
             assert "Current saved opening actions" in page.text
+
+
+@pytest.mark.parametrize("client_name", ["viewer_client", "editor_client"])
+@pytest.mark.parametrize("path", ["/inventory?source_id=1", "/candidates?old_source_id=1&new_source_id=2&new_record_id=2"])
+def test_paged_inventory_and_candidate_apis_are_admin_only(request, client_name, path):
+    assert request.getfixturevalue(client_name).get("/api/source-migrations" + path).status_code == 403
+
+
+@pytest.mark.parametrize("path", ["/inventory?source_id=1", "/candidates?old_source_id=1&new_source_id=2&new_record_id=2"])
+def test_feature_off_refuses_new_read_apis(admin_client, path):
+    _off()
+    response = admin_client.get("/api/source-migrations" + path)
+    assert response.status_code == 403 and response.json()["feature"] == "connected_library"
+
+
+def test_paged_native_inventory_and_exact_lookup_keep_ids_stable_and_counts_complete(admin_client, db):
+    seed = _seed(db)
+    for number in range(120):
+        db.execute("INSERT INTO source_records (source_id, item_id, external_id, title, media_type) "
+                   "VALUES (?, ?, ?, 'Unmatched page title', 'ebook')", (seed[1], seed[5], f"late:{number}"))
+    db.commit()
+    first = admin_client.get(f"/api/source-migrations/inventory?source_id={seed[1]}")
+    assert first.status_code == 200 and first.headers["Cache-Control"] == "no-store"
+    page = first.json()
+    assert page["total"] == 121 and len(page["records"]) == 50
+    bounded = admin_client.get(f"/api/source-migrations/inventory?source_id={seed[1]}&limit=31400").json()
+    assert bounded["page_size"] == 50 and len(bounded["records"]) == 50
+    second = admin_client.get(f"/api/source-migrations/inventory?source_id={seed[1]}&after={page['next_after']}").json()
+    assert second["total"] == 121 and len(second["records"]) == 50
+    assert not {row["id"] for row in page["records"]} & {row["id"] for row in second["records"]}
+    last = admin_client.get(f"/api/source-migrations/inventory?source_id={seed[1]}&after={second['next_after']}").json()
+    assert last["total"] == 121 and len(last["records"]) == 21 and last["next_after"] is None
+    late_id = last["records"][-1]["id"]
+    exact = admin_client.get(f"/api/source-migrations/inventory?source_id={seed[1]}&external_id=late:119").json()
+    assert len(exact["records"]) == 1 and exact["records"][0]["id"] == late_id
+    native = admin_client.get(f"/source-migrations?old_source_id={seed[0]}&new_source_id={seed[1]}&new_after={second['next_after']}")
+    assert native.status_code == 200 and "Replacement source records (121)" in native.text
+    assert f"Record ID #{late_id}" in native.text and "Previous records" in native.text
+    assert "entire old instance" in native.text and "not just this page" in native.text
+    repaired = admin_client.get(f"/source-migrations?repair_source_id={seed[1]}&repair_record_id={late_id}")
+    assert repaired.status_code == 200 and "late:119" in repaired.text
+    assert f'name="record_id" value="{late_id}"' in repaired.text
+    assert "&amp;" in native.text  # Stable same-origin query links are escaped.
+    assert db.execute("SELECT COUNT(*) FROM source_migration_plans").fetchone()[0] == 0
+
+
+def test_exact_candidate_api_and_inventory_errors_are_bounded_and_safe(admin_client, db):
+    seed = _seed(db)
+    response = admin_client.get(f"/api/source-migrations/candidates?old_source_id={seed[0]}&new_source_id={seed[1]}&new_record_id={seed[3]}")
+    assert response.status_code == 200
+    assert response.json()["suggestions"] == [{"old_record_id": seed[2], "new_record_id": seed[3], "evidence": [{"kind": "ISBN", "value": "9780306406157"}]}]
+    assert len(response.json()["record"]) == 1 and "test-only" not in response.text
+    error = admin_client.get("/api/source-migrations/inventory?source_id=99999")
+    assert error.status_code == 404 and error.json()["code"] == "not_found"
+    assert admin_client.get("/api/source-migrations/inventory?source_id=1&after=-1").status_code == 422
+    assert admin_client.get("/api/source-migrations/inventory?source_id=1&external_id=" + "x" * 513).status_code == 422

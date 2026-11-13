@@ -440,6 +440,25 @@ def test_unknown_fields_do_not_use_the_display_budget(db):
     assert len(review.context_for(db, item_id)["metadata_rows"]) == 1
 
 
+@pytest.mark.parametrize("rejected", ["source_key", "snapshot"])
+def test_rejected_rows_cannot_consume_valid_sources_display_budget(db, rejected):
+    item_id = _seed(db)
+    for number in range(review.MAX_ROWS + 5):
+        _observation(db, item_id, source=f"aaa:unsafe-{number}" if rejected == "source_key" else f"audiobookshelf:aaa-{number}",
+                     raw=None if rejected == "source_key" else "{invalid-json")
+    context = review.context_for(db, item_id)
+    assert [row["source_key"] for row in context["metadata_rows"]] == [SOURCE]
+    assert not context["metadata_limited"]
+
+
+@pytest.mark.parametrize("source", ["audible:zz:B082BHJMFF", "audible:US:B082BHJMFF", "audible:us:b082bhjmff",
+    "audible:us:B082BHJMFF\n", "audible:us:B082BHJMFF?token=secret", "audible:https://audible.com:B082BHJMFF"])
+def test_audible_keys_require_canonical_asin_and_allowlisted_market(db, source):
+    item_id = _seed(db, source=source)
+    assert not review._source_key(source)
+    assert review.context_for(db, item_id)["metadata_rows"] == []
+
+
 def test_funnel_failure_rolls_back_item_and_provenance_before_render(editor_client, db, monkeypatch):
     item_id = _seed(db)
     row = _row(db, item_id)

@@ -169,6 +169,9 @@
 
                 {% if feature_on('connected_library') %}
                 {% include "fragments/metadata_provenance.html" %}
+                {% if item.media_type == 'audiobook' and user and user.role in ('admin', 'editor') %}
+                <p class="text-sm mb-6"><a href="/api/audiobooks/{{ item.id }}/metadata" class="text-shelf-accent2 hover:underline" data-testid="audiobook-metadata-link">{{ _('Review exact-ASIN metadata and artwork') }}</a></p>
+                {% endif %}
                 {% endif %}
 
                 {% if item.notes %}

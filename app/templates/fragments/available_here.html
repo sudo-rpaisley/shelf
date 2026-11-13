@@ -1,6 +1,33 @@
 <section id="available-here" data-testid="available-here" class="mb-6"{% if available_here_oob %} hx-swap-oob="true"{% endif %}>
     <h2 class="text-xs font-semibold uppercase tracking-wider text-shelf-muted mb-2">{{ _('Available here') }}</h2>
     <p class="text-xs text-shelf-muted mb-3">{{ _('Local copies and cached source records. No live connection check.') }}</p>
+    {% if source_handoff %}
+    <p class="text-xs text-shelf-muted mb-3">{{ _('Opens the remote service in a new tab. You may need to log in there; Shelf does not play, download or transfer your login.') }}</p>
+    {% for entry in source_handoff.actions %}
+    <div class="bg-shelf-bg border border-shelf-border rounded-lg p-3 mb-3">
+        {% if entry.selected %}
+        <a href="/api/library/items/{{ item.id }}/open/{{ entry.action }}" target="_blank" rel="noopener noreferrer" referrerpolicy="no-referrer" class="font-medium text-shelf-accent2 hover:underline">{{ _(entry.action) }} · {{ entry.selected.source_name }} · {{ _(media_types.get(entry.selected.media_type, entry.selected.media_type)) }}{% if entry.selected.item_id != item.id %} · {{ entry.selected.item_title }}{% endif %}</a>
+        {% else %}<p class="text-sm text-shelf-muted">{{ _('No eligible source is currently recorded for this action.') }}</p>{% endif %}
+        {% if entry.fallback %}<p role="status" class="text-xs text-shelf-muted mt-2">{{ _('Your preferred source is unavailable. Using an eligible fallback when one exists; your preference is kept.') }}</p>{% endif %}
+        <form method="post" action="/api/library/items/{{ item.id }}/preferred-source"
+              hx-post="/api/library/items/{{ item.id }}/preferred-source" hx-target="#available-here" hx-swap="outerHTML"
+              hx-sync="closest section:drop" hx-disabled-elt="#available-here select, #available-here button"
+              class="flex flex-wrap items-center gap-2 mt-3">
+            <input type="hidden" name="_csrf" value="{{ request.cookies.get('csrf_token', '') }}">
+            <input type="hidden" name="action" value="{{ entry.action }}">
+            <label class="block min-w-0 w-full sm:flex-1 text-xs">{{ _('My preferred source') }}
+                <select name="source_key" class="block w-full min-w-0 mt-1 bg-shelf-bg border border-shelf-border rounded-lg p-2">
+                    <option value="">{{ _('Automatic fallback') }}</option>
+                    {% if entry.fallback %}<option value="{{ entry.preferred }}" selected>{{ _('Saved preference is unavailable') }}</option>{% endif %}
+                    {% for choice in entry.choices %}<option value="{{ choice.source_key }}"{% if entry.preferred == choice.source_key %} selected{% endif %}>{{ choice.source_name }} · {{ _(media_types.get(choice.media_type, choice.media_type)) }}{% if choice.item_id != item.id %} · {{ choice.item_title }}{% endif %}</option>{% endfor %}
+                </select>
+            </label>
+            <button type="submit" class="text-xs text-shelf-accent2 hover:underline">{{ _('Save my preference') }}</button>
+        </form>
+    </div>
+    {% endfor %}
+    <p class="text-sm mb-3"><a href="/account/source-progress?item_id={{ item.id }}" class="text-shelf-accent2 hover:underline">{{ _('My linked progress accounts, pull, conflicts and history') }}</a></p>
+    {% endif %}
     {% if rows %}
     <ul class="space-y-2">
         {% for row in rows %}
@@ -15,8 +42,8 @@
                 <p class="text-xs text-shelf-muted mt-1">{{ _('Last seen:') }} {{ row.last_seen or _('Not recorded') }}</p>
                 {% if row.detail %}<p class="text-xs text-shelf-muted mt-1">{{ row.detail }}</p>{% endif %}
             </div>
-            {% if row.url and row.state not in ('unavailable', 'missing', 'lent') %}
-            <a href="{{ row.url }}" target="_blank" rel="noopener noreferrer" class="text-sm text-shelf-accent2 hover:underline shrink-0">{{ _(row.action or 'Open') }}</a>
+            {% if row.url and (row.eligible if source_handoff else row.state not in ('unavailable', 'missing', 'lent')) %}
+            <a href="{% if source_handoff %}/api/library/items/{{ row.item_id }}/open/{{ row.action }}?binding={{ row.binding }}{% else %}{{ row.url }}{% endif %}" target="_blank" rel="noopener noreferrer" referrerpolicy="no-referrer" class="text-sm text-shelf-accent2 hover:underline shrink-0">{{ _(row.action or 'Open') }}</a>
             {% endif %}
         </li>
         {% endfor %}

@@ -120,9 +120,10 @@ acceptance criteria or operational blockers remain unresolved.
 
 ### Current local checkpoints (documentation capture)
 
-Before this documentation follow-up, the coordinator recorded local/remote tip
-`2fb43756`; the latest pushed application change remains `717dfeb6`. The newer
-source, core, R9 and portability candidates below remain local. Full evidence,
+Before the evidence refresh, local/remote tip was `2fb43756` and the latest
+pushed application change was `717dfeb6`. The source follow-up now integrates
+the tested `89205f44` candidate while preserving this newer evidence record.
+Core, R9 and portability candidates remain separate and local. Full evidence,
 candidate boundaries and local artifact paths are in the
 [verification record](connected-library-verification.md#local-follow-up-candidates-documentation-capture).
 
@@ -144,7 +145,9 @@ candidate boundaries and local artifact paths are in the
   archived **328-test** coordinator gate. Independent actual-R6 composition
   `8c4d1aae` remains **RED: 126 passed / 3 failed**; all 13 new cases pass and
   the three failures reproduce before 9d/e0. Public settings/users predicate and
-  ambient compile/step-authority follow-ups remain active, not fixed here.
+  ambient compile/step-authority defects are now runtime-confirmed by test-only
+  `42927e71`: **107 failed / 10 passed**, with no production repair. They are not
+  fixed here and block private admission/activation.
 - **R2:** `d799a29e` versus `caf76382` adds a contract and reproducers, not a
   productive private writer/startup implementation. Its combined gate remains
   **5 failed / 6 passed**; **11** separate positive/denial controls pass. A real
@@ -155,9 +158,9 @@ candidate boundaries and local artifact paths are in the
   preflight with seven reviewed template-body conversions: **771 focused tests**,
   zero bounded unmarked-string findings, four lints and exact seven-template
   extraction preservation. The original **219-record** reconciliation is
-  incomplete. The first persisted 40-record batch records **34 source-closed /
-  6 still-open** dispositions; **179 records remain unfinalized by the batched
-  audit**, not 179 established defects. Three semantic/residual-repair lanes are
+  incomplete. Two persisted batches cover **80/219 original IDs: 70 source-closed /
+  10 still-open** at frozen `b049de8a`; **139 remain unfinalized**, not 139
+  established defects. Later repairs need explicit overlays. Three repair lanes are
   active; the whole matrix is not complete. Catalogues
   and assets are stale; independently cleared Italian/Chinese TMDb drafts remain
   unapplied. Semantic fixes must precede fresh English extraction, authorship,
@@ -174,8 +177,9 @@ candidate boundaries and local artifact paths are in the
 - **Browser/offline:** `36260af1` has bounded source clearance for all-status
   ownership, safe 429 handling and falsy aborts, excluding password receipts and
   current-core Store/PWA acceptance. Offline `1f5ad79` follow-up reports **40
-  browser / 63 server** worker passes; review/current-core composition remains
-  pending. The source gates do not close these or other domain lanes.
+  browser / 63 server** worker passes. Review requires canonical retirement to
+  attempt independent deletions despite consent-read failures; repair and
+  current-core composition remain pending. Source gates do not close these lanes.
 
 All acceptance remains unchecked and household activation stays **OFF**. Actions
 settings are unchanged under the operator's **continue local only** decision.

@@ -15,8 +15,8 @@ msgstr ""
 "Content-Type: text/plain; charset=utf-8\n"
 "Content-Transfer-Encoding: 8bit"
 
-#: app/browse_columns.py:62 app/services/library_catalog.py:50
-#: app/services/metadata_review.py:34
+#: app/browse_columns.py:62 app/services/audiobook_review.py:34
+#: app/services/library_catalog.py:50 app/services/metadata_review.py:34
 #: app/templates/fragments/music_matching.html:2
 #: app/templates/item_edit.html:103 app/templates/music.html:4
 msgid "Title"
@@ -39,7 +39,7 @@ msgid "Location"
 msgstr "位置"
 
 #: app/browse_columns.py:66 app/browse_filters.py:213
-#: app/templates/item_detail.html:236 app/templates/item_edit.html:138
+#: app/templates/item_detail.html:239 app/templates/item_edit.html:138
 #: app/templates/source_detail.html:15
 msgid "Status"
 msgstr "状态"
@@ -48,15 +48,16 @@ msgstr "状态"
 msgid "Value"
 msgstr "价值"
 
-#: app/browse_columns.py:68 app/nav.py:43 app/services/metadata_review.py:38
-#: app/templates/browse.html:50
+#: app/browse_columns.py:68 app/nav.py:43 app/services/audiobook_review.py:38
+#: app/services/metadata_review.py:38 app/templates/browse.html:50
 #: app/templates/fragments/manual_add_form.html:155
 #: app/templates/item_edit.html:79 app/templates/item_edit.html:218
 #: app/templates/item_edit.html:222
 msgid "Series"
 msgstr "系列"
 
-#: app/browse_columns.py:69 app/services/metadata_review.py:36
+#: app/browse_columns.py:69 app/services/audiobook_review.py:36
+#: app/services/metadata_review.py:36
 #: app/templates/fragments/manual_add_form.html:96
 #: app/templates/item_edit.html:118
 msgid "Publisher"
@@ -73,8 +74,8 @@ msgid "Pages"
 msgstr "页数"
 
 #: app/browse_columns.py:72 app/browse_filters.py:221
-#: app/services/metadata_review.py:38 app/templates/browse.html:66
-#: app/templates/fragments/account_menu.html:116
+#: app/services/audiobook_review.py:37 app/services/metadata_review.py:38
+#: app/templates/browse.html:66 app/templates/fragments/account_menu.html:116
 #: app/templates/item_edit.html:123
 msgid "Language"
 msgstr "语言"
@@ -104,6 +105,7 @@ msgstr "搜索"
 
 #: app/browse_filters.py:210 app/templates/fragments/item_copy_edit.html:67
 #: app/templates/fragments/source_migration_openings.html:3
+#: app/templates/fragments/source_progress.html:46
 msgid "Source"
 msgstr "来源"
 
@@ -243,8 +245,8 @@ msgstr ""
 msgid "Artist"
 msgstr "艺术家"
 
-#: app/nav.py:34 app/nav.py:53 app/nav.py:55 app/nav.py:57 app/nav.py:59
-#: app/nav.py:61 app/nav.py:63 app/nav.py:65 app/nav.py:235
+#: app/nav.py:34 app/nav.py:55 app/nav.py:57 app/nav.py:59 app/nav.py:61
+#: app/nav.py:63 app/nav.py:65 app/nav.py:67 app/nav.py:237
 #: app/templates/library.html:2 app/templates/library.html:7
 msgid "Library"
 msgstr "书库"
@@ -289,7 +291,7 @@ msgstr "统计"
 msgid "My Activity"
 msgstr ""
 
-#: app/nav.py:49 app/nav.py:51
+#: app/nav.py:49 app/nav.py:51 app/nav.py:53
 msgid "Personal"
 msgstr ""
 
@@ -299,76 +301,80 @@ msgstr ""
 msgid "Reading life"
 msgstr ""
 
-#: app/nav.py:52 app/templates/fragments/unsupported_title_search.html:6
+#: app/nav.py:52
+msgid "Source progress"
+msgstr ""
+
+#: app/nav.py:54 app/templates/fragments/unsupported_title_search.html:6
 #: app/templates/home.html:93 app/templates/library.html:12
 msgid "Sources"
 msgstr ""
 
-#: app/nav.py:54
+#: app/nav.py:56
 msgid "Source repair"
 msgstr ""
 
-#: app/nav.py:56 app/templates/home.html:98 app/templates/library.html:14
+#: app/nav.py:58 app/templates/home.html:98 app/templates/library.html:14
 msgid "Needs Attention"
 msgstr ""
 
-#: app/nav.py:58
+#: app/nav.py:60
 msgid "Trash"
 msgstr "回收站"
 
-#: app/nav.py:60
+#: app/nav.py:62
 msgid "Labels"
 msgstr "条码标签"
 
-#: app/nav.py:62
+#: app/nav.py:64
 msgid "Audits"
 msgstr "盘点记录"
 
-#: app/nav.py:64
+#: app/nav.py:66
 msgid "Duplicates"
 msgstr "重复项"
 
-#: app/nav.py:66
+#: app/nav.py:68
 msgid "Settings"
 msgstr "设置"
 
-#: app/nav.py:67 app/nav.py:69
+#: app/nav.py:69 app/nav.py:71
 msgid "Administration"
 msgstr "管理"
 
-#: app/nav.py:68
+#: app/nav.py:70
 msgid "Logs"
 msgstr "日志"
 
-#: app/nav.py:235
+#: app/nav.py:237
 msgid "Add / Scan"
 msgstr ""
 
-#: app/nav.py:236
+#: app/nav.py:238
 msgid "Explore"
 msgstr ""
 
-#: app/nav.py:250
+#: app/nav.py:252
 msgid "Back to series"
 msgstr ""
 
-#: app/nav.py:251
+#: app/nav.py:253
 msgid "Back to stats"
 msgstr ""
 
-#: app/nav.py:252
+#: app/nav.py:254
 msgid "Back to library"
 msgstr ""
 
-#: app/nav.py:253
+#: app/nav.py:255
 msgid "Back to my activity"
 msgstr ""
 
-#: app/nav.py:254
+#: app/nav.py:256
 msgid "Back to maintenance"
 msgstr ""
 
-#: app/nav.py:256
+#: app/nav.py:258
 msgid "Back to collection"
 msgstr ""
 
@@ -389,6 +395,50 @@ msgstr "已有 %(max)s 个令牌，请先撤销一个"
 #: app/routers/api_tokens.py:90
 msgid "Token not found"
 msgstr "找不到该令牌"
+
+#: app/routers/audiobook_metadata.py:34 app/services/audiobook_review.py:164
+msgid "Your session changed while this review was open. Nothing was saved; sign in and review again."
+msgstr ""
+
+#: app/routers/audiobook_metadata.py:46
+msgid "Submit the audiobook review form without attachments."
+msgstr ""
+
+#: app/routers/audiobook_metadata.py:51
+msgid "The audiobook review form is too large. Preview it again."
+msgstr ""
+
+#: app/routers/audiobook_metadata.py:53
+msgid "Submit a valid audiobook review form."
+msgstr ""
+
+#: app/routers/audiobook_metadata.py:108
+msgid "Choose a marketplace; edit the item's ASIN on its edit page."
+msgstr ""
+
+#: app/routers/audiobook_metadata.py:130
+msgid "No exact audiobook was found in that marketplace. Existing metadata and artwork were kept."
+msgstr ""
+
+#: app/routers/audiobook_metadata.py:131
+msgid "Audible rate-limited this request. Try again later; nothing was changed."
+msgstr ""
+
+#: app/routers/audiobook_metadata.py:132
+msgid "The public Audible catalogue refused this request. No login or scraping fallback is used; nothing was changed."
+msgstr ""
+
+#: app/routers/audiobook_metadata.py:187 app/services/audiobook_review.py:229
+msgid "Backfill keeps existing or manually removed artwork. Choose Keep current artwork and try again."
+msgstr ""
+
+#: app/routers/audiobook_metadata.py:191
+msgid "The chosen artwork could not be downloaded. Nothing was changed; try keeping the current artwork."
+msgstr ""
+
+#: app/routers/audiobook_metadata.py:206
+msgid "Those catalogue values could not be saved. Nothing was changed; preview the audiobook again."
+msgstr ""
 
 #: app/routers/auth_routes.py:56 app/routers/auth_routes.py:63
 msgid "Invalid username or password"
@@ -441,7 +491,8 @@ msgstr "未知语言"
 #: app/routers/metadata_review.py:20 app/routers/personal_library.py:18
 #: app/routers/related_media.py:50 app/routers/related_media.py:86
 #: app/routers/related_media.py:109 app/routers/related_media.py:126
-#: app/services/metadata_review.py:243
+#: app/routers/source_progress.py:133 app/routers/source_progress.py:150
+#: app/services/metadata_review.py:283
 msgid "Item not found"
 msgstr ""
 
@@ -648,6 +699,138 @@ msgstr ""
 msgid "Related-media link not found"
 msgstr ""
 
+#: app/routers/source_progress.py:57
+msgid "Your remote account is linked for explicit pulls only."
+msgstr ""
+
+#: app/routers/source_progress.py:58
+msgid "Token and sync baselines forgotten. Your local progress and history remain. Revoke the token on the remote server separately."
+msgstr ""
+
+#: app/routers/source_progress.py:59
+msgid "Remote progress accepted. No changes were sent to the remote server."
+msgstr ""
+
+#: app/routers/source_progress.py:60
+msgid "Local progress kept. This remote observation will not be offered again unless it changes."
+msgstr ""
+
+#: app/routers/source_progress.py:61
+msgid "No new remote progress. Your local state was not changed."
+msgstr ""
+
+#: app/routers/source_progress.py:62
+msgid "Your local state was kept. Review the remote observation below."
+msgstr ""
+
+#: app/routers/source_progress.py:63
+msgid "The account, source record or live item was not found."
+msgstr ""
+
+#: app/routers/source_progress.py:64
+msgid "This source or feature is disabled."
+msgstr ""
+
+#: app/routers/source_progress.py:65
+msgid "Progress pull is supported only for Jellyfin movies/audiobooks and Audiobookshelf whole audiobooks."
+msgstr ""
+
+#: app/routers/source_progress.py:66
+msgid "Submit each field once using the form."
+msgstr ""
+
+#: app/routers/source_progress.py:67
+msgid "Explicit consent to pull your own remote progress is required."
+msgstr ""
+
+#: app/routers/source_progress.py:68
+msgid "Supply your own remote user access token, not the catalogue API key."
+msgstr ""
+
+#: app/routers/source_progress.py:69
+msgid "The token did not resolve to the remote user ID you confirmed. No account or progress was changed."
+msgstr ""
+
+#: app/routers/source_progress.py:70
+msgid "That remote account is already linked for this source. Each remote account may belong to only one Shelf account per configured source."
+msgstr ""
+
+#: app/routers/source_progress.py:71
+msgid "The saved user token could not be decrypted. Link your account again."
+msgstr ""
+
+#: app/routers/source_progress.py:72
+msgid "The configured server changed or is unavailable. Link your account again before pulling."
+msgstr ""
+
+#: app/routers/source_progress.py:73
+msgid "Progress, linkage or the preview changed. Pull again before reviewing; nothing was overwritten."
+msgstr ""
+
+#: app/routers/source_progress.py:74
+msgid "The source, account or item binding changed during the request. The result was discarded."
+msgstr ""
+
+#: app/routers/source_progress.py:75
+msgid "The remote server refused this user token. No progress was changed."
+msgstr ""
+
+#: app/routers/source_progress.py:76
+msgid "The remote server redirected. Configure its final root; credentials were not forwarded."
+msgstr ""
+
+#: app/routers/source_progress.py:77
+msgid "More than one remote record could represent this edition. Repair the binding before pulling progress."
+msgstr ""
+
+#: app/routers/source_progress.py:78
+msgid "Your session or account authority changed during the request. Sign in again; no delayed result was applied."
+msgstr ""
+
+#: app/routers/source_progress.py:79
+msgid "This verification was superseded by a newer link or disconnect. Its token was not saved."
+msgstr ""
+
+#: app/routers/source_progress.py:80
+msgid "The automatic-pull consent or job lease changed. The delayed result was discarded."
+msgstr ""
+
+#: app/routers/source_progress.py:81
+msgid "The source is not currently eligible. Cached state was kept; refresh the source before pulling progress."
+msgstr ""
+
+#: app/routers/source_progress.py:82
+msgid "Your automatic-pull choice was saved. Automatic pulls use the same local-edit and conflict rules; nothing is sent back."
+msgstr ""
+
+#: app/routers/source_progress.py:85
+msgid "The source has no trustworthy update timestamp."
+msgstr ""
+
+#: app/routers/source_progress.py:86
+msgid "The remote progress changed without a newer timestamp (including reopen/mark-unplayed)."
+msgstr ""
+
+#: app/routers/source_progress.py:87
+msgid "Your local state changed since the last accepted observation."
+msgstr ""
+
+#: app/routers/source_progress.py:88
+msgid "Your manual edit or reset is newer than this remote timestamp."
+msgstr ""
+
+#: app/routers/source_progress.py:89
+msgid "This first pull differs from your existing local state or reset history."
+msgstr ""
+
+#: app/routers/source_progress.py:103
+msgid "Source progress form too large"
+msgstr ""
+
+#: app/routers/source_progress.py:163
+msgid "No eligible source is available. Refresh the item to choose another source."
+msgstr ""
+
 #: app/routers/sources.py:25
 msgid "Source settings saved."
 msgstr ""
@@ -766,6 +949,130 @@ msgstr "已为 %(count)s 个条目添加标签 %(tags)s"
 msgid "Removed %(tags)s from %(count)s item(s)"
 msgstr "已从 %(count)s 个条目移除标签 %(tags)s"
 
+#: app/services/audible_catalog.py:25
+msgid "United States"
+msgstr ""
+
+#: app/services/audible_catalog.py:25
+msgid "United Kingdom"
+msgstr ""
+
+#: app/services/audible_catalog.py:26
+msgid "Canada"
+msgstr ""
+
+#: app/services/audible_catalog.py:26
+msgid "Australia"
+msgstr ""
+
+#: app/services/audible_catalog.py:27
+msgid "Germany"
+msgstr ""
+
+#: app/services/audible_catalog.py:27
+msgid "France"
+msgstr ""
+
+#: app/services/audible_catalog.py:28
+msgid "Italy"
+msgstr ""
+
+#: app/services/audible_catalog.py:28
+msgid "Spain"
+msgstr ""
+
+#: app/services/audible_catalog.py:29
+msgid "Japan"
+msgstr ""
+
+#: app/services/audible_catalog.py:29
+msgid "India"
+msgstr ""
+
+#: app/services/audible_catalog.py:46
+msgid "Save a valid ten-character ASIN on the audiobook before looking it up."
+msgstr ""
+
+#: app/services/audible_catalog.py:48
+msgid "Choose one of the listed Audible marketplaces."
+msgstr ""
+
+#: app/services/audible_permission.py:17
+msgid "Audible provider access is blocked. No applicable provider authorisation has been established for catalogue queries, saved observations, image proxying and artwork storage. Operator opt-in is not a licence."
+msgstr ""
+
+#: app/services/audiobook_review.py:34 app/services/metadata_review.py:34
+#: app/templates/item_edit.html:104
+msgid "Subtitle"
+msgstr ""
+
+#: app/services/audiobook_review.py:34 app/services/metadata_review.py:34
+msgid "Authors"
+msgstr ""
+
+#: app/services/audiobook_review.py:35 app/services/metadata_review.py:35
+#: app/templates/item_edit.html:367
+msgid "Narrator"
+msgstr ""
+
+#: app/services/audiobook_review.py:35 app/services/metadata_review.py:37
+msgid "Duration (minutes)"
+msgstr ""
+
+#: app/services/audiobook_review.py:36 app/services/metadata_review.py:35
+#: app/templates/item_edit.html:155
+msgid "Description"
+msgstr ""
+
+#: app/services/audiobook_review.py:37 app/services/metadata_review.py:36
+msgid "Publication year"
+msgstr ""
+
+#: app/services/audiobook_review.py:38 app/services/library_catalog.py:51
+#: app/services/metadata_review.py:39
+msgid "Series position"
+msgstr ""
+
+#: app/services/audiobook_review.py:53
+msgid "Audiobook not found."
+msgstr ""
+
+#: app/services/audiobook_review.py:67
+msgid "This audiobook has too much saved provenance to review safely. Edit it directly instead."
+msgstr ""
+
+#: app/services/audiobook_review.py:123
+msgid "That preview belongs to a different audiobook. Preview it again."
+msgstr ""
+
+#: app/services/audiobook_review.py:136
+msgid "That catalogue preview is not safe to apply. Preview it again."
+msgstr ""
+
+#: app/services/audiobook_review.py:144
+msgid "This audiobook or its metadata decisions changed after the preview. Preview it again before applying anything."
+msgstr ""
+
+#: app/services/audiobook_review.py:166
+msgid "You no longer have permission to apply this review. Nothing was saved."
+msgstr ""
+
+#: app/services/audiobook_review.py:169
+msgid "Connected library was turned off while this review was open. Nothing was saved."
+msgstr ""
+
+#: app/services/audiobook_review.py:181
+msgid "This audiobook changed during lookup. Preview it again."
+msgstr ""
+
+#: app/services/audiobook_review.py:211
+msgid "Submit only the audiobook review choices, not source values."
+msgstr ""
+
+#: app/services/audiobook_review.py:217
+msgid "Choose only the fields and artwork shown in the preview."
+msgstr ""
+
 #: app/services/browse_counts.py:16
 msgid "Manual"
 msgstr "手动添加"
@@ -872,7 +1179,7 @@ msgid "Any availability"
 msgstr ""
 
 #: app/services/library_catalog.py:44 app/services/library_catalog.py:57
-#: app/templates/fragments/available_here.html:13
+#: app/templates/fragments/available_here.html:40
 #: app/templates/fragments/library_results.html:2
 #: app/templates/fragments/source_migration_openings.html:3
 #: app/templates/source_detail.html:73
@@ -888,7 +1195,7 @@ msgid "On my shelves"
 msgstr ""
 
 #: app/services/library_catalog.py:46 app/services/library_catalog.py:58
-#: app/templates/fragments/available_here.html:13
+#: app/templates/fragments/available_here.html:40
 #: app/templates/fragments/library_results.html:2
 msgid "Lent out"
 msgstr ""
@@ -903,10 +1210,6 @@ msgstr ""
 
 #: app/services/library_catalog.py:47
 msgid "Unknown availability"
-msgstr ""
-
-#: app/services/library_catalog.py:51 app/services/metadata_review.py:39
-msgid "Series position"
 msgstr ""
 
 #: app/services/library_catalog.py:51
@@ -943,28 +1246,8 @@ msgstr ""
 msgid "RomM"
 msgstr ""
 
-#: app/services/metadata_review.py:34
-msgid "Authors"
-msgstr ""
-
-#: app/services/metadata_review.py:35 app/templates/item_edit.html:367
-msgid "Narrator"
-msgstr ""
-
-#: app/services/metadata_review.py:35 app/templates/item_edit.html:155
-msgid "Description"
-msgstr ""
-
-#: app/services/metadata_review.py:36
-msgid "Publication year"
-msgstr ""
-
 #: app/services/metadata_review.py:37
 msgid "Page count"
-msgstr ""
-
-#: app/services/metadata_review.py:37
-msgid "Duration (minutes)"
 msgstr ""
 
 #: app/services/metadata_review.py:40 app/templates/item_edit.html:234
@@ -987,51 +1270,63 @@ msgstr ""
 msgid "Media type"
 msgstr ""
 
-#: app/services/metadata_review.py:83
+#: app/services/metadata_review.py:94
 msgid "Unknown source"
 msgstr ""
 
-#: app/services/metadata_review.py:216
+#: app/services/metadata_review.py:244
+msgid "Read-only catalogue observation; use the exact-ASIN review to apply changes."
+msgstr ""
+
+#: app/services/metadata_review.py:245
+msgid "Read-only identity field"
+msgstr ""
+
+#: app/services/metadata_review.py:254
 msgid "Submit only the metadata review form; source values cannot be supplied"
 msgstr ""
 
-#: app/services/metadata_review.py:220
+#: app/services/metadata_review.py:258
 msgid "Submit each metadata review field exactly once"
 msgstr ""
 
-#: app/services/metadata_review.py:234
+#: app/services/metadata_review.py:272
 msgid "Choose a valid saved metadata source"
 msgstr ""
 
-#: app/services/metadata_review.py:236
+#: app/services/metadata_review.py:274
+msgid "This catalogue observation is read-only here; preview the exact ASIN before applying metadata."
+msgstr ""
+
+#: app/services/metadata_review.py:276
 msgid "This field is read-only in metadata review; edit it on the item instead"
 msgstr ""
 
-#: app/services/metadata_review.py:238
+#: app/services/metadata_review.py:278
 msgid "Choose Keep local or Follow source"
 msgstr ""
 
-#: app/services/metadata_review.py:240
+#: app/services/metadata_review.py:280
 msgid "Reload Metadata sources before resolving this field"
 msgstr ""
 
-#: app/services/metadata_review.py:250
+#: app/services/metadata_review.py:290
 msgid "This saved source observation no longer exists; reload Metadata sources"
 msgstr ""
 
-#: app/services/metadata_review.py:255
+#: app/services/metadata_review.py:295
 msgid "This saved source value is not safe to resolve; edit the item directly"
 msgstr ""
 
-#: app/services/metadata_review.py:257
+#: app/services/metadata_review.py:297
 msgid "The local value or source observation changed; reload Metadata sources and review again"
 msgstr ""
 
-#: app/services/metadata_review.py:261
+#: app/services/metadata_review.py:301
 msgid "The source must provide a non-empty title before you can follow it"
 msgstr ""
 
-#: app/services/metadata_review.py:265
+#: app/services/metadata_review.py:305
 msgid "This source value cannot be stored; edit the item directly instead"
 msgstr ""
 
@@ -1334,6 +1629,11 @@ msgstr ""
 #: app/templates/activity.html:69
 #: app/templates/fragments/personal_library.html:110
 msgid "No personal activity yet."
+msgstr ""
+
+#: app/templates/audiobook_metadata.html:2
+#: app/templates/audiobook_metadata.html:5
+msgid "Audiobook metadata"
 msgstr ""
 
 #: app/templates/base.html:60
@@ -1742,136 +2042,140 @@ msgstr ""
 msgid "Loading related media…"
 msgstr ""
 
-#: app/templates/item_detail.html:176
+#: app/templates/item_detail.html:173
+msgid "Review exact-ASIN metadata and artwork"
+msgstr ""
+
+#: app/templates/item_detail.html:179
 msgid "Notes:"
 msgstr ""
 
-#: app/templates/item_detail.html:185
+#: app/templates/item_detail.html:188
 msgid "Read on Audiobookshelf"
 msgstr ""
 
-#: app/templates/item_detail.html:185
+#: app/templates/item_detail.html:188
 msgid "Listen on Audiobookshelf"
 msgstr ""
 
-#: app/templates/item_detail.html:201
+#: app/templates/item_detail.html:204
 msgid "Synced to Hardcover"
 msgstr ""
 
-#: app/templates/item_detail.html:201
+#: app/templates/item_detail.html:204
 msgid "Push to Hardcover"
 msgstr ""
 
-#: app/templates/item_detail.html:202
+#: app/templates/item_detail.html:205
 msgid "Syncing..."
 msgstr ""
 
-#: app/templates/item_detail.html:208
+#: app/templates/item_detail.html:211
 msgid "Added to your Hardcover library"
 msgstr ""
 
-#: app/templates/item_detail.html:220
+#: app/templates/item_detail.html:223
 #, python-format
 msgid "Also in Audiobookshelf (%(type)s)"
 msgstr ""
 
-#: app/templates/item_detail.html:236
+#: app/templates/item_detail.html:239
 msgid "Shared catalogue status"
 msgstr ""
 
-#: app/templates/item_detail.html:249
+#: app/templates/item_detail.html:252
 msgid "Lending"
 msgstr ""
 
-#: app/templates/item_detail.html:252
+#: app/templates/item_detail.html:255
 msgid "Lent to"
 msgstr ""
 
-#: app/templates/item_detail.html:253
+#: app/templates/item_detail.html:256
 #, python-format
 msgid "on %(date)s"
 msgstr ""
 
-#: app/templates/item_detail.html:255
+#: app/templates/item_detail.html:258
 msgid "Due:"
 msgstr ""
 
-#: app/templates/item_detail.html:261
+#: app/templates/item_detail.html:264
 msgid "Check In"
 msgstr ""
 
-#: app/templates/item_detail.html:269
+#: app/templates/item_detail.html:272
 msgid "Lend this item"
 msgstr ""
 
-#: app/templates/item_detail.html:280
+#: app/templates/item_detail.html:283
 msgid "2 weeks"
 msgstr ""
 
-#: app/templates/item_detail.html:281
+#: app/templates/item_detail.html:284
 msgid "1 week"
 msgstr ""
 
-#: app/templates/item_detail.html:282
+#: app/templates/item_detail.html:285
 msgid "1 month"
 msgstr ""
 
-#: app/templates/item_detail.html:283
+#: app/templates/item_detail.html:286
 msgid "No due date"
 msgstr ""
 
-#: app/templates/item_detail.html:285
+#: app/templates/item_detail.html:288
 msgid "Check Out"
 msgstr ""
 
-#: app/templates/item_detail.html:288
+#: app/templates/item_detail.html:291
 msgid "Add borrowers in <a href=\"/settings\" class=\"text-shelf-accent2\">Settings</a> first."
 msgstr ""
 
-#: app/templates/item_detail.html:295
+#: app/templates/item_detail.html:298
 msgid "Checkout history"
 msgstr ""
 
-#: app/templates/item_detail.html:302
+#: app/templates/item_detail.html:305
 #, python-format
 msgid "returned %(date)s"
 msgstr ""
 
-#: app/templates/item_detail.html:304
+#: app/templates/item_detail.html:307
 msgid "out"
 msgstr ""
 
 #: app/templates/fragments/item_copies.html:87
 #: app/templates/fragments/item_copies.html:90
 #: app/templates/fragments/item_copies.html:95
-#: app/templates/item_detail.html:318
+#: app/templates/item_detail.html:321
 msgid "Edit"
 msgstr ""
 
-#: app/templates/item_detail.html:321
+#: app/templates/item_detail.html:324
 msgid "Add another like this"
 msgstr ""
 
-#: app/templates/item_detail.html:327 app/templates/library.html:131
+#: app/templates/item_detail.html:330 app/templates/library.html:131
 msgid "Delete"
 msgstr ""
 
-#: app/templates/item_detail.html:333
+#: app/templates/item_detail.html:336
 #, python-format
 msgid "Added %(date)s"
 msgstr ""
 
-#: app/templates/item_detail.html:333
+#: app/templates/item_detail.html:336
 #, python-format
 msgid "Updated %(date)s"
 msgstr ""
 
-#: app/templates/item_detail.html:333
+#: app/templates/item_detail.html:336
 #, python-format
 msgid "via %(source)s"
 msgstr ""
 
-#: app/templates/item_detail.html:338
+#: app/templates/item_detail.html:341
 msgid "Integration IDs"
 msgstr ""
 
@@ -1950,6 +2254,7 @@ msgstr ""
 msgid "General"
 msgstr ""
 
+#: app/templates/fragments/audiobook_metadata.html:52
 #: app/templates/fragments/music_matching.html:109
 #: app/templates/item_edit.html:78 app/templates/item_edit.html:169
 msgid "Artwork"
@@ -1967,18 +2272,14 @@ msgstr ""
 msgid "Core catalogue metadata and reading details."
 msgstr ""
 
-#: app/templates/item_edit.html:104
-msgid "Subtitle"
-msgstr ""
-
 #: app/templates/fragments/manual_add_form.html:40
 #: app/templates/item_edit.html:108
 msgid "Media Type"
 msgstr ""
 
-#: app/templates/fragments/available_here.html:13
+#: app/templates/fragments/available_here.html:40
 #: app/templates/fragments/library_results.html:2
-#: app/templates/fragments/metadata_provenance.html:23
+#: app/templates/fragments/metadata_provenance.html:24
 #: app/templates/fragments/source_migration_openings.html:3
 #: app/templates/item_edit.html:126 app/templates/source_detail.html:73
 msgid "Unknown"
@@ -2433,6 +2734,7 @@ msgstr ""
 msgid "Never"
 msgstr ""
 
+#: app/templates/fragments/source_progress.html:19
 #: app/templates/needs_attention.html:63 app/templates/needs_attention.html:78
 msgid "Last attempt:"
 msgstr ""
@@ -2446,12 +2748,13 @@ msgstr ""
 msgid "Review missing covers"
 msgstr ""
 
-#: app/templates/fragments/available_here.html:15
+#: app/templates/fragments/available_here.html:42
 #: app/templates/needs_attention.html:76
 msgid "Last seen:"
 msgstr ""
 
-#: app/templates/fragments/available_here.html:15
+#: app/templates/fragments/available_here.html:42
+#: app/templates/fragments/source_progress.html:19
 #: app/templates/needs_attention.html:76
 msgid "Not recorded"
 msgstr ""
@@ -2744,7 +3047,7 @@ msgid "This will be the admin account with full access to your library."
 msgstr "这将是管理员账号，拥有书库的全部权限。"
 
 #: app/templates/source_detail.html:2 app/templates/source_detail.html:6
-#: app/templates/source_migration.html:7 app/templates/sources.html:2
+#: app/templates/source_migration_inventory.html:6 app/templates/sources.html:2
 #: app/templates/sources.html:6
 msgid "Connected libraries"
 msgstr ""
@@ -2806,7 +3109,7 @@ msgstr ""
 msgid "Linked"
 msgstr ""
 
-#: app/templates/fragments/available_here.html:13
+#: app/templates/fragments/available_here.html:40
 #: app/templates/fragments/library_results.html:2
 #: app/templates/fragments/source_migration_openings.html:3
 #: app/templates/source_detail.html:18 app/templates/source_detail.html:73
@@ -2942,170 +3245,6 @@ msgstr ""
 msgid "No live records attached to this source."
 msgstr ""
 
-#: app/templates/source_migration.html:3 app/templates/source_migration.html:8
-#: app/templates/source_migration_review.html:7
-msgid "Source replacement and binding repair"
-msgstr ""
-
-#: app/templates/source_migration.html:9
-msgid "Configure and sync a new instance separately before replacing an old server. Editing a source URL keeps its old external-ID bindings; it does not migrate identities."
-msgstr ""
-
-#: app/templates/source_migration.html:10
-msgid "This workflow only changes saved machine bindings. It never merges or deletes catalogue entries, copies or activity, copies credentials, fetches a server, or changes local metadata or covers. Duplicate imported catalogue entries remain for separate review."
-msgstr ""
-
-#: app/templates/source_migration.html:14
-msgid "1. Compare saved source records"
-msgstr ""
-
-#: app/templates/source_migration.html:16
-msgid "Old instance"
-msgstr ""
-
-#: app/templates/source_migration.html:16
-#: app/templates/source_migration.html:17
-#: app/templates/source_migration.html:57
-#: app/templates/source_migration.html:70
-msgid "Choose a source"
-msgstr ""
-
-#: app/templates/source_migration.html:17
-msgid "Replacement instance"
-msgstr ""
-
-#: app/templates/source_migration.html:18
-msgid "Compare local snapshots"
-msgstr ""
-
-#: app/templates/source_migration.html:20
-msgid "Only unique, conflict-free remote ISBN or provider-identifier evidence suggests pairs. Titles and server-local external IDs are never automatic identity evidence. No suggestion is applied without review."
-msgstr ""
-
-#: app/templates/source_migration.html:21
-msgid "Opening previews use saved credential-free URLs only. They do not test a server, download content or promise a working link. The dry-run review shows the actions before and after apply, including the loss of old-source actions on retirement. Other holdings are unchanged."
-msgstr ""
-
-#: app/templates/source_migration.html:26
-msgid "2. Review old/new record IDs and evidence"
-msgstr ""
-
-#: app/templates/source_migration.html:27
-msgid "Suggested record pair"
-msgstr ""
-
-#: app/templates/source_migration.html:27
-msgid "No unambiguous identifier pairs. Review the records yourself; identical titles are not evidence."
-msgstr ""
-
-#: app/templates/source_migration.html:28
-#: app/templates/source_migration_review.html:10
-msgid "Old source records"
-msgstr ""
-
-#: app/templates/source_migration.html:28
-#: app/templates/source_migration_review.html:10
-msgid "Replacement source records"
-msgstr ""
-
-#: app/templates/fragments/source_migration_openings.html:3
-#: app/templates/source_migration.html:33
-#: app/templates/source_migration.html:61
-msgid "Record ID"
-msgstr ""
-
-#: app/templates/source_migration.html:34
-#: app/templates/source_migration.html:62
-#: app/templates/source_migration_review.html:24
-#: app/templates/source_migration_review.html:25
-msgid "External ID"
-msgstr ""
-
-#: app/templates/source_migration.html:35
-#: app/templates/source_migration.html:63
-msgid "Currently attached catalogue item"
-msgstr ""
-
-#: app/templates/source_migration.html:35
-#: app/templates/source_migration.html:63
-msgid "In Trash; cannot migrate"
-msgstr ""
-
-#: app/templates/source_migration.html:36
-#: app/templates/source_migration.html:64
-msgid "No saved remote identity evidence"
-msgstr ""
-
-#: app/templates/source_migration.html:39
-#: app/templates/source_migration.html:67
-msgid "No saved records. Sync this instance first."
-msgstr ""
-
-#: app/templates/source_migration.html:45
-msgid "Old record ID,new record ID — one pair per line, at most 100"
-msgstr ""
-
-#: app/templates/source_migration.html:46
-msgid "I manually checked these old/new IDs, including any missing, ambiguous or conflicting identity evidence. Permit explicitly reviewed pairs, not title matching."
-msgstr ""
-
-#: app/templates/source_migration.html:47
-msgid "Disable the entire old instance on apply, including unmatched holdings. Keep its configuration and records. Otherwise I can retire it after verification."
-msgstr ""
-
-#: app/templates/source_migration.html:48
-msgid "Create dry-run preview"
-msgstr ""
-
-#: app/templates/source_migration.html:54
-msgid "Correct a wrong machine attachment"
-msgstr ""
-
-#: app/templates/source_migration.html:55
-msgid "Find the record ID in the comparison above or on its review receipt. Enter the correct existing catalogue item ID. The stable source/external identity will follow this corrected binding on every later sync. Manual links keep their existing detach workflow; legacy integrations are not modified."
-msgstr ""
-
-#: app/templates/source_migration.html:57
-msgid "Look up saved machine record IDs"
-msgstr ""
-
-#: app/templates/source_migration.html:58
-msgid "Show saved records"
-msgstr ""
-
-#: app/templates/source_migration.html:60
-msgid "Machine records"
-msgstr ""
-
-#: app/templates/source_migration.html:66
-msgid "Review this attachment"
-msgstr ""
-
-#: app/templates/source_migration.html:70
-msgid "Machine source"
-msgstr ""
-
-#: app/templates/source_migration.html:71
-#: app/templates/source_migration_review.html:23
-msgid "Machine record ID"
-msgstr ""
-
-#: app/templates/source_migration.html:72
-msgid "Correct catalogue item ID"
-msgstr ""
-
-#: app/templates/source_migration.html:73
-msgid "I checked the external record identity and the correct local item, not just their titles."
-msgstr ""
-
-#: app/templates/source_migration.html:74
-msgid "Preview binding repair"
-msgstr ""
-
-#: app/templates/source_migration.html:77
-msgid "Your recent reviews"
-msgstr ""
-
 #: app/templates/source_migration_error.html:2
 #: app/templates/source_migration_error.html:5
 msgid "Source review refused"
@@ -3117,6 +3256,139 @@ msgstr ""
 
 #: app/templates/source_migration_error.html:8
 msgid "Start a fresh source review"
+msgstr ""
+
+#: app/templates/source_migration_inventory.html:3
+#: app/templates/source_migration_inventory.html:6
+#: app/templates/source_migration_review.html:7
+msgid "Source replacement and binding repair"
+msgstr ""
+
+#: app/templates/source_migration_inventory.html:7
+msgid "Configure and sync a new instance separately. Editing a URL retains old external IDs; it does not migrate identities. This workflow never fetches a server, copies credentials, merges or deletes catalogue entries, copies, activity, manual metadata or covers."
+msgstr ""
+
+#: app/templates/source_migration_inventory.html:8
+msgid "Only unique exact remote identifier evidence suggests pairs. Titles and server-local external IDs are never automatic identity evidence. Review explicit batches of at most 100 pairs. Every preview fingerprints both complete inventories, not only this page."
+msgstr ""
+
+#: app/templates/source_migration_inventory.html:11
+msgid "Old instance"
+msgstr ""
+
+#: app/templates/source_migration_inventory.html:11
+msgid "Replacement instance"
+msgstr ""
+
+#: app/templates/source_migration_inventory.html:11
+msgid "Choose a source"
+msgstr ""
+
+#: app/templates/source_migration_inventory.html:12
+msgid "Compare local snapshots"
+msgstr ""
+
+#: app/templates/source_migration_inventory.html:15
+msgid "Exact lookup across the whole source. Enter a Shelf record ID or a complete external ID, not a title."
+msgstr ""
+
+#: app/templates/source_migration_inventory.html:16
+msgid "Old"
+msgstr ""
+
+#: app/templates/source_migration_inventory.html:16
+msgid "Replacement"
+msgstr ""
+
+#: app/templates/source_migration_inventory.html:19
+msgid "record ID"
+msgstr ""
+
+#: app/templates/source_migration_inventory.html:19
+msgid "Look up record ID"
+msgstr ""
+
+#: app/templates/source_migration_inventory.html:23
+msgid "complete external ID"
+msgstr ""
+
+#: app/templates/source_migration_inventory.html:23
+msgid "Look up external ID"
+msgstr ""
+
+#: app/templates/source_migration_inventory.html:25
+#: app/templates/source_migration_review.html:10
+msgid "Old source records"
+msgstr ""
+
+#: app/templates/source_migration_inventory.html:26
+#: app/templates/source_migration_review.html:10
+msgid "Replacement source records"
+msgstr ""
+
+#: app/templates/source_migration_inventory.html:27
+msgid "Exact identifier suggestions for this replacement page"
+msgstr ""
+
+#: app/templates/source_migration_inventory.html:28
+msgid "No unambiguous identifier pairs on this page. Manually reviewed IDs are allowed; titles are not identity proof."
+msgstr ""
+
+#: app/templates/source_migration_inventory.html:31
+msgid "Old record ID,new record ID — one pair per line, at most 100"
+msgstr ""
+
+#: app/templates/source_migration_inventory.html:32
+msgid "I manually checked these exact old/new identities, including any ambiguity or conflicts."
+msgstr ""
+
+#: app/templates/source_migration_inventory.html:33
+msgid "Disable the entire old instance on apply, including all unmatched holdings, not just this page. Keep its configuration and records."
+msgstr ""
+
+#: app/templates/source_migration_inventory.html:34
+msgid "Create dry-run preview"
+msgstr ""
+
+#: app/templates/source_migration_inventory.html:37
+msgid "Correct a wrong machine attachment"
+msgstr ""
+
+#: app/templates/source_migration_inventory.html:38
+msgid "Look up saved machine record IDs"
+msgstr ""
+
+#: app/templates/source_migration_inventory.html:38
+msgid "Show saved records"
+msgstr ""
+
+#: app/templates/source_migration_inventory.html:39
+msgid "Machine records"
+msgstr ""
+
+#: app/templates/source_migration_inventory.html:42
+msgid "Machine source"
+msgstr ""
+
+#: app/templates/source_migration_inventory.html:43
+#: app/templates/source_migration_review.html:23
+msgid "Machine record ID"
+msgstr ""
+
+#: app/templates/source_migration_inventory.html:44
+msgid "Correct catalogue item ID"
+msgstr ""
+
+#: app/templates/source_migration_inventory.html:45
+msgid "I checked the record and correct catalogue item identities, not just their titles."
+msgstr ""
+
+#: app/templates/source_migration_inventory.html:45
+msgid "Preview binding repair"
+msgstr ""
+
+#: app/templates/source_migration_inventory.html:48
+msgid "Your recent reviews"
 msgstr ""
 
 #: app/templates/source_migration_review.html:3
@@ -3196,6 +3468,12 @@ msgstr ""
 
 #: app/templates/source_migration_review.html:23
 msgid "Reviewed old record ID"
+msgstr ""
+
+#: app/templates/fragments/source_migration_inventory_page.html:9
+#: app/templates/source_migration_review.html:24
+#: app/templates/source_migration_review.html:25
+msgid "External ID"
 msgstr ""
 
 #: app/templates/source_migration_review.html:24
@@ -3297,6 +3575,18 @@ msgstr ""
 
 #: app/templates/source_migration_review.html:56
 msgid "Roll back bindings"
+msgstr ""
+
+#: app/templates/source_progress.html:2 app/templates/source_progress.html:5
+msgid "My source progress"
+msgstr ""
+
+#: app/templates/source_progress.html:6
+msgid "Link your own remote account, then pull an edition or separately opt in to automatic pulls for that connection. Newer remote progress can update your personal state; local changes, resets and uncertain timestamps require review. Nothing is sent back. Automatic pulls stay off unless you explicitly enable them."
+msgstr ""
+
+#: app/templates/source_progress.html:7
+msgid "Supported: Jellyfin movies and audiobooks; Audiobookshelf whole audiobooks. No page/time conversion, series/album aggregation or progress sharing with other Shelf accounts."
 msgstr ""
 
 #: app/templates/sources.html:7
@@ -3473,6 +3763,115 @@ msgstr ""
 msgid "Close"
 msgstr "关闭"
 
+#: app/templates/fragments/audiobook_metadata.html:3
+msgid "Audible metadata review — blocked by default"
+msgstr ""
+
+#: app/templates/fragments/audiobook_metadata.html:4
+msgid "Public reachability and technical host allowlists are not provider permission. No applicable grant has been substantiated for this adapter; R7 remains blocked on provider authorisation."
+msgstr ""
+
+#: app/templates/fragments/audiobook_metadata.html:9
+msgid "Local ASIN storage, editing and file import remain available. No catalogue lookup, image proxy, artwork download or cached review application is enabled."
+msgstr ""
+
+#: app/templates/fragments/audiobook_metadata.html:12
+msgid "Operator configuration records an authorisation claim only; it is not a licence. An actual applicable grant must cover these queries, persistent observations, image proxying and artwork storage. Routing options are not a regional coverage promise."
+msgstr ""
+
+#: app/templates/fragments/audiobook_metadata.html:16
+msgid "Saved ASIN"
+msgstr ""
+
+#: app/templates/fragments/audiobook_metadata.html:16
+#: app/templates/fragments/metadata_provenance.html:21
+#: app/templates/fragments/metadata_provenance.html:22
+msgid "Not set"
+msgstr ""
+
+#: app/templates/fragments/audiobook_metadata.html:16
+msgid "Edit audiobook identity"
+msgstr ""
+
+#: app/templates/fragments/audiobook_metadata.html:18
+msgid "The ASIN, ISBN, format, source bindings, copies, ownership and personal activity will not change. Check narrator, duration and abridgement before applying metadata."
+msgstr ""
+
+#: app/templates/fragments/audiobook_metadata.html:21
+msgid "Audible marketplace"
+msgstr ""
+
+#: app/templates/fragments/audiobook_metadata.html:23
+msgid "Choose a marketplace"
+msgstr ""
+
+#: app/templates/fragments/audiobook_metadata.html:26
+msgid "Preview exact ASIN"
+msgstr ""
+
+#: app/templates/fragments/audiobook_metadata.html:31
+msgid "Abridgement not supplied"
+msgstr ""
+
+#: app/templates/fragments/audiobook_metadata.html:32
+msgid "View public Audible catalogue entry"
+msgstr ""
+
+#: app/templates/fragments/audiobook_metadata.html:33
+msgid "Preview only: nothing has been saved. No fields are selected automatically. Unchecked fields, including blanks, stay local; missing provider values never erase metadata."
+msgstr ""
+
+#: app/templates/fragments/audiobook_metadata.html:38
+msgid "Choose catalogue fields to replace explicitly"
+msgstr ""
+
+#: app/templates/fragments/audiobook_metadata.html:43
+#: app/templates/fragments/cover_search.html:46
+#: app/templates/fragments/music_matching.html:101
+msgid "Current"
+msgstr ""
+
+#: app/templates/fragments/audiobook_metadata.html:43
+msgid "Blank"
+msgstr ""
+
+#: app/templates/fragments/audiobook_metadata.html:45
+msgid "Eligible for fill-missing backfill"
+msgstr ""
+
+#: app/templates/fragments/audiobook_metadata.html:46
+msgid "Local clear or series decision preserved; select explicitly to replace"
+msgstr ""
+
+#: app/templates/fragments/audiobook_metadata.html:53
+#: app/templates/fragments/music_matching.html:110
+msgid "Keep current artwork"
+msgstr "保留当前封面"
+
+#: app/templates/fragments/audiobook_metadata.html:56
+msgid "Cover candidate for the exact ASIN"
+msgstr ""
+
+#: app/templates/fragments/audiobook_metadata.html:57
+msgid "Use this artwork"
+msgstr ""
+
+#: app/templates/fragments/audiobook_metadata.html:59
+msgid "No artwork passed the technical URL checks. Existing artwork will be kept."
+msgstr ""
+
+#: app/templates/fragments/audiobook_metadata.html:62
+msgid "Apply only selected fields"
+msgstr ""
+
+#: app/templates/fragments/audiobook_metadata.html:63
+msgid "Backfill missing metadata only"
+msgstr ""
+
+#: app/templates/fragments/audiobook_metadata.html:65
+msgid "Backfill ignores the field checkboxes and fills only eligible blanks. Existing values and recorded manual clears are preserved. Artwork is optional and cannot be backfilled over an existing or removed cover. Explicitly selected artwork pauses automatic source artwork."
+msgstr ""
+
 #: app/templates/fragments/available_here.html:2
 msgid "Available here"
 msgstr ""
@@ -3481,12 +3880,44 @@ msgstr ""
 msgid "Local copies and cached source records. No live connection check."
 msgstr ""
 
-#: app/templates/fragments/available_here.html:13
+#: app/templates/fragments/available_here.html:5
+msgid "Opens the remote service in a new tab. You may need to log in there; Shelf does not play, download or transfer your login."
+msgstr ""
+
+#: app/templates/fragments/available_here.html:10
+msgid "No eligible source is currently recorded for this action."
+msgstr ""
+
+#: app/templates/fragments/available_here.html:11
+msgid "Your preferred source is unavailable. Using an eligible fallback when one exists; your preference is kept."
+msgstr ""
+
+#: app/templates/fragments/available_here.html:18
+msgid "My preferred source"
+msgstr ""
+
+#: app/templates/fragments/available_here.html:20
+msgid "Automatic fallback"
+msgstr ""
+
+#: app/templates/fragments/available_here.html:21
+msgid "Saved preference is unavailable"
+msgstr ""
+
+#: app/templates/fragments/available_here.html:25
+msgid "Save my preference"
+msgstr ""
+
+#: app/templates/fragments/available_here.html:29
+msgid "My linked progress accounts, pull, conflicts and history"
+msgstr ""
+
+#: app/templates/fragments/available_here.html:40
 #: app/templates/fragments/library_results.html:2
 msgid "Missing"
 msgstr ""
 
-#: app/templates/fragments/available_here.html:25
+#: app/templates/fragments/available_here.html:52
 msgid "No physical copies or connected source records are recorded for these editions."
 msgstr ""
 
@@ -3615,11 +4046,6 @@ msgstr ""
 
 #: app/templates/fragments/cover_search.html:46
 msgid "Current: English cover from another edition"
-msgstr ""
-
-#: app/templates/fragments/cover_search.html:46
-#: app/templates/fragments/music_matching.html:101
-msgid "Current"
 msgstr ""
 
 #: app/templates/fragments/cover_search.html:56
@@ -4044,51 +4470,46 @@ msgid "Local override"
 msgstr ""
 
 #: app/templates/fragments/metadata_provenance.html:16
-msgid "Following this source"
+msgid "Reviewed catalogue observation"
 msgstr ""
 
 #: app/templates/fragments/metadata_provenance.html:17
+msgid "Following this source"
+msgstr ""
+
+#: app/templates/fragments/metadata_provenance.html:18
 msgid "Not source-owned"
 msgstr ""
 
-#: app/templates/fragments/metadata_provenance.html:20
+#: app/templates/fragments/metadata_provenance.html:21
 msgid "Current local value"
 msgstr ""
 
-#: app/templates/fragments/metadata_provenance.html:20
-#: app/templates/fragments/metadata_provenance.html:21
-msgid "Not set"
-msgstr ""
-
-#: app/templates/fragments/metadata_provenance.html:21
+#: app/templates/fragments/metadata_provenance.html:22
 msgid "Source-observed value"
 msgstr ""
 
-#: app/templates/fragments/metadata_provenance.html:23
+#: app/templates/fragments/metadata_provenance.html:24
 msgid "Observed"
 msgstr ""
 
-#: app/templates/fragments/metadata_provenance.html:24
-msgid "Read-only identity field"
-msgstr ""
-
-#: app/templates/fragments/metadata_provenance.html:31
+#: app/templates/fragments/metadata_provenance.html:32
 msgid "Keep local"
 msgstr ""
 
-#: app/templates/fragments/metadata_provenance.html:32
+#: app/templates/fragments/metadata_provenance.html:33
 msgid "Follow source"
 msgstr ""
 
-#: app/templates/fragments/metadata_provenance.html:34
+#: app/templates/fragments/metadata_provenance.html:35
 msgid "A source title must be non-empty before it can be followed."
 msgstr ""
 
-#: app/templates/fragments/metadata_provenance.html:37
+#: app/templates/fragments/metadata_provenance.html:38
 msgid "No reviewable source observations have been saved for this item."
 msgstr ""
 
-#: app/templates/fragments/metadata_provenance.html:38
+#: app/templates/fragments/metadata_provenance.html:39
 msgid "This panel shows a limited number of saved source fields; additional observations may not be shown."
 msgstr ""
 
@@ -4165,10 +4586,6 @@ msgid "Choose which catalogue fields to use"
 msgstr "选择要使用的目录字段"
 
 #: app/templates/fragments/music_matching.html:110
-msgid "Keep current artwork"
-msgstr "保留当前封面"
-
-#: app/templates/fragments/music_matching.html:110
 msgid "Add without artwork"
 msgstr "不添加封面"
 
@@ -4219,6 +4636,7 @@ msgid "My status"
 msgstr ""
 
 #: app/templates/fragments/personal_library.html:48
+#: app/templates/fragments/source_progress.html:70
 msgid "No personal status"
 msgstr ""
 
@@ -4433,12 +4851,62 @@ msgstr ""
 msgid "Could not reach %(provider)s &mdash; check connectivity and try again."
 msgstr ""
 
+#: app/templates/fragments/source_migration_inventory_page.html:4
+msgid "Complete source record count"
+msgstr ""
+
+#: app/templates/fragments/source_migration_inventory_page.html:5
+msgid "Up to 50 stable record IDs per page. Paging does not narrow the source scope or retirement coverage. Trashed attachments remain visible as unavailable for migration."
+msgstr ""
+
+#: app/templates/fragments/source_migration_inventory_page.html:6
+msgid "First records / clear exact lookup"
+msgstr ""
+
+#: app/templates/fragments/source_migration_inventory_page.html:6
+msgid "Previous records"
+msgstr ""
+
+#: app/templates/fragments/source_migration_inventory_page.html:6
+msgid "Next records"
+msgstr ""
+
+#: app/templates/fragments/source_migration_inventory_page.html:8
 #: app/templates/fragments/source_migration_openings.html:3
-msgid "Catalogue item"
+msgid "Record ID"
+msgstr ""
+
+#: app/templates/fragments/source_migration_inventory_page.html:10
+msgid "Currently attached catalogue item"
+msgstr ""
+
+#: app/templates/fragments/source_migration_inventory_page.html:10
+msgid "In Trash; cannot migrate"
+msgstr ""
+
+#: app/templates/fragments/source_migration_inventory_page.html:11
+msgid "No saved remote identity evidence"
+msgstr ""
+
+#: app/templates/fragments/source_migration_inventory_page.html:12
+#: app/templates/fragments/source_migration_openings.html:3
+msgid "Cached availability"
+msgstr ""
+
+#: app/templates/fragments/source_migration_inventory_page.html:14
+msgid "Saved safe URL"
+msgstr ""
+
+#: app/templates/fragments/source_migration_inventory_page.html:15
+msgid "Review this attachment"
+msgstr ""
+
+#: app/templates/fragments/source_migration_inventory_page.html:16
+msgid "No records on this page or for this exact ID. Return to the first page or enter another exact ID."
 msgstr ""
 
 #: app/templates/fragments/source_migration_openings.html:3
-msgid "Cached availability"
+msgid "Catalogue item"
 msgstr ""
 
 #: app/templates/fragments/source_migration_openings.html:5
@@ -4455,6 +4923,166 @@ msgstr ""
 
 #: app/templates/fragments/source_migration_openings.html:14
 msgid "Opening actions were not recorded by this older review, or its records no longer exist. Inspect the current saved actions before starting a fresh review."
+msgstr ""
+
+#: app/templates/fragments/source_progress.html:2
+msgid "My linked accounts"
+msgstr ""
+
+#: app/templates/fragments/source_progress.html:3
+msgid "The automatic-pull worker is not active in this process. Schedule choices can be saved, but no automatic freshness is claimed until the worker is connected and running."
+msgstr ""
+
+#: app/templates/fragments/source_progress.html:7
+msgid "Pull-only consent recorded:"
+msgstr ""
+
+#: app/templates/fragments/source_progress.html:8
+msgid "Source disabled or changed. Re-link before pulling; local progress is unchanged."
+msgstr ""
+
+#: app/templates/fragments/source_progress.html:12
+msgid "Pull this edition; preview conflicts"
+msgstr ""
+
+#: app/templates/fragments/source_progress.html:14
+msgid "No unambiguous supported binding for this edition. Progress is never copied from another format."
+msgstr ""
+
+#: app/templates/fragments/source_progress.html:16
+msgid "My automatic pull schedule"
+msgstr ""
+
+#: app/templates/fragments/source_progress.html:17
+msgid "Separate opt-in for this remote account only. Pulls read already catalogued, supported bindings in bounded batches; large libraries continue in later batches. The same conflict rules apply. No remote writes or catalogue API keys."
+msgstr ""
+
+#: app/templates/fragments/source_progress.html:19
+msgid "Next due:"
+msgstr ""
+
+#: app/templates/fragments/source_progress.html:20
+msgid "Last automatic-pull outcome:"
+msgstr ""
+
+#: app/templates/fragments/source_progress.html:21
+msgid "Your account/session version changed. Automatic pulls are paused until you renew consent below."
+msgstr ""
+
+#: app/templates/fragments/source_progress.html:25
+msgid "Automatic pull interval"
+msgstr ""
+
+#: app/templates/fragments/source_progress.html:27
+msgid "Off"
+msgstr ""
+
+#: app/templates/fragments/source_progress.html:28
+msgid "minutes"
+msgstr ""
+
+#: app/templates/fragments/source_progress.html:31
+msgid "I consent to automatic pull-only progress imports for this connection at the chosen interval, subject to conflict review. This separate consent is required to enable or change the schedule, not to turn it off."
+msgstr ""
+
+#: app/templates/fragments/source_progress.html:32
+msgid "Save my automatic-pull choice"
+msgstr ""
+
+#: app/templates/fragments/source_progress.html:37
+msgid "Disconnect and forget my token"
+msgstr ""
+
+#: app/templates/fragments/source_progress.html:40
+msgid "No remote account linked. Catalogue API keys never supply personal progress."
+msgstr ""
+
+#: app/templates/fragments/source_progress.html:43
+msgid "Link or replace my remote account"
+msgstr ""
+
+#: app/templates/fragments/source_progress.html:51
+msgid "Confirm my remote user ID (not my username)"
+msgstr ""
+
+#: app/templates/fragments/source_progress.html:54
+msgid "My remote user access token"
+msgstr ""
+
+#: app/templates/fragments/source_progress.html:57
+msgid "Use your own user token, not a server-wide catalogue key. Shelf verifies its current user without an administrator-selected user ID. Tokens stay encrypted on the server; disconnect forgets them but does not revoke them remotely."
+msgstr ""
+
+#: app/templates/fragments/source_progress.html:58
+msgid "This is my remote account. I consent to explicit pull-only progress imports into my Shelf account and conflict/history storage. No automatic sync or remote writeback."
+msgstr ""
+
+#: app/templates/fragments/source_progress.html:59
+msgid "Verify and link my account"
+msgstr ""
+
+#: app/templates/fragments/source_progress.html:65
+msgid "Conflict previews"
+msgstr ""
+
+#: app/templates/fragments/source_progress.html:70
+msgid "Local:"
+msgstr ""
+
+#: app/templates/fragments/source_progress.html:71
+msgid "Remote:"
+msgstr ""
+
+#: app/templates/fragments/source_progress.html:71
+msgid "seconds"
+msgstr ""
+
+#: app/templates/fragments/source_progress.html:72
+msgid "Remote playback/update timestamp:"
+msgstr ""
+
+#: app/templates/fragments/source_progress.html:72
+msgid "Not supplied"
+msgstr ""
+
+#: app/templates/fragments/source_progress.html:76
+msgid "Keep my local progress"
+msgstr ""
+
+#: app/templates/fragments/source_progress.html:77
+msgid "Replace local progress with this remote observation"
+msgstr ""
+
+#: app/templates/fragments/source_progress.html:80
+msgid "No pending progress conflicts."
+msgstr ""
+
+#: app/templates/fragments/source_progress.html:81
+msgid "Show older conflict previews"
+msgstr ""
+
+#: app/templates/fragments/source_progress.html:84
+msgid "My remote progress history"
+msgstr ""
+
+#: app/templates/fragments/source_progress.html:88
+msgid "Accepted remote progress"
+msgstr ""
+
+#: app/templates/fragments/source_progress.html:88
+msgid "Kept local progress"
+msgstr ""
+
+#: app/templates/fragments/source_progress.html:89
+msgid "Local before → after:"
+msgstr ""
+
+#: app/templates/fragments/source_progress.html:91
+msgid "No remote progress decisions yet."
+msgstr ""
+
+#: app/templates/fragments/source_progress.html:92
+msgid "Show older progress history"
 msgstr ""
 
 #: app/templates/fragments/unsupported_title_search.html:2

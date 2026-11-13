@@ -209,3 +209,6 @@ def reparent_children(db, keep_id: int, other_id: int) -> None:
     # cascade independently of the scalar personal-state conflict rules.
     from app.services import reading_life
     reading_life.reparent(db, keep_id, other_id)
+    from app.services import source_handoff, source_progress
+    source_handoff.reparent(db, keep_id, other_id)
+    source_progress.reparent(db, keep_id, other_id)

@@ -317,6 +317,12 @@ HOST_RATE_LIMITS: dict[str, float] = {
     "www.googleapis.com": 0.25,  # Google Books quota is per-day; light pacing only
     "images-na.ssl-images-amazon.com": 0.5,  # image CDN; politeness only
     "m.media-amazon.com": 0.5,  # Audible cover CDN (audible-cli cover hints); politeness only
+    # Public Audible catalogue previews: no published quota is assumed. One
+    # request/second per marketplace, no retries or cross-market fallback.
+    **dict.fromkeys(("api.audible.com", "api.audible.co.uk", "api.audible.ca",
+                     "api.audible.com.au", "api.audible.de", "api.audible.fr",
+                     "api.audible.it", "api.audible.es", "api.audible.co.jp",
+                     "api.audible.in"), 1.0),
     "api.igdb.com": 0.25,  # IGDB publishes 4 req/s
     "api.themoviedb.org": 0.1,  # no hard per-second cap
     # MusicBrainz asks ordinary clients to stay at or below one request per

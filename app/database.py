@@ -921,6 +921,87 @@ CREATE TABLE IF NOT EXISTS user_item_events (
 CREATE INDEX IF NOT EXISTS idx_user_item_events_user
     ON user_item_events(user_id, created_at, id);
 
+-- F4: account-owned handoff preferences and explicitly consented, pull-only
+-- progress. Catalogue credentials are never copied into an account linkage.
+CREATE TABLE IF NOT EXISTS user_source_preferences (
+    user_id    INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    item_id    INTEGER NOT NULL REFERENCES items(id) ON DELETE CASCADE,
+    action     TEXT NOT NULL CHECK(action IN ('Read', 'Listen', 'Watch', 'Play')),
+    source_key TEXT NOT NULL,
+    PRIMARY KEY(user_id, item_id, action)
+);
+CREATE TABLE IF NOT EXISTS user_source_accounts (
+    id                INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id           INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    source_key        TEXT NOT NULL,
+    provider          TEXT NOT NULL CHECK(provider IN ('jellyfin', 'abs')),
+    remote_user_id    TEXT NOT NULL,
+    credentials_enc   TEXT NOT NULL,
+    root_fingerprint  TEXT NOT NULL,
+    revision          TEXT NOT NULL,
+    consent_version   TEXT NOT NULL,
+    consented_at      TEXT NOT NULL,
+    UNIQUE(user_id, source_key),
+    UNIQUE(source_key, remote_user_id)
+);
+CREATE TABLE IF NOT EXISTS user_source_progress (
+    id                    INTEGER PRIMARY KEY AUTOINCREMENT,
+    account_id            INTEGER NOT NULL REFERENCES user_source_accounts(id) ON DELETE CASCADE,
+    item_id               INTEGER NOT NULL REFERENCES items(id) ON DELETE CASCADE,
+    binding_hash          TEXT NOT NULL,
+    remote_json           TEXT NOT NULL,
+    baseline_remote_json  TEXT,
+    baseline_local_marker TEXT,
+    review_token          TEXT,
+    review_local_marker   TEXT,
+    reason                TEXT,
+    observed_at           TEXT NOT NULL,
+    UNIQUE(account_id, item_id)
+);
+CREATE TABLE IF NOT EXISTS user_source_progress_events (
+    id            INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id       INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    item_id       INTEGER NOT NULL REFERENCES items(id) ON DELETE CASCADE,
+    source_key    TEXT NOT NULL,
+    decision      TEXT NOT NULL CHECK(decision IN ('accepted', 'kept_local')),
+    snapshot_json TEXT NOT NULL,
+    event_key     TEXT NOT NULL UNIQUE,
+    created_at    TEXT NOT NULL DEFAULT (datetime('now'))
+);
+CREATE INDEX IF NOT EXISTS idx_user_source_progress_history
+    ON user_source_progress_events(user_id, item_id, id);
+
+-- Link attempts outlive account rows: disconnect must invalidate a delayed
+-- initial/replacement verification, including after a later link was removed.
+CREATE TABLE IF NOT EXISTS user_source_link_state (
+    user_id    INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    source_key TEXT NOT NULL,
+    generation TEXT NOT NULL,
+    PRIMARY KEY(user_id, source_key)
+);
+-- Separate, explicit opt-in for automatic read-only pulls. No schedule is
+-- inferred from linkage/manual consent, and relink/disconnect removes it.
+CREATE TABLE IF NOT EXISTS user_source_schedules (
+    account_id          INTEGER PRIMARY KEY REFERENCES user_source_accounts(id) ON DELETE CASCADE,
+    revision            TEXT NOT NULL,
+    interval_minutes    INTEGER NOT NULL CHECK(interval_minutes IN (15, 60, 360, 1440)),
+    consent_version     TEXT NOT NULL,
+    consented_at        TEXT NOT NULL,
+    actor_username      TEXT NOT NULL,
+    actor_role          TEXT NOT NULL,
+    actor_token_version INTEGER NOT NULL,
+    next_due_at         TEXT NOT NULL,
+    cursor_item_id      INTEGER NOT NULL DEFAULT 0,
+    lease_token         TEXT,
+    lease_expires_at    TEXT,
+    last_attempt_at     TEXT,
+    last_finished_at    TEXT,
+    last_status         TEXT NOT NULL DEFAULT 'never',
+    last_error          TEXT,
+    last_summary_json   TEXT NOT NULL DEFAULT '{}'
+);
+CREATE INDEX IF NOT EXISTS idx_user_source_schedule_due ON user_source_schedules(next_due_at);
+
 CREATE TABLE IF NOT EXISTS library_saved_views (
     id           INTEGER PRIMARY KEY AUTOINCREMENT,
     user_id      INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,

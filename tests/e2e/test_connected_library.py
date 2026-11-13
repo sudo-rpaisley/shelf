@@ -11,7 +11,7 @@ import re
 import sqlite3
 import threading
 from contextlib import contextmanager
-from urllib.parse import parse_qs, urlsplit
+from urllib.parse import parse_qs, urljoin, urlsplit
 from xml.sax.saxutils import escape
 
 import pytest
@@ -60,6 +60,17 @@ def _navigate(page, control):
     with page.expect_navigation(wait_until="domcontentloaded") as navigation:
         control.click()
     assert navigation.value.status == 200
+
+
+def _handoff_destination(page, control, item_id, action):
+    """Resolve the authenticated handoff without fetching its remote target."""
+    path = control.get_attribute("href")
+    assert re.fullmatch(rf"/api/library/items/{item_id}/open/{action}\?binding=[a-f0-9]{{64}}", path or "")
+    response = page.request.get(urljoin(page.url, path), max_redirects=0)
+    assert response.status == 303
+    assert response.headers["referrer-policy"] == "no-referrer"
+    assert response.headers["cache-control"] == "no-store"
+    return response.headers["location"]
 
 
 def _login(page, server, username, password):
@@ -433,7 +444,7 @@ def test_available_here_refreshes_after_editor_links_and_unlinks_without_reload(
         remote = available.locator(f'[data-availability-item="{audio}"]')
         expect(remote).to_contain_text("Reading room digital library")
         expect(remote).to_have_attribute("data-availability-state", "available")
-        expect(remote.get_by_role("link", name="Listen", exact=True)).to_have_attribute("href", listen_url)
+        assert _handoff_destination(page, remote.get_by_role("link", name="Listen", exact=True), audio, "Listen") == listen_url
         expect(panel.get_by_test_id("available-here")).to_have_count(0)
 
         with page.expect_response(
@@ -755,9 +766,9 @@ def test_admin_configures_local_opds_sync_and_preserves_local_edits_on_resync(co
     for secret in (opds_feed["username"], opds_feed["password"]):
         assert secret not in page.content()
     _navigate(page, member.get_by_role("link", name="The Time Machine", exact=True))
-    expect(page.get_by_test_id("available-here").get_by_role("link", name="Read", exact=True)).to_have_attribute(
-        "href", f"{opds_feed['root']}/files/time-machine.epub"
-    )
+    assert _handoff_destination(
+        page, page.get_by_test_id("available-here").get_by_role("link", name="Read", exact=True), item["id"], "Read",
+    ) == f"{opds_feed['root']}/files/time-machine.epub"
     _navigate(page, page.get_by_role("link", name="Edit", exact=True))
     edit = page.locator("#item-edit-form")
     edit.get_by_label("Title", exact=True).fill("The Time Machine — household edition")

@@ -65,6 +65,7 @@ from app.routers import pages, items, item_copies, items_covers, cover_review, c
 from app.routers import auth_routes
 from app.routers import availability, library, library_attention, metadata_review, music_matching, personal_library, sources
 from app.routers import reading_life, source_migration
+from app.routers import audiobook_metadata, source_progress
 from app.routers import cover_sync_policy as cover_sync_routes
 # Aliased: `api_tokens` inside the middlewares is the service module.
 from app.routers import api_tokens as api_token_routes
@@ -77,7 +78,7 @@ class SecurityHeadersMiddleware(BaseHTTPMiddleware):
         # Browsers ignore HSTS over http://, and behind a trusted TLS proxy the scheme is already https.
         if request.url.scheme == "https":
             response.headers["Strict-Transport-Security"] = "max-age=31536000; includeSubDomains"
-        response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
+        response.headers.setdefault("Referrer-Policy", "strict-origin-when-cross-origin")
         response.headers["X-XSS-Protection"] = "1; mode=block"
         # No 'unsafe-inline', no CDN hosts, and no 'unsafe-eval': all JS is
         # served from /static and Alpine is the CSP build (no new Function) —
@@ -171,6 +172,19 @@ class CSRFMiddleware(BaseHTTPMiddleware):
         if not cookie_token:
             return Response("CSRF token missing", status_code=403)
 
+        # Bound review bodies even when HTMX supplies the token in a header.
+        # Native forms must reach CSRF parsing with an already bounded cache;
+        # malformed IDs and slash redirects use the same pure route hooks.
+        review_limit = (audiobook_metadata.form_limit(path) or source_progress.form_limit(path)
+                        or source_migration.form_limit(path))
+        if review_limit is not None:
+            from app.http_body import BodyTooLarge, bounded_body
+            try:
+                await bounded_body(request, review_limit)
+            except BodyTooLarge:
+                return Response("Review form too large", status_code=413, media_type="text/plain",
+                                headers={"Cache-Control": "no-store"})
+
         # Accept token from header (HTMX) or form field (plain HTML forms).
         # IMPORTANT: for form bodies we must cache the raw bytes BEFORE calling
         # call_next, because BaseHTTPMiddleware's receive stream is consumed once.
@@ -207,7 +221,8 @@ class CSRFMiddleware(BaseHTTPMiddleware):
                     try:
                         body_bytes = await bounded_body(request, limit)
                     except BodyTooLarge:
-                        return Response("Review form too large", status_code=413)
+                        return Response("Review form too large", status_code=413, media_type="text/plain",
+                                        headers={"Cache-Control": "no-store"})
                 else:
                     body_bytes = await request.body()  # caches in request._body
                 form = await request.form()
@@ -707,6 +722,28 @@ async def _periodic_release_radar():
             logger.exception("Release-radar pass failed")
 
 
+_SOURCE_PROGRESS_POLL_SECONDS = 60
+
+
+async def _periodic_source_progress(application: FastAPI):
+    """Run separately consented, bounded pulls; never write remote progress."""
+    if os.environ.get("SHELF_DISABLE_SOURCE_PROGRESS"):
+        return
+    from app.services import source_progress as progress_service
+
+    application.state.source_progress_scheduler_active = True
+    try:
+        while True:
+            try:
+                if feature_enabled("connected_library"):
+                    await progress_service.run_scheduled_pass()
+            except Exception:
+                logger.exception("Source-progress pass failed")
+            await asyncio.sleep(_SOURCE_PROGRESS_POLL_SECONDS)
+    finally:
+        application.state.source_progress_scheduler_active = False
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     init_db()
@@ -724,16 +761,21 @@ async def lifespan(app: FastAPI):
     loan_task = asyncio.create_task(_periodic_loan_reminders())
     price_task = asyncio.create_task(_periodic_price_alerts())
     radar_task = asyncio.create_task(_periodic_release_radar())
+    app.state.source_progress_scheduler_active = False
+    progress_task = asyncio.create_task(_periodic_source_progress(app))
     from app.services import cover_queue
     cover_task = cover_queue.start()
-    yield
-    task.cancel()
-    hc_task.cancel()
-    loan_task.cancel()
-    price_task.cancel()
-    radar_task.cancel()
+    tasks = [task, hc_task, loan_task, price_task, radar_task, progress_task]
     if cover_task is not None:
-        cover_task.cancel()
+        tasks.append(cover_task)
+    try:
+        yield
+    finally:
+        for background_task in tasks:
+            background_task.cancel()
+        # Cancellation is not completion: finish network cleanup and owned
+        # lease acknowledgements before the application's lifespan returns.
+        await asyncio.gather(*tasks, return_exceptions=True)
 
 
 app = FastAPI(title="Shelf", lifespan=lifespan)
@@ -958,3 +1000,5 @@ app.include_router(cover_sync_routes.router)
 app.include_router(source_migration.page_router)
 app.include_router(source_migration.api_router)
 app.include_router(reading_life.router)
+app.include_router(audiobook_metadata.router)
+app.include_router(source_progress.router)

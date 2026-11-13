@@ -1,0 +1,18 @@
+{% macro inventory_page(label, page, source_id, open_page=False) %}
+<details class="bg-shelf-card rounded-xl border border-shelf-border p-4 space-y-3" data-testid="migration-inventory-page"{% if open_page %} open{% endif %}>
+    <summary class="font-semibold cursor-pointer">{{ label }} ({{ page.total }})</summary>
+    <p class="text-sm">{{ _('Complete source record count') }}: {{ page.total }}</p>
+    <p class="text-sm text-shelf-muted">{{ _('Up to 50 stable record IDs per page. Paging does not narrow the source scope or retirement coverage. Trashed attachments remain visible as unavailable for migration.') }}</p>
+    <nav class="flex flex-wrap gap-4" aria-label="{{ label }}"><a class="text-shelf-accent2 hover:underline" href="{{ page.first_url }}">{{ _('First records / clear exact lookup') }}</a>{% if page.previous_url %}<a class="text-shelf-accent2 hover:underline" href="{{ page.previous_url }}">{{ _('Previous records') }}</a>{% endif %}{% if page.next_url %}<a class="text-shelf-accent2 hover:underline" href="{{ page.next_url }}">{{ _('Next records') }}</a>{% endif %}</nav>
+    {% for record in page.records %}<article class="border border-shelf-border rounded-lg p-3 space-y-1">
+        <p class="font-medium break-words">{{ _('Record ID') }} #{{ record.id }} · {{ record.title }} · {{ record.media_type }}</p>
+        <p class="text-sm break-all">{{ _('External ID') }}: {{ record.external_id }}</p>
+        <p class="text-sm">{{ _('Currently attached catalogue item') }} #{{ record.item_id }}: {{ record.item_title or _('In Trash; cannot migrate') }}</p>
+        <p class="text-sm break-all">{% for kind, values in record.identifiers.items() %}{{ kind }}: {{ values|join(', ') }}; {% else %}{{ _('No saved remote identity evidence') }}{% endfor %}</p>
+        <p class="text-sm">{{ _('Cached availability') }}: {{ record.opening.availability }} · {{ _(record.opening.reason) }}</p>
+        {% if record.opening.usable %}<a href="{{ record.opening.url }}" target="_blank" rel="noopener noreferrer" referrerpolicy="no-referrer" class="text-sm text-shelf-accent2 hover:underline">{{ _(record.opening.label) }}</a>{% endif %}
+        {% if record.opening.url %}<p class="text-sm break-all">{{ _('Saved safe URL') }}: {{ record.opening.url }}</p>{% endif %}
+        {% if record.live %}<a class="text-sm text-shelf-accent2 hover:underline" href="/source-migrations?repair_source_id={{ source_id }}&amp;repair_record_id={{ record.id }}#repair">{{ _('Review this attachment') }}</a>{% endif %}
+    </article>{% else %}<p>{{ _('No records on this page or for this exact ID. Return to the first page or enter another exact ID.') }}</p>{% endfor %}
+</details>
+{% endmacro %}

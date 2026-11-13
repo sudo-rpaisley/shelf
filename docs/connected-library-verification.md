@@ -168,9 +168,11 @@ provider-permission grant or live-server acceptance.
 
 ## Local follow-up candidates (documentation capture)
 
-The coordinator's pre-follow-up local/remote tip is `2fb43756`; the latest pushed
-application change remains `717dfeb6`. Newer candidates here are local, not a
-release. Evidence paths below are local ignored review copies, not published CI
+Before the evidence refresh, local/remote tip was `2fb43756` and the latest pushed
+application change was `717dfeb6`. The source integration incorporates tested
+`89205f44`, preserving the refreshed delivery records rather than the source
+branch's older copies. Other core/R9/portability candidates remain separate and
+local; this is not a release. Evidence paths are ignored local copies, not CI
 artifacts. Coordinator/worker reports are distinguished from independently
 executed gates; no tests were run by this documentation task.
 
@@ -293,8 +295,11 @@ budget was replaced.
   applied. Evidence: `.temp/swarm-reviews/r6-e0-composition-8c4d1aa/coordinator-evidence/`.
   These inherited failures remain missing workflow coverage, not completion.
 - Public settings/users protected-predicate P1 and ambient compile/step-authority
-  mechanisms are separate source-supported findings with runtime follow-up
-  **active**. Neither is closed by `e0f5a8d4`, `d9051b88` or `a850b2a7`.
+  mechanisms are now **runtime-confirmed** in test/contract-only `42927e71`,
+  directly after e0: **107 failed / 10 passed**, reproduced on fresh e0 and actual
+  R6. Callback arguments, foreign native reads and swallowed-denial behavior are
+  exposed. No production repair is present; earlier 682/292 regression passes do
+  not close these new failures. Neither d905 nor a850 fixes this boundary.
 
 R2 `d799a29e` versus `caf76382` is a test/contract-only checkpoint, not a
 productive private write/startup permit. Its copied `worker-evidence/` under
@@ -323,11 +328,11 @@ source/context/plural identity **and multiplicity** preservation in all seven
 templates. Evidence is in
 `.temp/swarm-reviews/r9-safe-body-converged-b049de8/coordinator-evidence/`.
 
-The original **219-record** semantic reconciliation is **incomplete**. The first
-persisted batch has **34 source-closed / 6 still-open** dispositions for exactly
-40 original IDs; **179 remain unfinalized by this batched audit**. Its
-`dispositions.json` preserves exact original identities, reasons and bindings
-under `.temp/r9-source-acceptance-b049de8/batch-01/`. The read-only auditor
+The original **219-record** semantic reconciliation is **incomplete**. Two saved
+batches cover **80 exact original IDs: 70 source-closed / 10 still-open** at
+frozen `b049de8a`; **139 remain unfinalized**. Their `dispositions.json` files
+preserve original identities, reasons and bindings under
+`.temp/r9-source-acceptance-b049de8/batch-01/` and `batch-02/`. The read-only auditor
 returned findings; the coordinator transcribed and mechanically joined them to
 the original input. This is source inspection, not new test execution. The three
 unlink controls are repaired but retained open conservatively because their
@@ -369,8 +374,10 @@ X3/crash-recovery or new large-fixture memory pass follows from phase A.
 
 Browser `36260af1` has bounded source clearance for all-status ownership, safe
 429 handling and falsy aborts; password receipts and current-core Store/PWA are
-excluded. Offline `1f5ad79` follow-up has **40 browser / 63 server worker-reported
-passes**; review/current-core composition is pending. Neither these domains nor
+excluded. Offline `1f5ad79` has **40 browser / 63 server worker-reported passes**,
+but source review is **CHANGES_REQUIRED**: canonical retirement can stop on a
+consent-read exception before independent captured-generation/legacy deletions.
+Repair and current-core composition remain pending. Neither these domains nor
 other unclosed lanes inherit the source candidate's full-browser/scale results.
 
 All acceptance stays unchecked, household activation **OFF**, and Actions

@@ -7,7 +7,7 @@ from app import i18n
 from app.auth import require_role
 from app.database import get_db
 from app.features import require_feature
-from app.services import availability
+from app.services import source_handoff
 
 
 router = APIRouter()
@@ -21,7 +21,7 @@ async def item_availability(
     _feature=Depends(require_feature("connected_library")),
 ):
     with get_db() as db:
-        context = availability.available_here(db, item_id)
+        context = source_handoff.context(db, request.state.user["id"], item_id)
     if context is None:
         return HTMLResponse(i18n.gettext("Item not found"), status_code=404)
     return request.app.state.templates.TemplateResponse(

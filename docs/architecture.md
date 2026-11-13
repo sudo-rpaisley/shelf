@@ -564,6 +564,14 @@ new source-instance credentials are saved through Sources.
 
 ## Metadata pipeline
 
+**The R7 Audible catalogue prototype is permission-blocked and default-off.**
+`services/audible_permission.py` gates its HTTP routes, direct service entry
+points, result disclosure and storage independently of Connected library.
+No applicable grant has been substantiated for its API queries, permanent
+observations, image proxying or storage; reachability and technical allowlists
+are not permission or coverage. No fallback provider is selected. Local ASIN
+editing/import remains independent. See the [provider authorisation blocker](audible-provider-authorization.md).
+
 A scan or title-search add runs `_lookup_metadata` → `_save_item`
 (`app/routers/items.py`), also reused by Store Mode's queue flush and
 Photo Intake's confirm step.

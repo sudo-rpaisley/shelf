@@ -409,8 +409,8 @@ async def item_detail(
 
         connected_context = {}
         if features.feature_enabled("connected_library"):
-            from app.services import availability, metadata_review, personal_library
-            availability_context = availability.available_here(db, item_id) or {}
+            from app.services import metadata_review, personal_library, source_handoff
+            availability_context = source_handoff.context(db, request.state.user["id"], item_id) or {}
             personal_context = personal_library.personal_context(
                 db, request.state.user["id"], item_id,
             ) or {}

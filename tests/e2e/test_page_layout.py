@@ -22,6 +22,7 @@ from tests.e2e.conftest import (
     attach_page_guard,
 )
 from tests.e2e.test_responsive import _COLLAPSE, _MEASURE, _settle
+from tests.e2e.test_source_delivery import seed_progress_layout
 from tests.e2e.test_library_delivery import (
     _decision,
     _repair_preview,
@@ -45,6 +46,9 @@ PAGES = (
     ("reading-life-item", "/reading-life/items/{book}", "reading_life_item.html"),
     ("reading-life-session", "/reading-life/sessions/{reading_session}", "reading_life_session.html"),
     ("reading-life-journal", "/reading-life/journal/{reading_entry}", "reading_life_journal.html"),
+    ("source-progress", "/account/source-progress?item_id={audio}", "source_progress.html"),
+    ("source-progress-expanded", "/account/source-progress?item_id={audio}", "source_progress.html"),
+    ("audiobook-metadata", "/api/audiobooks/{audio}/metadata", "audiobook_metadata.html"),
     ("browse", "/browse", "browse.html"),
     ("browse-list", "/browse", "browse.html"),
     ("series", "/series", "series.html"),
@@ -63,9 +67,9 @@ PAGES = (
     ("sources", "/sources", "sources.html"),
     ("source-opds", "/sources/{opds}", "source_detail.html"),
     ("source-links", "/sources/{links}", "source_detail.html"),
-    ("source-migration-workspace", "/source-migrations", "source_migration.html"),
-    ("source-migration-compare", "/source-migrations?old_source_id={old_source}&new_source_id={new_source}", "source_migration.html"),
-    ("source-migration-repair", "/source-migrations?repair_source_id={new_source}&repair_record_id={new_record}", "source_migration.html"),
+    ("source-migration-workspace", "/source-migrations", "source_migration_inventory.html"),
+    ("source-migration-compare", "/source-migrations?old_source_id={old_source}&new_source_id={new_source}", "source_migration_inventory.html"),
+    ("source-migration-repair", "/source-migrations?repair_source_id={new_source}&repair_record_id={new_record}", "source_migration_inventory.html"),
     ("source-migration-repair-preview", "/source-migrations/{repair_plan}", "source_migration_review.html"),
     ("source-migration-preview", "/source-migrations/{migration_plan}", "source_migration_review.html"),
     ("source-migration-applied", "/source-migrations/{migration_plan}", "source_migration_review.html"),
@@ -136,6 +140,7 @@ def _seed(server):
             ("music", "vinyl", "Evening Signals: Collected Recordings"),
             ("issue", "magazine", "The Observatory — Autumn Edition"),
             ("game", "video_game", "Horizons Beyond the Archive"),
+            ("audio", "audiobook", "The Long Way Around — a narrated archive edition"),
             ("duplicate-a", "book", "A Layout Audit Duplicate"),
             ("duplicate-b", "book", "A Layout Audit Duplicate"),
         )):
@@ -179,6 +184,8 @@ def _seed(server):
         db.execute("INSERT OR REPLACE INTO settings (key, value) VALUES ('vision_provider', 'ollama')")
         ids.update(_seed_reading_life(db, user, ids["book"]))
         ids.update(_seed_machine_records(db, keep=ids["book"], previous=ids["ebook"]))
+        db.execute("UPDATE items SET asin = 'B012345678' WHERE id = ?", (ids["audio"],))
+        seed_progress_layout(db, user, ids["audio"])
         db.commit()
         return {**ids, "location": location}
     finally:
@@ -187,7 +194,14 @@ def _seed(server):
 
 def _capture(page, label, width, records, *, app_page=True):
     _settle(page)
-    expect(page.get_by_role("heading", level=1).first).to_be_visible()
+    failures = []
+    heading = page.get_by_role("heading", level=1).first
+    if heading.count():
+        expect(heading).to_be_visible()
+    else:
+        # Keep the heading requirement, but finish measuring all routes so one
+        # incomplete page cannot hide unrelated geometry regressions.
+        failures.append(f"{label}: missing visible level-one page heading")
     overflow = page.evaluate(_MEASURE)
     controls = page.evaluate(_COLLAPSE)
     geometry = page.evaluate(_GEOMETRY)
@@ -200,7 +214,6 @@ def _capture(page, label, width, records, *, app_page=True):
         folder.mkdir(parents=True, exist_ok=True)
         page.screenshot(path=folder / f"{label}.png", full_page=True, animations="disabled")
         (folder / "geometry.json").write_text(json.dumps(records, indent=2))
-    failures = []
     if overflow["scrollWidth"] > overflow["clientWidth"] + 1:
         failures.append(f"{label}: horizontal overflow {overflow}")
     if controls:
@@ -246,7 +259,7 @@ def _check_print(page, label, width):
             assert sheet["x"] == 0 and sheet["y"] == 0
             expect(page.locator("body > nav")).to_be_hidden()
         else:
-            assert page.locator("tbody tr").count() == 7
+            assert page.locator("tbody tr").count() == 8
             assert page.locator("table").first.evaluate("el => getComputedStyle(el.parentElement).overflowX") == "visible"
         output = os.environ.get("SHELF_LAYOUT_ARTIFACTS")
         if output and width == 1366:
@@ -297,6 +310,16 @@ def test_all_pages_use_available_width_without_mobile_regressions(server_factory
                 page.evaluate("localStorage.setItem('shelf-view', 'grid')")
             response = page.goto(server["url"] + path.format(**ids))
             assert response.status == PAGE_STATUSES.get(label, 200), (label, response.status)
+            if label == "source-progress-expanded":
+                for details in page.get_by_test_id("source-progress-page").locator("details").all():
+                    if details.get_attribute("open") is None:
+                        details.locator("summary").click()
+                    expect(details).to_have_attribute("open", "")
+                expect(page.locator('input[name="remote_user_id"]')).to_be_visible()
+                expect(page.locator('select[name="interval_minutes"]')).to_be_visible()
+                expect(page.locator("[data-progress-review]")).to_be_visible()
+                expect(page.locator("#source-progress-history")).to_contain_text("Accepted remote progress")
+                assert "invalid-token-for-read-only-layout" not in page.content()
             if label == "source-migration-compare":
                 for details in page.get_by_test_id("source-migration-workspace").locator("details").all():
                     details.locator("summary").click()
