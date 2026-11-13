@@ -2,6 +2,7 @@
 
 import asyncio
 import copy
+import gzip
 import json
 import unicodedata
 from pathlib import Path
@@ -77,6 +78,7 @@ async def test_captured_metadata_and_documented_request(isbn, expected, monkeypa
         "isbnIssn": f"{isbn} | {expected['isbn10']}", "boolean": "true", "limit": "5",
     }
     assert request.headers["Accept"] == "application/json"
+    assert request.headers["Accept-Encoding"] == "identity"
     assert request.headers["User-Agent"].startswith("Shelf/")
     assert "Authorization" not in request.headers
     assert all(value == bn.TIMEOUT for value in request.extensions["timeout"].values())
@@ -206,6 +208,24 @@ def test_unicode_normalization_relators_publication_and_parts():
     }
 
 
+def test_distinct_coauthors_survive_exact_normalized_deduplication_in_provider_order():
+    bib = record(
+        field("245", a="Wspólna książka /"),
+        field("100", a="Kowalski, Jan Adam", e="Autor"),
+        field("700", a="Kowalski, Jan Marek", **{"4": "aut"}),
+        field("700", a="Kowalski, Jan Adam", e="Autor"),
+        field("700", a=" Kowalski,  Jan   Marek ", e="Autor"),
+        field("700", a="Kowalski, Jan", e="Autor"),
+        field("700", a="Wiśniewski, Łukasz", e="Autor"),
+        field("700", a=unicodedata.normalize("NFD", "Wiśniewski, Łukasz"), e="Autor"),
+        field("700", a="Kowalski, Jan Piotr", e="Tłumaczenie"),
+        field("700", a="Kowalski, Jan Paweł", t="Related work", **{"4": "aut"}),
+    )
+    assert bn._parse_record(bib)["authors"] == (
+        "Jan Adam Kowalski, Jan Marek Kowalski, Jan Kowalski, Łukasz Wiśniewski"
+    )
+
+
 @pytest.mark.parametrize("extent,expected", [
     ("330, [6] stron ;", 330), ("276, [1] strona ;", 276), ("285, [3] strony ;", 285),
     ("835, [1] s. ;", 835), ("XIV, 399 stron ;", 399), ("123 pages ;", 123),
@@ -302,6 +322,80 @@ class ChunkStream(httpx.AsyncByteStream):
 
     async def aclose(self):
         self.closed = True
+
+
+async def test_compressed_small_wire_huge_decoded_response_is_rejected_without_reading():
+    # A small compressed chunk would otherwise be expanded by HTTPX before
+    # aiter_bytes yields its first bounded-size chunk to the adapter.
+    compressed = gzip.compress(b" " * (bn.MAX_RESPONSE_BYTES * 16))
+    assert len(compressed) < 16384
+    stream = ChunkStream([compressed])
+    response = httpx.Response(200, headers={"Content-Encoding": "gzip"}, stream=stream)
+    requests = []
+
+    def handle(request):
+        requests.append(request)
+        return response
+
+    async with httpx.AsyncClient(transport=httpx.MockTransport(handle)) as client:
+        result = await bn.lookup(ISBN, client)
+        assert stream.closed and response.is_closed
+
+    assert (result.provider, result.outcome, result.status) == ("bn", "no_match", 200)
+    assert stream.read == 0
+    assert len(requests) == 1
+    assert requests[0].headers["Accept-Encoding"] == "identity"
+
+
+@pytest.mark.parametrize("headers", [
+    {"Content-Encoding": "gzip"}, {"Content-Encoding": "deflate"},
+    {"Content-Encoding": "br"}, {"Content-Encoding": "zstd"},
+    {"Content-Encoding": "unknown"}, {"Content-Encoding": "identity, gzip"},
+    {"Content-Encoding": "gzip, identity"}, {"Content-Encoding": ""},
+    [("Content-Encoding", "identity"), ("Content-Encoding", "gzip")],
+])
+async def test_any_nonidentity_encoding_is_rejected_before_body_consumption(headers):
+    stream = ChunkStream([b"must not be read or decoded"])
+    response = httpx.Response(200, headers=headers, stream=stream)
+    async with httpx.AsyncClient(transport=httpx.MockTransport(lambda request: response)) as client:
+        result = await bn.lookup(ISBN, client)
+        assert stream.closed and response.is_closed
+    assert (result.outcome, result.status) == ("no_match", 200)
+    assert stream.read == 0
+
+
+@pytest.mark.parametrize("headers", [{}, {"Content-Encoding": "identity"}, {"Content-Encoding": " Identity "}])
+@pytest.mark.parametrize("preloaded", [False, True])
+async def test_identity_or_missing_encoding_succeeds_with_real_mock_transport(headers, preloaded):
+    data = json.dumps({"bibs": [minimal()]}).encode()
+    stream = ChunkStream([data[:32], data[32:]])
+    response = (httpx.Response(200, headers=headers, content=data) if preloaded
+                else httpx.Response(200, headers=headers, stream=stream))
+    requests = []
+
+    def handle(request):
+        requests.append(request)
+        return response
+
+    async with httpx.AsyncClient(
+        transport=httpx.MockTransport(handle), headers={"Accept-Encoding": "gzip"},
+    ) as client:
+        result = await bn.lookup(ISBN, client)
+        assert response.is_closed
+        if not preloaded:
+            assert stream.read == 2 and stream.closed
+    assert result.found and result.payload["title"] == "Tytuł"
+    assert len(requests) == 1
+    assert requests[0].headers["Accept-Encoding"] == "identity"
+
+
+async def test_preloaded_mock_transport_response_is_still_size_bounded(monkeypatch):
+    data = json.dumps({"bibs": [minimal()]}).encode()
+    monkeypatch.setattr(bn, "MAX_RESPONSE_BYTES", len(data) - 1)
+    response = httpx.Response(200, content=data)
+    async with httpx.AsyncClient(transport=httpx.MockTransport(lambda request: response)) as client:
+        result = await bn.lookup(ISBN, client)
+    assert result.outcome == "no_match" and response.is_closed
 
 
 @respx.mock

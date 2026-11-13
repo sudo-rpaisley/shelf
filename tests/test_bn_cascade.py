@@ -43,6 +43,35 @@ async def test_bn_hit_short_circuits_general_sources_and_persists_language_and_s
     assert tuple(stored) == ("Ostatnie życzenie", "bn", "pl", ISBN, "8375780634")
 
 
+@respx.mock
+async def test_distinct_coauthors_survive_cascade_and_persistence(fallbacks, db):
+    from app.routers import items_common
+
+    payload = json.loads(FIXTURE.read_text(encoding="utf-8"))
+    fields = payload["bibs"][0]["marc"]["fields"]
+    fields[:] = [field for field in fields if "100" not in field and "700" not in field]
+    # Synthetic contributor mutations; the public capture itself is unchanged.
+    fields.extend([
+        {"100": {"subfields": [{"a": "Kowalski, Jan Adam"}, {"e": "Autor"}]}},
+        {"700": {"subfields": [{"a": "Kowalski, Jan Marek"}, {"4": "aut"}]}},
+        {"700": {"subfields": [{"a": "Kowalski, Jan Adam"}, {"4": "aut"}]}},
+        {"700": {"subfields": [{"a": "Kowalski, Jan Piotr"}, {"4": "trl"}]}},
+    ])
+    route = respx.get(bn.SEARCH_URL).respond(200, json=payload)
+    async with httpx.AsyncClient() as client:
+        metadata, source, hc_ids, cascade = await items_common._lookup_metadata(ISBN, None, client)
+
+    expected = "Jan Adam Kowalski, Jan Marek Kowalski"
+    assert metadata["authors"] == expected
+    assert source == cascade.provider == "bn" and cascade.found
+    assert route.call_count == 1
+    for provider in fallbacks:
+        provider.assert_not_awaited()
+    item_id = items_common._save_item(metadata, ISBN, "book", None, source, hc_ids)
+    stored = db.execute("SELECT authors, source, language FROM items_live WHERE id = ?", (item_id,)).fetchone()
+    assert tuple(stored) == (expected, "bn", "pl")
+
+
 @pytest.mark.parametrize("answer", ["empty", "related", "malformed", "429", "transport"])
 @respx.mock
 async def test_every_bn_failure_leaves_openlibrary_fallback_intact(answer, fallbacks):

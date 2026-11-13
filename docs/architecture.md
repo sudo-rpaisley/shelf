@@ -645,8 +645,9 @@ silently return unrelated records. The broad `isbnIssn` index includes
 cancelled/original-reference ISBNs and other identifier fields, so the adapter
 accepts only a checksum-valid exact MARC **020 $a** (including equivalent
 ISBN-10), never 020 $z or the flattened index. Metadata reads 245 $a/$b/$n/$p,
-author-filtered 100/700, publication 264 with second indicator 1 (else 260),
-page-labelled 300, and language 041 $a (else 008 positions 35–37), all through
+author-filtered 100/700 (only exact normalized repeats dropped, preserving
+distinct coauthors and provider order), publication 264 with second indicator 1
+(else 260), page-labelled 300, and language 041 $a (else 008 positions 35–37), all through
 the shared normalization helpers. It never guesses language from the ISBN,
 the original's 041 $h, or Polish display-language names. Series and covers
 are not read.
@@ -664,8 +665,11 @@ distinguished, and the first usable exact hit among five candidates wins.
 No numeric quota was found in the API documentation or response headers;
 the adapter delegates to the shared host limiter and requires a conservative
 one-second entry for `data.bn.org.pl` in `config.py`. BN makes no retries,
-redirects or pagination requests, limits decoded bodies to 512 KiB, and applies
-a five-second whole-request deadline. Invalid ISBNs cost no request; 429 and
+redirects or pagination requests, requests `Accept-Encoding: identity`, rejects
+any nonidentity `Content-Encoding` before reading, limits raw bodies to 512 KiB,
+and applies a five-second whole-request deadline. Raw streaming avoids HTTPX
+expanding compressed content before the size check. Invalid ISBNs cost no
+request; 429 and
 transport failures retain their usual provider outcomes, while misses,
 malformed/oversized bodies and other HTTP statuses fall through to Open
 Library → optional Hardcover → Google Books unchanged.

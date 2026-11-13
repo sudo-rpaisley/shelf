@@ -10,8 +10,10 @@ metadata comes from the record's MARC JSON, not those display strings.
 One request, routed through the shared host limiter, searches both ISBN forms
 with the documented boolean OR.
 No pagination, redirects or retries: five candidates, a five-second request
-deadline and a 512 KiB decoded-body ceiling bound the scan-path work. A miss,
-unreadable answer, rate limit or outage leaves the normal cascade intact.
+deadline and a 512 KiB raw-body ceiling bound the scan-path work. Only identity
+encoding is requested/accepted; compressed responses are rejected before
+reading, not expanded by HTTPX ahead of the size check. A miss, unreadable
+answer, rate limit or outage leaves the normal cascade intact.
 """
 
 from __future__ import annotations
@@ -153,10 +155,14 @@ def _parse_record(bib: dict) -> dict | None:
     for tag in ("100", "700"):
         for field in _fields(bib, tag):
             name = bib_normalize.invert_name(_clean(_first(field, "a")))
-            if name and _is_author(field) and not any(authors.matches(name, seen) for seen in names):
+            if name and _is_author(field):
                 names.append(name)
-    if names:
-        result["authors"] = ", ".join(names)
+    # Names are already NFC/whitespace-normalized above. Only exact repeats
+    # may collapse: fuzzy lookup matching would lose distinct coauthors such
+    # as Jan Adam Kowalski and Jan Marek Kowalski (or an abbreviated credit).
+    author_names = authors.join_names(names)
+    if author_names:
+        result["authors"] = author_names
 
     publication = [field for field in _fields(bib, "264") if field.get("ind2") == "1"]
     publication = publication or _fields(bib, "260")
@@ -184,7 +190,8 @@ async def lookup(isbn13: str, client: httpx.AsyncClient) -> provider_result.Prov
 
     Invalid input costs no request. HTTP 429 is ``rate_limited``; timeouts and
     HTTP transport errors are ``transport_failed``. Other statuses, oversized
-    or malformed bodies, deleted records and non-exact hits are ``no_match``.
+    or malformed/nonidentity-encoded bodies, deleted records and non-exact
+    hits are ``no_match``.
     Cancellation propagates; network and record parsing failures do not.
     """
     pair = _input_pair(isbn13)
@@ -201,6 +208,7 @@ async def lookup(isbn13: str, client: httpx.AsyncClient) -> provider_result.Prov
                 headers={
                     "User-Agent": "Shelf/1.0 (home library catalog; https://github.com/dgahagan/shelf)",
                     "Accept": "application/json",
+                    "Accept-Encoding": "identity",
                 },
                 timeout=TIMEOUT,
                 follow_redirects=False,
@@ -208,11 +216,22 @@ async def lookup(isbn13: str, client: httpx.AsyncClient) -> provider_result.Prov
                 classified = provider_result.classify_response("bn", resp)
                 if classified is not None:
                     return classified
-                body = bytearray()
-                async for chunk in resp.aiter_bytes(chunk_size=65536):
-                    if len(body) + len(chunk) > MAX_RESPONSE_BYTES:
+                if resp.headers.get("Content-Encoding", "identity").strip().lower() != "identity":
+                    return provider_result.no_match("bn", status=200)
+                if resp.is_stream_consumed:
+                    # MockTransport may supply an already-loaded Response.
+                    # Bound its public cached content without reading again.
+                    body = resp.content
+                    if len(body) > MAX_RESPONSE_BYTES:
                         return provider_result.no_match("bn", status=200)
-                    body.extend(chunk)
+                else:
+                    body = bytearray()
+                    # aiter_bytes decodes before yielding chunks, so a chunk
+                    # limit there cannot bound decompression allocations.
+                    async for chunk in resp.aiter_raw():
+                        if len(body) + len(chunk) > MAX_RESPONSE_BYTES:
+                            return provider_result.no_match("bn", status=200)
+                        body.extend(chunk)
     except (httpx.HTTPError, TimeoutError) as exc:
         logger.debug("BN lookup failed for ISBN %s: %s", isbn13, type(exc).__name__)
         return provider_result.transport_failed("bn")
