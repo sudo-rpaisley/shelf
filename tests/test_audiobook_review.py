@@ -199,13 +199,15 @@ def _all_rows(db):
     return {table: sorted([tuple(row) for row in db.execute(f'SELECT * FROM "{table}"')], key=repr) for table in tables}
 
 
-@pytest.mark.parametrize("revocation", ["demotion", "deleted_user", "session_version", "identity", "feature"])
-def test_permission_revocation_during_download_refuses_all_writes_and_cleans_staging(editor_client, editor_user, db, monkeypatch, revocation):
+@pytest.mark.parametrize("available", [True, False])
+@pytest.mark.parametrize("revocation", ["demotion", "deleted_user", "session_version", "identity", "feature", "session_expiry"])
+def test_permission_revocation_during_download_refuses_all_writes_and_cleans_staging(editor_client, editor_user, db, monkeypatch, revocation, available):
     from app import features
     from app.database import get_db
     item_id = seed(db)
     (config.COVERS_DIR / "chosen.jpg").write_bytes(PNG)
     signed = ticket(db, editor_user, item_id)
+    expires = auth.decode_token(editor_client.cookies.get("access_token"))["exp"]
     after_revocation = {}
 
     async def download(identifier, url):
@@ -219,6 +221,8 @@ def test_permission_revocation_during_download_refuses_all_writes_and_cleans_sta
                 other.execute("UPDATE users SET token_version = token_version + 1 WHERE id = ?", (editor_user["id"],))
             elif revocation == "identity":
                 other.execute("UPDATE users SET username = 'Replacement identity' WHERE id = ?", (editor_user["id"],))
+            elif revocation == "session_expiry":
+                monkeypatch.setattr(review, "_now", lambda: expires + 1)
             else:
                 other.execute("INSERT INTO settings (key, value) VALUES ('feature.connected_library', '0') "
                               "ON CONFLICT(key) DO UPDATE SET value = '0'")
@@ -226,14 +230,140 @@ def test_permission_revocation_during_download_refuses_all_writes_and_cleans_sta
             assert features.feature_enabled("connected_library"), "Exercise the stale route/cache authorization"
         with get_db() as other:
             after_revocation.update(_all_rows(other))
-        (config.COVERS_DIR / f"{item_id}-staged.jpg").write_bytes(PNG)
-        return f"covers/{item_id}-staged.jpg"
+        if available:
+            (config.COVERS_DIR / f"{item_id}-staged.jpg").write_bytes(PNG)
+            return f"covers/{item_id}-staged.jpg"
+        return None
 
     monkeypatch.setattr(audible_catalog, "download_artwork", download)
     response = apply(editor_client, item_id, signed, fields=["title", "narrator", "duration_mins"], image="0")
     assert response.status_code in (401, 403)
     assert _all_rows(db) == after_revocation
     assert {path.name: path.read_bytes() for path in config.COVERS_DIR.iterdir()} == {"chosen.jpg": PNG}
+
+
+@pytest.mark.parametrize("endpoint", ["preview", "image"])
+@pytest.mark.parametrize("available", [True, False])
+@pytest.mark.parametrize("change,status", [("demotion", 403), ("deleted_user", 401), ("session_version", 401),
+    ("identity", 401), ("feature", 403), ("session_expiry", 401), ("trash", 404), ("item_edit", 404)])
+def test_preview_reads_revalidate_after_http_without_disclosing_data(editor_client, editor_user, db, monkeypatch, endpoint, available, change, status):
+    from unittest.mock import Mock
+    from app import features
+    from app.database import get_db
+    from app.routers import audiobook_metadata as routes
+
+    item_id = seed(db)
+    (config.COVERS_DIR / "chosen.jpg").write_bytes(PNG)
+    signed = ticket(db, editor_user, item_id, image=True)
+    expires = auth.decode_token(editor_client.cookies.get("access_token"))["exp"]
+    after_change = {}
+
+    def revoke_or_edit():
+        with get_db() as other:
+            if change == "demotion":
+                other.execute("UPDATE users SET role = 'viewer' WHERE id = ?", (editor_user["id"],))
+            elif change == "deleted_user":
+                other.execute("DELETE FROM users WHERE id = ?", (editor_user["id"],))
+            elif change == "session_version":
+                other.execute("UPDATE users SET token_version = token_version + 1 WHERE id = ?", (editor_user["id"],))
+            elif change == "identity":
+                other.execute("UPDATE users SET username = 'Replacement identity' WHERE id = ?", (editor_user["id"],))
+            elif change == "feature":
+                other.execute("INSERT INTO settings (key, value) VALUES ('feature.connected_library', '0') "
+                              "ON CONFLICT(key) DO UPDATE SET value = '0'")
+            elif change == "session_expiry":
+                monkeypatch.setattr(review, "_now", lambda: expires + 1, raising=False)
+            elif change == "trash":
+                item_write.trash_item(other, item_id)
+            else:
+                item_write.update_item_fields(other, item_id, {"narrator": "Concurrent narrator"})
+        if change == "feature":
+            assert features.feature_enabled("connected_library"), "The post-HTTP check must bypass the cached feature flag"
+        with get_db() as other:
+            after_change.update(_all_rows(other))
+
+    async def lookup(*args):
+        revoke_or_edit()
+        return provider_result.found("audible", candidate()) if available else provider_result.no_match("audible")
+
+    async def download(identifier, url):
+        assert identifier == 0 and url == IMAGE
+        revoke_or_edit()
+        if available:
+            (config.COVERS_DIR / "0-read-staged.jpg").write_bytes(PNG)
+            return "covers/0-read-staged.jpg"
+        return None
+
+    render = Mock(wraps=routes._render)
+    monkeypatch.setattr(routes, "_render", render)
+    monkeypatch.setattr(audible_catalog, "lookup", lookup)
+    monkeypatch.setattr(audible_catalog, "download_artwork", download)
+    if endpoint == "preview":
+        response = editor_client.post(f"/api/audiobooks/{item_id}/metadata/preview", data={"marketplace": "us"})
+    else:
+        response = editor_client.get(f"/api/audiobooks/{item_id}/metadata/image", params={"ticket": signed})
+    assert response.status_code == status
+    assert response.content != PNG and "image/" not in response.headers.get("content-type", "")
+    assert inputs(response, "ticket") == [] and "My edition" not in response.text and "<form" not in response.text
+    render.assert_not_called()
+    assert _all_rows(db) == after_change
+    assert {path.name: path.read_bytes() for path in config.COVERS_DIR.iterdir()} == {"chosen.jpg": PNG}
+
+
+@pytest.mark.parametrize("endpoint", ["preview", "image"])
+def test_preview_read_authority_fingerprint_and_output_share_one_write_lock(editor_client, editor_user, db, monkeypatch, endpoint):
+    from app.database import get_db
+    from app.routers import audiobook_metadata as routes
+
+    item_id = seed(db)
+    signed = ticket(db, editor_user, item_id, image=True)
+    before = _all_rows(db)
+    completed, locked_connection, outputs = [], [], []
+    original_guard, original_sign, original_response = review.authorize_read, review.sign, routes.Response
+
+    async def lookup(*args):
+        completed.append(True)
+        return provider_result.found("audible", candidate())
+
+    async def download(*args):
+        completed.append(True)
+        (config.COVERS_DIR / "0-locked-stage.jpg").write_bytes(PNG)
+        return "covers/0-locked-stage.jpg"
+
+    def guard(conn, identifier, actor, previous):
+        assert completed == [True] and conn.in_transaction
+        with get_db() as rival:
+            rival.execute("PRAGMA busy_timeout = 1")
+            with pytest.raises(sqlite3.OperationalError, match="locked"):
+                rival.execute("BEGIN IMMEDIATE")
+        result = original_guard(conn, identifier, actor, previous)
+        locked_connection.append(conn)
+        return result
+
+    def sign(*args, **kwargs):
+        assert locked_connection[-1].in_transaction
+        outputs.append("ticket")
+        return original_sign(*args, **kwargs)
+
+    def response(*args, **kwargs):
+        if kwargs.get("media_type", "").startswith("image/"):
+            assert locked_connection[-1].in_transaction
+            outputs.append("image")
+        return original_response(*args, **kwargs)
+
+    monkeypatch.setattr(audible_catalog, "lookup", lookup)
+    monkeypatch.setattr(audible_catalog, "download_artwork", download)
+    monkeypatch.setattr(review, "authorize_read", guard)
+    monkeypatch.setattr(review, "sign", sign)
+    monkeypatch.setattr(routes, "Response", response)
+    if endpoint == "preview":
+        result = editor_client.post(f"/api/audiobooks/{item_id}/metadata/preview", data={"marketplace": "us"})
+        assert outputs == ["ticket", "ticket"] and inputs(result, "ticket")
+    else:
+        result = editor_client.get(f"/api/audiobooks/{item_id}/metadata/image", params={"ticket": signed})
+        assert outputs == ["image"] and result.content == PNG
+    assert result.status_code == 200 and len(locked_connection) == 1
+    assert _all_rows(db) == before and list(config.COVERS_DIR.iterdir()) == []
 
 
 def test_applied_audible_observations_are_visible_read_only_in_real_metadata_sources(editor_client, editor_user, db):
@@ -369,7 +499,8 @@ def test_concurrent_edit_during_lookup_does_not_issue_new_baseline(editor_client
         return provider_result.found("audible", candidate())
     monkeypatch.setattr(audible_catalog, "lookup", lookup)
     response = editor_client.post(f"/api/audiobooks/{item_id}/metadata/preview", data={"marketplace": "us"})
-    assert "changed during lookup" in response.text and inputs(response, "ticket") == []
+    assert response.status_code == 404 and "changed during lookup" in response.text and inputs(response, "ticket") == []
+    assert "<form" not in response.text
     assert stored(db, item_id)["narrator"] == "Concurrent narrator"
 
 

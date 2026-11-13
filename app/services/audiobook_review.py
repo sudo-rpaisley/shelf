@@ -11,6 +11,7 @@ import hmac
 import json
 import math
 import re
+import time
 from pathlib import Path
 
 from app import auth, config, features, i18n
@@ -36,6 +37,7 @@ FIELD_LABELS = {"title": i18n.N_("Title"), "subtitle": i18n.N_("Subtitle"), "aut
                 "publish_year": i18n.N_("Publication year"), "language": i18n.N_("Language"),
                 "series_name": i18n.N_("Series"), "series_position": i18n.N_("Series position")}
 MAX_BASELINES = 256
+_now = time.time
 
 
 def form_limit(path):
@@ -147,13 +149,15 @@ def authorize_apply(db, actor):
 
     Route dependencies and request.state.user are pre-HTTP snapshots. Do not
     use get_current_user (another connection), a cached feature flag, or a
-    signed preview as authority to install a catalogue change. Future item/
+    signed preview as authority to install or disclose a catalogue review. The
+    actor includes the verified entry session's expiry. Future item/
     household capability checks must join this guard under the same lock.
     """
     if not db.in_transaction:
         raise RuntimeError("Audiobook apply authorization requires the write lock")
     current = db.execute("SELECT username, role, token_version FROM users WHERE id = ?", (actor["id"],)).fetchone()
     if (current is None or current["token_version"] != actor.get("token_version")
+            or type(actor.get("expires_at")) is not int or actor["expires_at"] <= _now()
             or not isinstance(actor.get("username"), str)
             or current["username"].casefold() != actor["username"].casefold()):
         raise PermissionChanged(i18n.gettext("Your session changed while this review was open. Nothing was saved; sign in and review again."), 401)
@@ -162,6 +166,17 @@ def authorize_apply(db, actor):
     flag = db.execute("SELECT value FROM settings WHERE key = ?", (features.setting_key("connected_library"),)).fetchone()
     if flag is not None and flag["value"] == "0":
         raise PermissionChanged(i18n.gettext("Connected library was turned off while this review was open. Nothing was saved."), 403)
+
+
+def authorize_read(db, item_id, actor, previous):
+    """One post-HTTP authority + item snapshot under the caller's write lock."""
+    authorize_apply(db, actor)
+    try:
+        return check_current(db, item_id, previous)
+    except (ReviewError, ValueError):
+        # No error template may reveal an edited/trashed item or carry a stale
+        # signed candidate. The caller returns a plain, non-disclosing refusal.
+        raise PermissionChanged(i18n.gettext("This audiobook changed during lookup. Preview it again."), 404) from None
 
 
 def backfill_fields(db, item_id, candidate):
