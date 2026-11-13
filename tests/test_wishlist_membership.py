@@ -199,10 +199,11 @@ class TestMusicAddWishlistMode:
         assert resp.status_code in (200, 303)
 
         row = db.execute(
-            "SELECT owned FROM items WHERE title = ?", (_MUSIC_RELEASE["title"],)
+            "SELECT id, owned FROM items WHERE title = ?", (_MUSIC_RELEASE["title"],)
         ).fetchone()
         assert row is not None
         assert row["owned"] == 0
+        assert lists.is_member(db, lists.WISHLIST, row["id"])
         _assert_ownership_partition(db)
         artwork.assert_awaited_once()
         assert artwork.await_args.args[0]["musicbrainz_release_id"] == _MUSIC_RELEASE["musicbrainz_release_id"]
