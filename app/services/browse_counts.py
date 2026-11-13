@@ -26,6 +26,7 @@ SOURCE_LABELS = {
     "oszk": "OSZK NEKTÁR",
     "porbase": "PORBASE",
     "bnf": "BnF",
+    "bn": "BN Poland",
     "neodb": "NeoDB",
     "google": "Google Books",
     "audible_import": N_("Audible import"),

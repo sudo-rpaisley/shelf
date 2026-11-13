@@ -60,7 +60,8 @@ msgid "Publisher"
 msgstr "Editore"
 
 #: app/browse_columns.py:70 app/templates/fragments/manual_add_form.html:99
-#: app/templates/item_edit.html:119
+#: app/templates/item_edit.html:119 app/templates/reading_life.html:17
+#: app/templates/reading_life.html:56
 msgid "Year"
 msgstr "Anno"
 
@@ -174,7 +175,7 @@ msgstr "Da leggere"
 msgid "Reading"
 msgstr "In lettura"
 
-#: app/config.py:56
+#: app/config.py:56 app/services/reading_life.py:26
 msgid "Read"
 msgstr "Letto"
 
@@ -207,10 +208,12 @@ msgid "Want to"
 msgstr "Da iniziare"
 
 #: app/config.py:60 app/services/personal_library.py:18
+#: app/services/reading_life.py:30
 msgid "In progress"
 msgstr "In corso"
 
 #: app/config.py:60 app/services/personal_library.py:19
+#: app/services/reading_life.py:31
 msgid "Finished"
 msgstr "Finito"
 
@@ -236,9 +239,9 @@ msgstr ""
 msgid "Artist"
 msgstr "Artista"
 
-#: app/nav.py:34 app/nav.py:51 app/nav.py:53 app/nav.py:55 app/nav.py:57
-#: app/nav.py:59 app/nav.py:61 app/nav.py:231 app/templates/library.html:2
-#: app/templates/library.html:7
+#: app/nav.py:34 app/nav.py:53 app/nav.py:55 app/nav.py:57 app/nav.py:59
+#: app/nav.py:61 app/nav.py:63 app/nav.py:65 app/nav.py:235
+#: app/templates/library.html:2 app/templates/library.html:7
 msgid "Library"
 msgstr "Biblioteca"
 
@@ -282,76 +285,86 @@ msgstr "Statistiche"
 msgid "My Activity"
 msgstr ""
 
-#: app/nav.py:49
+#: app/nav.py:49 app/nav.py:51
 msgid "Personal"
 msgstr ""
 
-#: app/nav.py:50 app/templates/fragments/unsupported_title_search.html:6
+#: app/nav.py:50 app/templates/fragments/reading_life_activity.html:4
+#: app/templates/reading_life.html:3 app/templates/reading_life.html:7
+#: app/templates/reading_life_item.html:4
+msgid "Reading life"
+msgstr ""
+
+#: app/nav.py:52 app/templates/fragments/unsupported_title_search.html:6
 #: app/templates/home.html:93 app/templates/library.html:12
 msgid "Sources"
 msgstr ""
 
-#: app/nav.py:52 app/templates/home.html:98 app/templates/library.html:14
+#: app/nav.py:54
+msgid "Source repair"
+msgstr ""
+
+#: app/nav.py:56 app/templates/home.html:98 app/templates/library.html:14
 msgid "Needs Attention"
 msgstr ""
 
-#: app/nav.py:54
+#: app/nav.py:58
 msgid "Trash"
 msgstr "Cestino"
 
-#: app/nav.py:56
+#: app/nav.py:60
 msgid "Labels"
 msgstr "Etichette"
 
-#: app/nav.py:58
+#: app/nav.py:62
 msgid "Audits"
 msgstr "Inventari"
 
-#: app/nav.py:60
+#: app/nav.py:64
 msgid "Duplicates"
 msgstr "Duplicati"
 
-#: app/nav.py:62
+#: app/nav.py:66
 msgid "Settings"
 msgstr "Impostazioni"
 
-#: app/nav.py:63 app/nav.py:65
+#: app/nav.py:67 app/nav.py:69
 msgid "Administration"
 msgstr "Amministrazione"
 
-#: app/nav.py:64
+#: app/nav.py:68
 msgid "Logs"
 msgstr "Log"
 
-#: app/nav.py:231
+#: app/nav.py:235
 msgid "Add / Scan"
 msgstr ""
 
-#: app/nav.py:232
+#: app/nav.py:236
 msgid "Explore"
 msgstr ""
 
-#: app/nav.py:246
+#: app/nav.py:250
 msgid "Back to series"
 msgstr "Torna alle serie"
 
-#: app/nav.py:247
+#: app/nav.py:251
 msgid "Back to stats"
 msgstr "Torna alle statistiche"
 
-#: app/nav.py:248
+#: app/nav.py:252
 msgid "Back to library"
 msgstr ""
 
-#: app/nav.py:249
+#: app/nav.py:253
 msgid "Back to my activity"
 msgstr ""
 
-#: app/nav.py:250
+#: app/nav.py:254
 msgid "Back to maintenance"
 msgstr ""
 
-#: app/nav.py:252
+#: app/nav.py:256
 msgid "Back to collection"
 msgstr "Torna alla collezione"
 
@@ -611,6 +624,18 @@ msgstr ""
 msgid "Submit personal changes using the form"
 msgstr ""
 
+#: app/routers/reading_life.py:29
+msgid "Reading life record not found"
+msgstr ""
+
+#: app/routers/reading_life.py:55
+msgid "Submit reading life changes using the form"
+msgstr ""
+
+#: app/routers/reading_life.py:62
+msgid "Reading life form too large"
+msgstr ""
+
 #: app/routers/related_media.py:105
 msgid "An item cannot be related to itself"
 msgstr "Un elemento non può essere collegato a se stesso"
@@ -741,19 +766,19 @@ msgstr "Tag rimosso (%(tags)s). Elementi: %(count)s"
 msgid "Manual"
 msgstr "Manuale"
 
-#: app/services/browse_counts.py:31
+#: app/services/browse_counts.py:32
 msgid "Audible import"
 msgstr ""
 
-#: app/services/browse_counts.py:32
+#: app/services/browse_counts.py:33
 msgid "Photo Intake"
 msgstr "Acquisizione da foto"
 
-#: app/services/browse_counts.py:33
+#: app/services/browse_counts.py:34
 msgid "Store Queue"
 msgstr "Coda negozio"
 
-#: app/services/browse_counts.py:34
+#: app/services/browse_counts.py:35
 msgid "CSV Import"
 msgstr "Importazione CSV"
 
@@ -1005,67 +1030,67 @@ msgstr ""
 msgid "This source value cannot be stored; edit the item directly instead"
 msgstr ""
 
-#: app/services/national.py:89
+#: app/services/national.py:90
 msgid "English"
 msgstr "Inglese"
 
-#: app/services/national.py:90
+#: app/services/national.py:91
 msgid "German"
 msgstr "Tedesco"
 
-#: app/services/national.py:91
+#: app/services/national.py:92
 msgid "French"
 msgstr "Francese"
 
-#: app/services/national.py:92
+#: app/services/national.py:93
 msgid "Spanish"
 msgstr "Spagnolo"
 
-#: app/services/national.py:93
+#: app/services/national.py:94
 msgid "Italian"
 msgstr "Italiano"
 
-#: app/services/national.py:94
+#: app/services/national.py:95
 msgid "Dutch"
 msgstr "Olandese"
 
-#: app/services/national.py:95
+#: app/services/national.py:96
 msgid "Portuguese"
 msgstr "Portoghese"
 
-#: app/services/national.py:96
+#: app/services/national.py:97
 msgid "Swedish"
 msgstr "Svedese"
 
-#: app/services/national.py:97
+#: app/services/national.py:98
 msgid "Danish"
 msgstr "Danese"
 
-#: app/services/national.py:98
+#: app/services/national.py:99
 msgid "Norwegian"
 msgstr "Norvegese"
 
-#: app/services/national.py:99
+#: app/services/national.py:100
 msgid "Polish"
 msgstr "Polacco"
 
-#: app/services/national.py:100
+#: app/services/national.py:101
 msgid "Czech"
 msgstr "Ceco"
 
-#: app/services/national.py:101
+#: app/services/national.py:102
 msgid "Japanese"
 msgstr "Giapponese"
 
-#: app/services/national.py:102
+#: app/services/national.py:103
 msgid "Russian"
 msgstr "Russo"
 
-#: app/services/national.py:103
+#: app/services/national.py:104
 msgid "Chinese"
 msgstr "Cinese"
 
-#: app/services/national.py:104
+#: app/services/national.py:105
 msgid "Korean"
 msgstr "Coreano"
 
@@ -1073,11 +1098,11 @@ msgstr "Coreano"
 msgid "Planned"
 msgstr ""
 
-#: app/services/personal_library.py:20
+#: app/services/personal_library.py:20 app/services/reading_life.py:30
 msgid "Paused"
 msgstr ""
 
-#: app/services/personal_library.py:21
+#: app/services/personal_library.py:21 app/services/reading_life.py:31
 msgid "Abandoned"
 msgstr ""
 
@@ -1120,6 +1145,94 @@ msgstr ""
 msgid "Personal notes cannot contain null characters"
 msgstr ""
 
+#: app/services/reading_life.py:26
+msgid "Listen"
+msgstr ""
+
+#: app/services/reading_life.py:27
+msgid "Watch"
+msgstr ""
+
+#: app/services/reading_life.py:27
+msgid "Play"
+msgstr ""
+
+#: app/services/reading_life.py:32
+msgid "Entered in error (not counted)"
+msgstr ""
+
+#: app/services/reading_life.py:35
+msgid "Completed sessions (repeats count)"
+msgstr ""
+
+#: app/services/reading_life.py:36
+msgid "Distinct catalogue items (repeats count once)"
+msgstr ""
+
+#: app/services/reading_life.py:52
+msgid "Submit each reading life field only once"
+msgstr ""
+
+#: app/services/reading_life.py:55
+msgid "Reading life fields must be text"
+msgstr ""
+
+#: app/services/reading_life.py:61
+msgid "Choose a valid whole number"
+msgstr ""
+
+#: app/services/reading_life.py:67 app/services/reading_life.py:71
+msgid "Use a valid calendar date in YYYY-MM-DD format"
+msgstr ""
+
+#: app/services/reading_life.py:73
+msgid "Session and journal dates cannot be in the future"
+msgstr ""
+
+#: app/services/reading_life.py:80
+msgid "Reload this page before submitting a new entry"
+msgstr ""
+
+#: app/services/reading_life.py:87
+msgid "Choose a valid session activity and status"
+msgstr ""
+
+#: app/services/reading_life.py:93
+msgid "Finished and abandoned sessions need an end date"
+msgstr ""
+
+#: app/services/reading_life.py:95
+msgid "Only finished or abandoned sessions have an end date"
+msgstr ""
+
+#: app/services/reading_life.py:97
+msgid "The end date cannot be before the start date"
+msgstr ""
+
+#: app/services/reading_life.py:108
+msgid "Write a journal entry of 1 to 10000 characters, without null characters"
+msgstr ""
+
+#: app/services/reading_life.py:126
+msgid "Choose a valid goal activity and counting rule"
+msgstr ""
+
+#: app/services/reading_life.py:195
+msgid "The saved revision history cannot be read. No changes were made."
+msgstr ""
+
+#: app/services/reading_life.py:222
+msgid "This record changed after you opened the form. Reload the latest version before saving."
+msgstr ""
+
+#: app/services/reading_life.py:236 app/services/reading_life.py:278
+msgid "This form was already used. Reload before creating another entry."
+msgstr ""
+
+#: app/services/reading_life.py:369
+msgid "This goal already exists. Edit its target instead."
+msgstr ""
+
 #: app/services/source_connectors/__init__.py:26
 msgid "OPDS catalogue"
 msgstr ""
@@ -1134,6 +1247,7 @@ msgstr ""
 
 #: app/templates/activity.html:3 app/templates/activity.html:41
 #: app/templates/fragments/personal_library.html:21
+#: app/templates/reading_life.html:10
 msgid "My activity"
 msgstr ""
 
@@ -1152,67 +1266,67 @@ msgstr ""
 msgid "Find something in Library"
 msgstr ""
 
-#: app/templates/activity.html:47
+#: app/templates/activity.html:49
 #: app/templates/fragments/home_personal_library.html:7
 msgid "Continue"
 msgstr ""
 
-#: app/templates/activity.html:47
+#: app/templates/activity.html:49
 msgid "Items you have marked in progress."
 msgstr ""
 
-#: app/templates/activity.html:47
+#: app/templates/activity.html:49
 msgid "Nothing in progress. Open an item and set your personal status to get started."
 msgstr ""
 
-#: app/templates/activity.html:48
+#: app/templates/activity.html:50
 #: app/templates/fragments/personal_library.html:30
 #: app/templates/fragments/personal_library.html:70
 msgid "My List / Up Next"
 msgstr ""
 
-#: app/templates/activity.html:48
+#: app/templates/activity.html:50
 msgid "Items you explicitly added to My List or marked Planned. This is not the shared wishlist."
 msgstr ""
 
-#: app/templates/activity.html:48
+#: app/templates/activity.html:50
 msgid "Your list is empty. Add an item from its personal activity panel."
 msgstr ""
 
-#: app/templates/activity.html:49
+#: app/templates/activity.html:51
 msgid "Favourites"
 msgstr ""
 
-#: app/templates/activity.html:49
+#: app/templates/activity.html:51
 msgid "Your personal favourites across all media."
 msgstr ""
 
-#: app/templates/activity.html:49
+#: app/templates/activity.html:51
 msgid "No favourites yet."
 msgstr ""
 
-#: app/templates/activity.html:52
+#: app/templates/activity.html:54
 #: app/templates/fragments/personal_library.html:99
 msgid "My recent history"
 msgstr ""
 
-#: app/templates/activity.html:61
+#: app/templates/activity.html:63
 #: app/templates/fragments/personal_library.html:104
 msgid "Reset — previous state"
 msgstr ""
 
-#: app/templates/activity.html:61
+#: app/templates/activity.html:63
 #: app/templates/fragments/personal_library.html:104
 msgid "Duplicate merged"
 msgstr ""
 
-#: app/templates/activity.html:61
+#: app/templates/activity.html:63
 #: app/templates/fragments/personal_library.html:104
 #: app/templates/source_detail.html:18
 msgid "Updated"
 msgstr ""
 
-#: app/templates/activity.html:67
+#: app/templates/activity.html:69
 #: app/templates/fragments/personal_library.html:110
 msgid "No personal activity yet."
 msgstr ""
@@ -1660,99 +1774,99 @@ msgstr "Anche in Audiobookshelf (%(type)s)"
 msgid "Shared catalogue status"
 msgstr ""
 
-#: app/templates/item_detail.html:248
+#: app/templates/item_detail.html:249
 msgid "Lending"
 msgstr "Prestiti"
 
-#: app/templates/item_detail.html:251
+#: app/templates/item_detail.html:252
 msgid "Lent to"
 msgstr "In prestito a"
 
-#: app/templates/item_detail.html:252
+#: app/templates/item_detail.html:253
 #, python-format
 msgid "on %(date)s"
 msgstr "dal %(date)s"
 
-#: app/templates/item_detail.html:254
+#: app/templates/item_detail.html:255
 msgid "Due:"
 msgstr "Scadenza:"
 
-#: app/templates/item_detail.html:260
+#: app/templates/item_detail.html:261
 msgid "Check In"
 msgstr "Registra restituzione"
 
-#: app/templates/item_detail.html:268
+#: app/templates/item_detail.html:269
 msgid "Lend this item"
 msgstr "Presta questo elemento"
 
-#: app/templates/item_detail.html:279
+#: app/templates/item_detail.html:280
 msgid "2 weeks"
 msgstr "2 settimane"
 
-#: app/templates/item_detail.html:280
+#: app/templates/item_detail.html:281
 msgid "1 week"
 msgstr "1 settimana"
 
-#: app/templates/item_detail.html:281
+#: app/templates/item_detail.html:282
 msgid "1 month"
 msgstr "1 mese"
 
-#: app/templates/item_detail.html:282
+#: app/templates/item_detail.html:283
 msgid "No due date"
 msgstr "Nessuna scadenza"
 
-#: app/templates/item_detail.html:284
+#: app/templates/item_detail.html:285
 msgid "Check Out"
 msgstr "Presta"
 
-#: app/templates/item_detail.html:287
+#: app/templates/item_detail.html:288
 msgid "Add borrowers in <a href=\"/settings\" class=\"text-shelf-accent2\">Settings</a> first."
 msgstr "Prima aggiungi chi prende in prestito in <a href=\"/settings\" class=\"text-shelf-accent2\">Impostazioni</a>."
 
-#: app/templates/item_detail.html:294
+#: app/templates/item_detail.html:295
 msgid "Checkout history"
 msgstr "Storico prestiti"
 
-#: app/templates/item_detail.html:301
+#: app/templates/item_detail.html:302
 #, python-format
 msgid "returned %(date)s"
 msgstr "restituito il %(date)s"
 
-#: app/templates/item_detail.html:303
+#: app/templates/item_detail.html:304
 msgid "out"
 msgstr "in prestito"
 
 #: app/templates/fragments/item_copies.html:87
 #: app/templates/fragments/item_copies.html:90
 #: app/templates/fragments/item_copies.html:95
-#: app/templates/item_detail.html:317
+#: app/templates/item_detail.html:318
 msgid "Edit"
 msgstr "Modifica"
 
-#: app/templates/item_detail.html:320
+#: app/templates/item_detail.html:321
 msgid "Add another like this"
 msgstr "Aggiungine un altro simile"
 
-#: app/templates/item_detail.html:326 app/templates/library.html:131
+#: app/templates/item_detail.html:327 app/templates/library.html:131
 msgid "Delete"
 msgstr "Elimina"
 
-#: app/templates/item_detail.html:332
+#: app/templates/item_detail.html:333
 #, python-format
 msgid "Added %(date)s"
 msgstr "Aggiunto il %(date)s"
 
-#: app/templates/item_detail.html:332
+#: app/templates/item_detail.html:333
 #, python-format
 msgid "Updated %(date)s"
 msgstr "Aggiornato il %(date)s"
 
-#: app/templates/item_detail.html:332
+#: app/templates/item_detail.html:333
 #, python-format
 msgid "via %(source)s"
 msgstr "tramite %(source)s"
 
-#: app/templates/item_detail.html:337
+#: app/templates/item_detail.html:338
 msgid "Integration IDs"
 msgstr "ID integrazioni"
 
@@ -1761,7 +1875,8 @@ msgstr "ID integrazioni"
 msgid "Edit %(title)s"
 msgstr "Modifica %(title)s"
 
-#: app/templates/item_edit.html:9
+#: app/templates/item_edit.html:9 app/templates/reading_life_item.html:10
+#: app/templates/reading_life_session.html:10
 msgid "Back to item"
 msgstr "Torna all'elemento"
 
@@ -1865,6 +1980,8 @@ msgstr "Sconosciuto"
 
 #: app/templates/item_edit.html:142 app/templates/item_edit.html:179
 #: app/templates/item_edit.html:310 app/templates/item_edit.html:359
+#: app/templates/source_migration_review.html:21
+#: app/templates/source_migration_review.html:22
 msgid "None"
 msgstr "Nessuno"
 
@@ -2343,6 +2460,227 @@ msgstr ""
 msgid "Showing the first %(shown)s of %(total)s. Work through these or increase the row limit (maximum 100)."
 msgstr ""
 
+#: app/templates/reading_life.html:8
+msgid "Your repeat reads, listens, watches and plays, journal and annual goals. Private to your account."
+msgstr ""
+
+#: app/templates/reading_life.html:9
+msgid "Sessions are separate cycles. They never replace your manual personal status, notes or history, the shared reading log, or external-service progress."
+msgstr ""
+
+#: app/templates/reading_life.html:10
+msgid "Find an item to start a session"
+msgstr ""
+
+#: app/templates/reading_life.html:12 app/templates/reading_life_item.html:12
+#: app/templates/reading_life_journal.html:12
+#: app/templates/reading_life_session.html:12
+msgid "Reload latest values (discards this unsaved form)"
+msgstr ""
+
+#: app/templates/reading_life.html:15
+msgid "Annual goals"
+msgstr ""
+
+#: app/templates/reading_life.html:18
+msgid "Show year"
+msgstr ""
+
+#: app/templates/reading_life.html:21
+msgid "Exactly what counts?"
+msgstr ""
+
+#: app/templates/reading_life.html:23
+msgid "Only your Finished sessions with an end date in the selected calendar year count, regardless of the start year. Paused, abandoned, in-progress and entered-in-error sessions do not count."
+msgstr ""
+
+#: app/templates/reading_life.html:24
+msgid "Completed sessions counts every repeat. Distinct catalogue items counts each item once in that year and activity, even across multiple sessions; different editions remain separate items, not a single work or format stack."
+msgstr ""
+
+#: app/templates/reading_life.html:25
+msgid "All activities counts an item once overall for a distinct-item goal. Goals for individual activities are independent and may overlap."
+msgstr ""
+
+#: app/templates/reading_life.html:26
+msgid "Trashed items are hidden and excluded until restored. Merging preserves sessions and journal entries but may reduce distinct-item totals. Corrections recalculate totals; shared status, old personal history and provider progress are never inferred as completions."
+msgstr ""
+
+#: app/templates/reading_life.html:34 app/templates/reading_life.html:57
+msgid "All activities"
+msgstr ""
+
+#: app/templates/reading_life.html:35
+#, python-format
+msgid "%(completed)s / %(target)s completed"
+msgstr ""
+
+#: app/templates/reading_life.html:36
+msgid "Goal progress"
+msgstr ""
+
+#: app/templates/reading_life.html:40 app/templates/reading_life.html:59
+msgid "Target"
+msgstr ""
+
+#: app/templates/reading_life.html:41
+msgid "Update target"
+msgstr ""
+
+#: app/templates/reading_life.html:45
+msgid "Remove goal (keeps sessions and journal)"
+msgstr ""
+
+#: app/templates/reading_life.html:51
+msgid "No goals for this year yet."
+msgstr ""
+
+#: app/templates/reading_life.html:52
+msgid "Add an annual goal"
+msgstr ""
+
+#: app/templates/fragments/reading_life_forms.html:8
+#: app/templates/reading_life.html:57
+msgid "Activity"
+msgstr ""
+
+#: app/templates/reading_life.html:58
+msgid "Counting rule"
+msgstr ""
+
+#: app/templates/reading_life.html:61
+msgid "Add goal"
+msgstr ""
+
+#: app/templates/reading_life.html:65
+msgid "All my sessions"
+msgstr ""
+
+#: app/templates/reading_life.html:66
+msgid "All years, newest start date first. Open a session to correct it, review its revisions or add a session-specific journal entry."
+msgstr ""
+
+#: app/templates/reading_life.html:71
+msgid "My journal"
+msgstr ""
+
+#: app/templates/reading_life.html:72
+msgid "All years, newest entry date first. Write from an item or session page; entries are never shared with other accounts."
+msgstr ""
+
+#: app/templates/reading_life_item.html:8
+msgid "My sessions and journal"
+msgstr ""
+
+#: app/templates/reading_life_item.html:9
+msgid "Private to your account. A new session preserves every earlier cycle and never changes your current manual personal state or the shared reading log."
+msgstr ""
+
+#: app/templates/reading_life_item.html:10
+#: app/templates/reading_life_journal.html:10
+msgid "All my sessions, journal and goals"
+msgstr ""
+
+#: app/templates/fragments/reading_life_forms.html:29
+#: app/templates/reading_life_item.html:14
+msgid "Start or log a new session"
+msgstr ""
+
+#: app/templates/reading_life_item.html:15
+msgid "For a re-read, re-listen, re-watch or replay, always create a new session. You can also log a past session with its actual dates."
+msgstr ""
+
+#: app/templates/reading_life_item.html:18
+msgid "My sessions for this item"
+msgstr ""
+
+#: app/templates/reading_life_item.html:23
+msgid "Add an item-level journal entry"
+msgstr ""
+
+#: app/templates/reading_life_item.html:24
+msgid "This entry is about the item, not a particular session. Open a session to write about that specific cycle instead."
+msgstr ""
+
+#: app/templates/reading_life_item.html:27
+msgid "My journal for this item"
+msgstr ""
+
+#: app/templates/reading_life_journal.html:4
+#: app/templates/reading_life_journal.html:8
+msgid "My journal entry"
+msgstr ""
+
+#: app/templates/reading_life_journal.html:9
+msgid "Private to your account. Editing preserves earlier entry dates and text in the revision history."
+msgstr ""
+
+#: app/templates/reading_life_journal.html:10
+msgid "Sessions and journal for this item"
+msgstr ""
+
+#: app/templates/fragments/reading_life_lists.html:34
+#: app/templates/reading_life_journal.html:10
+msgid "Linked session"
+msgstr ""
+
+#: app/templates/reading_life_journal.html:14
+msgid "Correct journal entry"
+msgstr ""
+
+#: app/templates/reading_life_journal.html:17
+msgid "Journal revision history"
+msgstr ""
+
+#: app/templates/reading_life_session.html:4
+#: app/templates/reading_life_session.html:8
+msgid "My session"
+msgstr ""
+
+#: app/templates/fragments/personal_library.html:79
+#: app/templates/fragments/reading_life_lists.html:18
+#: app/templates/fragments/reading_life_lists.html:52
+#: app/templates/fragments/reading_status.html:29
+#: app/templates/reading_life_session.html:9
+#, python-format
+msgid "Started: %(date)s"
+msgstr "Iniziato: %(date)s"
+
+#: app/templates/fragments/reading_life_lists.html:18
+#: app/templates/fragments/reading_life_lists.html:52
+#: app/templates/reading_life_session.html:9
+#, python-format
+msgid "Ended: %(date)s"
+msgstr ""
+
+#: app/templates/reading_life_session.html:10
+msgid "All sessions for this item / start another cycle"
+msgstr ""
+
+#: app/templates/reading_life_session.html:10
+msgid "My journal and goals"
+msgstr ""
+
+#: app/templates/reading_life_session.html:14
+msgid "Correct this session"
+msgstr ""
+
+#: app/templates/reading_life_session.html:15
+msgid "Editing or reopening corrects this cycle only; earlier versions stay in its history. For another cycle, start a new session. Mark an accidental session Entered in error to exclude it from goals without deleting its history."
+msgstr ""
+
+#: app/templates/reading_life_session.html:18
+msgid "Session revision history"
+msgstr ""
+
+#: app/templates/reading_life_session.html:23
+msgid "Write about this session"
+msgstr ""
+
+#: app/templates/reading_life_session.html:26
+msgid "Journal for this session"
+msgstr ""
+
 #: app/templates/scan.html:239
 msgid "Digital video and television can be added by hand or imported from Sources. Title lookup is not available for these formats."
 msgstr ""
@@ -2401,7 +2739,8 @@ msgid "This will be the admin account with full access to your library."
 msgstr "Sarà l'account amministratore, con accesso completo alla tua biblioteca."
 
 #: app/templates/source_detail.html:2 app/templates/source_detail.html:6
-#: app/templates/sources.html:2 app/templates/sources.html:6
+#: app/templates/source_migration.html:6 app/templates/sources.html:2
+#: app/templates/sources.html:6
 msgid "Connected libraries"
 msgstr ""
 
@@ -2595,6 +2934,318 @@ msgstr ""
 
 #: app/templates/source_detail.html:83
 msgid "No live records attached to this source."
+msgstr ""
+
+#: app/templates/source_migration.html:2 app/templates/source_migration.html:7
+#: app/templates/source_migration_review.html:6
+msgid "Source replacement and binding repair"
+msgstr ""
+
+#: app/templates/source_migration.html:8
+msgid "Configure and sync a new instance separately before replacing an old server. Editing a source URL keeps its old external-ID bindings; it does not migrate identities."
+msgstr ""
+
+#: app/templates/source_migration.html:9
+msgid "This workflow only changes saved machine bindings. It never merges or deletes catalogue entries, copies or activity, copies credentials, fetches a server, or changes local metadata or covers. Duplicate imported catalogue entries remain for separate review."
+msgstr ""
+
+#: app/templates/source_migration.html:13
+msgid "1. Compare saved source records"
+msgstr ""
+
+#: app/templates/source_migration.html:15
+msgid "Old instance"
+msgstr ""
+
+#: app/templates/source_migration.html:15
+#: app/templates/source_migration.html:16
+#: app/templates/source_migration.html:54
+#: app/templates/source_migration.html:66
+msgid "Choose a source"
+msgstr ""
+
+#: app/templates/source_migration.html:16
+msgid "Replacement instance"
+msgstr ""
+
+#: app/templates/source_migration.html:17
+msgid "Compare local snapshots"
+msgstr ""
+
+#: app/templates/source_migration.html:19
+msgid "Only unique, conflict-free remote ISBN or provider-identifier evidence suggests pairs. Titles and server-local external IDs are never automatic identity evidence. No suggestion is applied without review."
+msgstr ""
+
+#: app/templates/source_migration.html:24
+msgid "2. Review old/new record IDs and evidence"
+msgstr ""
+
+#: app/templates/source_migration.html:25
+msgid "Suggested record pair"
+msgstr ""
+
+#: app/templates/source_migration.html:25
+msgid "No unambiguous identifier pairs. Review the records yourself; identical titles are not evidence."
+msgstr ""
+
+#: app/templates/source_migration.html:26
+msgid "Old source records"
+msgstr ""
+
+#: app/templates/source_migration.html:26
+msgid "Replacement source records"
+msgstr ""
+
+#: app/templates/source_migration.html:31
+#: app/templates/source_migration.html:58
+msgid "Record ID"
+msgstr ""
+
+#: app/templates/source_migration.html:32
+#: app/templates/source_migration.html:59
+#: app/templates/source_migration_review.html:21
+#: app/templates/source_migration_review.html:22
+msgid "External ID"
+msgstr ""
+
+#: app/templates/source_migration.html:33
+#: app/templates/source_migration.html:60
+msgid "Currently attached catalogue item"
+msgstr ""
+
+#: app/templates/source_migration.html:33
+#: app/templates/source_migration.html:60
+msgid "In Trash; cannot migrate"
+msgstr ""
+
+#: app/templates/source_migration.html:34
+#: app/templates/source_migration.html:61
+msgid "No saved remote identity evidence"
+msgstr ""
+
+#: app/templates/source_migration.html:36
+#: app/templates/source_migration.html:63
+msgid "No saved records. Sync this instance first."
+msgstr ""
+
+#: app/templates/source_migration.html:42
+msgid "Old record ID,new record ID — one pair per line, at most 100"
+msgstr ""
+
+#: app/templates/source_migration.html:43
+msgid "I manually checked these old/new IDs, including any missing, ambiguous or conflicting identity evidence. Permit explicitly reviewed pairs, not title matching."
+msgstr ""
+
+#: app/templates/source_migration.html:44
+msgid "Disable the entire old instance on apply, including unmatched holdings. Keep its configuration and records. Otherwise I can retire it after verification."
+msgstr ""
+
+#: app/templates/source_migration.html:45
+msgid "Create dry-run preview"
+msgstr ""
+
+#: app/templates/source_migration.html:51
+msgid "Correct a wrong machine attachment"
+msgstr ""
+
+#: app/templates/source_migration.html:52
+msgid "Find the record ID in the comparison above or on its review receipt. Enter the correct existing catalogue item ID. The stable source/external identity will follow this corrected binding on every later sync. Manual links keep their existing detach workflow; legacy integrations are not modified."
+msgstr ""
+
+#: app/templates/source_migration.html:54
+msgid "Look up saved machine record IDs"
+msgstr ""
+
+#: app/templates/source_migration.html:55
+msgid "Show saved records"
+msgstr ""
+
+#: app/templates/source_migration.html:57
+msgid "Machine records"
+msgstr ""
+
+#: app/templates/source_migration.html:62
+msgid "Review this attachment"
+msgstr ""
+
+#: app/templates/source_migration.html:66
+msgid "Machine source"
+msgstr ""
+
+#: app/templates/source_migration.html:67
+#: app/templates/source_migration_review.html:20
+msgid "Machine record ID"
+msgstr ""
+
+#: app/templates/source_migration.html:68
+msgid "Correct catalogue item ID"
+msgstr ""
+
+#: app/templates/source_migration.html:69
+msgid "I checked the external record identity and the correct local item, not just their titles."
+msgstr ""
+
+#: app/templates/source_migration.html:70
+msgid "Preview binding repair"
+msgstr ""
+
+#: app/templates/source_migration.html:73
+msgid "Your recent reviews"
+msgstr ""
+
+#: app/templates/source_migration_error.html:2
+#: app/templates/source_migration_error.html:5
+msgid "Source review refused"
+msgstr ""
+
+#: app/templates/source_migration_error.html:7
+msgid "No partial binding changes were saved. Return to the workspace and preview the current records again."
+msgstr ""
+
+#: app/templates/source_migration_error.html:8
+msgid "Start a fresh source review"
+msgstr ""
+
+#: app/templates/source_migration_review.html:2
+#: app/templates/source_migration_review.html:7
+msgid "Review source bindings"
+msgstr ""
+
+#: app/templates/source_migration_review.html:8
+msgid "Review state"
+msgstr ""
+
+#: app/templates/source_migration_review.html:8
+msgid "Old source"
+msgstr ""
+
+#: app/templates/source_migration_review.html:8
+msgid "New source"
+msgstr ""
+
+#: app/templates/source_migration_review.html:9
+msgid "Selected pairs"
+msgstr ""
+
+#: app/templates/source_migration_review.html:9
+msgid "Unmapped old records"
+msgstr ""
+
+#: app/templates/source_migration_review.html:9
+msgid "Unmapped replacement records"
+msgstr ""
+
+#: app/templates/source_migration_review.html:9
+msgid "Unmapped records and their catalogue entries remain unchanged. Retirement disables the entire old instance, including any unmatched holdings; review coverage before retiring it."
+msgstr ""
+
+#: app/templates/source_migration_review.html:10
+msgid "Dry run only. No source bindings or catalogue values have changed. This preview expires at"
+msgstr ""
+
+#: app/templates/source_migration_review.html:10
+msgid "Reviewed bindings applied. Verify the correct source availability on each catalogue item before retiring the old source."
+msgstr ""
+
+#: app/templates/source_migration_review.html:10
+msgid "Bindings rolled back. Local edits and metadata-authority protections remain; rollback does not restore old automatic metadata claims."
+msgstr ""
+
+#: app/templates/source_migration_review.html:11
+msgid "The old instance was disabled, not deleted. Rollback restores its previous enabled state only if its settings have not changed."
+msgstr ""
+
+#: app/templates/source_migration_review.html:14
+msgid "Safety boundary"
+msgstr ""
+
+#: app/templates/source_migration_review.html:15
+msgid "Only source-record attachments change. Catalogue entries, duplicate imported entries, copies, activity, ownership, personal notes, identifiers, manual fields, cover files and cover decisions stay in place. Credentials are never transferred. No remote server is contacted."
+msgstr ""
+
+#: app/templates/source_migration_review.html:16
+msgid "Existing descriptive metadata authority is frozen for the affected source identities on both the old and correct local items, including blank fields. No applied or Follow source claims move to another item. Inspect Metadata sources to explicitly follow the correct provider again. Rollback never resurrects the old claims."
+msgstr ""
+
+#: app/templates/source_migration_review.html:20
+msgid "Reviewed old record ID"
+msgstr ""
+
+#: app/templates/source_migration_review.html:21
+msgid "Replacement remote identifiers"
+msgstr ""
+
+#: app/templates/source_migration_review.html:21
+msgid "The machine record no longer exists."
+msgstr ""
+
+#: app/templates/source_migration_review.html:22
+msgid "Old record"
+msgstr ""
+
+#: app/templates/source_migration_review.html:22
+msgid "Old remote identifiers"
+msgstr ""
+
+#: app/templates/source_migration_review.html:23
+msgid "Before"
+msgstr ""
+
+#: app/templates/source_migration_review.html:23
+#: app/templates/source_migration_review.html:24
+msgid "Missing or in Trash"
+msgstr ""
+
+#: app/templates/source_migration_review.html:24
+msgid "After"
+msgstr ""
+
+#: app/templates/source_migration_review.html:25
+msgid "Explicit administrator review of old/new record IDs"
+msgstr ""
+
+#: app/templates/source_migration_review.html:25
+msgid "Explicit administrator review of record/item IDs"
+msgstr ""
+
+#: app/templates/source_migration_review.html:25
+msgid "Exact remote identifier evidence"
+msgstr ""
+
+#: app/templates/source_migration_review.html:26
+msgid "Manually reviewed; no local metadata will be replaced."
+msgstr ""
+
+#: app/templates/source_migration_review.html:29
+msgid "This review is stale, expired, busy or superseded by another binding decision. No action is available. Start a fresh preview; do not reuse an old confirmation."
+msgstr ""
+
+#: app/templates/source_migration_review.html:33
+msgid "Apply will also disable the old instance, keeping all its records and settings."
+msgstr ""
+
+#: app/templates/source_migration_review.html:34
+msgid "I reviewed every before/after ID, the identity evidence and conflicts, and the metadata-authority warning above."
+msgstr ""
+
+#: app/templates/source_migration_review.html:35
+msgid "Apply reviewed bindings"
+msgstr ""
+
+#: app/templates/source_migration_review.html:40
+msgid "I verified the replacement and unmapped records. Disable the entire old source, including unmatched holdings; keep its records, catalogue entries and credentials."
+msgstr ""
+
+#: app/templates/source_migration_review.html:41
+msgid "Retire old source"
+msgstr ""
+
+#: app/templates/source_migration_review.html:45
+msgid "Restore the before bindings only. Keep current local edits, snapshots, activity, covers and the conservative metadata protections."
+msgstr ""
+
+#: app/templates/source_migration_review.html:46
+msgid "Roll back bindings"
 msgstr ""
 
 #: app/templates/sources.html:7
@@ -3546,12 +4197,6 @@ msgstr ""
 msgid "Up to 5000 characters. Private to this account."
 msgstr ""
 
-#: app/templates/fragments/personal_library.html:79
-#: app/templates/fragments/reading_status.html:29
-#, python-format
-msgid "Started: %(date)s"
-msgstr "Iniziato: %(date)s"
-
 #: app/templates/fragments/personal_library.html:80
 #: app/templates/fragments/reading_status.html:31
 #, python-format
@@ -3568,6 +4213,104 @@ msgstr ""
 
 #: app/templates/fragments/personal_library.html:93
 msgid "Clears your current state; your private history is kept."
+msgstr ""
+
+#: app/templates/fragments/reading_life_activity.html:5
+msgid "Your repeat sessions have their own dates and history, separate from current manual progress."
+msgstr ""
+
+#: app/templates/fragments/reading_life_activity.html:6
+msgid "My sessions, journal and annual goals"
+msgstr ""
+
+#: app/templates/fragments/reading_life_forms.html:14
+msgid "Session status"
+msgstr ""
+
+#: app/templates/fragments/reading_life_forms.html:20
+msgid "Started on"
+msgstr ""
+
+#: app/templates/fragments/reading_life_forms.html:24
+msgid "Ended on"
+msgstr ""
+
+#: app/templates/fragments/reading_life_forms.html:28
+msgid "Use your calendar dates. Finished and abandoned sessions need an end date; leave it blank for every other status. Only finished sessions count toward goals."
+msgstr ""
+
+#: app/templates/fragments/reading_life_forms.html:29
+msgid "Save session correction"
+msgstr ""
+
+#: app/templates/fragments/reading_life_forms.html:42
+msgid "Entry date"
+msgstr ""
+
+#: app/templates/fragments/reading_life_forms.html:46
+msgid "Private journal entry"
+msgstr ""
+
+#: app/templates/fragments/reading_life_forms.html:48
+msgid "Up to 10000 characters. Earlier versions remain in your private revision history when you edit an entry."
+msgstr ""
+
+#: app/templates/fragments/reading_life_forms.html:50
+msgid "Save journal correction"
+msgstr ""
+
+#: app/templates/fragments/reading_life_forms.html:50
+msgid "Add journal entry"
+msgstr ""
+
+#: app/templates/fragments/reading_life_link.html:4
+msgid "Repeat sessions and journal"
+msgstr ""
+
+#: app/templates/fragments/reading_life_link.html:5
+msgid "Keep separate dates and history for every read, listen, watch or play, and write privately about this item or a particular session."
+msgstr ""
+
+#: app/templates/fragments/reading_life_link.html:6
+msgid "My sessions and journal for this item"
+msgstr ""
+
+#: app/templates/fragments/reading_life_lists.html:3
+msgid "Pagination"
+msgstr ""
+
+#: app/templates/fragments/reading_life_lists.html:4
+msgid "Previous page"
+msgstr ""
+
+#: app/templates/fragments/reading_life_lists.html:5
+#, python-format
+msgid "Page %(page)s"
+msgstr ""
+
+#: app/templates/fragments/reading_life_lists.html:6
+msgid "Next page"
+msgstr ""
+
+#: app/templates/fragments/reading_life_lists.html:22
+msgid "No sessions on this page. Open a catalogue item to start or log a session."
+msgstr ""
+
+#: app/templates/fragments/reading_life_lists.html:31
+msgid "Entry and revisions"
+msgstr ""
+
+#: app/templates/fragments/reading_life_lists.html:34
+msgid "Item-level entry (no session)"
+msgstr ""
+
+#: app/templates/fragments/reading_life_lists.html:39
+msgid "No journal entries on this page."
+msgstr ""
+
+#: app/templates/fragments/reading_life_lists.html:47
+#, python-format
+msgid "Revision %(version)s"
 msgstr ""
 
 #: app/templates/fragments/reading_status.html:22

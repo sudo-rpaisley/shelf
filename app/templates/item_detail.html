@@ -240,6 +240,7 @@
 
                 {% if feature_on('connected_library') %}
                 {% include "fragments/personal_library.html" %}
+                {% include "fragments/reading_life_link.html" %}
                 {% endif %}
 
                 {% if feature_on('lending') and ((user and user.role in ('admin', 'editor')) or current_checkout or checkout_history) %}

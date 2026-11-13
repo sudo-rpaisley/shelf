@@ -44,6 +44,8 @@
         <a href="/library" class="px-4 py-2 bg-shelf-accent text-white rounded-lg text-sm hover:bg-shelf-accent2 transition-colors">{{ _('Find something in Library') }}</a>
     </div>
 
+    {% include "fragments/reading_life_activity.html" %}
+
     {{ item_section('activity-continue', _('Continue'), _('Items you have marked in progress.'), continue_items, _('Nothing in progress. Open an item and set your personal status to get started.')) }}
     {{ item_section('activity-up-next', _('My List / Up Next'), _('Items you explicitly added to My List or marked Planned. This is not the shared wishlist.'), up_next_items, _('Your list is empty. Add an item from its personal activity panel.')) }}
     {{ item_section('activity-favourites', _('Favourites'), _('Your personal favourites across all media.'), favourite_items, _('No favourites yet.')) }}

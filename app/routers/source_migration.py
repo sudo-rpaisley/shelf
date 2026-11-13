@@ -12,12 +12,12 @@ from app import i18n
 from app.auth import require_role
 from app.database import get_db
 from app.features import require_feature
-from app.http_body import BodyTooLarge, bounded_body
+from app.http_body import BodyTooLarge, SOURCE_MIGRATION_FORM_BYTES, bounded_body
 from app.services import source_migration as migration
 
 page_router = APIRouter()
 api_router = APIRouter(prefix="/api/source-migrations")
-FORM_BYTES = 16384
+FORM_BYTES = SOURCE_MIGRATION_FORM_BYTES
 
 
 def _unique(pairs):

@@ -160,6 +160,7 @@ FEATURES: dict[str, Feature] = {
         job="loan_reminders",
         probes=(_probe_open_loans,),
         modules=("app.routers.checkouts",),
+        routes=(("GET", "/api/v1/loans"), ("GET", "/api/v1/loans/{loan_id}")),
     ),
     "series": Feature(
         label="Series",
@@ -168,6 +169,7 @@ FEATURES: dict[str, Feature] = {
         nav_tabs=("series",),
         entry_path="/series",
         modules=("app.routers.series",),
+        routes=(("GET", "/api/v1/series"), ("GET", "/api/v1/series/{name:path}")),
     ),
     "stats": Feature(
         label="Statistics",
@@ -256,12 +258,13 @@ FEATURES: dict[str, Feature] = {
         label="Connected library",
         description="Unified format stacks, source availability, read-only connectors, personal activity and catalogue maintenance.",
         profile="standard",
-        nav_tabs=("library", "activity", "sources", "needs-attention"),
+        nav_tabs=("library", "activity", "reading-life", "sources", "source-migrations", "needs-attention"),
         entry_path="/library",
         modules=(
             "app.routers.library", "app.routers.availability",
             "app.routers.sources", "app.routers.personal_library",
             "app.routers.library_attention", "app.routers.metadata_review",
+            "app.routers.reading_life", "app.routers.source_migration",
         ),
     ),
     "intake": Feature(
@@ -289,6 +292,7 @@ FEATURES: dict[str, Feature] = {
             ("POST", "/api/series/watch-all"),
             ("GET", "/upcoming"),
             ("POST", "/api/upcoming/{release_id}/dismiss"),
+            ("GET", "/api/v1/upcoming"),
         ),
         configured=_hardcover_configured,
         client=("hardcoverPush",),
@@ -364,6 +368,7 @@ FEATURES: dict[str, Feature] = {
         routes=(
             ("POST", "/api/series/{name:path}/watch"),
             ("POST", "/api/series/watch-all"),
+            ("GET", "/api/v1/upcoming"),
         ),
         configured=_hardcover_configured,
     ),

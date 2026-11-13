@@ -6,6 +6,10 @@ from starlette.requests import Request
 METADATA_FORM_BYTES = 4096
 MUSIC_PREVIEW_FORM_BYTES = 8192
 MUSIC_REVIEW_FORM_BYTES = 130000
+SOURCE_MIGRATION_FORM_BYTES = 16384
+# 10,000 four-byte journal characters can occupy 120,000 bytes in a native
+# URL-encoded form. Keep valid multilingual entries within the streaming bound.
+READING_LIFE_FORM_BYTES = 131072
 
 
 class BodyTooLarge(ValueError):

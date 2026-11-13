@@ -64,6 +64,7 @@ from app.database import init_db, get_db
 from app.routers import pages, items, item_copies, items_covers, cover_review, cover_review_actions, items_csv, items_catalog, locations, location_order, platforms, settings, sync, checkouts, valuation, hardcover, store, series, share, tags, intake, archive, shelf_fill, romm, komga, periodicals, music, related_media, trash, labels, audits, duplicates, upcoming, api_v1
 from app.routers import auth_routes
 from app.routers import availability, library, library_attention, metadata_review, music_matching, personal_library, sources
+from app.routers import reading_life, source_migration
 from app.routers import cover_sync_policy as cover_sync_routes
 # Aliased: `api_tokens` inside the middlewares is the service module.
 from app.routers import api_tokens as api_token_routes
@@ -196,6 +197,17 @@ class CSRFMiddleware(BaseHTTPMiddleware):
                         body_bytes = await bounded_body(request, limit)
                     except BodyTooLarge:
                         return Response("Music review form too large", status_code=413)
+                elif path.startswith("/api/source-migrations/") or path.startswith("/api/reading-life/"):
+                    from app.http_body import (
+                        BodyTooLarge, READING_LIFE_FORM_BYTES,
+                        SOURCE_MIGRATION_FORM_BYTES, bounded_body,
+                    )
+                    limit = (SOURCE_MIGRATION_FORM_BYTES if path.startswith("/api/source-migrations/")
+                             else READING_LIFE_FORM_BYTES)
+                    try:
+                        body_bytes = await bounded_body(request, limit)
+                    except BodyTooLarge:
+                        return Response("Review form too large", status_code=413)
                 else:
                     body_bytes = await request.body()  # caches in request._body
                 form = await request.form()
@@ -936,3 +948,6 @@ app.include_router(library_attention.router)
 app.include_router(metadata_review.router)
 app.include_router(music_matching.router)
 app.include_router(cover_sync_routes.router)
+app.include_router(source_migration.page_router)
+app.include_router(source_migration.api_router)
+app.include_router(reading_life.router)

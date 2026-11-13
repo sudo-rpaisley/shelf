@@ -14,6 +14,7 @@ from app import i18n
 from app.auth import require_role
 from app.database import get_db
 from app.features import require_feature
+from app.http_body import BodyTooLarge, READING_LIFE_FORM_BYTES, bounded_body
 from app.routers import items_common
 from app.services import reading_life as life
 
@@ -55,6 +56,10 @@ async def _form(request: Request, names, parser, **options):
         raise HTTPException(415, message, headers={
             "HX-Trigger": items_common._toast_header(message, "error"), "Cache-Control": "no-store",
         })
+    try:
+        await bounded_body(request, READING_LIFE_FORM_BYTES)
+    except BodyTooLarge:
+        raise HTTPException(413, i18n.gettext("Reading life form too large")) from None
     async with request.form() as form:
         supplied = life.form_values(form, names)
         try:
