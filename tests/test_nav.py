@@ -40,7 +40,8 @@ VIEWER = {"id": 3, "username": "viewer", "role": "viewer"}
 def test_registry_covers_the_designed_tabs():
     assert [t["key"] for t in NAV_TABS] == [
         "library", "browse", "scan", "intake", "shelf-fill", "store", "series",
-        "music", "periodicals", "discover", "stats", "activity", "sources", "needs-attention", "trash", "labels", "audits",
+        "music", "periodicals", "discover", "stats", "activity", "reading-life", "sources", "source-migrations",
+        "needs-attention", "trash", "labels", "audits",
         "duplicates", "settings", "logs",
     ]
     for tab in NAV_TABS:
@@ -54,7 +55,8 @@ def test_management_and_personal_destinations_render_in_the_account_menu():
     template learning its name, so pin the membership rather than the flag.
     """
     assert [t["key"] for t in NAV_TABS if t.get("menu") == "account"] == [
-        "activity", "sources", "needs-attention", "trash", "labels", "audits", "duplicates", "settings", "logs",
+        "activity", "reading-life", "sources", "source-migrations", "needs-attention", "trash", "labels", "audits",
+        "duplicates", "settings", "logs",
     ]
     assert all(t.get("menu", "") in ("", "account") for t in NAV_TABS)
 
@@ -90,6 +92,23 @@ def test_editor_sees_scan_but_no_settings_or_logs(db):
 def test_admin_sees_settings_and_logs(db):
     keys = _keys(ADMIN)
     assert "settings" in keys and "logs" in keys and "scan" in keys
+
+
+def test_reading_life_is_personal_but_source_repair_is_admin_only(db):
+    for user in (ADMIN, EDITOR, VIEWER):
+        assert "reading-life" in _keys(user)
+    assert "source-migrations" in _keys(ADMIN)
+    assert "source-migrations" not in _keys(EDITOR)
+    assert "source-migrations" not in _keys(VIEWER)
+
+
+def test_new_library_destinations_follow_the_existing_feature_gate(db):
+    from app.features import set_feature_enabled
+
+    set_feature_enabled(db, "connected_library", False)
+    db.commit()
+    for user in (ADMIN, EDITOR, VIEWER):
+        assert not {"reading-life", "source-migrations"} & set(_keys(user))
 
 
 def test_anonymous_sees_only_ungated_tabs(db):

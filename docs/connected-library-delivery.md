@@ -133,3 +133,13 @@ acceptance criteria or operational blockers remain unresolved.
   `new-test`: pinned-runtime unit/browser gates and production-image schema
   checks. Workflow configuration is not an executed CI result. No container
   publication workflow was dispatched.
+- GitHub's fork-level execution gate reports that workflows are paused because
+  of Actions usage volume. Read-only API checks found no run/check suite for
+  the acceptance push, despite enabled repository permissions. A maintainer's
+  explicit re-enable decision or an authorised external runner is required;
+  no execution setting was changed and no pinned-CI pass is claimed.
+- The first integrated focused gate on `d91255d` reported **1158 passed and
+  two failures** in 261.29 seconds. Both failures were the navigation registry's
+  exact inventory assertions needing the two deliberately added destinations.
+  Independent review also found uncovered correctness defects; their fixes
+  and new regression tests remain required even if this focused suite passes.
