@@ -205,3 +205,7 @@ def reparent_children(db, keep_id: int, other_id: int) -> None:
     _reparent_provenance(db, keep_id, other_id)
     from app.services import personal_library
     personal_library.reparent(db, keep_id, other_id)
+    # Repeat cycles and their private journal must survive the losing item's
+    # cascade independently of the scalar personal-state conflict rules.
+    from app.services import reading_life
+    reading_life.reparent(db, keep_id, other_id)

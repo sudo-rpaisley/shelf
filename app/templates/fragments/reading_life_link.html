@@ -1,0 +1,8 @@
+{# Item-page hook; requires only the existing item context, no private query. #}
+{% if feature_on('connected_library') %}
+<section id="reading-life-link" class="bg-shelf-card border border-shelf-border rounded-lg p-5 mt-6" data-testid="reading-life-item-link">
+    <h2 class="text-lg font-semibold mb-2">{{ _('Repeat sessions and journal') }}</h2>
+    <p class="text-sm text-shelf-muted mb-3">{{ _('Keep separate dates and history for every read, listen, watch or play, and write privately about this item or a particular session.') }}</p>
+    <a href="/reading-life/items/{{ item.id }}" class="text-sm text-shelf-accent2 hover:underline">{{ _('My sessions and journal for this item') }}</a>
+</section>
+{% endif %}

@@ -1,0 +1,8 @@
+{# Activity-page hook: no data query needed, and no link while feature is off. #}
+{% if feature_on('connected_library') %}
+<section class="bg-shelf-card border border-shelf-border rounded-lg p-5 mb-8" data-testid="reading-life-activity-link">
+    <h2 class="text-lg font-semibold mb-2">{{ _('Reading life') }}</h2>
+    <p class="text-sm text-shelf-muted mb-3">{{ _('Your repeat sessions have their own dates and history, separate from current manual progress.') }}</p>
+    <a href="/reading-life" class="text-sm text-shelf-accent2 hover:underline">{{ _('My sessions, journal and annual goals') }}</a>
+</section>
+{% endif %}

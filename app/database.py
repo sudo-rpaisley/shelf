@@ -958,6 +958,65 @@ CREATE TABLE IF NOT EXISTS cover_sync_blocks (
     blocked    INTEGER NOT NULL DEFAULT 1 CHECK(blocked IN (0, 1)),
     created_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
+
+-- Account-local reading life is independent of current personal state and the
+-- shared legacy reading_log. Revisions retain earlier dates/text on correction.
+-- These tables are deliberately not part of the shared collection archive.
+CREATE TABLE IF NOT EXISTS reading_sessions (
+    id             INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id        INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    item_id        INTEGER NOT NULL REFERENCES items(id) ON DELETE CASCADE,
+    activity       TEXT NOT NULL CHECK(activity IN ('read', 'listen', 'watch', 'play')),
+    status         TEXT NOT NULL CHECK(status IN ('in_progress', 'paused', 'finished', 'abandoned', 'voided')),
+    started_on     TEXT NOT NULL,
+    ended_on       TEXT,
+    version        INTEGER NOT NULL DEFAULT 1 CHECK(version > 0),
+    submission_key TEXT NOT NULL,
+    history_json   TEXT NOT NULL,
+    created_at     TEXT NOT NULL DEFAULT (datetime('now')),
+    updated_at     TEXT NOT NULL DEFAULT (datetime('now')),
+    UNIQUE(user_id, submission_key),
+    UNIQUE(user_id, item_id, id),
+    CHECK(ended_on IS NULL OR ended_on >= started_on),
+    CHECK((status IN ('finished', 'abandoned') AND ended_on IS NOT NULL)
+       OR (status IN ('in_progress', 'paused', 'voided') AND ended_on IS NULL))
+);
+CREATE INDEX IF NOT EXISTS idx_reading_sessions_item ON reading_sessions(user_id, item_id, started_on, id);
+CREATE INDEX IF NOT EXISTS idx_reading_sessions_user ON reading_sessions(user_id, started_on, id);
+CREATE INDEX IF NOT EXISTS idx_reading_sessions_goal ON reading_sessions(user_id, status, ended_on, activity, item_id);
+
+CREATE TABLE IF NOT EXISTS reading_journal (
+    id             INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id        INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    item_id        INTEGER NOT NULL REFERENCES items(id) ON DELETE CASCADE,
+    session_id     INTEGER,
+    entry_on       TEXT NOT NULL,
+    body           TEXT NOT NULL CHECK(length(body) BETWEEN 1 AND 10000),
+    version        INTEGER NOT NULL DEFAULT 1 CHECK(version > 0),
+    submission_key TEXT NOT NULL,
+    history_json   TEXT NOT NULL,
+    created_at     TEXT NOT NULL DEFAULT (datetime('now')),
+    updated_at     TEXT NOT NULL DEFAULT (datetime('now')),
+    UNIQUE(user_id, submission_key),
+    FOREIGN KEY(user_id, item_id, session_id)
+        REFERENCES reading_sessions(user_id, item_id, id) ON DELETE CASCADE ON UPDATE CASCADE
+);
+CREATE INDEX IF NOT EXISTS idx_reading_journal_item ON reading_journal(user_id, item_id, entry_on, id);
+CREATE INDEX IF NOT EXISTS idx_reading_journal_user ON reading_journal(user_id, entry_on, id);
+CREATE INDEX IF NOT EXISTS idx_reading_journal_session ON reading_journal(session_id);
+
+CREATE TABLE IF NOT EXISTS reading_goals (
+    id         INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id    INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    year       INTEGER NOT NULL CHECK(year BETWEEN 1 AND 9999),
+    activity   TEXT NOT NULL CHECK(activity IN ('all', 'read', 'listen', 'watch', 'play')),
+    count_rule TEXT NOT NULL CHECK(count_rule IN ('sessions', 'distinct_items')),
+    target     INTEGER NOT NULL CHECK(target BETWEEN 1 AND 10000),
+    version    INTEGER NOT NULL DEFAULT 1 CHECK(version > 0),
+    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+    updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+    UNIQUE(user_id, year, activity, count_rule)
+);
 """
 
 

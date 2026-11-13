@@ -1,0 +1,22 @@
+{% extends "base.html" %}
+{% from "fragments/reading_life_forms.html" import journal_editor with context %}
+{% from "fragments/reading_life_lists.html" import revision_list, pager with context %}
+{% block title %}{{ _('My journal entry') }} · {{ item.title }} — Shelf{% endblock %}
+{% block content %}
+<div data-testid="reading-life-journal-entry" hx-boost="false">
+    <header class="mb-8">
+        <h1 class="text-2xl font-bold break-words">{{ item.title }} · {{ _('My journal entry') }}</h1>
+        <p class="text-sm text-shelf-muted mt-2">{{ _('Private to your account. Editing preserves earlier entry dates and text in the revision history.') }}</p>
+        <div class="flex flex-wrap gap-4 mt-3 text-sm"><a href="/reading-life/items/{{ item.id }}" class="text-shelf-accent2 hover:underline">{{ _('Sessions and journal for this item') }}</a>{% if entry.session_id %}<a href="/reading-life/sessions/{{ entry.session_id }}" class="text-shelf-accent2 hover:underline">{{ _('Linked session') }}</a>{% endif %}<a href="/reading-life" class="text-shelf-accent2 hover:underline">{{ _('All my sessions, journal and goals') }}</a></div>
+    </header>
+    {% if reading_error %}<div role="alert" class="border border-shelf-error rounded-lg p-4 mb-6"><p>{{ reading_error }}</p><a href="/reading-life/journal/{{ entry.id }}" class="text-shelf-accent2 hover:underline">{{ _('Reload latest values (discards this unsaved form)') }}</a></div>{% endif %}
+    <section class="bg-shelf-card border border-shelf-border rounded-lg p-5 mb-8">
+        <h2 class="text-lg font-semibold mb-4">{{ _('Correct journal entry') }}</h2>
+        {{ journal_editor(journal_form, '/api/reading-life/journal/' ~ entry.id, true) }}
+    </section>
+    <section><h2 class="text-lg font-semibold">{{ _('Journal revision history') }}</h2>
+        {{ revision_list(reading_history, true) }}
+        {{ pager(reading_history, '/reading-life/journal/' ~ entry.id ~ '?', 'history_page') }}
+    </section>
+</div>
+{% endblock %}

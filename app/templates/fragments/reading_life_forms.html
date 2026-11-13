@@ -1,0 +1,52 @@
+{% macro session_editor(form, action, editing=false) -%}
+<form method="post" action="{{ action }}" class="space-y-4" data-testid="reading-session-form">
+    <input type="hidden" name="_csrf" value="{{ request.cookies.get('csrf_token', '') }}">
+    {% if editing %}<input type="hidden" name="version" value="{{ form.version }}">
+    {% else %}<input type="hidden" name="submission_key" value="{{ form.submission_key }}">{% endif %}
+    <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+        <div>
+            <label for="session-activity" class="block text-sm mb-1">{{ _('Activity') }}</label>
+            <select id="session-activity" name="activity" required class="w-full bg-shelf-bg border border-shelf-border rounded-lg px-3 py-2">
+                {% for value, label in reading_activities.items() %}<option value="{{ value }}"{% if form.activity == value %} selected{% endif %}>{{ _(label) }}</option>{% endfor %}
+            </select>
+        </div>
+        <div>
+            <label for="session-status" class="block text-sm mb-1">{{ _('Session status') }}</label>
+            <select id="session-status" name="status" required class="w-full bg-shelf-bg border border-shelf-border rounded-lg px-3 py-2">
+                {% for value, label in reading_statuses.items() %}<option value="{{ value }}"{% if form.status == value %} selected{% endif %}>{{ _(label) }}</option>{% endfor %}
+            </select>
+        </div>
+        <div>
+            <label for="session-start" class="block text-sm mb-1">{{ _('Started on') }}</label>
+            <input id="session-start" type="date" name="started_on" required max="{{ reading_today }}" value="{{ form.started_on }}" class="w-full bg-shelf-bg border border-shelf-border rounded-lg px-3 py-2">
+        </div>
+        <div>
+            <label for="session-end" class="block text-sm mb-1">{{ _('Ended on') }}</label>
+            <input id="session-end" type="date" name="ended_on" max="{{ reading_today }}" value="{{ form.ended_on }}" aria-describedby="session-date-help" class="w-full bg-shelf-bg border border-shelf-border rounded-lg px-3 py-2">
+        </div>
+    </div>
+    <p id="session-date-help" class="text-sm text-shelf-muted">{{ _('Use your calendar dates. Finished and abandoned sessions need an end date; leave it blank for every other status. Only finished sessions count toward goals.') }}</p>
+    <button type="submit" class="px-4 py-2 bg-shelf-accent text-white rounded-lg text-sm hover:bg-shelf-accent2">{% if editing %}{{ _('Save session correction') }}{% else %}{{ _('Start or log a new session') }}{% endif %}</button>
+</form>
+{%- endmacro %}
+
+{% macro journal_editor(form, action, editing=false) -%}
+<form method="post" action="{{ action }}" class="space-y-4" data-testid="reading-journal-form">
+    <input type="hidden" name="_csrf" value="{{ request.cookies.get('csrf_token', '') }}">
+    {% if editing %}<input type="hidden" name="version" value="{{ form.version }}">
+    {% else %}
+    <input type="hidden" name="submission_key" value="{{ form.submission_key }}">
+    <input type="hidden" name="session_id" value="{{ form.session_id }}">
+    {% endif %}
+    <div>
+        <label for="journal-date" class="block text-sm mb-1">{{ _('Entry date') }}</label>
+        <input id="journal-date" type="date" name="entry_on" required max="{{ reading_today }}" value="{{ form.entry_on }}" class="bg-shelf-bg border border-shelf-border rounded-lg px-3 py-2">
+    </div>
+    <div>
+        <label for="journal-body" class="block text-sm mb-1">{{ _('Private journal entry') }}</label>
+        <textarea id="journal-body" name="body" rows="6" required maxlength="10000" aria-describedby="journal-help" class="w-full bg-shelf-bg border border-shelf-border rounded-lg px-3 py-2">{{ form.body }}</textarea>
+        <p id="journal-help" class="text-sm text-shelf-muted mt-1">{{ _('Up to 10000 characters. Earlier versions remain in your private revision history when you edit an entry.') }}</p>
+    </div>
+    <button type="submit" class="px-4 py-2 bg-shelf-accent text-white rounded-lg text-sm hover:bg-shelf-accent2">{% if editing %}{{ _('Save journal correction') }}{% else %}{{ _('Add journal entry') }}{% endif %}</button>
+</form>
+{%- endmacro %}

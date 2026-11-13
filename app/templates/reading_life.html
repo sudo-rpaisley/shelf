@@ -1,0 +1,77 @@
+{% extends "base.html" %}
+{% from "fragments/reading_life_lists.html" import session_list, journal_list, pager with context %}
+{% block title %}{{ _('Reading life') }} — Shelf{% endblock %}
+{% block content %}
+<div data-testid="reading-life-page" hx-boost="false">
+    <header class="mb-8">
+        <h1 class="text-2xl font-bold">{{ _('Reading life') }}</h1>
+        <p class="text-sm text-shelf-muted mt-2">{{ _('Your repeat reads, listens, watches and plays, journal and annual goals. Private to your account.') }}</p>
+        <p class="text-sm text-shelf-muted mt-2">{{ _('Sessions are separate cycles. They never replace your manual personal status, notes or history, the shared reading log, or external-service progress.') }}</p>
+        <div class="flex flex-wrap gap-4 mt-3 text-sm"><a href="/activity" class="text-shelf-accent2 hover:underline">{{ _('My activity') }}</a><a href="/library" class="text-shelf-accent2 hover:underline">{{ _('Find an item to start a session') }}</a></div>
+    </header>
+    {% if reading_error %}<div role="alert" class="border border-shelf-error rounded-lg p-4 mb-6"><p>{{ reading_error }}</p><a href="/reading-life?year={{ reading_year }}#reading-goals" class="text-shelf-accent2 hover:underline">{{ _('Reload latest values (discards this unsaved form)') }}</a></div>{% endif %}
+
+    <section id="reading-goals" data-testid="reading-goals" class="bg-shelf-card border border-shelf-border rounded-lg p-5 mb-8">
+        <h2 class="text-lg font-semibold">{{ _('Annual goals') }}</h2>
+        <form method="get" action="/reading-life" class="flex flex-wrap items-end gap-3 my-4">
+            <div><label for="goal-year-filter" class="block text-sm mb-1">{{ _('Year') }}</label><input id="goal-year-filter" name="year" type="number" min="1" max="9999" step="1" required value="{{ reading_year }}" class="bg-shelf-bg border border-shelf-border rounded-lg px-3 py-2"></div>
+            <button type="submit" class="px-4 py-2 border border-shelf-border rounded-lg text-sm">{{ _('Show year') }}</button>
+        </form>
+        <details class="mb-5" open data-testid="reading-goal-rules">
+            <summary class="font-medium cursor-pointer text-sm">{{ _('Exactly what counts?') }}</summary>
+            <ul class="list-disc pl-5 text-sm text-shelf-muted space-y-2 mt-2">
+                <li>{{ _('Only your Finished sessions with an end date in the selected calendar year count, regardless of the start year. Paused, abandoned, in-progress and entered-in-error sessions do not count.') }}</li>
+                <li>{{ _('Completed sessions counts every repeat. Distinct catalogue items counts each item once in that year and activity, even across multiple sessions; different editions remain separate items, not a single work or format stack.') }}</li>
+                <li>{{ _('All activities counts an item once overall for a distinct-item goal. Goals for individual activities are independent and may overlap.') }}</li>
+                <li>{{ _('Trashed items are hidden and excluded until restored. Merging preserves sessions and journal entries but may reduce distinct-item totals. Corrections recalculate totals; shared status, old personal history and provider progress are never inferred as completions.') }}</li>
+            </ul>
+        </details>
+        {% if reading_goals %}
+        <ul class="space-y-4 mb-6">
+            {% for goal in reading_goals %}
+            {% set attempt = goal_attempt if goal_attempt is defined and goal_attempt.id == goal.id else goal %}
+            <li id="reading-goal-{{ goal.id }}" class="border-t border-shelf-border pt-4" data-testid="reading-goal">
+                <h3 class="font-medium">{% if goal.activity == 'all' %}{{ _('All activities') }}{% else %}{{ _(reading_activities[goal.activity]) }}{% endif %} · {{ _(reading_count_rules[goal.count_rule]) }}</h3>
+                <p class="text-sm my-2">{{ _('%(completed)s / %(target)s completed', completed=goal.completed, target=goal.target) }}</p>
+                <progress value="{{ [goal.completed, goal.target]|min }}" max="{{ goal.target }}" aria-label="{{ _('Goal progress') }}" class="w-full">{{ goal.completed }} / {{ goal.target }}</progress>
+                <div class="flex flex-wrap gap-4 mt-3">
+                    <form method="post" action="/api/reading-life/goals/{{ goal.id }}" class="flex flex-wrap items-end gap-2" data-testid="reading-goal-edit">
+                        <input type="hidden" name="_csrf" value="{{ request.cookies.get('csrf_token', '') }}"><input type="hidden" name="version" value="{{ attempt.version }}">
+                        <div><label for="goal-target-{{ goal.id }}" class="block text-sm mb-1">{{ _('Target') }}</label><input id="goal-target-{{ goal.id }}" name="target" type="number" min="1" max="10000" step="1" required value="{{ attempt.target }}" class="bg-shelf-bg border border-shelf-border rounded-lg px-3 py-2"></div>
+                        <button type="submit" class="px-4 py-2 border border-shelf-border rounded-lg text-sm">{{ _('Update target') }}</button>
+                    </form>
+                    <form method="post" action="/api/reading-life/goals/{{ goal.id }}/remove" class="flex items-end">
+                        <input type="hidden" name="_csrf" value="{{ request.cookies.get('csrf_token', '') }}"><input type="hidden" name="version" value="{{ attempt.version }}">
+                        <button type="submit" class="px-3 py-2 text-sm text-shelf-error">{{ _('Remove goal (keeps sessions and journal)') }}</button>
+                    </form>
+                </div>
+            </li>
+            {% endfor %}
+        </ul>
+        {% else %}<p class="text-sm text-shelf-muted mb-4">{{ _('No goals for this year yet.') }}</p>{% endif %}
+        <h3 class="font-medium mb-3">{{ _('Add an annual goal') }}</h3>
+        <form method="post" action="/api/reading-life/goals" class="space-y-4" data-testid="reading-goal-form">
+            <input type="hidden" name="_csrf" value="{{ request.cookies.get('csrf_token', '') }}">
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div><label for="goal-year" class="block text-sm mb-1">{{ _('Year') }}</label><input id="goal-year" name="year" type="number" min="1" max="9999" step="1" required value="{{ goal_form.year }}" class="w-full bg-shelf-bg border border-shelf-border rounded-lg px-3 py-2"></div>
+                <div><label for="goal-activity" class="block text-sm mb-1">{{ _('Activity') }}</label><select id="goal-activity" name="activity" class="w-full bg-shelf-bg border border-shelf-border rounded-lg px-3 py-2"><option value="all"{% if goal_form.activity == 'all' %} selected{% endif %}>{{ _('All activities') }}</option>{% for value, label in reading_activities.items() %}<option value="{{ value }}"{% if goal_form.activity == value %} selected{% endif %}>{{ _(label) }}</option>{% endfor %}</select></div>
+                <div><label for="goal-rule" class="block text-sm mb-1">{{ _('Counting rule') }}</label><select id="goal-rule" name="count_rule" class="w-full bg-shelf-bg border border-shelf-border rounded-lg px-3 py-2">{% for value, label in reading_count_rules.items() %}<option value="{{ value }}"{% if goal_form.count_rule == value %} selected{% endif %}>{{ _(label) }}</option>{% endfor %}</select></div>
+                <div><label for="goal-target" class="block text-sm mb-1">{{ _('Target') }}</label><input id="goal-target" name="target" type="number" min="1" max="10000" step="1" required value="{{ goal_form.target }}" class="w-full bg-shelf-bg border border-shelf-border rounded-lg px-3 py-2"></div>
+            </div>
+            <button type="submit" class="px-4 py-2 bg-shelf-accent text-white rounded-lg text-sm hover:bg-shelf-accent2">{{ _('Add goal') }}</button>
+        </form>
+    </section>
+    <section class="mb-8" data-testid="reading-sessions">
+        <h2 class="text-lg font-semibold mb-4">{{ _('All my sessions') }}</h2>
+        <p class="text-sm text-shelf-muted mb-4">{{ _('All years, newest start date first. Open a session to correct it, review its revisions or add a session-specific journal entry.') }}</p>
+        {{ session_list(reading_sessions) }}
+        {{ pager(reading_sessions, '/reading-life?year=' ~ reading_year ~ '&journal_page=' ~ reading_journal.page ~ '&', 'session_page') }}
+    </section>
+    <section data-testid="reading-journal">
+        <h2 class="text-lg font-semibold mb-4">{{ _('My journal') }}</h2>
+        <p class="text-sm text-shelf-muted mb-4">{{ _('All years, newest entry date first. Write from an item or session page; entries are never shared with other accounts.') }}</p>
+        {{ journal_list(reading_journal) }}
+        {{ pager(reading_journal, '/reading-life?year=' ~ reading_year ~ '&session_page=' ~ reading_sessions.page ~ '&', 'journal_page') }}
+    </section>
+</div>
+{% endblock %}

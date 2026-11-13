@@ -1,0 +1,31 @@
+{% extends "base.html" %}
+{% from "fragments/reading_life_forms.html" import session_editor, journal_editor with context %}
+{% from "fragments/reading_life_lists.html" import journal_list, revision_list, pager with context %}
+{% block title %}{{ _('My session') }} · {{ item.title }} — Shelf{% endblock %}
+{% block content %}
+<div data-testid="reading-life-session" hx-boost="false">
+    <header class="mb-8">
+        <h1 class="text-2xl font-bold break-words">{{ item.title }} · {{ _('My session') }}</h1>
+        <p class="text-sm text-shelf-muted mt-2">{{ _(reading_activities[session.activity]) }} · {{ _(reading_statuses[session.status]) }} · {{ _('Started: %(date)s', date=session.started_on) }}{% if session.ended_on %} · {{ _('Ended: %(date)s', date=session.ended_on) }}{% endif %}</p>
+        <div class="flex flex-wrap gap-4 mt-3 text-sm"><a href="/reading-life/items/{{ item.id }}" class="text-shelf-accent2 hover:underline">{{ _('All sessions for this item / start another cycle') }}</a><a href="/reading-life" class="text-shelf-accent2 hover:underline">{{ _('My journal and goals') }}</a><a href="/item/{{ item.id }}" class="text-shelf-accent2 hover:underline">{{ _('Back to item') }}</a></div>
+    </header>
+    {% if reading_error %}<div role="alert" class="border border-shelf-error rounded-lg p-4 mb-6"><p>{{ reading_error }}</p><a href="/reading-life/sessions/{{ session.id }}" class="text-shelf-accent2 hover:underline">{{ _('Reload latest values (discards this unsaved form)') }}</a></div>{% endif %}
+    <section class="bg-shelf-card border border-shelf-border rounded-lg p-5 mb-8">
+        <h2 class="text-lg font-semibold mb-4">{{ _('Correct this session') }}</h2>
+        <p class="text-sm text-shelf-muted mb-4">{{ _('Editing or reopening corrects this cycle only; earlier versions stay in its history. For another cycle, start a new session. Mark an accidental session Entered in error to exclude it from goals without deleting its history.') }}</p>
+        {{ session_editor(session_form, '/api/reading-life/sessions/' ~ session.id, true) }}
+    </section>
+    <section class="mb-8"><h2 class="text-lg font-semibold">{{ _('Session revision history') }}</h2>
+        {{ revision_list(reading_history) }}
+        {{ pager(reading_history, '/reading-life/sessions/' ~ session.id ~ '?journal_page=' ~ reading_journal.page ~ '&', 'history_page') }}
+    </section>
+    <section class="bg-shelf-card border border-shelf-border rounded-lg p-5 mb-8" id="new-journal-entry">
+        <h2 class="text-lg font-semibold mb-4">{{ _('Write about this session') }}</h2>
+        {{ journal_editor(journal_form, '/api/reading-life/items/' ~ item.id ~ '/journal') }}
+    </section>
+    <section><h2 class="text-lg font-semibold mb-4">{{ _('Journal for this session') }}</h2>
+        {{ journal_list(reading_journal) }}
+        {{ pager(reading_journal, '/reading-life/sessions/' ~ session.id ~ '?history_page=' ~ reading_history.page ~ '&', 'journal_page') }}
+    </section>
+</div>
+{% endblock %}

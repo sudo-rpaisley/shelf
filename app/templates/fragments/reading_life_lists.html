@@ -1,0 +1,57 @@
+{% macro pager(data, base, param) -%}
+{% if data.page > 1 or data.has_next %}
+<nav aria-label="{{ _('Pagination') }}" class="flex flex-wrap gap-4 mt-4 text-sm">
+    {% if data.page > 1 %}<a href="{{ base }}{{ param }}={{ data.page - 1 }}" class="text-shelf-accent2 hover:underline">{{ _('Previous page') }}</a>{% endif %}
+    <span>{{ _('Page %(page)s', page=data.page) }}</span>
+    {% if data.has_next %}<a href="{{ base }}{{ param }}={{ data.page + 1 }}" class="text-shelf-accent2 hover:underline">{{ _('Next page') }}</a>{% endif %}
+</nav>
+{% endif %}
+{%- endmacro %}
+
+{% macro session_list(data) -%}
+{% if data.rows %}
+<ol class="space-y-3" data-testid="reading-session-list">
+    {% for row in data.rows %}
+    <li class="bg-shelf-card border border-shelf-border rounded-lg p-4">
+        <a href="/reading-life/sessions/{{ row.id }}" class="font-medium text-shelf-accent2 hover:underline">{{ row.title }} · {{ _(reading_activities[row.activity]) }}</a>
+        <p class="text-sm mt-1">{{ _(reading_statuses[row.status]) }}</p>
+        <p class="text-sm text-shelf-muted mt-1">{{ _('Started: %(date)s', date=row.started_on) }}{% if row.ended_on %} · {{ _('Ended: %(date)s', date=row.ended_on) }}{% endif %}</p>
+    </li>
+    {% endfor %}
+</ol>
+{% else %}<p class="text-sm text-shelf-muted">{{ _('No sessions on this page. Open a catalogue item to start or log a session.') }}</p>{% endif %}
+{%- endmacro %}
+
+{% macro journal_list(data) -%}
+{% if data.rows %}
+<ol class="space-y-3" data-testid="reading-journal-list">
+    {% for row in data.rows %}
+    <li class="bg-shelf-card border border-shelf-border rounded-lg p-4">
+        <div class="flex flex-wrap items-center justify-between gap-2">
+            <a href="/reading-life/journal/{{ row.id }}" class="font-medium text-shelf-accent2 hover:underline">{{ row.title }} · {{ _('Entry and revisions') }}</a>
+            <time datetime="{{ row.entry_on }}" class="text-sm text-shelf-muted">{{ row.entry_on }}</time>
+        </div>
+        {% if row.session_id %}<a href="/reading-life/sessions/{{ row.session_id }}" class="text-sm text-shelf-accent2 hover:underline">{{ _('Linked session') }}</a>{% else %}<p class="text-sm text-shelf-muted">{{ _('Item-level entry (no session)') }}</p>{% endif %}
+        <p class="whitespace-pre-wrap break-words text-sm mt-3">{{ row.body }}</p>
+    </li>
+    {% endfor %}
+</ol>
+{% else %}<p class="text-sm text-shelf-muted">{{ _('No journal entries on this page.') }}</p>{% endif %}
+{%- endmacro %}
+
+{% macro revision_list(data, journal=false) -%}
+{% if data.error %}<p role="alert" class="text-shelf-error">{{ data.error }}</p>{% endif %}
+<ol class="space-y-3 mt-4" data-testid="reading-revision-list">
+    {% for revision in data.rows %}
+    <li class="border-t border-shelf-border pt-3 text-sm">
+        <p class="text-shelf-muted">{{ _('Revision %(version)s', version=revision.version) }} · <time datetime="{{ revision.recorded_at }}">{{ revision.recorded_at }}</time></p>
+        {% if journal %}
+        <p>{{ revision.entry_on }}</p><p class="whitespace-pre-wrap break-words mt-1">{{ revision.body }}</p>
+        {% else %}
+        <p>{{ _(reading_activities.get(revision.activity, revision.activity)) }} · {{ _(reading_statuses.get(revision.status, revision.status)) }}</p>
+        <p>{{ _('Started: %(date)s', date=revision.started_on) }}{% if revision.ended_on %} · {{ _('Ended: %(date)s', date=revision.ended_on) }}{% endif %}</p>
+        {% endif %}
+    </li>
+    {% endfor %}
+</ol>
+{%- endmacro %}
