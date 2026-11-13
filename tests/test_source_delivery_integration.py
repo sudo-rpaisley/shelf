@@ -35,6 +35,11 @@ from tests.test_source_progress import (  # noqa: F401 — isolated HTTP fixture
     ("/api/source-progress/accounts/not-an-id/schedule/", 16384),
     ("/api/source-progress/accounts/not-an-id/items/also-invalid/pull/", 16384),
     ("/api/source-progress/reviews/not-an-id/", 16384),
+    ("/api/source-migrations/replacement/preview/", 16384),
+    ("/api/source-migrations/repair/preview/", 16384),
+    ("/api/source-migrations/not-a-plan/apply/", 16384),
+    ("/api/source-migrations/not-a-plan/retire/", 16384),
+    ("/api/source-migrations/not-a-plan/rollback/", 16384),
 ])
 async def test_review_bounds_precede_csrf_and_path_parsing(path, limit, header_token):
     from app.main import CSRFMiddleware

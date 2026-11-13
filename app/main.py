@@ -175,7 +175,8 @@ class CSRFMiddleware(BaseHTTPMiddleware):
         # Bound review bodies even when HTMX supplies the token in a header.
         # Native forms must reach CSRF parsing with an already bounded cache;
         # malformed IDs and slash redirects use the same pure route hooks.
-        review_limit = audiobook_metadata.form_limit(path) or source_progress.form_limit(path)
+        review_limit = (audiobook_metadata.form_limit(path) or source_progress.form_limit(path)
+                        or source_migration.form_limit(path))
         if review_limit is not None:
             from app.http_body import BodyTooLarge, bounded_body
             try:
