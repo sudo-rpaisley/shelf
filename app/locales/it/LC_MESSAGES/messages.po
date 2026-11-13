@@ -12,7 +12,7 @@ msgstr ""
 "Content-Type: text/plain; charset=utf-8\n"
 "Content-Transfer-Encoding: 8bit"
 
-#: app/browse_columns.py:62 app/services/audiobook_review.py:33
+#: app/browse_columns.py:62 app/services/audiobook_review.py:34
 #: app/services/library_catalog.py:50 app/services/metadata_review.py:34
 #: app/templates/fragments/music_matching.html:2
 #: app/templates/item_edit.html:103 app/templates/music.html:4
@@ -45,7 +45,7 @@ msgstr "Stato"
 msgid "Value"
 msgstr "Valore"
 
-#: app/browse_columns.py:68 app/nav.py:43 app/services/audiobook_review.py:37
+#: app/browse_columns.py:68 app/nav.py:43 app/services/audiobook_review.py:38
 #: app/services/metadata_review.py:38 app/templates/browse.html:50
 #: app/templates/fragments/manual_add_form.html:155
 #: app/templates/item_edit.html:79 app/templates/item_edit.html:218
@@ -53,7 +53,7 @@ msgstr "Valore"
 msgid "Series"
 msgstr "Serie"
 
-#: app/browse_columns.py:69 app/services/audiobook_review.py:35
+#: app/browse_columns.py:69 app/services/audiobook_review.py:36
 #: app/services/metadata_review.py:36
 #: app/templates/fragments/manual_add_form.html:96
 #: app/templates/item_edit.html:118
@@ -71,7 +71,7 @@ msgid "Pages"
 msgstr "Pagine"
 
 #: app/browse_columns.py:72 app/browse_filters.py:221
-#: app/services/audiobook_review.py:36 app/services/metadata_review.py:38
+#: app/services/audiobook_review.py:37 app/services/metadata_review.py:38
 #: app/templates/browse.html:66 app/templates/fragments/account_menu.html:116
 #: app/templates/item_edit.html:123
 msgid "Language"
@@ -101,8 +101,8 @@ msgid "Search"
 msgstr "Ricerca"
 
 #: app/browse_filters.py:210 app/templates/fragments/item_copy_edit.html:67
+#: app/templates/fragments/source_migration_openings.html:3
 #: app/templates/fragments/source_progress.html:46
-#: app/templates/source_migration_openings.html:3
 msgid "Source"
 msgstr "Origine"
 
@@ -393,47 +393,47 @@ msgstr "Hai già %(max)s token: revocane uno prima"
 msgid "Token not found"
 msgstr "Token non trovato"
 
-#: app/routers/audiobook_metadata.py:25
+#: app/routers/audiobook_metadata.py:34 app/services/audiobook_review.py:163
+msgid "Your session changed while this review was open. Nothing was saved; sign in and review again."
+msgstr ""
+
+#: app/routers/audiobook_metadata.py:46
 msgid "Submit the audiobook review form without attachments."
 msgstr ""
 
-#: app/routers/audiobook_metadata.py:30
+#: app/routers/audiobook_metadata.py:51
 msgid "The audiobook review form is too large. Preview it again."
 msgstr ""
 
-#: app/routers/audiobook_metadata.py:32
+#: app/routers/audiobook_metadata.py:53
 msgid "Submit a valid audiobook review form."
 msgstr ""
 
-#: app/routers/audiobook_metadata.py:66
+#: app/routers/audiobook_metadata.py:103
 msgid "Choose a marketplace; edit the item's ASIN on its edit page."
 msgstr ""
 
-#: app/routers/audiobook_metadata.py:75
+#: app/routers/audiobook_metadata.py:125
 msgid "No exact audiobook was found in that marketplace. Existing metadata and artwork were kept."
 msgstr ""
 
-#: app/routers/audiobook_metadata.py:76
+#: app/routers/audiobook_metadata.py:126
 msgid "Audible rate-limited this request. Try again later; nothing was changed."
 msgstr ""
 
-#: app/routers/audiobook_metadata.py:77
+#: app/routers/audiobook_metadata.py:127
 msgid "The public Audible catalogue refused this request. No login or scraping fallback is used; nothing was changed."
 msgstr ""
 
-#: app/routers/audiobook_metadata.py:85
-msgid "This audiobook changed during lookup. Preview it again."
-msgstr ""
-
-#: app/routers/audiobook_metadata.py:133 app/services/audiobook_review.py:212
+#: app/routers/audiobook_metadata.py:180 app/services/audiobook_review.py:227
 msgid "Backfill keeps existing or manually removed artwork. Choose Keep current artwork and try again."
 msgstr ""
 
-#: app/routers/audiobook_metadata.py:137
+#: app/routers/audiobook_metadata.py:184
 msgid "The chosen artwork could not be downloaded. Nothing was changed; try keeping the current artwork."
 msgstr ""
 
-#: app/routers/audiobook_metadata.py:154
+#: app/routers/audiobook_metadata.py:199
 msgid "Those catalogue values could not be saved. Nothing was changed; preview the audiobook again."
 msgstr ""
 
@@ -994,75 +994,75 @@ msgstr ""
 msgid "Choose one of the listed Audible marketplaces."
 msgstr ""
 
-#: app/services/audiobook_review.py:33 app/services/metadata_review.py:34
+#: app/services/audiobook_review.py:34 app/services/metadata_review.py:34
 #: app/templates/item_edit.html:104
 msgid "Subtitle"
 msgstr "Sottotitolo"
 
-#: app/services/audiobook_review.py:33 app/services/metadata_review.py:34
+#: app/services/audiobook_review.py:34 app/services/metadata_review.py:34
 msgid "Authors"
 msgstr ""
 
-#: app/services/audiobook_review.py:34 app/services/metadata_review.py:35
+#: app/services/audiobook_review.py:35 app/services/metadata_review.py:35
 #: app/templates/item_edit.html:367
 msgid "Narrator"
 msgstr "Voce narrante"
 
-#: app/services/audiobook_review.py:34 app/services/metadata_review.py:37
+#: app/services/audiobook_review.py:35 app/services/metadata_review.py:37
 msgid "Duration (minutes)"
 msgstr ""
 
-#: app/services/audiobook_review.py:35 app/services/metadata_review.py:35
+#: app/services/audiobook_review.py:36 app/services/metadata_review.py:35
 #: app/templates/item_edit.html:155
 msgid "Description"
 msgstr "Descrizione"
 
-#: app/services/audiobook_review.py:36 app/services/metadata_review.py:36
+#: app/services/audiobook_review.py:37 app/services/metadata_review.py:36
 msgid "Publication year"
 msgstr ""
 
-#: app/services/audiobook_review.py:37 app/services/library_catalog.py:51
+#: app/services/audiobook_review.py:38 app/services/library_catalog.py:51
 #: app/services/metadata_review.py:39
 msgid "Series position"
 msgstr ""
 
-#: app/services/audiobook_review.py:51
+#: app/services/audiobook_review.py:53
 msgid "Audiobook not found."
 msgstr ""
 
-#: app/services/audiobook_review.py:65
+#: app/services/audiobook_review.py:67
 msgid "This audiobook has too much saved provenance to review safely. Edit it directly instead."
 msgstr ""
 
-#: app/services/audiobook_review.py:120
+#: app/services/audiobook_review.py:122
 msgid "That preview belongs to a different audiobook. Preview it again."
 msgstr ""
 
-#: app/services/audiobook_review.py:133
+#: app/services/audiobook_review.py:135
 msgid "That catalogue preview is not safe to apply. Preview it again."
 msgstr ""
 
-#: app/services/audiobook_review.py:141
+#: app/services/audiobook_review.py:143
 msgid "This audiobook or its metadata decisions changed after the preview. Preview it again before applying anything."
 msgstr ""
 
-#: app/services/audiobook_review.py:159
-msgid "Your session changed while this review was open. Nothing was saved; sign in and review again."
-msgstr ""
-
-#: app/services/audiobook_review.py:161
+#: app/services/audiobook_review.py:165
 msgid "You no longer have permission to apply this review. Nothing was saved."
 msgstr ""
 
-#: app/services/audiobook_review.py:164
+#: app/services/audiobook_review.py:168
 msgid "Connected library was turned off while this review was open. Nothing was saved."
 msgstr ""
 
-#: app/services/audiobook_review.py:194
+#: app/services/audiobook_review.py:179
+msgid "This audiobook changed during lookup. Preview it again."
+msgstr ""
+
+#: app/services/audiobook_review.py:209
 msgid "Submit only the audiobook review choices, not source values."
 msgstr ""
 
-#: app/services/audiobook_review.py:200
+#: app/services/audiobook_review.py:215
 msgid "Choose only the fields and artwork shown in the preview."
 msgstr ""
 
@@ -1174,8 +1174,8 @@ msgstr ""
 #: app/services/library_catalog.py:44 app/services/library_catalog.py:57
 #: app/templates/fragments/available_here.html:40
 #: app/templates/fragments/library_results.html:2
+#: app/templates/fragments/source_migration_openings.html:3
 #: app/templates/source_detail.html:73
-#: app/templates/source_migration_openings.html:3
 msgid "Available"
 msgstr ""
 
@@ -2272,8 +2272,8 @@ msgstr "Tipo di media"
 #: app/templates/fragments/available_here.html:40
 #: app/templates/fragments/library_results.html:2
 #: app/templates/fragments/metadata_provenance.html:24
+#: app/templates/fragments/source_migration_openings.html:3
 #: app/templates/item_edit.html:126 app/templates/source_detail.html:73
-#: app/templates/source_migration_openings.html:3
 msgid "Unknown"
 msgstr "Sconosciuto"
 
@@ -3104,8 +3104,9 @@ msgstr ""
 
 #: app/templates/fragments/available_here.html:40
 #: app/templates/fragments/library_results.html:2
+#: app/templates/fragments/source_migration_openings.html:3
 #: app/templates/source_detail.html:18 app/templates/source_detail.html:73
-#: app/templates/source_migration_openings.html:3 app/templates/sources.html:44
+#: app/templates/sources.html:44
 msgid "Unavailable"
 msgstr ""
 
@@ -3303,9 +3304,9 @@ msgstr ""
 msgid "Replacement source records"
 msgstr ""
 
+#: app/templates/fragments/source_migration_openings.html:3
 #: app/templates/source_migration.html:33
 #: app/templates/source_migration.html:61
-#: app/templates/source_migration_openings.html:3
 msgid "Record ID"
 msgstr ""
 
@@ -3412,30 +3413,6 @@ msgstr ""
 
 #: app/templates/source_migration_error.html:8
 msgid "Start a fresh source review"
-msgstr ""
-
-#: app/templates/source_migration_openings.html:3
-msgid "Catalogue item"
-msgstr ""
-
-#: app/templates/source_migration_openings.html:3
-msgid "Cached availability"
-msgstr ""
-
-#: app/templates/source_migration_openings.html:5
-msgid "Opening action unavailable or unconfirmed"
-msgstr ""
-
-#: app/templates/source_migration_openings.html:5
-msgid "Saved safe URL (not an opening action)"
-msgstr ""
-
-#: app/templates/source_migration_openings.html:12
-msgid "No usable opening action among these reviewed records."
-msgstr ""
-
-#: app/templates/source_migration_openings.html:14
-msgid "Opening actions were not recorded by this older review, or its records no longer exist. Inspect the current saved actions before starting a fresh review."
 msgstr ""
 
 #: app/templates/source_migration_review.html:3
@@ -4887,6 +4864,30 @@ msgstr "LibraryThing non è disponibile. Riprova più tardi."
 #, python-format
 msgid "Could not reach %(provider)s &mdash; check connectivity and try again."
 msgstr "Impossibile raggiungere %(provider)s: controlla la connessione e riprova."
+
+#: app/templates/fragments/source_migration_openings.html:3
+msgid "Catalogue item"
+msgstr ""
+
+#: app/templates/fragments/source_migration_openings.html:3
+msgid "Cached availability"
+msgstr ""
+
+#: app/templates/fragments/source_migration_openings.html:5
+msgid "Opening action unavailable or unconfirmed"
+msgstr ""
+
+#: app/templates/fragments/source_migration_openings.html:5
+msgid "Saved safe URL (not an opening action)"
+msgstr ""
+
+#: app/templates/fragments/source_migration_openings.html:12
+msgid "No usable opening action among these reviewed records."
+msgstr ""
+
+#: app/templates/fragments/source_migration_openings.html:14
+msgid "Opening actions were not recorded by this older review, or its records no longer exist. Inspect the current saved actions before starting a fresh review."
+msgstr ""
 
 #: app/templates/fragments/source_progress.html:2
 msgid "My linked accounts"
