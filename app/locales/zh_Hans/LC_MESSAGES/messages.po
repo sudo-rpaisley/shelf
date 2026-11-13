@@ -103,7 +103,7 @@ msgid "Search"
 msgstr "搜索"
 
 #: app/browse_filters.py:210 app/templates/fragments/item_copy_edit.html:67
-#: app/templates/source_migration_openings.html:3
+#: app/templates/fragments/source_migration_openings.html:3
 msgid "Source"
 msgstr "来源"
 
@@ -874,8 +874,8 @@ msgstr ""
 #: app/services/library_catalog.py:44 app/services/library_catalog.py:57
 #: app/templates/fragments/available_here.html:13
 #: app/templates/fragments/library_results.html:2
+#: app/templates/fragments/source_migration_openings.html:3
 #: app/templates/source_detail.html:73
-#: app/templates/source_migration_openings.html:3
 msgid "Available"
 msgstr ""
 
@@ -1979,8 +1979,8 @@ msgstr ""
 #: app/templates/fragments/available_here.html:13
 #: app/templates/fragments/library_results.html:2
 #: app/templates/fragments/metadata_provenance.html:23
+#: app/templates/fragments/source_migration_openings.html:3
 #: app/templates/item_edit.html:126 app/templates/source_detail.html:73
-#: app/templates/source_migration_openings.html:3
 msgid "Unknown"
 msgstr ""
 
@@ -2808,8 +2808,9 @@ msgstr ""
 
 #: app/templates/fragments/available_here.html:13
 #: app/templates/fragments/library_results.html:2
+#: app/templates/fragments/source_migration_openings.html:3
 #: app/templates/source_detail.html:18 app/templates/source_detail.html:73
-#: app/templates/source_migration_openings.html:3 app/templates/sources.html:44
+#: app/templates/sources.html:44
 msgid "Unavailable"
 msgstr ""
 
@@ -3007,9 +3008,9 @@ msgstr ""
 msgid "Replacement source records"
 msgstr ""
 
+#: app/templates/fragments/source_migration_openings.html:3
 #: app/templates/source_migration.html:33
 #: app/templates/source_migration.html:61
-#: app/templates/source_migration_openings.html:3
 msgid "Record ID"
 msgstr ""
 
@@ -3116,30 +3117,6 @@ msgstr ""
 
 #: app/templates/source_migration_error.html:8
 msgid "Start a fresh source review"
-msgstr ""
-
-#: app/templates/source_migration_openings.html:3
-msgid "Catalogue item"
-msgstr ""
-
-#: app/templates/source_migration_openings.html:3
-msgid "Cached availability"
-msgstr ""
-
-#: app/templates/source_migration_openings.html:5
-msgid "Opening action unavailable or unconfirmed"
-msgstr ""
-
-#: app/templates/source_migration_openings.html:5
-msgid "Saved safe URL (not an opening action)"
-msgstr ""
-
-#: app/templates/source_migration_openings.html:12
-msgid "No usable opening action among these reviewed records."
-msgstr ""
-
-#: app/templates/source_migration_openings.html:14
-msgid "Opening actions were not recorded by this older review, or its records no longer exist. Inspect the current saved actions before starting a fresh review."
 msgstr ""
 
 #: app/templates/source_migration_review.html:3
@@ -4454,6 +4431,30 @@ msgstr ""
 #: app/templates/fragments/search_status_notice.html:22
 #, python-format
 msgid "Could not reach %(provider)s &mdash; check connectivity and try again."
+msgstr ""
+
+#: app/templates/fragments/source_migration_openings.html:3
+msgid "Catalogue item"
+msgstr ""
+
+#: app/templates/fragments/source_migration_openings.html:3
+msgid "Cached availability"
+msgstr ""
+
+#: app/templates/fragments/source_migration_openings.html:5
+msgid "Opening action unavailable or unconfirmed"
+msgstr ""
+
+#: app/templates/fragments/source_migration_openings.html:5
+msgid "Saved safe URL (not an opening action)"
+msgstr ""
+
+#: app/templates/fragments/source_migration_openings.html:12
+msgid "No usable opening action among these reviewed records."
+msgstr ""
+
+#: app/templates/fragments/source_migration_openings.html:14
+msgid "Opening actions were not recorded by this older review, or its records no longer exist. Inspect the current saved actions before starting a fresh review."
 msgstr ""
 
 #: app/templates/fragments/unsupported_title_search.html:2
