@@ -1,5 +1,5 @@
 {% extends "base.html" %}
-{% from "source_migration_openings.html" import opening_list with context %}
+{% from "fragments/source_migration_openings.html" import opening_list with context %}
 {% block title %}{{ _('Review source bindings') }} — Shelf{% endblock %}
 {% block content %}
 <div class="page-layout space-y-6" data-testid="source-migration-review">
