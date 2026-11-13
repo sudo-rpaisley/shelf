@@ -1,0 +1,79 @@
+name: Connected library acceptance
+
+on:
+  push:
+    branches: [new-test]
+    paths-ignore:
+      - '**/*.md'
+      - 'screenshots/**'
+  workflow_dispatch:
+
+# This workflow only verifies the experimental branch. It never publishes an
+# image, changes repository files, uses deployment secrets or restamps main.
+permissions:
+  contents: read
+
+concurrency:
+  group: connected-library-acceptance-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  unit:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+          cache: pip
+      - name: Install pinned dependencies
+        run: pip install -r requirements.txt -r requirements-dev.txt
+      - name: Dependency consistency
+        run: python -m pip check
+      - name: Unit and integration acceptance
+        run: make test PYTEST_PAR='-n 4 --dist loadfile'
+      - name: Offline safety checks
+        run: make checks-fast
+
+  browser:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+          cache: pip
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+      - name: Install pinned dependencies and browser
+        run: |
+          pip install -r requirements.txt -r requirements-dev.txt
+          playwright install --with-deps chromium
+          npm ci
+      - name: Verify committed assets
+        run: |
+          make css
+          git diff --exit-code -- static/css/app.css static/sw.js
+      - name: Browser acceptance
+        run: make test-e2e
+
+  container:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v7
+      - name: Build production image without publishing
+        run: docker build --tag shelf-connected-acceptance:${{ github.sha }} .
+      - name: Record exact container runtime
+        run: |
+          docker image inspect shelf-connected-acceptance:${{ github.sha }} --format '{{.Id}} {{.Architecture}}'
+          docker run --rm --network none --entrypoint python shelf-connected-acceptance:${{ github.sha }} -c 'import sys,sqlite3; print(sys.version); print("SQLite",sqlite3.sqlite_version); assert sys.version_info[:2] == (3,12)'
+      - name: Verify cold schema initialisation and upgrade checks
+        run: |
+          data=$(mktemp -d)
+          docker run --rm --network none --mount type=bind,src="$data",dst=/data --entrypoint python shelf-connected-acceptance:${{ github.sha }} -c 'from app.database import init_db; init_db(); init_db()'
+          docker run --rm --network none --mount type=bind,src="$data",dst=/data,readonly --entrypoint python shelf-connected-acceptance:${{ github.sha }} -m app.verify_upgrade
