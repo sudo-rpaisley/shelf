@@ -1,11 +1,20 @@
 <section id="audiobook-metadata" class="bg-shelf-card border border-shelf-border rounded-xl p-4 sm:p-6 space-y-5" data-testid="audiobook-metadata">
     <div>
-        <h2 class="text-lg font-semibold">{{ _('Audible metadata and artwork by ASIN') }}</h2>
-        <p class="text-sm text-shelf-muted mt-1">{{ _('Choose the marketplace for this edition. Shelf reads only the public catalogue, never your Audible account, audio or DRM. Regional availability and metadata coverage vary.') }}</p>
+        <h2 class="text-lg font-semibold">{{ _('Audible metadata review — blocked by default') }}</h2>
+        <p class="text-sm text-shelf-muted mt-1">{{ _('Public reachability and technical host allowlists are not provider permission. No applicable grant has been substantiated for this adapter; R7 remains blocked on provider authorisation.') }}</p>
     </div>
+    {% if not audible_provider_enabled %}
+    <div role="status" data-testid="audible-provider-blocked" class="text-sm text-shelf-muted space-y-3">
+        <p>{{ _(audible_provider_blocked) }}</p>
+        <p>{{ _('Local ASIN storage, editing and file import remain available. No catalogue lookup, image proxy, artwork download or cached review application is enabled.') }}</p>
+    </div>
+    {% else %}
+    <p class="text-xs text-shelf-muted" data-testid="audible-provider-configuration-warning">{{ _('Operator configuration records an authorisation claim only; it is not a licence. An actual applicable grant must cover these queries, persistent observations, image proxying and artwork storage. Routing options are not a regional coverage promise.') }}</p>
+    {% endif %}
     {% if audiobook_error %}<p role="alert" class="text-sm text-shelf-error">{{ audiobook_error }}</p>{% endif %}
     {% if item %}
     <p class="text-sm">{{ _('Saved ASIN') }}: <strong>{{ item.asin or _('Not set') }}</strong> · <a href="/item/{{ item.id }}/edit" class="text-shelf-accent2">{{ _('Edit audiobook identity') }}</a></p>
+    {% if audible_provider_enabled %}
     <p class="text-xs text-shelf-muted">{{ _('The ASIN, ISBN, format, source bindings, copies, ownership and personal activity will not change. Check narrator, duration and abridgement before applying metadata.') }}</p>
     <form method="post" action="/api/audiobooks/{{ item.id }}/metadata/preview" hx-post="/api/audiobooks/{{ item.id }}/metadata/preview" hx-target="#audiobook-metadata" hx-swap="outerHTML" class="space-y-3" data-testid="audiobook-preview-form">
         <input type="hidden" name="_csrf" value="{{ request.cookies.get('csrf_token', '') }}">
@@ -47,7 +56,7 @@
                     <img src="/api/audiobooks/{{ item.id }}/metadata/image?ticket={{ candidate.image_ticket | urlencode }}" alt="{{ _('Cover candidate for the exact ASIN') }}" loading="lazy" class="w-full aspect-square object-contain">
                     <span class="flex items-center gap-2 text-sm mt-2"><input type="radio" name="image" value="0"> {{ _('Use this artwork') }}</span>
                 </label>
-                {% else %}<p class="text-sm text-shelf-muted">{{ _('No permitted artwork was supplied. Existing artwork will be kept.') }}</p>{% endif %}
+                {% else %}<p class="text-sm text-shelf-muted">{{ _('No artwork passed the technical URL checks. Existing artwork will be kept.') }}</p>{% endif %}
             </fieldset>
             <div class="flex flex-wrap gap-3">
                 <button type="submit" name="mode" value="selected" class="px-4 py-2 bg-shelf-accent text-white rounded-lg text-sm">{{ _('Apply only selected fields') }}</button>
@@ -56,6 +65,7 @@
             <p class="text-xs text-shelf-muted">{{ _('Backfill ignores the field checkboxes and fills only eligible blanks. Existing values and recorded manual clears are preserved. Artwork is optional and cannot be backfilled over an existing or removed cover. Explicitly selected artwork pauses automatic source artwork.') }}</p>
         </form>
     </article>
+    {% endif %}
     {% endif %}
     {% endif %}
 </section>

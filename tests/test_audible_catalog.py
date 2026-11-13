@@ -11,12 +11,15 @@ import pytest
 
 from app import config
 from app.services import audible_catalog as catalog, covers, manual_cover, outbound
+from tests.audible_authorization import mock_audible_authorization  # noqa: F401 — pytest fixture
 
+
+pytestmark = pytest.mark.usefixtures("mock_audible_authorization")
 
 ASIN = "B082BHJMFF"
 IMAGE = "https://m.media-amazon.com/images/I/414J3xG+7+L._SL500_.jpg"
-# Selected public fields observed from ONE US catalogue response, 2026-11-13.
-# This is a shape fixture, not a promise of coverage in any other marketplace.
+# Historical single-response shape, retained for MOCK protocol regression only.
+# It establishes neither permission nor present/regional provider coverage.
 PRODUCT = {"asin": ASIN, "title": "The Martian", "authors": [{"asin": "B00G0WYW92", "name": "Andy Weir"}],
            "narrators": [{"name": "Wil Wheaton"}], "content_type": "Product", "content_delivery_type": "SinglePartBook",
            "runtime_length_min": 659, "format_type": "unabridged", "language": "english", "release_date": "2020-01-01",
@@ -73,7 +76,7 @@ def reply(status=200, *, payload=None, content=None, headers=None, stream=None):
 
 
 @pytest.fixture
-def network(monkeypatch):
+def network(monkeypatch, mock_audible_authorization):
     calls, targets, queue = [], [], []
 
     async def public(url):

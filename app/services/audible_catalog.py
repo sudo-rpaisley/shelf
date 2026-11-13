@@ -1,9 +1,9 @@
-"""Unauthenticated, exact-ASIN public catalogue metadata, never library/audio APIs.
+"""Contained, default-off prototype for exact-ASIN catalogue metadata.
 
-Only a user-selected, allowlisted marketplace is queried. The public catalogue
-is not a documented availability/licensing guarantee: a refusal, challenge,
-sparse record or regional miss stays a failed preview, not a scraping fallback.
-No account cookies, credentials, audio/asset URLs or provider HTML pages are used.
+No applicable provider grant has been substantiated for this adapter's requests,
+observations, proxying or storage. Technical URL/host checks and public endpoint
+reachability are NOT permission. Only a separately configured, externally reviewed
+grant may precede live enablement; there is no scraping or alternate-provider fallback.
 """
 
 import asyncio
@@ -16,10 +16,11 @@ from uuid import uuid4
 import httpx
 
 from app import config, i18n
-from app.services import authors, bib_normalize, covers, isbn, manual_cover, outbound, provider_result
+from app.services import audible_permission, authors, bib_normalize, covers, isbn, manual_cover, outbound, provider_result
 
 
-# Keys, not user-supplied hostnames. Adding a market also requires pacing in config.
+# Technical routing keys only, NOT a coverage or provider-permission claim.
+# Adding a market also requires grant review and pacing in config.
 MARKETPLACES = {
     "us": (i18n.N_("United States"), "audible.com"), "uk": (i18n.N_("United Kingdom"), "audible.co.uk"),
     "ca": (i18n.N_("Canada"), "audible.ca"), "au": (i18n.N_("Australia"), "audible.com.au"),
@@ -54,7 +55,7 @@ def product_url(asin, marketplace):
 
 
 def artwork_url(value):
-    """Public image paths only: no signatures, credentials, query or fragments."""
+    """Technical URL filter only, not a licence/permission or availability check."""
     if not isinstance(value, str) or len(value) > 1024 or re.search(r"[\x00-\x20\\]", value):
         return None
     try:
@@ -161,11 +162,14 @@ class _Unreadable(ValueError):
 
 async def _read_public(url, *, params=None, image=False):
     """One DNS-pinned, paced hop; no inherited auth/proxies/cookies or redirects."""
+    audible_permission.require_enabled()
     target = await manual_cover._public_target(url)
     if target is None:
         raise _Unreadable
     host, address = target
+    audible_permission.require_enabled()
     await outbound.acquire(host)
+    audible_permission.require_enabled()
     async with httpx.AsyncClient(transport=manual_cover._PinnedIPTransport(address), trust_env=False,
                                 timeout=8, follow_redirects=False) as client:
         async with client.stream("GET", url, params=params, headers={
@@ -205,12 +209,14 @@ def _nonfinite(value):
 
 async def lookup(asin, marketplace):
     """One bounded request, no retries, marketplace search or title fallback."""
+    audible_permission.require_enabled()
     asin, marketplace = identity(asin, marketplace)
     url = f"https://api.{MARKETPLACES[marketplace][1]}/1.0/catalog/products"
     try:
         async with asyncio.timeout(PREVIEW_SECONDS):
             status, _, data = await _read_public(url, params={"asins": asin, "num_results": "1", "image_sizes": "500",
                 "response_groups": "contributors,media,product_attrs,product_desc,series"})
+        audible_permission.require_enabled()
         if status == 429:
             return provider_result.rate_limited("audible")
         if status in {401, 403}:
@@ -221,6 +227,8 @@ async def lookup(asin, marketplace):
             return provider_result.transport_failed("audible")
         candidate = normalise(json.loads(data, object_pairs_hook=_unique_object, parse_constant=_nonfinite), asin, marketplace)
         return provider_result.found("audible", candidate) if candidate else provider_result.no_match("audible")
+    except audible_permission.ProviderBlocked:
+        raise
     except (httpx.HTTPError, OSError, ValueError, RecursionError, TimeoutError):
         return provider_result.transport_failed("audible")
 
@@ -233,6 +241,7 @@ def _stage_artwork(item_id, content):
     remove. Keep both paths here, reuse shared validation, and never expose a
     partial file as retained item artwork.
     """
+    audible_permission.require_enabled()
     if not covers.validate_uploaded_cover(content):
         return None
     config.COVERS_DIR.mkdir(parents=True, exist_ok=True)
@@ -254,6 +263,7 @@ def _stage_artwork(item_id, content):
 
 async def download_artwork(item_id, url):
     """Use shared DNS/image/file mechanisms, checking EVERY redirect before I/O."""
+    audible_permission.require_enabled()
     try:
         async with asyncio.timeout(ARTWORK_SECONDS):
             for _ in range(4):
@@ -261,12 +271,15 @@ async def download_artwork(item_id, url):
                 if not url:
                     return None
                 status, location, content = await _read_public(url, image=True)
+                audible_permission.require_enabled()
                 if status in _REDIRECTS and location:
                     url = urljoin(url, location)
                     continue
                 if status != 200 or content is None:
                     return None
                 return _stage_artwork(item_id, content)
+    except audible_permission.ProviderBlocked:
+        raise
     except (httpx.HTTPError, OSError, ValueError, TimeoutError):
         pass
     return None

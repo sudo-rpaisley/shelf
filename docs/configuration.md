@@ -27,6 +27,12 @@ Set these in your `.env` file next to `docker-compose.yml`, or with `-e` on
 | `SHELF_UPC_LOOKUP_URL` | *(unset)* | Overrides the UPC Item DB lookup endpoint. For the test suite only — the E2E gate points it at a local stub. Leave it unset in production; the trial endpoint is used and paced when it is |
 | `SHELF_ISSN_PORTAL_URL` | *(unset)* | Overrides the ISSN Portal resource URL (a template with an `{issn}` placeholder). For the test suite only — the E2E gate points it at a local stub. Leave it unset in production |
 
+The experimental Audible catalogue prototype has a separate **default-off**
+provider gate, not a Connected library profile setting. No applicable provider
+grant has been substantiated. Leave its configuration unset; an operator switch
+is not a licence. See [Audible provider authorisation blocker](audible-provider-authorization.md)
+before considering any future configuration.
+
 ### Credential overrides
 
 The existing integration credentials below are normally entered in Settings

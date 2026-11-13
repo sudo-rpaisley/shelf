@@ -13,7 +13,7 @@ from app.database import get_db
 from app.features import require_feature
 from app.http_body import BodyTooLarge, bounded_body
 from app.routers import items_common
-from app.services import audible_catalog, audiobook_review as review, covers, item_write
+from app.services import audible_catalog, audible_permission, audiobook_review as review, covers, item_write
 
 
 router = APIRouter(dependencies=[Depends(require_role("editor")), Depends(require_feature("connected_library"))])
@@ -54,6 +54,9 @@ async def _form(request, limit):
 
 
 def _render(request, item_id, *, candidate=None, error=None, marketplace="", status_code=200, checked=None):
+    provider_enabled = audible_permission.enabled()
+    if not provider_enabled:
+        candidate = None
     if checked is not None:
         item, missing = checked
     else:
@@ -72,6 +75,7 @@ def _render(request, item_id, *, candidate=None, error=None, marketplace="", sta
     return request.app.state.templates.TemplateResponse(request, template, {
         "item": item, "audiobook_error": error, "candidate": candidate, "marketplace": marketplace,
         "marketplaces": audible_catalog.MARKETPLACES, "field_labels": review.FIELD_LABELS, "backfill_fields": missing,
+        "audible_provider_enabled": provider_enabled, "audible_provider_blocked": audible_permission.BLOCKED_MESSAGE,
     }, status_code=status_code, headers=headers)
 
 
@@ -82,7 +86,7 @@ def _error(request, item_id, actor, message, **kwargs):
         with get_db() as db:
             db.execute("BEGIN IMMEDIATE")
             review.authorize_apply(db, actor)
-    except review.PermissionChanged as error:
+    except (review.PermissionChanged, audible_permission.ProviderBlocked) as error:
         return _refused(error)
     return _render(request, item_id, error=message, **kwargs)
 
@@ -98,6 +102,7 @@ async def preview(request: Request, item_id: int = Path(..., gt=0, le=2**63 - 1)
     market = ""
     try:
         actor = _entry_actor(request)
+        audible_permission.require_enabled()
         form = await _form(request, review.PREVIEW_FORM_BYTES)
         if set(form) - {"marketplace", "_csrf"} or len(form.getlist("marketplace")) != 1 or len(form.getlist("_csrf")) > 1:
             raise review.ReviewError(i18n.gettext("Choose a marketplace; edit the item's ASIN on its edit page."))
@@ -129,7 +134,7 @@ async def preview(request: Request, item_id: int = Path(..., gt=0, le=2**63 - 1)
             message = i18n.gettext(messages.get(answer.outcome, i18n.N_("The public Audible catalogue could not be read. Try again later; nothing was changed.")))
             return _render(request, item_id, error=message, marketplace=market, checked=checked)
         return _render(request, item_id, candidate=candidate, marketplace=market, checked=checked)
-    except review.PermissionChanged as error:
+    except (review.PermissionChanged, audible_permission.ProviderBlocked) as error:
         return _refused(error)
     except (review.ReviewError, ValueError) as error:
         return _error(request, item_id, actor, str(error), marketplace=market if market in audible_catalog.MARKETPLACES else "")
@@ -140,6 +145,7 @@ async def preview_image(request: Request, ticket: str, item_id: int = Path(..., 
     path = None
     try:
         actor = _entry_actor(request)
+        audible_permission.require_enabled()
         signed = review.verify(ticket, user_id=request.state.user["id"], item_id=item_id, image=True)
         with get_db() as db:
             review.check_current(db, item_id, signed)
@@ -156,7 +162,7 @@ async def preview_image(request: Request, ticket: str, item_id: int = Path(..., 
             mime = ("image/png" if content.startswith(b"\x89PNG") else "image/webp" if content.startswith(b"RIFF")
                     else "image/gif" if content.startswith(b"GIF") else "image/jpeg")
             return Response(content, media_type=mime, headers={"Cache-Control": "no-store", "X-Content-Type-Options": "nosniff"})
-    except review.PermissionChanged as error:
+    except (review.PermissionChanged, audible_permission.ProviderBlocked) as error:
         return _refused(error)
     except (review.ReviewError, ValueError, OSError):
         return Response(status_code=404)
@@ -170,6 +176,7 @@ async def apply(request: Request, item_id: int = Path(..., gt=0, le=2**63 - 1)):
     path = None
     try:
         actor = _entry_actor(request)
+        audible_permission.require_enabled()
         form = await _form(request, review.REVIEW_FORM_BYTES)
         signed = review.verify(form.get("ticket"), user_id=request.state.user["id"], item_id=item_id)
         candidate = signed["candidate"]
@@ -190,7 +197,7 @@ async def apply(request: Request, item_id: int = Path(..., gt=0, le=2**63 - 1)):
         if request.headers.get("HX-Request", "").lower() == "true":
             return Response(headers={"HX-Redirect": target, "Cache-Control": "no-store"})
         return RedirectResponse(target, status_code=303, headers={"Cache-Control": "no-store"})
-    except review.PermissionChanged as error:
+    except (review.PermissionChanged, audible_permission.ProviderBlocked) as error:
         # Do not render catalogue values or stale editor controls after a
         # session/permission revocation. The write context has already rolled
         # back; finally removes any staged image before returning the refusal.

@@ -15,7 +15,7 @@ import time
 from pathlib import Path
 
 from app import auth, config, features, i18n
-from app.services import audible_catalog, cover_sync_policy, item_write, music_review
+from app.services import audible_catalog, audible_permission, cover_sync_policy, item_write, music_review
 
 
 ReviewError = music_review.ReviewError
@@ -101,6 +101,7 @@ def fingerprint(db, item_id, *, staged_path=None):
 
 
 def sign(candidate, *, user_id, item_id, fingerprint, image=False):
+    audible_permission.require_enabled()
     return music_review.sign(candidate, user_id=user_id, item_id=item_id, fingerprint=fingerprint,
                              purpose=IMAGE_PURPOSE if image else REVIEW_PURPOSE)
 
@@ -166,6 +167,7 @@ def authorize_apply(db, actor):
     flag = db.execute("SELECT value FROM settings WHERE key = ?", (features.setting_key("connected_library"),)).fetchone()
     if flag is not None and flag["value"] == "0":
         raise PermissionChanged(i18n.gettext("Connected library was turned off while this review was open. Nothing was saved."), 403)
+    audible_permission.require_enabled()
 
 
 def authorize_read(db, item_id, actor, previous):

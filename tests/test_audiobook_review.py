@@ -18,9 +18,12 @@ from starlette.requests import Request
 from app import auth, config
 from app.config import JWT_ALGORITHM
 from app.services import audible_catalog, audiobook_review as review, cover_sync_policy, item_write, music_review, provider_result
+from tests.audible_authorization import mock_audible_authorization  # noqa: F401 — pytest fixture
 from tests.conftest import _insert_item
 from tests.test_audible_catalog import ASIN, IMAGE, PNG, PRODUCT
 
+
+pytestmark = pytest.mark.usefixtures("mock_audible_authorization")
 
 @pytest.fixture(autouse=True)
 def mount_router(_isolated_db, monkeypatch):
