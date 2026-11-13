@@ -221,3 +221,83 @@ async def test_real_writer_rejects_nonstring_entries_without_widening_unknown_sc
         await svc.pull_item(uid, account, item)
     assert (await svc.run_scheduled_pass())["accepted"] == 0
     assert len(remote.calls) == calls and _progress_rows(db) == before
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("raw", [
+    pytest.param("", id="blank"), pytest.param(None, id="sql-null"),
+    pytest.param(" \t\n", id="whitespace"), pytest.param("null", id="json-null"),
+    pytest.param("{}", id="object"), pytest.param("false", id="boolean"),
+    pytest.param("0", id="number"), pytest.param('""', id="empty-json-string"),
+    pytest.param('"[]"', id="json-string-not-list"), pytest.param("[", id="truncated-json"),
+    pytest.param("[null]", id="null-entry"), pytest.param('[""]', id="blank-entry"),
+    pytest.param(b"[]", id="nontext-storage"),
+])
+async def test_persisted_invalid_policy_blocks_all_http_and_cannot_resurrect_consent(db, viewer_user, remote, raw):
+    uid = viewer_user["id"]
+    set_setting(db, "abs_url", ABS_ROOT)
+    set_setting(db, "abs_excluded_libraries", "[]")
+    item = _item(db, "Legacy unstamped audio", "audiobook", abs_id="remote-item", abs_library_id=None)
+    db.commit()
+    _save(db, uid, item, status="paused", progress="90", notes="Keep my state and history")
+    account = await _link(uid, "abs")
+    _enable(db, uid, account)
+    before = _progress_rows(db)
+    linked = dict(db.execute("SELECT * FROM user_source_accounts WHERE id = ?", (account,)).fetchone())
+    generation = db.execute("SELECT generation FROM user_source_link_state WHERE user_id = ? AND source_key = 'abs'", (uid,)).fetchone()[0]
+    consent_fields = ("revision", "interval_minutes", "consent_version", "consented_at",
+                      "actor_username", "actor_role", "actor_token_version")
+    schedule = db.execute("SELECT * FROM user_source_schedules WHERE account_id = ?", (account,)).fetchone()
+    consent = {key: schedule[key] for key in consent_fields}
+    # Exercise a real persisted raw setting, including SQL NULL/BLOB. Neither
+    # the legacy config route's coercions nor a mocked source DTO can hide it.
+    set_setting(db, "abs_excluded_libraries", raw)
+    db.commit()
+    assert db.execute("SELECT value FROM settings WHERE key = 'abs_excluded_libraries'").fetchone()[0] == raw
+    calls = len(remote.calls)
+    with pytest.raises(svc.ProgressError, match="relink_required"):
+        await _link(uid, "abs")
+    with pytest.raises(svc.ProgressError, match="relink_required"):
+        await svc.pull_item(uid, account, item)
+    with pytest.raises(svc.ProgressError, match="relink_required"):
+        _enable(db, uid, account)
+    db.rollback()
+    result = await svc.run_scheduled_pass()
+    assert result["errors"] == 1 and result["attempted"] == result["accepted"] == result["conflict"] == 0
+    assert len(remote.calls) == calls and not remote["abs_progress"].called
+    assert _progress_rows(db) == before
+    assert dict(db.execute("SELECT * FROM user_source_accounts WHERE id = ?", (account,)).fetchone()) == linked
+    assert db.execute("SELECT generation FROM user_source_link_state WHERE user_id = ? AND source_key = 'abs'", (uid,)).fetchone()[0] == generation
+    schedule = db.execute("SELECT * FROM user_source_schedules WHERE account_id = ?", (account,)).fetchone()
+    assert {key: schedule[key] for key in consent_fields} == consent
+
+    db.execute("BEGIN IMMEDIATE")
+    svc.disconnect(db, uid, account)
+    db.commit()
+    tombstone = db.execute("SELECT generation FROM user_source_link_state WHERE user_id = ? AND source_key = 'abs'", (uid,)).fetchone()[0]
+    with pytest.raises(svc.ProgressError, match="relink_required"):
+        await _link(uid, "abs")  # A new link after disconnect must also fail before HTTP.
+    assert db.execute("SELECT COUNT(*) FROM user_source_accounts").fetchone()[0] == 0
+    assert db.execute("SELECT COUNT(*) FROM user_source_schedules").fetchone()[0] == 0
+    assert db.execute("SELECT generation FROM user_source_link_state WHERE user_id = ? AND source_key = 'abs'", (uid,)).fetchone()[0] == tombstone
+    assert len(remote.calls) == calls and _progress_rows(db) == before
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("policy", ["absent", "explicit-empty", "json-whitespace-around-empty"])
+@pytest.mark.parametrize("flow", ["manual", "scheduled"])
+async def test_only_absent_or_valid_empty_policy_defaults_to_all_libraries(db, viewer_user, remote, policy, flow):
+    uid = viewer_user["id"]
+    set_setting(db, "abs_url", ABS_ROOT)
+    item = _item(db, "Legacy unscoped audio", "audiobook", abs_id="remote-item", abs_library_id=None)
+    db.execute("DELETE FROM settings WHERE key = 'abs_excluded_libraries'")
+    if policy != "absent":
+        set_setting(db, "abs_excluded_libraries", "[]" if policy == "explicit-empty" else " \n[]\t")
+    db.commit()
+    account = await _link(uid, "abs")
+    if flow == "manual":
+        assert (await svc.pull_item(uid, account, item))["outcome"] == "accepted"
+    else:
+        _enable(db, uid, account)
+        assert (await svc.run_scheduled_pass())["accepted"] == 1
+    assert _state(db, uid, item)["progress"] == 25

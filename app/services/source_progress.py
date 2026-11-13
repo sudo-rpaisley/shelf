@@ -17,6 +17,8 @@ Remote contract (no catalogue/server credentials are read):
   validated exclusion list is empty (the explicit all-libraries policy).
   Non-NULL library stamps and exclusion entries must be valid opaque IDs;
   blank/malformed values are never normalized into an inclusion or empty scope.
+  Only an ABS policy row's absence defaults to []; a present row must contain
+  valid JSON text for a list. Persisted blank/NULL/non-list policy is invalid.
 
 Every link requires the owner to supply their own token, confirm the resolved
 remote user ID, and consent to pull_v1. Within one configured source, a remote
@@ -185,7 +187,10 @@ def _source(db, key: str) -> dict:
         settings = dict(db.execute("SELECT key, value FROM settings WHERE key IN "
                                    "('abs_excluded_libraries', 'connection.abs.last_status')").fetchall())
         try:
-            excluded = json.loads(settings.get("abs_excluded_libraries") or "[]")
+            raw_excluded = settings.get("abs_excluded_libraries", "[]")
+            if not isinstance(raw_excluded, str):
+                raise ValueError
+            excluded = json.loads(raw_excluded)
             if (not isinstance(excluded, list) or len(excluded) > 1000
                     or any(not _valid_abs_library_id(value) for value in excluded)):
                 raise ValueError
@@ -805,9 +810,10 @@ async def run_scheduled_pass(*, max_accounts: int = MAX_SCHEDULE_ACCOUNTS,
                              max_items: int = MAX_SCHEDULE_ITEMS, max_seconds: float = 60) -> dict:
     """Bounded parent-runner hook, NOT a daemon and never remote writeback.
 
-    Only separately opted-in accounts run. At most 3 accounts/20 item attempts/
-    60 seconds of asynchronous work per call (short SQLite sections retain the
-    normal DB timeout); durable cursors continue large collections
+    Only separately opted-in accounts run. At most 3 accounts/20 item attempts
+    use a 60-second productive-work budget. HTTP cleanup drains may exceed that
+    deadline; this is NOT a hard shutdown bound. Short SQLite sections retain
+    the normal DB timeout. Durable cursors continue large collections
     in later batches (minimum 60-second gap). Conflicts remain owner-reviewed.
     Source failures stop that connection's batch and wait its normal interval.
     Disabling consent, lease loss, source changes and actor revocation cancel
