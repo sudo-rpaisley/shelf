@@ -856,6 +856,7 @@ class TestTheRetiredKidsBookAlias:
 
     def test_books_add_accepts_it_and_stores_a_book(self, admin_client, db, monkeypatch):
         from app.routers import items_common
+        from app.services import covers
 
         async def _lookup(isbn13, hc_token, client, *, google_api_key=None):
             from app.services import provider_result
@@ -864,6 +865,8 @@ class TestTheRetiredKidsBookAlias:
             return (meta, "openlibrary", {}, provider_result.found("openlibrary", meta))
 
         monkeypatch.setattr(items_common, "_lookup_metadata", _lookup)
+        cover = AsyncMock(return_value=None)
+        monkeypatch.setattr(covers, "download_cover", cover)
 
         resp = admin_client.post(
             "/api/books/add",
@@ -877,9 +880,23 @@ class TestTheRetiredKidsBookAlias:
         ).fetchone()
         assert row is not None, "the item must still be created"
         assert row["media_type"] == "book"
+        cover.assert_awaited_once()
+        assert cover.await_args.args[1] == "9780306406157"
 
+    @respx.mock
     def test_title_search_does_not_refuse_it(self, admin_client):
+        lookup = respx.get("https://openlibrary.org/search.json").mock(
+            return_value=httpx.Response(200, json={"docs": [{
+                "title": "Goodnight Moon", "author_name": ["M. W. Brown"],
+                "isbn": ["9780306406157"],
+            }]}),
+        )
         resp = admin_client.get("/api/title-search", params={
             "q": "moon", "media_type": "kids_book",
         })
         assert resp.status_code == 200
+        assert lookup.call_count == 1
+        assert lookup.calls[0].request.url.params["q"] == "moon"
+        assert "Goodnight Moon" in resp.text
+        assert 'name="media_type" value="book"' in resp.text
+        assert 'name="media_type" value="kids_book"' not in resp.text
