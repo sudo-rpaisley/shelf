@@ -44,7 +44,10 @@
     </div>
     <div>
         <label for="journal-body" class="block text-sm mb-1">{{ _('Private journal entry') }}</label>
-        <textarea id="journal-body" name="body" rows="6" required maxlength="10000" aria-describedby="journal-help" class="w-full bg-shelf-bg border border-shelf-border rounded-lg px-3 py-2">{{ form.body }}</textarea>
+        {# HTML discards one initial textarea newline. Supply that newline so
+           the browser preserves every leading newline in the saved body. #}
+        <textarea id="journal-body" name="body" rows="6" required maxlength="10000" aria-describedby="journal-help" class="w-full bg-shelf-bg border border-shelf-border rounded-lg px-3 py-2">
+{{ form.body }}</textarea>
         <p id="journal-help" class="text-sm text-shelf-muted mt-1">{{ _('Up to 10000 characters. Earlier versions remain in your private revision history when you edit an entry.') }}</p>
     </div>
     <button type="submit" class="px-4 py-2 bg-shelf-accent text-white rounded-lg text-sm hover:bg-shelf-accent2">{% if editing %}{{ _('Save journal correction') }}{% else %}{{ _('Add journal entry') }}{% endif %}</button>

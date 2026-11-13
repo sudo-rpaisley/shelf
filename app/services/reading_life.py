@@ -336,29 +336,22 @@ def journal_page(db, user_id: int, *, item_id: int | None = None,
 
 
 def goals_for(db, user_id: int, year: int) -> list[dict]:
-    # Aggregate once for the year, not once per goal, and never hydrate catalogue.
-    counts = {r["activity"]: dict(r) for r in db.execute(
-        "SELECT s.activity, COUNT(*) AS sessions, COUNT(DISTINCT s.item_id) AS distinct_items "
+    # One statement gives activity counts, overall counts and goal targets the
+    # same SQLite read snapshot, even when another connection corrects a session
+    # during this read. Do not begin/end a transaction owned by the caller.
+    return [dict(row) for row in db.execute(
+        "WITH finished AS (SELECT s.activity, s.item_id "
         "FROM reading_sessions s JOIN items_live i ON i.id = s.item_id "
-        "WHERE s.user_id = ? AND s.status = 'finished' AND s.ended_on BETWEEN ? AND ? GROUP BY s.activity",
-        (user_id, f"{year:04d}-01-01", f"{year:04d}-12-31"),
-    ).fetchall()}
-    all_counts = db.execute(
-        "SELECT COUNT(*) AS sessions, COUNT(DISTINCT s.item_id) AS distinct_items "
-        "FROM reading_sessions s JOIN items_live i ON i.id = s.item_id "
-        "WHERE s.user_id = ? AND s.status = 'finished' AND s.ended_on BETWEEN ? AND ?",
-        (user_id, f"{year:04d}-01-01", f"{year:04d}-12-31"),
-    ).fetchone()
-    counts["all"] = dict(all_counts)
-    goals = []
-    for row in db.execute(
-        "SELECT * FROM reading_goals WHERE user_id = ? AND year = ? ORDER BY activity, count_rule, id",
-        (user_id, year),
-    ).fetchall():
-        goal = dict(row)
-        goal["completed"] = counts.get(goal["activity"], {}).get(goal["count_rule"], 0)
-        goals.append(goal)
-    return goals
+        "WHERE s.user_id = ? AND s.status = 'finished' AND s.ended_on BETWEEN ? AND ?), "
+        "counts AS (SELECT activity, COUNT(*) AS sessions, COUNT(DISTINCT item_id) AS distinct_items "
+        "FROM finished GROUP BY activity UNION ALL "
+        "SELECT 'all', COUNT(*), COUNT(DISTINCT item_id) FROM finished) "
+        "SELECT g.*, COALESCE(CASE g.count_rule WHEN 'sessions' THEN c.sessions "
+        "ELSE c.distinct_items END, 0) AS completed "
+        "FROM reading_goals g LEFT JOIN counts c ON c.activity = g.activity "
+        "WHERE g.user_id = ? AND g.year = ? ORDER BY g.activity, g.count_rule, g.id",
+        (user_id, f"{year:04d}-01-01", f"{year:04d}-12-31", user_id, year),
+    ).fetchall()]
 
 
 def create_goal(db, user_id: int, values: dict) -> int:

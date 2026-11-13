@@ -33,7 +33,11 @@ def _reading_life_router(monkeypatch, _isolated_db):
 
 
 class Forms(HTMLParser):
-    """Read actual rendered form values, including selected options/textareas."""
+    """Scrape HTTP-test forms, including HTML's initial textarea newline skip.
+
+    This is not a browser DOM; native parsing/submission is covered by the
+    Playwright journal round-trip regression in tests/e2e/test_reading_life.py.
+    """
 
     def __init__(self, markup):
         super().__init__(convert_charrefs=True)
@@ -70,6 +74,7 @@ class Forms(HTMLParser):
         if tag == "select":
             self.select = None
         if tag == "textarea":
+            self.current["fields"][self.textarea] = self.current["fields"][self.textarea].removeprefix("\n")
             self.textarea = None
 
     def for_action(self, action):

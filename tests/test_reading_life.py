@@ -110,6 +110,70 @@ def test_goal_rules_year_activity_accounts_and_distinct_catalogue_ids(db, viewer
         assert life.goals_for(db, uid, int(year))[0]["completed"] == 0
 
 
+def test_goal_counts_share_one_snapshot_during_a_concurrent_correction(db, viewer_user, records):
+    """A real WAL writer commits after the first completion read is consumed.
+
+    Splitting activity and overall aggregates used to return Read=1 / All=0.
+    No sleeps or mocked counts: both connections run the real service SQL.
+    """
+    from app.database import get_db
+
+    uid, sid = viewer_user["id"], records["session_id"]
+    make_goal(db, uid, activity="read")
+    make_goal(db, uid, count_rule="distinct_items")
+    make_goal(db, uid, activity="read", count_rule="distinct_items")
+    corrected = []
+
+    def correct_after_read():
+        if not corrected:
+            with get_db() as writer:
+                writer.execute("BEGIN IMMEDIATE")
+                life.update_session(writer, uid, sid, life.parse_session(session_fields(
+                    version="1", status="paused", ended_on="",
+                ), update=True))
+            corrected.append("committed")
+
+    class InterleavedCursor:
+        def __init__(self, cursor):
+            self.cursor = cursor
+
+        def fetchall(self):
+            rows = self.cursor.fetchall()
+            correct_after_read()
+            return rows
+
+        def fetchone(self):
+            row = self.cursor.fetchone()
+            correct_after_read()
+            return row
+
+    class InterleavedReader:
+        def execute(self, sql, parameters=()):
+            cursor = db.execute(sql, parameters)
+            return InterleavedCursor(cursor) if "reading_sessions" in sql else cursor
+
+    assert not db.in_transaction
+    goals = life.goals_for(InterleavedReader(), uid, 2025)
+    assert corrected == ["committed"], "the competing connection must actually commit during the read"
+    assert not db.in_transaction, "a read must not leave a transaction on the caller's connection"
+    assert life.session_for(db, uid, sid)["status"] == "paused"
+    assert {(g["activity"], g["count_rule"]): g["completed"] for g in goals} == {
+        (activity, rule): 1 for activity in ("read", "all") for rule in ("sessions", "distinct_items")
+    }
+    assert all(g["completed"] == 0 for g in life.goals_for(db, uid, 2025))
+
+
+def test_goal_reads_do_not_commit_or_end_a_callers_transaction(db, viewer_user, records):
+    uid, gid = viewer_user["id"], records["goal_id"]
+    original_target = life.goal_for(db, uid, gid)["target"]
+    db.execute("BEGIN IMMEDIATE")
+    db.execute("UPDATE reading_goals SET target = ? WHERE id = ?", (original_target + 1, gid))
+    assert life.goals_for(db, uid, 2025)[0]["target"] == original_target + 1
+    assert db.in_transaction
+    db.rollback()
+    assert life.goal_for(db, uid, gid)["target"] == original_target
+
+
 def test_reopen_void_or_correct_end_year_recalculates_without_erasing_prior_cycle(db, viewer_user, records):
     uid, sid = viewer_user["id"], records["session_id"]
     updates = [("paused", "", 0), ("finished", "2025-03-01", 1),
