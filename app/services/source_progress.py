@@ -665,6 +665,12 @@ def _schedule_actor(user_id: int, row) -> dict:
 
 
 def _check_schedule(db, user_id: int, account_id: int, lease: dict) -> None:
+    parent = lease.get("_parent_task")
+    if parent is not None and parent.cancelling():
+        # The pull is shielded only so its HTTP cleanup can drain. It must not
+        # apply a response after its scheduling task has requested shutdown,
+        # even if a transport suppresses the child's cancellation.
+        raise asyncio.CancelledError
     row = db.execute("SELECT * FROM user_source_schedules WHERE account_id = ?", (account_id,)).fetchone()
     if (not row or row["revision"] != lease["revision"] or row["lease_token"] != lease["token"]
             or not row["lease_expires_at"] or row["lease_expires_at"] <= _now()
@@ -770,6 +776,31 @@ def _finish_schedule(row: dict, lease: dict, counts: dict, *, cursor: int, more:
         )
 
 
+async def _scheduled_pull(user_id: int, account_id: int, item_id: int, actor: dict, lease: dict) -> dict:
+    """Capture parent cancellation before a child's fallible HTTP finalizers.
+
+    Shield the drain, not the work: cancellation fences apply immediately via
+    the runtime parent pointer, and the child is cancelled once. Repeated parent
+    cancellation cannot abandon cleanup or replace the first cancellation.
+    """
+    owned = {**lease, "_parent_task": asyncio.current_task()}
+    pull = asyncio.create_task(pull_item(user_id, account_id, item_id, actor=actor, _lease=owned))
+    try:
+        return await asyncio.shield(pull)
+    except asyncio.CancelledError as cancelled:
+        try:
+            if not pull.done() and not pull.cancelling():
+                pull.cancel()
+            drained = asyncio.gather(pull, return_exceptions=True)
+            while not drained.done():
+                try:
+                    await asyncio.shield(drained)
+                except asyncio.CancelledError:
+                    pass
+        finally:
+            raise cancelled
+
+
 async def run_scheduled_pass(*, max_accounts: int = MAX_SCHEDULE_ACCOUNTS,
                              max_items: int = MAX_SCHEDULE_ITEMS, max_seconds: float = 60) -> dict:
     """Bounded parent-runner hook, NOT a daemon and never remote writeback.
@@ -811,7 +842,7 @@ async def run_scheduled_pass(*, max_accounts: int = MAX_SCHEDULE_ACCOUNTS,
                 for item_id in items[:budget]:
                     counts["attempted"] += 1
                     try:
-                        result = await pull_item(row["user_id"], row["account_id"], item_id, actor=actor, _lease=lease)
+                        result = await _scheduled_pull(row["user_id"], row["account_id"], item_id, actor, lease)
                     except ProgressError as exc:
                         if exc.code not in {"not_found", "unsupported", "ambiguous_binding"}:
                             raise
@@ -819,10 +850,16 @@ async def run_scheduled_pass(*, max_accounts: int = MAX_SCHEDULE_ACCOUNTS,
                     else:
                         counts[result["outcome"]] += 1
                     cursor = item_id
-        except asyncio.CancelledError:
+        except asyncio.CancelledError as cancelled:
             counts["errors"] += 1
-            _finish_schedule(row, lease, counts, cursor=cursor, more=True, error="interrupted", interrupted=True)
-            raise
+            try:
+                # The item task/HTTP cleanup has drained. If this ACK cannot
+                # commit, retain its owned lease for expiry recovery, but NEVER
+                # let any finalizer failure turn shutdown into an ordinary pass
+                # error that a periodic runner catches and retries.
+                _finish_schedule(row, lease, counts, cursor=cursor, more=True, error="interrupted", interrupted=True)
+            finally:
+                raise cancelled
         except TimeoutError:
             counts["errors"] += 1
             error, interrupted, more = "timeout", True, True
