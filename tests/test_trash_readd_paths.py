@@ -409,8 +409,10 @@ class TestCatalogueBookAddRestores:
     """Site 7 — `_save_item` via `POST /api/books/add`."""
 
     def test_a_trashed_isbn_added_again_is_restored_and_says_so(
-        self, editor_client, db
+        self, editor_client, db, monkeypatch
     ):
+        cover = AsyncMock(return_value=None)
+        monkeypatch.setattr(items_catalog.covers, "download_cover", cover)
         item_id = insert_item(db, title="Stored Title", source="manual",
                               isbn=ISBN, media_type="book", authors="A. Writer")
         trash_item(db, item_id)
@@ -426,6 +428,8 @@ class TestCatalogueBookAddRestores:
         # The stored title, not the provider's spelling.
         assert "Stored Title" in resp.text
         assert "Restored from Trash" in resp.text
+        cover.assert_awaited_once()
+        assert cover.await_args.args[:2] == (item_id, ISBN)
 
     def test_a_restored_row_with_a_cover_makes_no_outbound_cover_call(
         self, editor_client, db, monkeypatch
@@ -762,16 +766,23 @@ class TestMusicBarcodeRestoreKeepsItsRelease:
     BARCODE = "0" + UPC
 
     def _add_other_release(self, admin_client, monkeypatch):
-        from app.services import musicbrainz, provider_result
+        from app.services import music_artwork, musicbrainz, provider_result
 
         async def _lookup(release_id, client):
             return provider_result.found("musicbrainz", {
                 "musicbrainz_release_id": self.OTHER, "title": "Reissue",
                 "barcode": UPC, "label": "Provider Label"})
         monkeypatch.setattr(musicbrainz, "lookup_release", _lookup)
-        return admin_client.post(
+        artwork = AsyncMock(return_value=provider_result.no_match("coverartarchive"))
+        download = AsyncMock(side_effect=AssertionError("No artwork candidate should be downloaded"))
+        monkeypatch.setattr(music_artwork, "release_candidates", artwork)
+        monkeypatch.setattr(music_artwork, "download", download)
+        response = admin_client.post(
             "/api/music/add", data={"release_id": self.OTHER, "media_type": "cd"},
             follow_redirects=False)
+        artwork.assert_awaited_once()
+        download.assert_not_awaited()
+        return response, artwork
 
     def _release_of(self, db, item_id):
         return db.execute(
@@ -791,13 +802,15 @@ class TestMusicBarcodeRestoreKeepsItsRelease:
         trash_item(db, item_id)
         db.commit()
 
-        resp = self._add_other_release(admin_client, monkeypatch)
+        resp, artwork = self._add_other_release(admin_client, monkeypatch)
 
         assert resp.headers["location"] == f"/music/item/{item_id}?restored=1"
         release = self._release_of(db, item_id)
         assert release["musicbrainz_release_id"] == \
             TestMusicRestoresAtTheEarliestGuard.RELEASE
         assert release["label"] == "Stored Label"
+        assert artwork.await_args.args[0]["musicbrainz_release_id"] == \
+            TestMusicRestoresAtTheEarliestGuard.RELEASE
 
     def test_a_restored_row_without_a_release_record_gets_one(
         self, admin_client, db, monkeypatch
@@ -807,10 +820,11 @@ class TestMusicBarcodeRestoreKeepsItsRelease:
         trash_item(db, item_id)
         db.commit()
 
-        resp = self._add_other_release(admin_client, monkeypatch)
+        resp, artwork = self._add_other_release(admin_client, monkeypatch)
 
         assert resp.headers["location"] == f"/music/item/{item_id}?restored=1"
         assert self._release_of(db, item_id)["musicbrainz_release_id"] == self.OTHER
+        assert artwork.await_args.args[0]["musicbrainz_release_id"] == self.OTHER
 
 
 class TestPeriodicalConfirmRestoresATrashedIssue:

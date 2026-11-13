@@ -178,9 +178,15 @@ class TestMusicAddWishlistMode:
     def test_owned_zero_stores_unowned_and_is_on_the_wishlist(
         self, editor_client, db, monkeypatch
     ):
+        from app.services import music_artwork
+
         async def _lookup_release(release_id, client):
             return provider_result.found("musicbrainz", _MUSIC_RELEASE)
         monkeypatch.setattr(musicbrainz, "lookup_release", _lookup_release)
+        artwork = AsyncMock(return_value=provider_result.no_match("coverartarchive"))
+        download = AsyncMock(side_effect=AssertionError("No artwork candidate should be downloaded"))
+        monkeypatch.setattr(music_artwork, "release_candidates", artwork)
+        monkeypatch.setattr(music_artwork, "download", download)
 
         resp = editor_client.post(
             "/api/music/add",
@@ -198,6 +204,9 @@ class TestMusicAddWishlistMode:
         assert row is not None
         assert row["owned"] == 0
         _assert_ownership_partition(db)
+        artwork.assert_awaited_once()
+        assert artwork.await_args.args[0]["musicbrainz_release_id"] == _MUSIC_RELEASE["musicbrainz_release_id"]
+        download.assert_not_awaited()
 
 
 class TestHardcoverWishlistMembership:
