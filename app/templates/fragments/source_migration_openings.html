@@ -1,7 +1,7 @@
 {% macro opening_card(opening) %}
 <div class="text-sm space-y-1">
     <p>{{ _('Source') }} #{{ opening.source_id }} · {{ _('Record ID') }} #{{ opening.record_id }} · {{ _('Catalogue item') }} #{{ opening.item_id }} · {{ _('Cached availability') }}: {{ {'available': _('Available'), 'unavailable': _('Unavailable'), 'unknown': _('Unknown')}.get(opening.availability, _('Unknown')) }}</p>
-    {% if opening.usable %}<a href="{{ opening.url }}" target="_blank" rel="noopener noreferrer" referrerpolicy="no-referrer" class="text-shelf-accent2 hover:underline break-all">{{ _(opening.label) }} — {{ opening.url }}</a>
+    {% if opening.usable %}<a href="{{ opening.url }}" target="_blank" rel="noopener noreferrer" referrerpolicy="no-referrer" class="text-shelf-accent2 hover:underline break-all">{{ _(opening.label) }}</a><p class="break-all">{{ opening.url }}</p>
     {% else %}<p>{{ _(opening.label) }} — {{ _('Opening action unavailable or unconfirmed') }}</p>{% if opening.url %}<p class="break-all">{{ _('Saved safe URL (not an opening action)') }}: {{ opening.url }}</p>{% endif %}{% endif %}
     <p class="text-shelf-muted">{{ _(opening.reason) }}</p>
 </div>

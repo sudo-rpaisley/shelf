@@ -120,7 +120,14 @@ def _replacement_preview(page, server, ids, *, manual=True):
     compare.locator('[name="old_source_id"]').select_option(str(ids["old_source"]))
     compare.locator('[name="new_source_id"]').select_option(str(ids["new_source"]))
     _navigate(page, compare.get_by_role("button", name="Compare local snapshots", exact=True))
+    return _submit_replacement_preview(page, ids, manual=manual)
+
+
+def _submit_replacement_preview(page, ids, *, manual=True):
+    """Submit the comparison already reached, including a fresh-inventory link."""
     form = page.locator('form[action="/api/source-migrations/replacement/preview"]')
+    expect(form.locator('[name="old_source_id"]')).to_have_value(str(ids["old_source"]))
+    expect(form.locator('[name="new_source_id"]')).to_have_value(str(ids["new_source"]))
     form.locator('[name="mappings"]').fill(f"{ids['old_record']},{ids['new_record']}\n")
     if manual:
         form.locator('[name="manual_reviewed"]').check()
@@ -161,6 +168,11 @@ def _bindings(server):
 def _enabled(server, source_id):
     with _db(server) as db:
         return db.execute("SELECT enabled FROM source_instances WHERE id = ?", (source_id,)).fetchone()[0]
+
+
+def _plan_states(server):
+    with _db(server) as db:
+        return dict(db.execute("SELECT id, state FROM source_migration_plans"))
 
 
 def _seed_machine_records(db, *, keep, previous):
@@ -391,6 +403,14 @@ def test_repeat_sessions_journal_and_goals_are_private_and_survive_reload(connec
 
 def test_source_replacement_preview_apply_resync_retire_and_rollback(machine_delivery):
     server, page, ids = machine_delivery, machine_delivery["page"], machine_delivery["ids"]
+    # Nonempty copy and private activity fixtures make preservation substantive.
+    with _db(server) as db:
+        user = db.execute("SELECT id FROM users WHERE username = ?", (ADMIN_USERNAME,)).fetchone()[0]
+        db.execute("INSERT INTO item_copies (item_id, copy_number, is_primary) VALUES (?, 1, 1)", (ids["keep"],))
+        _seed_reading_life(db, user, ids["keep"])
+        db.execute("INSERT INTO user_item_state (user_id, item_id, status, notes) VALUES (?, ?, 'paused', 'Keep my manual activity.')", (user, ids["keep"]))
+        db.execute("INSERT INTO user_item_events (user_id, item_id, event_type, snapshot_json) VALUES (?, ?, 'updated', ?)",
+                   (user, ids["keep"], json.dumps({"status": "paused", "notes": "Keep my manual activity."})))
     before, bindings = _snapshot(server, _PROTECTED + _READING), _bindings(server)
     page.goto(f"{server['url']}/library")
     _account_destination(page, "source-migrations")
@@ -401,6 +421,7 @@ def test_source_replacement_preview_apply_resync_retire_and_rollback(machine_del
     expect(review.get_by_role("status")).to_contain_text("Dry run only")
     expect(review).to_contain_text("Explicit administrator review of old/new record IDs")
     expect(review).to_contain_text("Unmapped old records: 0")
+    assert _plan_states(server) == {plan: "preview"}
     assert _snapshot(server, _PROTECTED + _READING) == before
     assert _bindings(server) == bindings
     _decision(page, "apply")
@@ -408,6 +429,8 @@ def test_source_replacement_preview_apply_resync_retire_and_rollback(machine_del
     expect(review.get_by_role("status")).to_contain_text("Reviewed bindings applied")
     assert _bindings(server)[1][2] == ids["keep"]
     assert _enabled(server, ids["old_source"]) == 1
+    assert _plan_states(server) == {plan: "applied"}
+    applied_bindings = _bindings(server)
 
     # The imported identity must keep following the corrected binding on sync.
     server["catalogues"]["state"]["new"] = "A later remote observation, not a local title replacement"
@@ -421,15 +444,58 @@ def test_source_replacement_preview_apply_resync_retire_and_rollback(machine_del
     expected_url = f"{server['catalogues']['root']}/new/edition.epub"
     expect(new_holding.locator('a[target="_blank"]')).to_have_attribute("href", expected_url)
     page.goto(receipt_url)
+    expect(review.get_by_role("button", name="Retire old source", exact=True)).to_have_count(0)
+    expect(review.get_by_role("alert")).to_contain_text("fresh complete replacement preview")
+    fresh_inventory = review.get_by_role("link", name="Review the complete current source inventories", exact=True)
+    expect(fresh_inventory).to_have_attribute("href", f"/source-migrations?old_source_id={ids['old_source']}&new_source_id={ids['new_source']}")
+    assert _plan_states(server) == {plan: "applied"}
+    assert _snapshot(server, _PROTECTED + _READING) == before
+    _navigate(page, fresh_inventory)
+    workspace = page.get_by_test_id("source-migration-workspace")
+    for label in ("Old source records (1)", "Replacement source records (1)"):
+        details = workspace.locator("details").filter(has=page.locator("summary").filter(has_text=label))
+        details.locator("summary").click()
+        expect(details).to_have_attribute("open", "")
+    expect(workspace).to_contain_text(server["catalogues"]["state"]["new"])
+    fresh_plan = _submit_replacement_preview(page, ids)
+    fresh_receipt_url = page.url
+    assert fresh_plan != plan
+    expect(review.get_by_role("status")).to_contain_text("Dry run only")
+    assert _plan_states(server) == {plan: "applied", fresh_plan: "preview"}
+    assert _bindings(server) == applied_bindings
+    assert _snapshot(server, _PROTECTED + _READING) == before
+    with _db(server) as db:
+        mapping = json.loads(db.execute("SELECT plan_json FROM source_migration_plans WHERE id = ?", (fresh_plan,)).fetchone()[0])["mappings"][0]
+        assert mapping["before_item_id"] == mapping["after_item_id"] == ids["keep"]
+    _decision(page, "apply")
+    expect(review.get_by_role("status")).to_contain_text("Reviewed bindings applied")
+    assert _plan_states(server) == {plan: "applied", fresh_plan: "applied"}
+    assert _bindings(server) == applied_bindings
+    assert _snapshot(server, _PROTECTED + _READING) == before
     _decision(page, "retire")
     expect(review).to_contain_text("The old instance was disabled, not deleted")
     assert _enabled(server, ids["old_source"]) == 0
+    assert _plan_states(server) == {plan: "applied", fresh_plan: "applied"}
+    assert _bindings(server) == applied_bindings
+    assert _snapshot(server, _PROTECTED + _READING) == before
     page.goto(f"{server['url']}/item/{ids['keep']}")
     old_holding = page.get_by_test_id("available-here").locator(f'[data-availability-source="source:{ids["old_source"]}"]')
     expect(old_holding).to_have_attribute("data-availability-state", "unknown")
     expect(old_holding.locator('a[target="_blank"]')).to_have_count(0)
     expect(new_holding.locator('a[target="_blank"]')).to_have_attribute("href", expected_url)
+    # The fresh review is a binding no-op: rolling it back restores the source
+    # enablement, not the original attachment. Undo that on its original receipt.
+    page.goto(fresh_receipt_url)
+    _decision(page, "rollback")
+    page.reload()
+    expect(review.get_by_role("status")).to_contain_text("Bindings rolled back")
+    expect(review.locator('form[method="post"]')).to_have_count(0)
+    assert _plan_states(server) == {plan: "applied", fresh_plan: "rolled_back"}
+    assert _bindings(server) == applied_bindings
+    assert _enabled(server, ids["old_source"]) == 1
+    assert _snapshot(server, _PROTECTED + _READING) == before
     page.goto(receipt_url)
+    expect(review.get_by_role("button", name="Roll back bindings", exact=True)).to_be_visible()
     _decision(page, "rollback")
     page.reload()
     expect(review.get_by_role("status")).to_contain_text("Bindings rolled back")
@@ -437,8 +503,7 @@ def test_source_replacement_preview_apply_resync_retire_and_rollback(machine_del
     assert _bindings(server) == bindings
     assert _enabled(server, ids["old_source"]) == 1
     assert _snapshot(server, _PROTECTED + _READING) == before
-    with _db(server) as db:
-        assert db.execute("SELECT state FROM source_migration_plans WHERE id = ?", (plan,)).fetchone()[0] == "rolled_back"
+    assert _plan_states(server) == {plan: "rolled_back", fresh_plan: "rolled_back"}
 
 
 def test_binding_repair_refuses_stale_decision_then_persists_after_real_sync(machine_delivery, browser):
@@ -645,3 +710,8 @@ def test_source_review_exposes_exact_cached_opening_actions_and_labels(machine_d
     assert observed == expected, f"Review opening actions differ from the cached library actions: {observed} != {expected}"
     for action in actions.all():
         expect(action).to_have_attribute("rel", "noopener noreferrer")
+        expect(action).to_have_attribute("referrerpolicy", "no-referrer")
+        expect(action).to_have_accessible_name("Read")
+        card = action.locator("..")
+        expect(card.locator("p.break-all")).to_have_text(action.get_attribute("href"))
+        expect(card).to_contain_text("Record ID")
