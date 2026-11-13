@@ -13,6 +13,7 @@
                     <span class="text-shelf-muted">{{ _(row.source_label) }}</span>
                     {% if row.different %}<span class="text-xs text-shelf-muted">{{ _('Different values') }}</span>{% else %}<span class="text-xs text-shelf-muted">{{ _('Same value') }}</span>{% endif %}
                     {% if row.user_overridden %}<span class="text-xs text-shelf-muted">{{ _('Local override') }}</span>
+                    {% elif row.observation_only %}<span class="text-xs text-shelf-muted">{{ _('Reviewed catalogue observation') }}</span>
                     {% elif row.provider_owned %}<span class="text-xs text-shelf-muted">{{ _('Following this source') }}</span>
                     {% else %}<span class="text-xs text-shelf-muted">{{ _('Not source-owned') }}</span>{% endif %}
                 </div>
@@ -21,7 +22,7 @@
                     <div class="min-w-0"><dt class="text-xs text-shelf-muted">{{ _('Source-observed value') }}</dt><dd class="whitespace-pre-wrap break-words">{{ row.observed_display if row.observed_display else _('Not set') }}</dd></div>
                 </dl>
                 <p class="text-xs text-shelf-muted">{{ _('Observed') }}: {% if row.observed_at %}<time datetime="{{ row.observed_at }}">{{ row.observed_at }}</time>{% else %}{{ _('Unknown') }}{% endif %}</p>
-                {% if not row.resolvable %}<p class="text-xs text-shelf-muted">{{ _('Read-only identity field') }}</p>
+                {% if not row.resolvable %}<p class="text-xs text-shelf-muted">{{ _(row.read_only_reason) }}</p>
                 {% elif user and user.role in ('admin', 'editor') %}
                 <form method="post" action="/api/library/items/{{ item.id }}/metadata/resolve" hx-post="/api/library/items/{{ item.id }}/metadata/resolve" hx-target="#metadata-provenance" hx-swap="outerHTML" class="flex flex-wrap gap-2">
                     <input type="hidden" name="_csrf" value="{{ request.cookies.get('csrf_token', '') }}">

@@ -18,7 +18,7 @@ import sqlite3
 from datetime import datetime, timezone
 
 from app import i18n
-from app.services import item_write
+from app.services import audible_catalog, item_write
 from app.services.source_connectors import PROVIDERS
 
 
@@ -31,7 +31,7 @@ RESOLVABLE_FIELDS = frozenset({
     "page_count", "duration_mins", "language", "series_name", "series_position",
 })
 FIELD_LABELS = {
-    "title": i18n.N_("Title"), "authors": i18n.N_("Authors"),
+    "title": i18n.N_("Title"), "subtitle": i18n.N_("Subtitle"), "authors": i18n.N_("Authors"),
     "narrator": i18n.N_("Narrator"), "description": i18n.N_("Description"),
     "publisher": i18n.N_("Publisher"), "publish_year": i18n.N_("Publication year"),
     "page_count": i18n.N_("Page count"), "duration_mins": i18n.N_("Duration (minutes)"),
@@ -42,7 +42,7 @@ FIELD_LABELS = {
     "media_type": i18n.N_("Media type"), "platform": i18n.N_("Platform"),
 }
 _TEXT_LIMITS = {
-    "title": 2000, "authors": 2000, "narrator": 2000, "description": 20000,
+    "title": 2000, "subtitle": 2000, "authors": 2000, "narrator": 2000, "description": 20000,
     "publisher": 1000, "language": 100, "series_name": 1000,
     "isbn": 100, "isbn10": 100, "asin": 100, "upc": 100,
     "media_type": 100, "platform": 200,
@@ -52,6 +52,7 @@ _INTEGER_BOUNDS = {"publish_year": (1, 9999), "page_count": (0, 1000000),
 _LEGACY_LABELS = {"audiobookshelf": "Audiobookshelf", "komga": "Komga", "romm": "RomM"}
 _LEGACY_KEY = re.compile(r"(audiobookshelf|komga|romm):[A-Za-z0-9][A-Za-z0-9._-]{0,199}\Z")
 _INSTANCE_KEY = re.compile(r"source:([1-9][0-9]{0,18})(?::[A-Za-z0-9][A-Za-z0-9._-]{0,199})?\Z")
+_AUDIBLE_KEY = re.compile(r"audible:([a-z]{2}):([A-Z0-9]{10})\Z")
 _FINGERPRINT = re.compile(r"[0-9a-f]{64}\Z")
 
 
@@ -61,17 +62,27 @@ class ReviewError(ValueError):
         super().__init__(message)
 
 
+def _audible_key(value):
+    match = _AUDIBLE_KEY.fullmatch(value)
+    return match if match and match[1] in audible_catalog.MARKETPLACES else None
+
+
 def _source_key(value) -> bool:
     """Canonical opaque ids only: never URLs, whitespace, credentials or aliases."""
     if not isinstance(value, str) or len(value) > MAX_SOURCE_KEY_CHARS:
         return False
-    if _LEGACY_KEY.fullmatch(value):
+    if _LEGACY_KEY.fullmatch(value) or _audible_key(value):
         return True
     match = _INSTANCE_KEY.fullmatch(value)
     return bool(match and int(match[1]) <= 2**63 - 1)
 
 
 def _source_label(db, source_key: str) -> str:
+    audible = _audible_key(source_key)
+    if audible:
+        # All parts are validated identifiers or static allowlisted domains,
+        # never a provider-returned URL, account name or arbitrary source key.
+        return f"Audible · {audible_catalog.MARKETPLACES[audible[1]][1]} · {audible[2]}"
     provider = source_key.split(":", 1)[0]
     if provider in _LEGACY_LABELS:
         return _LEGACY_LABELS[provider]
@@ -157,6 +168,39 @@ def _display(value) -> str:
     return text if len(text) <= MAX_DISPLAY_CHARS else text[:MAX_DISPLAY_CHARS] + "…"
 
 
+def _display_rows(db, item):
+    """Filter BEFORE the quota, then round-robin valid saved sources.
+
+    A connection-local predicate reuses exactly the Python key/value validation
+    rather than a weaker SQL LIKE approximation. Window ordering prevents one
+    richly observed source (or several Audible markets) from starving the other
+    saved sources. No schema or persistent function is installed.
+    """
+    def eligible(key, field, raw, timestamp):
+        return bool(_source_key(key) and field in FIELD_LABELS
+                    and isinstance(timestamp, str) and len(timestamp) <= 64
+                    and _valid_value(field, item[field]) and _snapshot(raw, field) is not None)
+
+    fields = tuple(FIELD_LABELS)
+    marks = ", ".join("?" for _ in fields)
+    db.create_function("_shelf_metadata_reviewable", 4, eligible, deterministic=True)
+    try:
+        return db.execute(
+            "WITH eligible AS (SELECT source_key, field_name, value_json, observed_at, "
+            "ROW_NUMBER() OVER (PARTITION BY source_key ORDER BY field_name) AS source_position "
+            "FROM item_metadata_provenance WHERE item_id = ? "
+            "AND length(source_key) BETWEEN 1 AND ? AND length(value_json) BETWEEN 1 AND ? "
+            f"AND field_name IN ({marks}) AND length(observed_at) <= 64 "
+            "AND _shelf_metadata_reviewable(source_key, field_name, value_json, observed_at)) "
+            "SELECT source_key, field_name, value_json, observed_at FROM eligible "
+            "ORDER BY source_position, CASE WHEN source_key LIKE 'audible:%' THEN 1 ELSE 0 END, "
+            "source_key, field_name LIMIT ?",
+            (item["id"], MAX_SOURCE_KEY_CHARS, MAX_SNAPSHOT_CHARS, *fields, MAX_ROWS + 1),
+        ).fetchall()
+    finally:
+        db.create_function("_shelf_metadata_reviewable", 4, None)
+
+
 def context_for(db, item_id: int) -> dict | None:
     """Bounded item-page/fragment context, or None for missing/trashed items.
 
@@ -167,17 +211,7 @@ def context_for(db, item_id: int) -> dict | None:
     item = db.execute("SELECT * FROM items_live WHERE id = ?", (item_id,)).fetchone()
     if item is None:
         return None
-    fields = tuple(FIELD_LABELS)
-    marks = ", ".join("?" for _ in fields)
-    rows = db.execute(
-        "SELECT source_key, field_name, "
-        "CASE WHEN length(value_json) <= ? THEN value_json END AS value_json, "
-        "CASE WHEN length(observed_at) <= 64 THEN observed_at END AS observed_at "
-        "FROM item_metadata_provenance WHERE item_id = ? AND length(source_key) BETWEEN 1 AND ? "
-        f"AND field_name IN ({marks}) "
-        "ORDER BY source_key, field_name LIMIT ?",
-        (MAX_SNAPSHOT_CHARS, item_id, MAX_SOURCE_KEY_CHARS, *fields, MAX_ROWS + 1),
-    ).fetchall()
+    rows = _display_rows(db, item)
     result, labels = [], {}
     for row in rows[:MAX_ROWS]:
         field, key = row["field_name"], row["source_key"]
@@ -196,15 +230,19 @@ def context_for(db, item_id: int) -> dict | None:
         )
         if key not in labels:
             labels[key] = _source_label(db, key)
+        observation_only = bool(_audible_key(key))
         result.append({
             "source_key": key, "source_label": labels[key], "field_name": field,
             "field_label": FIELD_LABELS[field],
             "current_display": _display(current), "observed_display": _display(snapshot["observed"]),
             "observed_at": _timestamp(row["observed_at"]),
             "different": current != snapshot["observed"], "user_overridden": bool(overridden),
-            "provider_owned": not overridden and "applied" in snapshot and current == snapshot["applied"],
-            "resolvable": field in RESOLVABLE_FIELDS,
-            "can_follow": field in RESOLVABLE_FIELDS and _valid_value(field, snapshot["observed"], following=True),
+            "provider_owned": not observation_only and not overridden and "applied" in snapshot and current == snapshot["applied"],
+            "resolvable": not observation_only and field in RESOLVABLE_FIELDS,
+            "can_follow": not observation_only and field in RESOLVABLE_FIELDS and _valid_value(field, snapshot["observed"], following=True),
+            "observation_only": observation_only,
+            "read_only_reason": (i18n.N_("Read-only catalogue observation; use the exact-ASIN review to apply changes.")
+                                 if observation_only else i18n.N_("Read-only identity field")),
             "fingerprint": _fingerprint(item_id, row, current),
         })
     return {"item": dict(item), "metadata_rows": result, "metadata_limited": len(rows) > MAX_ROWS}
@@ -232,6 +270,8 @@ def resolve_field(db, item_id: int, source_key: str, field_name: str,
     """
     if not _source_key(source_key):
         raise ReviewError(i18n.gettext("Choose a valid saved metadata source"))
+    if _audible_key(source_key):
+        raise ReviewError(i18n.gettext("This catalogue observation is read-only here; preview the exact ASIN before applying metadata."))
     if field_name not in RESOLVABLE_FIELDS:
         raise ReviewError(i18n.gettext("This field is read-only in metadata review; edit it on the item instead"))
     if decision not in {"keep_local", "follow_source"}:

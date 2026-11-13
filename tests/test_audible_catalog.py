@@ -2,6 +2,9 @@
 
 import ipaddress
 import json
+import struct
+import zlib
+from pathlib import Path
 
 import httpx
 import pytest
@@ -18,7 +21,38 @@ PRODUCT = {"asin": ASIN, "title": "The Martian", "authors": [{"asin": "B00G0WYW9
            "narrators": [{"name": "Wil Wheaton"}], "content_type": "Product", "content_delivery_type": "SinglePartBook",
            "runtime_length_min": 659, "format_type": "unabridged", "language": "english", "release_date": "2020-01-01",
            "publisher_name": "Audible Studios", "product_images": {"500": IMAGE}}
-PNG = b"\x89PNG\r\n\x1a\n" + b"0" * 200
+
+
+def _png_fixture():
+    """A real 8x8 RGB PNG, large enough for the shared cover size threshold."""
+    def chunk(kind, data):
+        return struct.pack("!I", len(data)) + kind + data + struct.pack("!I", zlib.crc32(kind + data))
+    pixels = b"".join(b"\0" + bytes(channel for x in range(8) for channel in (x * 30, y * 30, (x + y) * 15)) for y in range(8))
+    return (b"\x89PNG\r\n\x1a\n" + chunk(b"IHDR", struct.pack("!2I5B", 8, 8, 8, 2, 0, 0, 0))
+            + chunk(b"IDAT", zlib.compress(pixels)) + chunk(b"IEND", b""))
+
+
+PNG = _png_fixture()
+
+
+def _decode_png(content):
+    """Decode this fixture's actual pixels and verify all PNG chunk CRCs."""
+    assert content[:8] == b"\x89PNG\r\n\x1a\n"
+    offset, compressed, kinds = 8, bytearray(), []
+    while offset < len(content):
+        length = struct.unpack("!I", content[offset:offset + 4])[0]
+        kind = content[offset + 4:offset + 8]
+        data = content[offset + 8:offset + 8 + length]
+        crc = struct.unpack("!I", content[offset + 8 + length:offset + 12 + length])[0]
+        assert crc == zlib.crc32(kind + data)
+        kinds.append(kind)
+        if kind == b"IHDR":
+            assert struct.unpack("!2I5B", data) == (8, 8, 8, 2, 0, 0, 0)
+        if kind == b"IDAT":
+            compressed.extend(data)
+        offset += length + 12
+    assert offset == len(content) and kinds == [b"IHDR", b"IDAT", b"IEND"]
+    return zlib.decompress(compressed)
 
 
 class Chunks(httpx.AsyncByteStream):
@@ -202,6 +236,40 @@ async def test_safe_redirect_and_shared_image_validation_save_versioned_artwork(
     path = await catalog.download_artwork(5, IMAGE)
     assert path.startswith("covers/5-") and path.endswith(".jpg")
     assert (config.DATA_DIR / path).read_bytes() == PNG
+    pixels = _decode_png((config.DATA_DIR / path).read_bytes())
+    assert len(pixels) == 8 * (1 + 8 * 3) and pixels[:4] == b"\0\0\0\0"
+
+
+@pytest.mark.parametrize("failure", ["partial_raise", "partial_short", "rename", "rename_after_install"])
+@pytest.mark.asyncio
+async def test_artwork_write_failures_leave_no_file_or_backfill_suppression(db, network, monkeypatch, failure):
+    from app.services import audiobook_review, item_write
+    item_id = item_write.insert_item(db, {"title": "Sparse audiobook", "media_type": "audiobook", "asin": ASIN})
+    db.commit()
+    before = audiobook_review.fingerprint(db, item_id)
+    assert audiobook_review.backfill_artwork_allowed(db, item_id)
+    network[2].append(reply(content=PNG, headers={"content-type": "image/png"}))
+    write, replace = Path.write_bytes, Path.replace
+
+    def partial(path, content):
+        written = write(path, content[:32])
+        if failure == "partial_raise":
+            raise OSError("Simulated disk-full after a partial write")
+        return written
+
+    def failed_rename(path, target):
+        if failure == "rename_after_install":
+            replace(path, target)
+        raise OSError("Simulated installation failure")
+
+    if failure.startswith("partial"):
+        monkeypatch.setattr(Path, "write_bytes", partial)
+    else:
+        monkeypatch.setattr(Path, "replace", failed_rename)
+    assert await catalog.download_artwork(item_id, IMAGE) is None
+    assert list(config.COVERS_DIR.iterdir()) == []
+    assert audiobook_review.fingerprint(db, item_id) == before
+    assert audiobook_review.backfill_artwork_allowed(db, item_id)
 
 
 @pytest.mark.parametrize("content,mime,encoding", [(b"<svg>" + b"x" * 200, "image/svg+xml", "identity"),

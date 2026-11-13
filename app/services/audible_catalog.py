@@ -11,10 +11,11 @@ import json
 import re
 from html.parser import HTMLParser
 from urllib.parse import urljoin, urlsplit
+from uuid import uuid4
 
 import httpx
 
-from app import i18n
+from app import config, i18n
 from app.services import authors, bib_normalize, covers, isbn, manual_cover, outbound, provider_result
 
 
@@ -224,6 +225,33 @@ async def lookup(asin, marketplace):
         return provider_result.transport_failed("audible")
 
 
+def _stage_artwork(item_id, content):
+    """Install complete bytes atomically, retaining ownership of every path.
+
+    The generic cover writer chooses its unique filename internally, so an
+    exception before it returns cannot tell this caller which partial file to
+    remove. Keep both paths here, reuse shared validation, and never expose a
+    partial file as retained item artwork.
+    """
+    if not covers.validate_uploaded_cover(content):
+        return None
+    config.COVERS_DIR.mkdir(parents=True, exist_ok=True)
+    name = f"{item_id}-{uuid4().hex}.jpg"
+    destination = config.COVERS_DIR / name
+    temporary = config.COVERS_DIR / f".{name}.part"
+    try:
+        if temporary.write_bytes(content) != len(content):
+            raise OSError("Incomplete artwork write")
+        temporary.replace(destination)
+    except BaseException:
+        try:
+            temporary.unlink(missing_ok=True)
+        finally:
+            destination.unlink(missing_ok=True)
+        raise
+    return f"covers/{name}"
+
+
 async def download_artwork(item_id, url):
     """Use shared DNS/image/file mechanisms, checking EVERY redirect before I/O."""
     try:
@@ -238,7 +266,7 @@ async def download_artwork(item_id, url):
                     continue
                 if status != 200 or content is None:
                     return None
-                return covers.save_uploaded_cover(item_id, content, unique=True)
+                return _stage_artwork(item_id, content)
     except (httpx.HTTPError, OSError, ValueError, TimeoutError):
         pass
     return None

@@ -175,6 +175,118 @@ def test_backfill_will_not_put_series_position_onto_another_series(editor_client
     assert row["series_name"] == "My other series" and row["series_position"] is None
 
 
+@pytest.mark.parametrize("position", [0, 7])
+def test_backfill_will_not_attach_provider_series_name_to_an_orphan_local_position(editor_client, editor_user, db, position):
+    item_id = seed(db, series_name=None, series_position=position)
+    value = candidate(fields={"title": "The Martian", "series_name": "Provider series", "series_position": 2})
+    assert apply(editor_client, item_id, ticket(db, editor_user, item_id, value), mode="backfill").status_code == 303
+    row = stored(db, item_id)
+    assert row["series_name"] is None and row["series_position"] == position
+
+
+@pytest.mark.parametrize("name,position", [(None, None), ("Provider series", None), (None, 2)])
+def test_series_backfill_only_combines_an_unambiguous_pair(editor_client, editor_user, db, name, position):
+    item_id = seed(db, series_name=name, series_position=position)
+    value = candidate(fields={"title": "The Martian", "series_name": "Provider series", "series_position": 2})
+    assert apply(editor_client, item_id, ticket(db, editor_user, item_id, value), mode="backfill").status_code == 303
+    row = stored(db, item_id)
+    assert row["series_name"] == (None if name is None and position is not None else "Provider series")
+    assert row["series_position"] == 2
+
+
+def _all_rows(db):
+    tables = [row[0] for row in db.execute("SELECT name FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%'")]
+    return {table: sorted([tuple(row) for row in db.execute(f'SELECT * FROM "{table}"')], key=repr) for table in tables}
+
+
+@pytest.mark.parametrize("revocation", ["demotion", "deleted_user", "session_version", "identity", "feature"])
+def test_permission_revocation_during_download_refuses_all_writes_and_cleans_staging(editor_client, editor_user, db, monkeypatch, revocation):
+    from app import features
+    from app.database import get_db
+    item_id = seed(db)
+    (config.COVERS_DIR / "chosen.jpg").write_bytes(PNG)
+    signed = ticket(db, editor_user, item_id)
+    after_revocation = {}
+
+    async def download(identifier, url):
+        assert identifier == item_id and url == IMAGE
+        with get_db() as other:
+            if revocation == "demotion":
+                other.execute("UPDATE users SET role = 'viewer' WHERE id = ?", (editor_user["id"],))
+            elif revocation == "deleted_user":
+                other.execute("DELETE FROM users WHERE id = ?", (editor_user["id"],))
+            elif revocation == "session_version":
+                other.execute("UPDATE users SET token_version = token_version + 1 WHERE id = ?", (editor_user["id"],))
+            elif revocation == "identity":
+                other.execute("UPDATE users SET username = 'Replacement identity' WHERE id = ?", (editor_user["id"],))
+            else:
+                other.execute("INSERT INTO settings (key, value) VALUES ('feature.connected_library', '0') "
+                              "ON CONFLICT(key) DO UPDATE SET value = '0'")
+        if revocation == "feature":
+            assert features.feature_enabled("connected_library"), "Exercise the stale route/cache authorization"
+        with get_db() as other:
+            after_revocation.update(_all_rows(other))
+        (config.COVERS_DIR / f"{item_id}-staged.jpg").write_bytes(PNG)
+        return f"covers/{item_id}-staged.jpg"
+
+    monkeypatch.setattr(audible_catalog, "download_artwork", download)
+    response = apply(editor_client, item_id, signed, fields=["title", "narrator", "duration_mins"], image="0")
+    assert response.status_code in (401, 403)
+    assert _all_rows(db) == after_revocation
+    assert {path.name: path.read_bytes() for path in config.COVERS_DIR.iterdir()} == {"chosen.jpg": PNG}
+
+
+def test_applied_audible_observations_are_visible_read_only_in_real_metadata_sources(editor_client, editor_user, db):
+    from app.services import metadata_review
+    item_id = seed(db)
+    assert apply(editor_client, item_id, ticket(db, editor_user, item_id), fields="publisher").status_code == 303
+    rows = metadata_review.context_for(db, item_id)["metadata_rows"]
+    audible = [row for row in rows if row["source_key"] == f"audible:us:{ASIN}"]
+    assert audible and any(row["field_name"] == "narrator" and row["observed_display"] == "Wil Wheaton" for row in audible)
+    assert all(not row["resolvable"] and not row["can_follow"] for row in audible)
+    response = editor_client.get(f"/api/library/items/{item_id}/metadata")
+    assert response.status_code == 200 and "Audible" in response.text and "audible.com" in response.text
+    assert "Wil Wheaton" in response.text and "Read-only catalogue observation" in response.text
+    assert "Read-only identity field" not in response.text and "<form" not in response.text
+
+
+@pytest.mark.parametrize("decision", ["keep_local", "follow_source"])
+def test_generic_metadata_resolver_cannot_bypass_exact_asin_review(editor_client, editor_user, db, decision):
+    from app.services import metadata_review
+    item_id = seed(db)
+    assert apply(editor_client, item_id, ticket(db, editor_user, item_id), fields="publisher").status_code == 303
+    row = next(row for row in metadata_review.context_for(db, item_id)["metadata_rows"] if row["field_name"] == "narrator")
+    before = _all_rows(db)
+    response = editor_client.post(f"/api/library/items/{item_id}/metadata/resolve", data={
+        "source_key": row["source_key"], "field_name": row["field_name"], "fingerprint": row["fingerprint"], "decision": decision,
+    }, follow_redirects=False)
+    assert response.status_code == 422 and "read-only" in response.text
+    assert _all_rows(db) == before
+
+
+def test_eight_market_observations_do_not_hide_abs_metadata_sources(editor_client, editor_user, db):
+    from app.services import metadata_review
+    item_id = seed(db)
+    for market in tuple(audible_catalog.MARKETPLACES)[:8]:
+        value = candidate(fields={"title": "Provider title", "subtitle": "Provider subtitle", "authors": "Provider author",
+                                  "narrator": "Provider narrator", "duration_mins": 659, "description": "Provider description",
+                                  "publisher": "Provider publisher", "publish_year": 2020, "language": "en",
+                                  "series_name": "Provider series", "series_position": 2},
+                          marketplace=market, source_url=audible_catalog.product_url(ASIN, market))
+        assert apply(editor_client, item_id, ticket(db, editor_user, item_id, value), fields="publisher").status_code == 303
+    db.execute("INSERT INTO item_metadata_provenance (item_id, source_key, field_name, value_json) "
+               "VALUES (?, 'audiobookshelf:abs-id', 'description', ?)", (item_id, json.dumps({"observed": "ABS description"})))
+    db.commit()
+    context = metadata_review.context_for(db, item_id)
+    assert len(context["metadata_rows"]) <= metadata_review.MAX_ROWS and context["metadata_limited"]
+    assert any(row["source_key"] == "audiobookshelf:abs-id" and row["resolvable"] for row in context["metadata_rows"])
+    assert all(any(row["source_key"] == f"audible:{market}:{ASIN}" for row in context["metadata_rows"])
+               for market in tuple(audible_catalog.MARKETPLACES)[:8])
+    response = editor_client.get(f"/api/library/items/{item_id}/metadata")
+    assert response.status_code == 200 and "Audible" in response.text and "Audiobookshelf" in response.text
+    assert "ABS description" in response.text and 'value="follow_source"' in response.text
+
+
 @pytest.mark.parametrize("outcome", ["no_match", "transport_failed", "rate_limited", "rejected"])
 def test_provider_misses_and_errors_do_not_write_or_erase(editor_client, db, monkeypatch, outcome):
     item_id = seed(db)
@@ -348,7 +460,9 @@ def test_guard_reads_hold_write_lock_and_keep_private_history_copies_and_binding
     before = {table: [tuple(row) for row in db.execute(f"SELECT * FROM {table} ORDER BY 1")] for table in tables}
     signed = ticket(db, editor_user, item_id)
     original = review.check_current
+    original_authorize = review.authorize_apply
     locked_checks = []
+    authorization_checks = []
 
     def probe(conn, *args, **kwargs):
         if conn.in_transaction:
@@ -360,8 +474,20 @@ def test_guard_reads_hold_write_lock_and_keep_private_history_copies_and_binding
             locked_checks.append(True)
         return original(conn, *args, **kwargs)
     monkeypatch.setattr(review, "check_current", probe)
+
+    def authorize(conn, actor):
+        assert conn.in_transaction
+        assert actor["id"] == editor_user["id"] and actor["token_version"] == 1
+        from app.database import get_db
+        with get_db() as rival:
+            rival.execute("PRAGMA busy_timeout = 1")
+            with pytest.raises(sqlite3.OperationalError, match="locked"):
+                rival.execute("BEGIN IMMEDIATE")
+        authorization_checks.append(True)
+        return original_authorize(conn, actor)
+    monkeypatch.setattr(review, "authorize_apply", authorize)
     assert apply(editor_client, item_id, signed, fields="publisher").status_code == 303
-    assert locked_checks == [True]
+    assert locked_checks == authorization_checks == [True]
     assert {table: [tuple(row) for row in db.execute(f"SELECT * FROM {table} ORDER BY 1")] for table in tables} == before
     assert stored(db, item_id)["abs_id"] == "server-edition"
 

@@ -121,6 +121,7 @@ async def preview_image(request: Request, ticket: str, item_id: int = Path(..., 
 @router.post("/api/audiobooks/{item_id}/metadata/apply")
 async def apply(request: Request, item_id: int = Path(..., gt=0, le=2**63 - 1)):
     path = None
+    actor = dict(request.state.user)
     try:
         form = await _form(request, review.REVIEW_FORM_BYTES)
         signed = review.verify(form.get("ticket"), user_id=request.state.user["id"], item_id=item_id)
@@ -136,12 +137,19 @@ async def apply(request: Request, item_id: int = Path(..., gt=0, le=2**63 - 1)):
                 raise review.ReviewError(i18n.gettext("The chosen artwork could not be downloaded. Nothing was changed; try keeping the current artwork."))
         with get_db() as db:
             db.execute("BEGIN IMMEDIATE")
-            review.apply(db, item_id, signed, mode=mode, chosen=chosen, path=path)
+            review.apply(db, item_id, signed, mode=mode, chosen=chosen, path=path, actor=actor)
         path = None  # The staged image now belongs to the committed item.
         target = f"/item/{item_id}"
         if request.headers.get("HX-Request", "").lower() == "true":
             return Response(headers={"HX-Redirect": target, "Cache-Control": "no-store"})
         return RedirectResponse(target, status_code=303, headers={"Cache-Control": "no-store"})
+    except review.PermissionChanged as error:
+        # Do not render catalogue values or stale editor controls after a
+        # session/permission revocation. The write context has already rolled
+        # back; finally removes any staged image before returning the refusal.
+        return Response(str(error), status_code=error.status_code, media_type="text/plain", headers={
+            "Cache-Control": "no-store", "HX-Trigger": items_common._toast_header(str(error), "error"),
+        })
     except (review.ReviewError, ValueError, item_write.ItemValueError, sqlite3.IntegrityError) as error:
         message = str(error) if isinstance(error, review.ReviewError) else i18n.gettext("Those catalogue values could not be saved. Nothing was changed; preview the audiobook again.")
         return _render(request, item_id, error=message)

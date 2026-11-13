@@ -13,11 +13,19 @@ import math
 import re
 from pathlib import Path
 
-from app import config, i18n
+from app import auth, config, features, i18n
 from app.services import audible_catalog, cover_sync_policy, item_write, music_review
 
 
 ReviewError = music_review.ReviewError
+
+
+class PermissionChanged(ReviewError):
+    def __init__(self, message, status_code):
+        self.status_code = status_code
+        super().__init__(message)
+
+
 REVIEW_PURPOSE = "shelf-audiobook-review-v1"
 IMAGE_PURPOSE = "shelf-audiobook-image-v1"
 PREVIEW_FORM_BYTES = 4096
@@ -134,6 +142,28 @@ def check_current(db, item_id, review, *, staged_path=None):
     return current
 
 
+def authorize_apply(db, actor):
+    """Revalidate request authority on the SAME write-locked connection.
+
+    Route dependencies and request.state.user are pre-HTTP snapshots. Do not
+    use get_current_user (another connection), a cached feature flag, or a
+    signed preview as authority to install a catalogue change. Future item/
+    household capability checks must join this guard under the same lock.
+    """
+    if not db.in_transaction:
+        raise RuntimeError("Audiobook apply authorization requires the write lock")
+    current = db.execute("SELECT username, role, token_version FROM users WHERE id = ?", (actor["id"],)).fetchone()
+    if (current is None or current["token_version"] != actor.get("token_version")
+            or not isinstance(actor.get("username"), str)
+            or current["username"].casefold() != actor["username"].casefold()):
+        raise PermissionChanged(i18n.gettext("Your session changed while this review was open. Nothing was saved; sign in and review again."), 401)
+    if auth.ROLE_LEVELS.get(current["role"], 0) < auth.ROLE_LEVELS["editor"]:
+        raise PermissionChanged(i18n.gettext("You no longer have permission to apply this review. Nothing was saved."), 403)
+    flag = db.execute("SELECT value FROM settings WHERE key = ?", (features.setting_key("connected_library"),)).fetchone()
+    if flag is not None and flag["value"] == "0":
+        raise PermissionChanged(i18n.gettext("Connected library was turned off while this review was open. Nothing was saved."), 403)
+
+
 def backfill_fields(db, item_id, candidate):
     current = item(db, item_id)
     protected = {row["field_name"] for row in _baselines(db, item_id)
@@ -143,6 +173,10 @@ def backfill_fields(db, item_id, candidate):
     if ("series_position" in result and "series_name" not in result
             and current["series_name"] != candidate["fields"].get("series_name")):
         result.remove("series_position")
+    # The mirror case is also ambiguous: an orphan local ordinal is NOT
+    # evidence that the provider's series name belongs to that ordinal.
+    if "series_name" in result and not _empty(current["series_position"]):
+        result.remove("series_name")
     return result
 
 
@@ -167,8 +201,9 @@ def choices(form, candidate):
     return mode, set(chosen), image == "0"
 
 
-def apply(db, item_id, review, *, mode, chosen, path):
+def apply(db, item_id, review, *, mode, chosen, path, actor):
     """Recheck under the caller's write lock, then apply one atomic review."""
+    authorize_apply(db, actor)
     current = check_current(db, item_id, review, staged_path=path)
     candidate = review["candidate"]
     if mode == "backfill":
