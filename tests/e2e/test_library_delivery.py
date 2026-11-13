@@ -52,6 +52,25 @@ def _csrf(page):
     return next(cookie["value"] for cookie in page.context.cookies() if cookie["name"] == "csrf_token")
 
 
+def _assert_handoff(page, link, destination):
+    """Inspect the real internal redirect without navigating a remote service."""
+    href = link.get_attribute("href")
+    assert href.startswith("/api/library/items/") and "/open/" in href, href
+    assert set(parse_qs(urlsplit(href).query)) <= {"binding", "source_key"}
+    expect(link).to_have_attribute("target", "_blank")
+    expect(link).to_have_attribute("rel", "noopener noreferrer")
+    expect(link).to_have_attribute("referrerpolicy", "no-referrer")
+    origin = urlsplit(page.url)
+    response = page.request.get(f"{origin.scheme}://{origin.netloc}{href}", max_redirects=0)
+    assert response.status == 303, response.text()
+    assert response.headers["location"] == destination
+    assert response.headers["cache-control"] == "no-store"
+    assert response.headers["referrer-policy"] == "no-referrer"
+    target = urlsplit(destination)
+    assert target.username is None and target.password is None
+    return href
+
+
 def _fields(form):
     return form.evaluate("form => Object.fromEntries(new FormData(form))")
 
@@ -442,7 +461,7 @@ def test_source_replacement_preview_apply_resync_retire_and_rollback(machine_del
     page.goto(f"{server['url']}/item/{ids['keep']}")
     new_holding = page.get_by_test_id("available-here").locator(f'[data-availability-source="source:{ids["new_source"]}"]')
     expected_url = f"{server['catalogues']['root']}/new/edition.epub"
-    expect(new_holding.locator('a[target="_blank"]')).to_have_attribute("href", expected_url)
+    _assert_handoff(page, new_holding.locator('a[target="_blank"]'), expected_url)
     page.goto(receipt_url)
     expect(review.get_by_role("button", name="Retire old source", exact=True)).to_have_count(0)
     expect(review.get_by_role("alert")).to_contain_text("fresh complete replacement preview")
@@ -482,7 +501,7 @@ def test_source_replacement_preview_apply_resync_retire_and_rollback(machine_del
     old_holding = page.get_by_test_id("available-here").locator(f'[data-availability-source="source:{ids["old_source"]}"]')
     expect(old_holding).to_have_attribute("data-availability-state", "unknown")
     expect(old_holding.locator('a[target="_blank"]')).to_have_count(0)
-    expect(new_holding.locator('a[target="_blank"]')).to_have_attribute("href", expected_url)
+    _assert_handoff(page, new_holding.locator('a[target="_blank"]'), expected_url)
     # The fresh review is a binding no-op: rolling it back restores the source
     # enablement, not the original attachment. Undo that on its original receipt.
     page.goto(fresh_receipt_url)
@@ -698,11 +717,10 @@ def test_source_review_exposes_exact_cached_opening_actions_and_labels(machine_d
     expected = set()
     for key, item in (("old", ids["keep"]), ("new", ids["previous"])):
         url = f"{server['catalogues']['root']}/{key}/edition.epub"
-        member = page.locator(f'[data-library-member="{item}"]')
-        action = member.get_by_role("link", name=f"Read · {key.title()} archive", exact=True)
-        expect(action).to_have_attribute("href", url)
-        expect(action).to_have_attribute("target", "_blank")
-        expect(action).to_have_attribute("rel", "noopener noreferrer")
+        page.goto(f"{server['url']}/item/{item}")
+        holding = page.get_by_test_id("available-here").locator(f'[data-availability-source="source:{ids[key + "_source"]}"]')
+        action = holding.get_by_role("link", name="Read", exact=True)
+        _assert_handoff(page, action, url)
         expected.add((url, "Read"))
     _replacement_preview(page, server, ids)
     actions = page.get_by_test_id("source-migration-review").locator('a[target="_blank"]')
