@@ -164,10 +164,10 @@ async def _read_public(url, *, params=None, image=False):
     """One DNS-pinned, paced hop; no inherited auth/proxies/cookies or redirects."""
     audible_permission.require_enabled()
     target = await manual_cover._public_target(url)
+    audible_permission.require_enabled()
     if target is None:
         raise _Unreadable
     host, address = target
-    audible_permission.require_enabled()
     await outbound.acquire(host)
     audible_permission.require_enabled()
     try:
@@ -241,6 +241,7 @@ async def lookup(asin, marketplace):
     except audible_permission.ProviderBlocked:
         raise
     except (httpx.HTTPError, OSError, ValueError, RecursionError, TimeoutError):
+        audible_permission.require_enabled()
         return provider_result.transport_failed("audible")
 
 
@@ -292,5 +293,5 @@ async def download_artwork(item_id, url):
     except audible_permission.ProviderBlocked:
         raise
     except (httpx.HTTPError, OSError, ValueError, TimeoutError):
-        pass
+        audible_permission.require_enabled()
     return None
