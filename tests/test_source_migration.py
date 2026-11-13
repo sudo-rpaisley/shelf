@@ -480,6 +480,100 @@ async def test_added_holdings_from_real_sync_require_complete_rereview_before_re
     assert db.execute("SELECT COUNT(*) FROM source_records WHERE source_id = ?", (seed[0],)).fetchone()[0] == 2
 
 
+async def test_noop_inventory_rereview_retire_rollback_preserves_original_repair_continuity(db, monkeypatch):
+    seed = _seed(db)
+    original = _preview(db, seed)
+    _apply(db, original)
+    db.commit()
+    original_version = migration._version(db, seed[3])
+
+    async def fetch(source, credentials):
+        assert source["id"] == seed[1]
+        return Catalogue([SourceRecord("new-id", "Replacement refreshed by real sync", "ebook", isbn=ISBN,
+                                       metadata={"description": "Refreshed remote description"})])
+
+    monkeypatch.setattr(opds, "fetch_catalogue", fetch)
+    assert (await sources.sync_instance(seed[1]))["ok"]
+    receipt = _receipt(db, original)
+    assert receipt["coverage_changed"] and "retire_fingerprint" not in receipt
+    # A new fingerprint alone must still not authorize unreviewed retirement.
+    with pytest.raises(migration.MigrationError) as error:
+        migration.retire(db, original["id"], actor_id=ACTOR, reviewed=True,
+                         fingerprint=migration._fingerprint(db, original["plan"], purpose="retire", plan_id=original["id"]))
+    assert error.value.code == "coverage_changed"
+    db.rollback()
+
+    rereview = _preview(db, seed)
+    mapping = rereview["plan"]["mappings"][0]
+    assert mapping["before_item_id"] == mapping["after_item_id"] == seed[4]
+    _apply(db, rereview)
+    current = _receipt(db, rereview)
+    assert migration.retire(db, rereview["id"], actor_id=ACTOR,
+                            fingerprint=current["retire_fingerprint"], reviewed=True)["ok"]
+    current = _receipt(db, rereview)
+    assert migration.rollback(db, rereview["id"], actor_id=ACTOR,
+                              fingerprint=current["rollback_fingerprint"], reviewed=True)["ok"]
+    assert db.execute("SELECT enabled FROM source_instances WHERE id = ?", (seed[0],)).fetchone()[0] == 1
+
+    # The inventory review was not a new binding decision. Its rollback must
+    # leave the earlier, real repair independently undoable after fresh review.
+    original_receipt = _receipt(db, original)
+    assert not original_receipt["conflict"] and "rollback_fingerprint" in original_receipt
+    assert migration._version(db, seed[3]) == original_version
+    before = _protected(db)
+    assert migration.rollback(db, original["id"], actor_id=ACTOR,
+                              fingerprint=original_receipt["rollback_fingerprint"], reviewed=True)["ok"]
+    assert _binding(db, seed[3]) == seed[5] and _protected(db) == before
+    assert migration._version(db, seed[3]) == original_version + 1
+
+
+@pytest.mark.parametrize("retire_old", [False, True])
+def test_noop_review_apply_preserves_newer_follow_authority_and_binding_versions(db, retire_old):
+    seed = _seed(db)
+    original = _preview(db, seed)
+    _apply(db, original)
+    _follow_description(db, seed[4], seed[1], "new-id")
+    _follow_description(db, seed[4], seed[0], "old-id")
+    rereview = _preview(db, seed, retire_old=retire_old)
+    before_provenance = [tuple(row) for row in db.execute("SELECT * FROM item_metadata_provenance ORDER BY item_id, source_key, field_name")]
+    before_records = [tuple(row) for row in db.execute("SELECT * FROM source_records ORDER BY id")]
+    before_versions = [tuple(row) for row in db.execute("SELECT * FROM source_binding_versions ORDER BY record_id")]
+    _apply(db, rereview)
+    assert [tuple(row) for row in db.execute("SELECT * FROM item_metadata_provenance ORDER BY item_id, source_key, field_name")] == before_provenance
+    assert [tuple(row) for row in db.execute("SELECT * FROM source_records ORDER BY id")] == before_records
+    assert [tuple(row) for row in db.execute("SELECT * FROM source_binding_versions ORDER BY record_id")] == before_versions
+    receipt = _receipt(db, rereview)
+    assert migration.rollback(db, rereview["id"], actor_id=ACTOR,
+                              fingerprint=receipt["rollback_fingerprint"], reviewed=True)["ok"]
+    assert [tuple(row) for row in db.execute("SELECT * FROM item_metadata_provenance ORDER BY item_id, source_key, field_name")] == before_provenance
+    # Continuity does not bypass the separate protection for newer authority.
+    assert _receipt(db, original)["rollback_blocked"]
+    with pytest.raises(migration.MigrationError) as error:
+        migration.rollback(db, original["id"], actor_id=ACTOR, reviewed=True,
+                           fingerprint=migration._fingerprint(db, original["plan"], purpose="rollback", plan_id=original["id"]))
+    assert error.value.code == "authority_changed"
+
+
+def test_real_replacement_plan_still_supersedes_original_binding_repair(db):
+    seed = _seed(db)
+    original = _preview(db, seed)
+    _apply(db, original)
+    original_version = migration._version(db, seed[3])
+    different_old, different_item = _record(db, seed[0], "different-old", isbn=OTHER_ISBN)
+    newer = migration.preview_replacement(
+        db, actor_id=ACTOR, old_source_id=seed[0], new_source_id=seed[1], manual_reviewed=True,
+        mappings=[{"old_record_id": different_old, "new_record_id": seed[3]}],
+    )
+    _apply(db, newer)
+    assert _binding(db, seed[3]) == different_item
+    assert migration._version(db, seed[3]) == original_version + 1
+    assert _receipt(db, original)["conflict"]
+    with pytest.raises(migration.MigrationError) as error:
+        migration.rollback(db, original["id"], actor_id=ACTOR, reviewed=True,
+                           fingerprint=migration._fingerprint(db, original["plan"], purpose="rollback", plan_id=original["id"]))
+    assert error.value.code == "stale_preview"
+
+
 async def test_timestamp_only_sync_refresh_does_not_invent_changed_coverage(db, monkeypatch):
     seed = _seed(db)
     preview = _preview(db, seed)

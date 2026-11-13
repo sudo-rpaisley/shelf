@@ -10,7 +10,8 @@ Reattachment does NOT transfer metadata authority. Descriptive observations
 are retained but frozen on both sides, including explicit blanks; old applied
 and follow_source claims are not restored by rollback. Newer authority claims
 block a changed-binding rollback; binding-no-op rollback leaves them intact.
-Covers and other source keys are untouched. Metadata sources remains the
+Covers and other source keys are untouched. A binding-no-op review changes
+neither binding versions nor metadata authority. Metadata sources remains the
 explicit way to follow a correct source again after inspecting local values.
 """
 
@@ -533,6 +534,12 @@ def apply(db, plan_id: str, *, actor_id: int, fingerprint: str, reviewed: bool =
     versions = {}
     for mapping in plan["mappings"]:
         record = dict(db.execute("SELECT * FROM source_records WHERE id = ?", (mapping["record_id"],)).fetchone())
+        if mapping["before_item_id"] == mapping["after_item_id"]:
+            # A fresh inventory review is not a new binding/authority decision.
+            # Keep the actual version so real intervening changes still fence
+            # this receipt, without superseding an earlier repair needlessly.
+            versions[str(record["id"])] = _version(db, record["id"])
+            continue
         versions[str(record["id"])] = _rebind(db, record, mapping["after_item_id"], plan_id)
         if "old_record_id" in mapping:
             old = dict(db.execute("SELECT * FROM source_records WHERE id = ?", (mapping["old_record_id"],)).fetchone())
@@ -560,7 +567,7 @@ def _check_owned_bindings(db, plan: dict, result: dict) -> None:
 def _check_rollback_authority(db, plan: dict) -> None:
     """A refreshed receipt cannot authorize erasing a newer Follow decision.
 
-    Apply froze all affected fields, so a later applied/follow claim is a
+    A real rebind froze its affected fields, so a later applied/follow claim is a
     superseding authority decision, not migration-owned state. No-op bindings
     are excluded: rollback will not rewrite their provenance at all.
     """
