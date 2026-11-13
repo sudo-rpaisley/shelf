@@ -15,6 +15,46 @@ These results are **not pinned-CI verification** (the project CI uses Python
 3.12 and its pinned Playwright browser). Dependency manifests were not changed
 to accommodate the local environment.
 
+## Desktop spacing follow-up
+
+**PASS — verified locally on 2026-11-13** with the compatible runtime above.
+
+| Gate | Result |
+|---|---|
+| Complete non-live browser suite, including the all-page width/print audits and six toolbar widths | **405 passed**, exit 0, 548.08 seconds |
+| Focused layout, navigation, labels/print, item/settings, feature-off and connected-library regressions | **720 passed**, exit 0, 134.12 seconds |
+| CSS/service-worker regeneration, translation catalogs, collection badges and `make checks-fast` | Passed; private roadmap-map lint unavailable |
+
+The operator found the unified pages too close to laptop screen edges. This
+CSS-only presentation follow-up keeps the 96rem shell and desktop workspaces,
+but changes desktop gutters from 32px to `clamp(48px, 5vw, 80px)` on each side
+from 1024px. That is **64px at 1280px**, **68.3px at 1366px** and **80px at
+1920px**; phone (16px) and smaller tablet (24px) gutters stay unchanged.
+Navigation, content, public shares, Store and banners still share one inset.
+
+The Browse bulk toolbar inherits the same gutter variable: its background can
+bleed to the shell edge, but its controls stay aligned with page content.
+Browser coverage checks both shell insets and toolbar alignment at phone,
+tablet/laptop and wide-desktop sizes. Toolbar measurements await the actual
+CSS transition rather than reading the temporary entrance scale, and seeded
+barcodes remain distinct across all viewport cases. Print dimensions and
+intentionally constrained authentication/artwork previews are unchanged.
+
+Frozen verification candidate: staged tree
+`53ea6e3c02e73ecef4853b807ebf485f409f410a` in `/tmp/shelf-gutter-verify`.
+Logs: `/tmp/shelf-gutter-browser-verified.log` and
+`/tmp/shelf-gutter-unit-verified.log`; visual/print artifacts:
+`/tmp/shelf-gutter-verified` and `/tmp/shelf-gutter-music-verified`.
+The 1366px all-page preflight and six toolbar-width cases passed before the
+complete run. Application services, database schema/data and container settings
+are not changed by this follow-up.
+Laptop screenshots and label/valuation PDFs were inspected; both complete
+browser and focused unit gates passed without skips. Only this verification
+record was updated after the frozen run; the existing Starlette/httpx warning
+was not suppressed.
+The complete 7669-case unit suite was not repeated for this presentation-only
+change; its immediately preceding full pass is recorded in the music section.
+
 ## Music matching, shop links and artwork selection
 
 **PASS — verified locally on 2026-11-12** using the compatible runtime above,

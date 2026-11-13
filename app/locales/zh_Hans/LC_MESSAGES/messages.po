@@ -49,7 +49,7 @@ msgid "Value"
 msgstr "价值"
 
 #: app/browse_columns.py:68 app/nav.py:43 app/services/metadata_review.py:38
-#: app/templates/browse.html:49
+#: app/templates/browse.html:50
 #: app/templates/fragments/manual_add_form.html:155
 #: app/templates/item_edit.html:79 app/templates/item_edit.html:218
 #: app/templates/item_edit.html:222
@@ -72,7 +72,7 @@ msgid "Pages"
 msgstr "页数"
 
 #: app/browse_columns.py:72 app/browse_filters.py:221
-#: app/services/metadata_review.py:38 app/templates/browse.html:65
+#: app/services/metadata_review.py:38 app/templates/browse.html:66
 #: app/templates/fragments/account_menu.html:116
 #: app/templates/item_edit.html:123
 msgid "Language"
@@ -109,7 +109,7 @@ msgstr "来源"
 msgid "Sort"
 msgstr "排序"
 
-#: app/browse_filters.py:216 app/templates/browse.html:83
+#: app/browse_filters.py:216 app/templates/browse.html:84
 msgid "Tag"
 msgstr "标签"
 
@@ -886,12 +886,12 @@ msgstr ""
 msgid "Recently added"
 msgstr ""
 
-#: app/services/library_catalog.py:54 app/templates/browse.html:233
+#: app/services/library_catalog.py:54 app/templates/browse.html:234
 #: app/templates/fragments/filter_counts_oob.html:26
 msgid "All"
 msgstr "全部"
 
-#: app/services/library_catalog.py:56 app/templates/browse.html:235
+#: app/services/library_catalog.py:56 app/templates/browse.html:236
 #: app/templates/fragments/filter_counts_oob.html:28
 #: app/templates/fragments/item_card.html:7
 #: app/templates/fragments/item_row.html:51
@@ -1284,120 +1284,120 @@ msgstr "退出选择 / 离开搜索框"
 msgid "Shortcuts are disabled when typing in inputs"
 msgstr "在输入框中打字时快捷键不生效"
 
-#: app/templates/browse.html:13
+#: app/templates/browse.html:14
 msgid "Move to location..."
 msgstr "移动到位置…"
 
-#: app/templates/browse.html:19 app/templates/browse.html:27
-#: app/templates/browse.html:37 app/templates/browse.html:44
-#: app/templates/browse.html:59 app/templates/browse.html:74
+#: app/templates/browse.html:20 app/templates/browse.html:28
+#: app/templates/browse.html:38 app/templates/browse.html:45
+#: app/templates/browse.html:60 app/templates/browse.html:75
 #: app/templates/needs_attention.html:38
 msgid "Apply"
 msgstr "应用"
 
-#: app/templates/browse.html:21
+#: app/templates/browse.html:22
 msgid "Change type..."
 msgstr "更改类型…"
 
-#: app/templates/browse.html:30
+#: app/templates/browse.html:31
 msgid "Set status..."
 msgstr "设置状态…"
 
-#: app/templates/browse.html:34
+#: app/templates/browse.html:35
 msgid "Clear Status"
 msgstr "清除状态"
 
-#: app/templates/browse.html:39
+#: app/templates/browse.html:40
 msgid "Wishlist..."
 msgstr "心愿单…"
 
-#: app/templates/browse.html:40
+#: app/templates/browse.html:41
 msgid "Add to wishlist"
 msgstr "加入心愿单"
 
-#: app/templates/browse.html:41
+#: app/templates/browse.html:42
 msgid "Remove from wishlist"
 msgstr "移出心愿单"
 
-#: app/templates/browse.html:51
+#: app/templates/browse.html:52
 msgid "Type or pick a series..."
 msgstr "输入或选择系列…"
 
-#: app/templates/browse.html:61 app/templates/browse.html:76
+#: app/templates/browse.html:62 app/templates/browse.html:77
 msgid "Clear"
 msgstr "清除"
 
-#: app/templates/browse.html:68
+#: app/templates/browse.html:69
 msgid "Choose…"
 msgstr "选择…"
 
-#: app/templates/browse.html:85
+#: app/templates/browse.html:86
 msgid "Type or pick a tag..."
 msgstr "输入或选择标签…"
 
-#: app/templates/browse.html:94
+#: app/templates/browse.html:95
 msgid "Add tag"
 msgstr "添加标签"
 
-#: app/templates/browse.html:96 app/templates/fragments/item_tags.html:11
+#: app/templates/browse.html:97 app/templates/fragments/item_tags.html:11
 msgid "Remove tag"
 msgstr "移除标签"
 
-#: app/templates/browse.html:99
+#: app/templates/browse.html:100
 msgid "Delete Selected"
 msgstr "删除所选"
 
-#: app/templates/browse.html:111
+#: app/templates/browse.html:112
 msgid "Collection"
 msgstr "藏品"
 
-#: app/templates/browse.html:115
+#: app/templates/browse.html:116
 msgid "Grid view"
 msgstr "网格视图"
 
-#: app/templates/browse.html:119
+#: app/templates/browse.html:120
 msgid "List view"
 msgstr "列表视图"
 
-#: app/templates/browse.html:135
+#: app/templates/browse.html:136
 msgid "Tap items to select them for bulk actions such as moving, type/status/series changes, tagging, or deleting."
 msgstr "点选条目即可批量操作：移动、修改类型/状态/系列、打标签或删除。"
 
-#: app/templates/browse.html:140
+#: app/templates/browse.html:141
 msgid "Select All"
 msgstr "全选"
 
-#: app/templates/browse.html:141
+#: app/templates/browse.html:142
 msgid "Deselect All"
 msgstr "取消全选"
 
-#: app/templates/browse.html:151
+#: app/templates/browse.html:152
 msgid "Columns"
 msgstr "列"
 
-#: app/templates/browse.html:170
+#: app/templates/browse.html:171
 msgid "Reset to defaults"
 msgstr "恢复默认"
 
-#: app/templates/browse.html:180
+#: app/templates/browse.html:181
 msgid "Filters"
 msgstr "筛选"
 
-#: app/templates/browse.html:184 app/templates/browse.html:192
+#: app/templates/browse.html:185 app/templates/browse.html:193
 msgid "Search..."
 msgstr "搜索…"
 
-#: app/templates/browse.html:204
+#: app/templates/browse.html:205
 #: app/templates/fragments/filter_counts_oob.html:13
 msgid "All Types"
 msgstr "全部类型"
 
-#: app/templates/browse.html:218
+#: app/templates/browse.html:219
 #: app/templates/fragments/filter_counts_oob.html:37
 msgid "All Locations"
 msgstr "全部位置"
 
-#: app/templates/browse.html:220
+#: app/templates/browse.html:221
 #: app/templates/fragments/filter_counts_oob.html:39
 #: app/templates/fragments/item_copies.html:90
 #: app/templates/fragments/item_copies.html:95
@@ -1406,69 +1406,69 @@ msgstr "全部位置"
 msgid "No location"
 msgstr ""
 
-#: app/templates/browse.html:234
+#: app/templates/browse.html:235
 #: app/templates/fragments/filter_counts_oob.html:27
 #: app/templates/fragments/library_results.html:19
 #: app/templates/library.html:75
 msgid "Owned"
 msgstr "已拥有"
 
-#: app/templates/browse.html:236
+#: app/templates/browse.html:237
 #: app/templates/fragments/filter_counts_oob.html:29
 msgid "Not owned or wishlisted"
 msgstr "未拥有且不在心愿单"
 
-#: app/templates/browse.html:245
+#: app/templates/browse.html:246
 msgid "All Items"
 msgstr "全部条目"
 
-#: app/templates/browse.html:246
+#: app/templates/browse.html:247
 msgid "Lent Out"
 msgstr "已借出"
 
-#: app/templates/browse.html:256
+#: app/templates/browse.html:257
 #: app/templates/fragments/filter_counts_oob.html:71
 msgid "All Statuses"
 msgstr "全部状态"
 
-#: app/templates/browse.html:269
+#: app/templates/browse.html:270
 msgid "All Tags"
 msgstr "全部标签"
 
-#: app/templates/browse.html:282
+#: app/templates/browse.html:283
 msgid "All Languages"
 msgstr "全部语言"
 
-#: app/templates/browse.html:294
+#: app/templates/browse.html:295
 #: app/templates/fragments/filter_counts_oob.html:53
 msgid "All Sources"
 msgstr "全部来源"
 
-#: app/templates/browse.html:309
+#: app/templates/browse.html:310
 msgid "Most Recent"
 msgstr "最新在前"
 
-#: app/templates/browse.html:310
+#: app/templates/browse.html:311
 msgid "Oldest First"
 msgstr "最早在前"
 
-#: app/templates/browse.html:311
+#: app/templates/browse.html:312
 msgid "Title A–Z"
 msgstr "标题 A–Z"
 
-#: app/templates/browse.html:312
+#: app/templates/browse.html:313
 msgid "Title Z–A"
 msgstr "标题 Z–A"
 
-#: app/templates/browse.html:315
+#: app/templates/browse.html:316
 msgid "Year (Newest)"
 msgstr "年份（从新到旧）"
 
-#: app/templates/browse.html:316
+#: app/templates/browse.html:317
 msgid "Year (Oldest)"
 msgstr "年份（从旧到新）"
 
-#: app/templates/browse.html:329
+#: app/templates/browse.html:330
 msgid "Clear all"
 msgstr "全部清除"
 

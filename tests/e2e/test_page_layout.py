@@ -89,7 +89,7 @@ _GEOMETRY = """(() => {
     const hr = header.getBoundingClientRect(), hs = getComputedStyle(header);
     return {shell: r.width, content: r.width - parseFloat(cs.paddingLeft) - parseFloat(cs.paddingRight),
             page: b.width, pageLeft: b.left, contentLeft: r.left + parseFloat(cs.paddingLeft),
-            gutter: parseFloat(cs.paddingLeft), header: hr.width,
+            gutter: parseFloat(cs.paddingLeft), rightGutter: parseFloat(cs.paddingRight), header: hr.width,
             headerContentLeft: hr.left + parseFloat(hs.paddingLeft)};
 })()"""
 
@@ -185,8 +185,10 @@ def _capture(page, label, width, records, *, app_page=True):
         else:
             if abs(geometry["shell"] - min(width, 1536)) > 1:
                 failures.append(f"{label}: shell {geometry['shell']}px does not use the shared desktop width")
-            gutter = 32 if width >= 1024 else 24 if width >= 640 else 16
-            if geometry["gutter"] != gutter or abs(geometry["header"] - geometry["shell"]) > 1 or abs(geometry["headerContentLeft"] - geometry["contentLeft"]) > 1:
+            gutter = min(80, max(48, width * 0.05)) if width >= 1024 else 24 if width >= 640 else 16
+            if (abs(geometry["gutter"] - gutter) > 0.1 or abs(geometry["rightGutter"] - gutter) > 0.1
+                    or abs(geometry["header"] - geometry["shell"]) > 1
+                    or abs(geometry["headerContentLeft"] - geometry["contentLeft"]) > 1):
                 failures.append(f"{label}: header/page gutters are inconsistent {geometry}")
             if abs(geometry["page"] - geometry["content"]) > 1 or abs(geometry["pageLeft"] - geometry["contentLeft"]) > 1:
                 failures.append(f"{label}: inner page remains capped/centered {geometry}")

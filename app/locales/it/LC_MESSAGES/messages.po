@@ -46,7 +46,7 @@ msgid "Value"
 msgstr "Valore"
 
 #: app/browse_columns.py:68 app/nav.py:43 app/services/metadata_review.py:38
-#: app/templates/browse.html:49
+#: app/templates/browse.html:50
 #: app/templates/fragments/manual_add_form.html:155
 #: app/templates/item_edit.html:79 app/templates/item_edit.html:218
 #: app/templates/item_edit.html:222
@@ -69,7 +69,7 @@ msgid "Pages"
 msgstr "Pagine"
 
 #: app/browse_columns.py:72 app/browse_filters.py:221
-#: app/services/metadata_review.py:38 app/templates/browse.html:65
+#: app/services/metadata_review.py:38 app/templates/browse.html:66
 #: app/templates/fragments/account_menu.html:116
 #: app/templates/item_edit.html:123
 msgid "Language"
@@ -106,7 +106,7 @@ msgstr "Origine"
 msgid "Sort"
 msgstr "Ordinamento"
 
-#: app/browse_filters.py:216 app/templates/browse.html:83
+#: app/browse_filters.py:216 app/templates/browse.html:84
 msgid "Tag"
 msgstr "Tag"
 
@@ -883,12 +883,12 @@ msgstr ""
 msgid "Recently added"
 msgstr ""
 
-#: app/services/library_catalog.py:54 app/templates/browse.html:233
+#: app/services/library_catalog.py:54 app/templates/browse.html:234
 #: app/templates/fragments/filter_counts_oob.html:26
 msgid "All"
 msgstr "Tutti"
 
-#: app/services/library_catalog.py:56 app/templates/browse.html:235
+#: app/services/library_catalog.py:56 app/templates/browse.html:236
 #: app/templates/fragments/filter_counts_oob.html:28
 #: app/templates/fragments/item_card.html:7
 #: app/templates/fragments/item_row.html:51
@@ -1281,120 +1281,120 @@ msgstr "Esci dalla selezione / dalla ricerca"
 msgid "Shortcuts are disabled when typing in inputs"
 msgstr "Le scorciatoie sono disattivate mentre scrivi in un campo"
 
-#: app/templates/browse.html:13
+#: app/templates/browse.html:14
 msgid "Move to location..."
 msgstr "Sposta in..."
 
-#: app/templates/browse.html:19 app/templates/browse.html:27
-#: app/templates/browse.html:37 app/templates/browse.html:44
-#: app/templates/browse.html:59 app/templates/browse.html:74
+#: app/templates/browse.html:20 app/templates/browse.html:28
+#: app/templates/browse.html:38 app/templates/browse.html:45
+#: app/templates/browse.html:60 app/templates/browse.html:75
 #: app/templates/needs_attention.html:38
 msgid "Apply"
 msgstr "Applica"
 
-#: app/templates/browse.html:21
+#: app/templates/browse.html:22
 msgid "Change type..."
 msgstr "Cambia tipo..."
 
-#: app/templates/browse.html:30
+#: app/templates/browse.html:31
 msgid "Set status..."
 msgstr "Imposta stato..."
 
-#: app/templates/browse.html:34
+#: app/templates/browse.html:35
 msgid "Clear Status"
 msgstr "Rimuovi stato"
 
-#: app/templates/browse.html:39
+#: app/templates/browse.html:40
 msgid "Wishlist..."
 msgstr "Lista desideri..."
 
-#: app/templates/browse.html:40
+#: app/templates/browse.html:41
 msgid "Add to wishlist"
 msgstr "Aggiungi alla lista desideri"
 
-#: app/templates/browse.html:41
+#: app/templates/browse.html:42
 msgid "Remove from wishlist"
 msgstr "Rimuovi dalla lista desideri"
 
-#: app/templates/browse.html:51
+#: app/templates/browse.html:52
 msgid "Type or pick a series..."
 msgstr "Scrivi o scegli una serie..."
 
-#: app/templates/browse.html:61 app/templates/browse.html:76
+#: app/templates/browse.html:62 app/templates/browse.html:77
 msgid "Clear"
 msgstr "Rimuovi"
 
-#: app/templates/browse.html:68
+#: app/templates/browse.html:69
 msgid "Choose…"
 msgstr "Scegli…"
 
-#: app/templates/browse.html:85
+#: app/templates/browse.html:86
 msgid "Type or pick a tag..."
 msgstr "Scrivi o scegli un tag..."
 
-#: app/templates/browse.html:94
+#: app/templates/browse.html:95
 msgid "Add tag"
 msgstr "Aggiungi tag"
 
-#: app/templates/browse.html:96 app/templates/fragments/item_tags.html:11
+#: app/templates/browse.html:97 app/templates/fragments/item_tags.html:11
 msgid "Remove tag"
 msgstr "Rimuovi tag"
 
-#: app/templates/browse.html:99
+#: app/templates/browse.html:100
 msgid "Delete Selected"
 msgstr "Elimina selezionati"
 
-#: app/templates/browse.html:111
+#: app/templates/browse.html:112
 msgid "Collection"
 msgstr "Collezione"
 
-#: app/templates/browse.html:115
+#: app/templates/browse.html:116
 msgid "Grid view"
 msgstr "Vista griglia"
 
-#: app/templates/browse.html:119
+#: app/templates/browse.html:120
 msgid "List view"
 msgstr "Vista elenco"
 
-#: app/templates/browse.html:135
+#: app/templates/browse.html:136
 msgid "Tap items to select them for bulk actions such as moving, type/status/series changes, tagging, or deleting."
 msgstr "Tocca gli elementi per selezionarli e agire su più elementi insieme: spostarli, cambiarne tipo, stato o serie, assegnare tag o eliminarli."
 
-#: app/templates/browse.html:140
+#: app/templates/browse.html:141
 msgid "Select All"
 msgstr "Seleziona tutto"
 
-#: app/templates/browse.html:141
+#: app/templates/browse.html:142
 msgid "Deselect All"
 msgstr "Deseleziona tutto"
 
-#: app/templates/browse.html:151
+#: app/templates/browse.html:152
 msgid "Columns"
 msgstr "Colonne"
 
-#: app/templates/browse.html:170
+#: app/templates/browse.html:171
 msgid "Reset to defaults"
 msgstr "Ripristina predefiniti"
 
-#: app/templates/browse.html:180
+#: app/templates/browse.html:181
 msgid "Filters"
 msgstr "Filtri"
 
-#: app/templates/browse.html:184 app/templates/browse.html:192
+#: app/templates/browse.html:185 app/templates/browse.html:193
 msgid "Search..."
 msgstr "Cerca..."
 
-#: app/templates/browse.html:204
+#: app/templates/browse.html:205
 #: app/templates/fragments/filter_counts_oob.html:13
 msgid "All Types"
 msgstr "Tutti i tipi"
 
-#: app/templates/browse.html:218
+#: app/templates/browse.html:219
 #: app/templates/fragments/filter_counts_oob.html:37
 msgid "All Locations"
 msgstr "Tutte le posizioni"
 
-#: app/templates/browse.html:220
+#: app/templates/browse.html:221
 #: app/templates/fragments/filter_counts_oob.html:39
 #: app/templates/fragments/item_copies.html:90
 #: app/templates/fragments/item_copies.html:95
@@ -1403,69 +1403,69 @@ msgstr "Tutte le posizioni"
 msgid "No location"
 msgstr "Nessuna posizione"
 
-#: app/templates/browse.html:234
+#: app/templates/browse.html:235
 #: app/templates/fragments/filter_counts_oob.html:27
 #: app/templates/fragments/library_results.html:19
 #: app/templates/library.html:75
 msgid "Owned"
 msgstr "Posseduti"
 
-#: app/templates/browse.html:236
+#: app/templates/browse.html:237
 #: app/templates/fragments/filter_counts_oob.html:29
 msgid "Not owned or wishlisted"
 msgstr "Né posseduti né in lista desideri"
 
-#: app/templates/browse.html:245
+#: app/templates/browse.html:246
 msgid "All Items"
 msgstr "Tutti gli elementi"
 
-#: app/templates/browse.html:246
+#: app/templates/browse.html:247
 msgid "Lent Out"
 msgstr "In prestito"
 
-#: app/templates/browse.html:256
+#: app/templates/browse.html:257
 #: app/templates/fragments/filter_counts_oob.html:71
 msgid "All Statuses"
 msgstr "Tutti gli stati"
 
-#: app/templates/browse.html:269
+#: app/templates/browse.html:270
 msgid "All Tags"
 msgstr "Tutti i tag"
 
-#: app/templates/browse.html:282
+#: app/templates/browse.html:283
 msgid "All Languages"
 msgstr "Tutte le lingue"
 
-#: app/templates/browse.html:294
+#: app/templates/browse.html:295
 #: app/templates/fragments/filter_counts_oob.html:53
 msgid "All Sources"
 msgstr "Tutte le origini"
 
-#: app/templates/browse.html:309
+#: app/templates/browse.html:310
 msgid "Most Recent"
 msgstr "Più recenti"
 
-#: app/templates/browse.html:310
+#: app/templates/browse.html:311
 msgid "Oldest First"
 msgstr "Meno recenti"
 
-#: app/templates/browse.html:311
+#: app/templates/browse.html:312
 msgid "Title A–Z"
 msgstr "Titolo A–Z"
 
-#: app/templates/browse.html:312
+#: app/templates/browse.html:313
 msgid "Title Z–A"
 msgstr "Titolo Z–A"
 
-#: app/templates/browse.html:315
+#: app/templates/browse.html:316
 msgid "Year (Newest)"
 msgstr "Anno (dal più recente)"
 
-#: app/templates/browse.html:316
+#: app/templates/browse.html:317
 msgid "Year (Oldest)"
 msgstr "Anno (dal meno recente)"
 
-#: app/templates/browse.html:329
+#: app/templates/browse.html:330
 msgid "Clear all"
 msgstr "Azzera tutto"
 

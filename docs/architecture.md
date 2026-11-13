@@ -1532,8 +1532,12 @@ must be simple, which is why the lint exists. Tailwind compiled locally to
 html5-qrcode elsewhere.
 
 **Application pages share one responsive shell.** `.app-shell` in
-`static/css/input.css` owns the 96rem maximum width and 1rem / 1.5rem / 2rem
-gutters at phone / 640px / 1024px widths. Navigation, the Trash banner,
+`static/css/input.css` owns the 96rem maximum width and the inherited
+`--app-gutter`: 1rem on phones, 1.5rem from 640px, and `clamp(3rem, 5vw, 5rem)`
+from 1024px. The desktop inset gives cards breathing room (64px at 1280px,
+about 68px at 1366px, up to 80px on larger screens) without bringing back
+phone-sized page caps. Full-bleed toolbar backgrounds use `.shell-bleed` and
+inherit the same inset for their controls. Navigation, the Trash banner,
 `base.html`'s main landmark, public shares and standalone Store mode use it.
 Page roots use the shell's content width, not another centered `max-w-*`.
 Scan, Shelf Fill and Store put inputs beside results from 1280px;

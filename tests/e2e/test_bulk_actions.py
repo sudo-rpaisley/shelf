@@ -233,12 +233,12 @@ def test_bulk_language_apply_then_clear(live_server, authed_page):
             conn.close()
 
 
-@pytest.mark.parametrize("width", [320, 390])
+@pytest.mark.parametrize("width", [320, 390, 1024, 1280, 1366, 1920])
 def test_bulk_language_group_stays_in_viewport(live_server, authed_page, width):
     """The bulk bar is sticky and in flow (#159), so an overflowing child widens
     the document -- but measure element boxes too (G43), not only scrollWidth."""
     item_id = insert_item(
-        live_server["data_dir"], title=f"Bulk Language Box {width}", isbn=f"97800099941{width % 100:02d}"
+        live_server["data_dir"], title=f"Bulk Language Box {width}", isbn=f"978000999{width:04d}"
     )
     authed_page.set_viewport_size({"width": width, "height": 800})
     authed_page.goto(f"{live_server['url']}/browse")
@@ -250,6 +250,17 @@ def test_bulk_language_group_stays_in_viewport(live_server, authed_page, width):
     row.click()
     group = authed_page.locator("[data-testid='bulk-language']")
     expect(group).to_be_visible()
+    bar = authed_page.get_by_test_id("bulk-action-bar")
+    expect(bar).to_be_visible()
+    alignment = bar.evaluate("""async el => {
+        await Promise.allSettled(el.getAnimations().map(animation => animation.finished));
+        const shell = document.querySelector('main'), style = getComputedStyle(shell);
+        return {bar: el.getBoundingClientRect().toJSON(), shell: shell.getBoundingClientRect().toJSON(),
+                barPadding: parseFloat(getComputedStyle(el).paddingLeft), gutter: parseFloat(style.paddingLeft)};
+    }""")
+    assert abs(alignment["bar"]["left"] - alignment["shell"]["left"]) <= 1, alignment
+    assert abs(alignment["bar"]["width"] - alignment["shell"]["width"]) <= 1, alignment
+    assert abs(alignment["barPadding"] - alignment["gutter"]) <= 0.1, alignment
     rights = authed_page.evaluate(
         """() => [...document.querySelectorAll(
             "[data-testid='bulk-language'], [data-testid='bulk-language'] *")]
