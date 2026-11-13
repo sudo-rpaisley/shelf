@@ -5,6 +5,11 @@ Run with the project Python environment from the repository root:
   python scripts/benchmark_source_migration_full.py --write-plan
   python scripts/benchmark_source_migration_full.py --run
 
+For combined schema/UI evidence, use a NEW artifact root and the SAME explicit
+--integrated-revision COMMIT for --write-plan and --run. That mode binds the
+entire committed app/ tree and measures the integrated candidate, NOT isolated
+source-service evidence. It does not accept legacy/unknown-observer latency.
+
 Artifacts/databases stay under .temp/. Production code is not patched. Exit 1
 means measured budgets failed, 2 means incomplete/invalid evidence, 0 means the
 declared local budgets passed (not Docker or host-load-independent acceptance).
@@ -28,6 +33,7 @@ import resource
 import shutil
 import signal
 import sqlite3
+import stat
 import subprocess
 import sys
 import threading
@@ -40,6 +46,7 @@ BASE = "a40813d168de4acf8d52c2d71c5d51eed0a41db7"
 COUNT, PAIRS, METADATA_BYTES, SAMPLES = 31400, 100, 8192, 5
 BUDGETS = {"python_peak_delta_bytes": 32 * 1024**2, "warm_page_p95_seconds": 3.0,
            "writer_lock_p95_seconds": 5.0}
+INTEGRATED_INVARIANTS = {"initial_provenance_rows": 565200, "sqlite_busy_timeout_ms": 5000}
 PROTOCOL = {
     "base": BASE, "records_per_source": COUNT, "sources": 2, "metadata_utf8_bytes": METADATA_BYTES,
     "reviewed_pairs": PAIRS, "page_size_per_source": 50, "cold_connection_cycles": SAMPLES,
@@ -69,6 +76,93 @@ PARAGRAPH = (
 
 def dump(value):
     return json.dumps(value, ensure_ascii=False, sort_keys=True, allow_nan=False)
+
+
+def resolve_revision(parser, value):
+    try:
+        return subprocess.check_output(
+            ["git", "rev-parse", "--verify", "--end-of-options", value + "^{commit}"],
+            cwd=ROOT, stderr=subprocess.PIPE, text=True,
+        ).strip()
+    except subprocess.CalledProcessError:
+        parser.error("Candidate revision must resolve to an existing committed revision")
+
+
+class IntegratedBinding:
+    """Frozen committed inputs, checked OUTSIDE latency/allocation windows.
+
+    All versioned regular app files are bound, including database DDL, auth,
+    routers, templates and static assets; unknown/untracked inputs are refused.
+    Only ignored Python bytecode caches may be generated during imports. No
+    ignored configuration/key file is opened to perform this check.
+    """
+
+    def __init__(self, revision):
+        self.revision = revision
+        self.protocol_path = self.protocol_bytes = None
+        self.harness_sha256 = hashlib.sha256(Path(__file__).read_bytes()).hexdigest()
+        self.application_tree = self.git("rev-parse", revision + ":app").decode().strip()
+        entries = self.git("ls-tree", "-r", "-z", revision, "--", "app").split(b"\0")
+        self.application_file_modes, objects = {}, {}
+        for entry in filter(None, entries):
+            metadata, name = entry.split(b"\t", 1)
+            mode, kind, oid = metadata.decode().split()
+            if kind != "blob" or mode not in {"100644", "100755"}:
+                raise RuntimeError("Integrated app binding requires regular versioned files, not symlinks/submodules")
+            path = os.fsdecode(name)
+            self.application_file_modes[path], objects[path] = mode, oid
+        if not objects:
+            raise RuntimeError("Integrated revision has no versioned app files")
+        # One Git batch, not a process per file or a checkout of different code.
+        oids = sorted(set(objects.values()))
+        blobs = self.git("cat-file", "--batch", input=("\n".join(oids) + "\n").encode())
+        digests, offset = {}, 0
+        for oid in oids:
+            end = blobs.index(b"\n", offset)
+            actual, kind, size = blobs[offset:end].decode().split()
+            size, offset = int(size), end + 1
+            if actual != oid or kind != "blob" or blobs[offset + size:offset + size + 1] != b"\n":
+                raise RuntimeError("Invalid committed application blob binding")
+            digests[oid] = hashlib.sha256(blobs[offset:offset + size]).hexdigest()
+            offset += size + 1
+        if offset != len(blobs):
+            raise RuntimeError("Incomplete committed application blob binding")
+        self.application_sha256 = {path: digests[oid] for path, oid in objects.items()}
+        self.check()
+
+    @staticmethod
+    def git(*args, **kwargs):
+        return subprocess.check_output(["git", *args], cwd=ROOT, stderr=subprocess.PIPE, **kwargs)
+
+    def declaration(self):
+        return {"candidate_mode": "integrated-candidate", "integrated_revision": self.revision,
+                "application_tree": self.application_tree, "application_sha256": self.application_sha256,
+                "application_file_modes": self.application_file_modes, "harness_sha256": self.harness_sha256,
+                "integrated_fixture_invariants": INTEGRATED_INVARIANTS,
+                "evidence_scope": "combined committed app/schema/templates; NOT isolated source-service or legacy/unknown-observer acceptance"}
+
+    def check(self):
+        if self.git("rev-parse", "HEAD").decode().strip() != self.revision:
+            raise RuntimeError("Integrated candidate HEAD differs from the frozen committed revision")
+        if self.git("status", "--porcelain=v1", "-z", "--untracked-files=all", "--", "app"):
+            raise RuntimeError("Integrated candidate app is dirty or has untracked files")
+        ignored = self.git("ls-files", "--others", "--ignored", "--exclude-standard", "-z", "--", "app")
+        for name in filter(None, ignored.split(b"\0")):
+            path = Path(os.fsdecode(name))
+            if "__pycache__" not in path.parts or path.suffix != ".pyc":
+                raise RuntimeError("Integrated candidate has undeclared ignored application files")
+        for name, expected in self.application_sha256.items():
+            path = ROOT / name
+            if path.resolve() != path or not path.is_file():
+                raise RuntimeError("Integrated application file is missing, nonregular or symlinked: " + name)
+            mode = path.stat().st_mode
+            if (not stat.S_ISREG(mode) or bool(mode & 0o111) != (self.application_file_modes[name] == "100755")
+                    or hashlib.sha256(path.read_bytes()).hexdigest() != expected):
+                raise RuntimeError("Application bytes/mode differ from the frozen integrated revision: " + name)
+        if hashlib.sha256(Path(__file__).read_bytes()).hexdigest() != self.harness_sha256:
+            raise RuntimeError("Benchmark harness changed after integrated protocol declaration")
+        if self.protocol_path is not None and self.protocol_path.read_bytes() != self.protocol_bytes:
+            raise RuntimeError("Predeclared integrated protocol changed during execution")
 
 
 def percentile95(values):
@@ -189,8 +283,10 @@ class Contender:
 
 
 class Run:
-    def __init__(self, root):
+    def __init__(self, root, *, binding=None, candidate_mode="isolated-source", candidate_revision=None):
         self.root = root
+        self.binding = binding
+        self.identity = {"candidate_mode": candidate_mode, "candidate_revision": candidate_revision}
         self.path = root / (datetime.now(timezone.utc).strftime("run-%Y%m%dT%H%M%SZ-") + uuid.uuid4().hex[:8])
         self.path.mkdir()
         self.log = (self.path / "samples.jsonl").open("x")
@@ -198,8 +294,18 @@ class Run:
         self.started = time.perf_counter()
 
     def emit(self, value):
-        self.log.write(dump(value) + "\n")
+        self.log.write(dump(value | self.identity) + "\n")
         self.log.flush()
+
+    def check_binding(self):
+        if self.binding is not None:
+            self.binding.check()
+
+    def check_integrated_fixture(self):
+        if self.binding is not None and (
+                self.fixture["provenance_rows"] != INTEGRATED_INVARIANTS["initial_provenance_rows"]
+                or self.timeout_ms != INTEGRATED_INVARIANTS["sqlite_busy_timeout_ms"]):
+            raise RuntimeError("Integrated fixture differs from predeclared provenance/SQLite timeout; do not relax the workload")
 
     def check_size(self):
         size = sum(p.stat().st_size for p in self.path.rglob("*") if p.is_file())
@@ -208,6 +314,7 @@ class Run:
         return size
 
     def seed(self):
+        self.check_binding()
         from app import database
         from app.services import item_write, metadata_policy, sources
         from app.services.source_connectors.base import SourceRecord
@@ -244,6 +351,7 @@ class Run:
                     if number % 250 == 0 or number == COUNT:
                         conn.commit()
                         self.check_size()
+                        self.check_binding()
                 print(f"SEEDED source={source_id} rows={COUNT}", flush=True)
             row = conn.execute("SELECT COUNT(*), MIN(length(CAST(metadata_json AS BLOB))), "
                                "MAX(length(CAST(metadata_json AS BLOB))), SUM(length(CAST(metadata_json AS BLOB))), "
@@ -260,6 +368,7 @@ class Run:
                             "database_pragmas": {key: conn.execute("PRAGMA " + key).fetchone()[0]
                                                  for key in ("busy_timeout", "journal_mode", "synchronous", "page_size", "cache_size", "wal_autocheckpoint")}}
             self.timeout_ms = self.fixture["database_pragmas"]["busy_timeout"]
+            self.check_integrated_fixture()
             self.baseline = self.protected(conn)
         self.emit({"kind": "fixture", **self.fixture, "artifact_bytes": self.check_size()})
 
@@ -271,6 +380,7 @@ class Run:
         return digest.hexdigest()
 
     def setup_runtime(self):
+        self.check_binding()
         # In a dedicated CLI process only; never read or print ambient secrets.
         for name in list(os.environ):
             if name not in {"PATH", "LANG", "LC_ALL", "TZ"}:
@@ -307,6 +417,7 @@ class Run:
                 self.scans.append(scan)
 
         migration._iter_inventory = counted
+        self.check_binding()
 
     def request(self, path, query=b""):
         from starlette.requests import Request
@@ -330,6 +441,7 @@ class Run:
         return len(self.templates.TemplateResponse(request, name, value).body)
 
     def measure(self, conn, mode, cycle, phase, action, *, writer=False, html=False):
+        self.check_binding()
         memory = mode == "memory"
         if memory:
             gc.collect()
@@ -337,7 +449,7 @@ class Run:
             baseline = tracemalloc.get_traced_memory()[0]
             tracemalloc.reset_peak()
         self.scans = []
-        row = {"kind": "sample", "mode": mode, "cycle": cycle, "phase": phase, "writer": writer}
+        row = {"kind": "sample", "mode": mode, "cycle": cycle, "phase": phase, "writer": writer, **self.identity}
         rival = Contender(self.path / "data" / "shelf.db", self.timeout_ms) if writer and mode in {"cold", "warm"} else None
         if rival:
             rival.start()
@@ -392,6 +504,8 @@ class Run:
                 current, peak = tracemalloc.get_traced_memory()
                 row.update(python_baseline_bytes=baseline, python_current_bytes=current,
                            python_peak_bytes=peak, python_peak_delta_bytes=peak - baseline)
+                tracemalloc.stop()
+            self.check_binding()  # Timing/peak already captured; no hashing under a writer lock.
             row["rss_high_water_bytes"] = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss * 1024
             self.samples.append(row)
             self.emit(row)
@@ -457,7 +571,7 @@ class Run:
         for row in self.samples:
             if row["mode"] in {"cold", "warm"}:
                 groups[row["mode"] + "/" + row["phase"]].append(row)
-        summary = {"complete": all(len(rows) == SAMPLES for rows in groups.values()) and len(groups) == 14,
+        summary = {**self.identity, "complete": all(len(rows) == SAMPLES for rows in groups.values()) and len(groups) == 14,
                    "groups": {}, "budgets": BUDGETS, "network_attempts": self.network_attempts}
         failures = []
         for name, rows in sorted(groups.items()):
@@ -486,6 +600,7 @@ class Run:
         return summary
 
     def execute(self):
+        self.check_binding()
         from app.database import get_db
 
         for i in range(1, SAMPLES + 1):
@@ -503,6 +618,7 @@ class Run:
             finally:
                 profiler.disable()
                 profiler.dump_stats(str(self.path / "profile.pstats"))
+        self.check_binding()
 
 
 def main(argv=None):
@@ -511,19 +627,31 @@ def main(argv=None):
     group.add_argument("--write-plan", action="store_true")
     group.add_argument("--run", action="store_true")
     parser.add_argument("--artifact-root", type=Path, default=ROOT / ".temp/source-migration-x2-full")
-    parser.add_argument("--source-revision", default=BASE,
-                        help="Frozen candidate commit; only source_migration.py may differ from the baseline app")
+    revisions = parser.add_mutually_exclusive_group()
+    revisions.add_argument("--source-revision", default=BASE,
+                           help="Isolated source-only commit; only source_migration.py may differ from the baseline app")
+    revisions.add_argument("--integrated-revision",
+                           help="Explicit frozen HEAD commit for combined app/schema/templates, NOT source-only isolation")
     args = parser.parse_args(argv)
     root = args.artifact_root.resolve()
     if not root.is_relative_to(ROOT / ".temp"):
         parser.error("Artifacts must be inside this worktree's ignored .temp directory")
     root.mkdir(parents=True, exist_ok=True)
-    revision = subprocess.check_output(["git", "rev-parse", "--verify", args.source_revision + "^{commit}"], cwd=ROOT, text=True).strip()
-    changed = subprocess.check_output(["git", "diff", "--name-only", BASE, revision, "--", "app"], cwd=ROOT, text=True).splitlines()
-    if set(changed) - {"app/services/source_migration.py"}:
-        parser.error("Candidate changes production files outside the assigned source-migration service")
+    revision = resolve_revision(parser, args.integrated_revision if args.integrated_revision is not None else args.source_revision)
+    binding = None
+    if args.integrated_revision is not None:
+        try:
+            binding = IntegratedBinding(revision)
+        except (RuntimeError, OSError, subprocess.CalledProcessError) as error:
+            parser.error("Cannot declare frozen integrated candidate: " + str(error))
+    else:
+        changed = subprocess.check_output(["git", "diff", "--name-only", BASE, revision, "--", "app"], cwd=ROOT, text=True).splitlines()
+        if set(changed) - {"app/services/source_migration.py"}:
+            parser.error("Candidate changes production files outside the assigned source-migration service")
     plan = root / "protocol.json"
-    protocol = PROTOCOL | {"source_revision": revision}
+    # Preserve the original isolated protocol/whitelist. Integrated declarations
+    # are separate immutable plans, never a reinterpretation of old evidence.
+    protocol = PROTOCOL | (binding.declaration() if binding is not None else {"source_revision": revision})
     expected = dump(protocol) + "\n"
     if args.write_plan:
         if plan.exists() and plan.read_text() != expected:
@@ -533,17 +661,22 @@ def main(argv=None):
         return 0
     if not plan.exists() or plan.read_text() != expected:
         parser.error("Write the fixed protocol with --write-plan BEFORE executing measurements")
+    if binding is not None:
+        binding.protocol_path, binding.protocol_bytes = plan, expected.encode()
+        binding.check()
     if "app.config" in sys.modules:
         parser.error("Run this standalone in a fresh interpreter, not in an existing application process")
     if subprocess.check_output(["git", "diff", revision, "--", "app"], cwd=ROOT):
         parser.error("Production app files differ from the frozen source revision; do not measure a moving candidate")
     if shutil.disk_usage(root).free < PROTOCOL["limits"]["artifact_bytes"]:
         parser.error("Insufficient local disk for the declared artifact budget")
-    run = Run(root)
+    candidate_mode = "integrated-candidate" if binding is not None else "isolated-source"
+    run = Run(root, binding=binding, candidate_mode=candidate_mode, candidate_revision=revision)
     shutil.copyfile(plan, run.path / "protocol.json")
     if (root / "PLAN.md").exists():
         shutil.copyfile(root / "PLAN.md", run.path / "PLAN.md")
-    manifest = {"source_base": BASE, "source_revision": revision,
+    manifest = {"source_base": BASE, **run.identity,
+                **(binding.declaration() if binding is not None else {"source_revision": revision}),
                 "head": subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=ROOT, text=True).strip(),
                 "python": sys.version, "sqlite": sqlite3.sqlite_version, "platform": platform.platform(),
                 "cpu_count": os.cpu_count(), "loadavg_start": os.getloadavg(), "protocol": protocol,
@@ -562,8 +695,11 @@ def main(argv=None):
     signal.alarm(PROTOCOL["limits"]["wall_seconds"])
     try:
         run.setup_runtime()
+        run.check_binding()
         run.execute()
+        run.check_binding()
         summary = run.summarize()
+        run.check_binding()
         after = {p: hashlib.sha256((ROOT / p).read_bytes()).hexdigest() for p in manifest["source_sha256"]}
         assert after == manifest["source_sha256"], "Production source changed while measuring"
         if not summary["complete"] or not summary["memory_complete"] or summary["network_attempts"]:
