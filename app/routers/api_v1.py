@@ -26,7 +26,7 @@ from pydantic import BaseModel
 from app.auth import require_role
 from app.api_v1_schemas import (
     MAX_ID, ItemDetailResponse, ItemPage, ItemQuery, ListPage, ListQuery,
-    ListSummary, Loan, LoanPage, LoanQuery, OpenAPIDocument, PagingQuery,
+    ListSummary, Loan, LoanPage, LoanQuery, NoQuery, OpenAPIDocument, PagingQuery,
     SeriesDetailResponse, SeriesItemsQuery, SeriesPage, SeriesQuery,
     UpcomingPage, UpcomingQuery,
 )
@@ -194,6 +194,7 @@ async def loans(
 async def loan_detail(
     response: Response,
     loan_id: Annotated[int, Path(ge=1, le=MAX_ID)],
+    _query: Annotated[NoQuery, Query()],
     _=Depends(require_role("viewer")),
     __=Depends(require_feature("api")),
     ___=Depends(require_feature("lending")),
@@ -235,6 +236,7 @@ async def lists(
 async def list_detail(
     response: Response,
     slug: Annotated[str, Path(min_length=1, max_length=200)],
+    _query: Annotated[NoQuery, Query()],
     _=Depends(require_role("viewer")),
     __=Depends(require_feature("api")),
 ):
@@ -300,9 +302,11 @@ async def upcoming(
         return reads.upcoming_page(db, query)
 
 
-@router.api_route("/schema", methods=["GET", "HEAD"], response_model=OpenAPIDocument)
+@router.api_route("/schema", methods=["GET", "HEAD"], response_model=OpenAPIDocument,
+                  responses={422: {"description": "Unknown query parameter"}})
 async def schema(
     response: Response,
+    _query: Annotated[NoQuery, Query()],
     _=Depends(require_role("viewer")),
     __=Depends(require_feature("api")),
 ):

@@ -9,7 +9,7 @@ Only allowlisted SQL identifiers are interpolated; all values are bound.
 import math
 import re
 import sqlite3
-from urllib.parse import quote
+from urllib.parse import parse_qsl, quote, urlencode, urlsplit, urlunsplit
 
 from app.api_v1_schemas import (
     MAX_PAGE, ItemDetail, ItemDetailResponse, ItemPage, ItemQuery, ItemSeries, ItemSummary,
@@ -22,6 +22,7 @@ from app.database import get_setting
 from app.features import feature_enabled
 from app.routers.checkouts import OVERDUE_CONDITION, get_overdue_days
 from app.services import availability, audiobookshelf, komga_libraries, lists, romm_client
+from app.services.source_connectors.base import safe_url as safe_source_url
 
 
 _ITEM_COLUMNS = (
@@ -42,6 +43,16 @@ _PROVIDER_FEATURES = (
     ("abs_sync", ("abs", "abs_sync", "audiobookshelf")),
     ("komga", ("komga",)), ("romm", ("romm",)),
 )
+# Public CDN image transforms have bounded, non-opaque values. All other query
+# keys must pass the shared source-link allowlist; arbitrary "devkey"/session
+# names must never become viewer-visible URLs merely because HTTPS is used.
+_IMAGE_QUERY = {
+    **{key: r"[1-9][0-9]{0,4}" for key in ("w", "h", "width", "height")},
+    **{key: r"(?:100|[1-9]?[0-9])" for key in ("q", "quality")},
+    "fit": r"(?:clip|crop|cover|contain|fill|max|min|scale)",
+    "fm": r"(?:jpg|jpeg|png|webp|avif|gif)",
+    "auto": r"(?:format|compress)(?:,(?:format|compress))?",
+}
 
 
 def _page(model, rows, total, query):
@@ -73,11 +84,42 @@ def _finite(value):
 
 
 def _cover(path):
-    # Stored cover paths are filenames. Never echo a filesystem path, a remote
-    # URL or query-bearing imported value as a same-origin browser URL.
-    if not isinstance(path, str) or not re.fullmatch(r"[A-Za-z0-9_-]+\.(?:jpg|jpeg|png|webp|gif)", path, re.I):
+    # Writers return covers/<filename>, including versioned UUID filenames.
+    # Legacy bare filenames remain valid; no other path structure is accepted.
+    if not isinstance(path, str):
         return None
-    return "/covers/" + quote(path, safe="")
+    match = re.fullmatch(r"(?:covers/)?([A-Za-z0-9_-]+\.(?i:jpg|jpeg|png|webp|gif))", path)
+    return "/covers/" + quote(match[1], safe="") if match else None
+
+
+def _public_url(value, *, base=None, image=False):
+    """One credential-free projection for source links and provider artwork.
+
+    Resolve relative links using the existing integration rules, then apply the
+    stricter shared public-query/path validator. Semicolons are separators for
+    validation too, so id=42;session_id=... cannot hide in an allowed id value.
+    Image-only transform values are separately constrained, never arbitrary
+    secret-bearing strings. Return the original URL only if the whole URL is
+    safe; do not strip credentials into a misleading, apparently working link.
+    """
+    resolved = availability._safe_url(value, base=base)
+    if resolved is None:
+        return None
+    parts = urlsplit(resolved)
+    if image and parts.fragment:
+        return None
+    public_query = []
+    for key, value in parse_qsl(parts.query.replace(";", "&"), keep_blank_values=True):
+        pattern = _IMAGE_QUERY.get(key.casefold()) if image else None
+        if pattern is not None:
+            if not re.fullmatch(pattern, value, re.I):
+                return None
+        else:
+            public_query.append((key, value))
+    validation_url = urlunsplit(parts._replace(
+        query=urlencode(public_query), fragment=parts.fragment.replace(";", "&"),
+    ))
+    return resolved if safe_source_url(validation_url) else None
 
 
 def _item(row, *, detail=False):
@@ -183,11 +225,11 @@ def source_page(db: sqlite3.Connection, item_id: int, query: PagingQuery) -> Sou
     for row in rows:
         state = row["availability"] if row["availability"] in {"available", "unavailable", "unknown"} else "unknown"
         failed = row["failed"] or row["last_status"] in {"error", "partial", "syncing"}
-        url = availability._safe_url(row["open_url"], base=row["root"]) if row["enabled"] else None
+        url = _public_url(row["open_url"], base=row["root"]) if row["enabled"] else None
         if row["source_key"] in builders:
             prefix, builder = builders[row["source_key"]]
-            url = availability.legacy_url(get_setting(db, prefix + "_url"),
-                                          get_setting(db, prefix + "_public_url"), row["external_id"], builder)
+            url = _public_url(availability.legacy_url(get_setting(db, prefix + "_url"),
+                                                     get_setting(db, prefix + "_public_url"), row["external_id"], builder))
             failed = get_setting(db, f"connection.{prefix}.last_status") in {"error", "partial"} or not url
         if (not row["enabled"] or failed) and state != "unavailable":
             state = "unknown"
@@ -329,5 +371,5 @@ def upcoming_page(db: sqlite3.Connection, query: UpcomingQuery) -> UpcomingPage:
     result = [UpcomingRelease(id=row["id"], hardcover_book_id=row["hc_book_id"], title=row["title"],
                               authors=row["authors"], series_name=row["series_name"],
                               series_position=_finite(row["series_position"]), release_date=row["release_date"],
-                              cover_url=availability._safe_url(row["cover_url"])) for row in rows]
+                              cover_url=_public_url(row["cover_url"], image=True)) for row in rows]
     return _page(UpcomingPage, result, total, query)

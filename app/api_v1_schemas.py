@@ -18,6 +18,12 @@ MAX_PAGE = 10_000
 T = TypeVar("T")
 
 
+class NoQuery(BaseModel):
+    """Unpaged reads accept no query keys, rather than silently ignoring them."""
+
+    model_config = ConfigDict(extra="forbid")
+
+
 class PagingQuery(BaseModel):
     model_config = ConfigDict(extra="forbid")
 

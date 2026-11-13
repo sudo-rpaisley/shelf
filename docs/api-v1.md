@@ -23,7 +23,9 @@ revoked credentials answer 401 with `WWW-Authenticate: Bearer`, not a redirect.
 Disabled features answer the existing feature-disabled 403 JSON to API clients
 (browser navigation/HTMX retain their existing feature-refusal behaviour).
 Unknown, hidden and trashed resources share the same 404. Invalid queries/path
-IDs answer 422; unknown query keys are rejected, not silently ignored.
+IDs answer 422; all new reads reject unknown query keys, including the unpaged
+loan detail, list detail and schema routes. Those three accept no query keys.
+The existing `/stats` route retains its legacy query behaviour.
 Responses use `Cache-Control: no-store`. Tokens retain their existing rate limit.
 
 ```bash
@@ -131,12 +133,16 @@ claims, encrypted credentials, raw settings, provider payloads, provenance and
 source errors. It is not an archive/export or source-configuration API. Loan
 responses include borrower ID/name but no free-text notes.
 
-Source URLs are validated HTTP(S) browser links, never userinfo or recognized
-credential-bearing query/fragment URLs. Relative links resolve only against a
+Source URLs are validated HTTP(S) browser links using the shared source
+validator's public query allowlist, never userinfo or credential-bearing
+query/fragment URLs (including `devkey` and `session_id`). Relative links resolve only against a
 safe configured root; unsafe links become null. LAN/loopback sources remain
 valid for self-hosting. Legacy IDs are path-encoded. Source roots, raw external-ID fields
 and credentials are not returned. Cover URLs are validated local `/covers/`
-filenames; unsafe stored paths become null. Upcoming provider covers receive
-the same credential/scheme checks. A returned URL is a launcher/reference, not
+filenames, accepting writer-produced `covers/<filename>` paths and legacy bare
+filenames only; unsafe stored paths become null. Upcoming provider covers receive
+the same credential/scheme checks, reject fragments and additionally allow
+bounded public CDN resize/format/quality parameters. Unknown query keys are
+refused, not stripped from returned URLs. A returned URL is a launcher/reference, not
 an access grant or evidence that a remote server is reachable. It does not
 extend Shelf tokens to non-v1 routes or remote services.
