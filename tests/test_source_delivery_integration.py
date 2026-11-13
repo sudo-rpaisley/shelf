@@ -73,9 +73,11 @@ async def test_bounded_native_forms_are_replayed_intact(path, fields):
 
 @pytest.mark.parametrize("client_name,can_review", [("editor_client", True), ("viewer_client", False)])
 def test_audiobook_review_is_reachable_without_spending_provider_requests(request, client_name, can_review, db, monkeypatch):
-    from app.services import audible_catalog
+    from app.services import audible_catalog, audible_permission
 
     client = request.getfixturevalue(client_name)
+    monkeypatch.delenv(audible_permission.ENABLE_ENV, raising=False)
+    monkeypatch.delenv(audible_permission.GRANT_ENV, raising=False)
     lookup = AsyncMock(side_effect=AssertionError("GET must not spend a provider request"))
     monkeypatch.setattr(audible_catalog, "lookup", lookup)
     audio = _insert_item(db, title="Exact edition", media_type="audiobook", asin="B000TEST01")
@@ -87,6 +89,10 @@ def test_audiobook_review_is_reachable_without_spending_provider_requests(reques
     panel = client.get(f"/api/audiobooks/{audio}/metadata")
     assert panel.status_code == (200 if can_review else 403)
     assert panel.headers["cache-control"] == "no-store"
+    if can_review:
+        assert 'data-testid="audible-provider-blocked"' in panel.text
+        assert 'data-testid="audiobook-preview-form"' not in panel.text
+        assert 'metadata/image?ticket=' not in panel.text
     lookup.assert_not_awaited()
 
 
