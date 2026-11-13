@@ -315,8 +315,15 @@ class AuthMiddleware(BaseHTTPMiddleware):
 
         response = await call_next(request)
 
-        # Sliding expiry: refresh token if past half-life, preserving CSRF token
-        if user:
+        # Login/logout and account edits own their outgoing auth cookies. A
+        # refresh from the old request must not override their new account,
+        # token version, profile, or explicit cookie deletion.
+        auth_cookies_set = any(
+            value.partition("=")[0].strip().casefold() in {"access_token", "csrf_token"}
+            for value in response.headers.getlist("set-cookie")
+        )
+        # Sliding expiry remains optional for otherwise ordinary responses.
+        if user and not auth_cookies_set:
             fresh_token = should_refresh_token(request, user)
             if fresh_token:
                 set_auth_cookie(request, response, fresh_token, request.cookies.get("csrf_token"))
