@@ -15,8 +15,8 @@
               class="flex flex-wrap items-center gap-2 mt-3">
             <input type="hidden" name="_csrf" value="{{ request.cookies.get('csrf_token', '') }}">
             <input type="hidden" name="action" value="{{ entry.action }}">
-            <label class="text-xs">{{ _('My preferred source') }}
-                <select name="source_key" class="bg-shelf-bg border border-shelf-border rounded-lg p-2">
+            <label class="block min-w-0 w-full sm:flex-1 text-xs">{{ _('My preferred source') }}
+                <select name="source_key" class="block w-full min-w-0 mt-1 bg-shelf-bg border border-shelf-border rounded-lg p-2">
                     <option value="">{{ _('Automatic fallback') }}</option>
                     {% if entry.fallback %}<option value="{{ entry.preferred }}" selected>{{ _('Saved preference is unavailable') }}</option>{% endif %}
                     {% for choice in entry.choices %}<option value="{{ choice.source_key }}"{% if entry.preferred == choice.source_key %} selected{% endif %}>{{ choice.source_name }} · {{ _(media_types.get(choice.media_type, choice.media_type)) }}{% if choice.item_id != item.id %} · {{ choice.item_title }}{% endif %}</option>{% endfor %}
