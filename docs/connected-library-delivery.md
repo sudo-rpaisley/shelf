@@ -41,19 +41,19 @@ data directories and must never be seeded from the operator's live catalogue.
 | Household access | F7/R3 ownership, invitations, visibility and legacy enforcement | Security fixes plus six legacy-port lanes; activation off |
 | Recovery | F8 restore preflight, integrity and synthetic recovery evidence | Candidate/fix review; maintenance and identity composition open |
 | Read API | R1 documented, typed, paginated read contracts | First integration pushed; household/operational gates open |
-| Identity | R2 trusted proxy login and OIDC with local recovery | Protocol/race fixes; live IdP acceptance open |
+| Identity | R2 trusted proxy login and OIDC with local recovery | Actual-core write/startup admission blocked; live IdP acceptance open |
 | Borrowing | R4 authorised owner search, requests and lending ledger | Lifecycle/scan-race fixes; real household adapter open |
 | Gifts | R5 recipient-safe concurrent gift claims | Candidate/fix review; backup/history/household composition open |
 | Reading life | R6 repeat sessions, journal and annual goals | First integration pushed; portability/household gates open |
 | Audiobook enrichment | R7 exact-ASIN marketplace-aware review/backfill | Next-batch integration; provider-permission/coverage gate open |
 | Author discovery | R8 account-local following and deduplicated releases | Alias/revocation fixes; scheduler/household composition open |
-| Translation | R9 existing surfaces, followed by an integrated new-string pass | Source fixes and reviewed mapping reconciliation; not complete |
+| Translation | R9 existing surfaces, followed by an integrated new-string pass | Controlled-slot source review clear; semantic audit/language acceptance open |
 | National providers | R10 additional documented, permitted provider coverage | BN Poland first integration pushed; final operational gates open |
 | History/undo | General change history, supported rollback and merge snapshots | Integrity fixes and later-table registry composition open |
-| Source repair | Reviewed replacement/rebinding and non-destructive retirement | First integration pushed; large-inventory/authority work open |
-| Portability | Versioned music/account-data export/import and round trips | Base candidate measured; full-artwork/new-table work open |
-| Offline reference | Explicit bounded, account-isolated offline reference browsing | Canonical lifecycle and stale-read fixes; not integrated |
-| Browser privacy | Account/library-scoped Store queues and navigation storage | Canonical owner protocol, queue recovery and revocation fixes |
+| Source repair | Reviewed replacement/rebinding and non-destructive retirement | Known-schema integrated scale gate passed locally; broader authority gates open |
+| Portability | Versioned music/account-data export/import and round trips | TEMP-only phase-A review requires cleanup repairs; final-artwork/phase B open |
+| Offline reference | Explicit bounded, account-isolated offline reference browsing | Failure follow-up worker gates reported; review/current-core composition pending |
+| Browser privacy | Account/library-scoped Store queues and navigation storage | Bounded error/abort source review clear; password/current-core Store/PWA open |
 
 Independent architecture, requirements, privacy and recovery audits accompany
 implementation. Additional reviewers/testers are assigned to completed
@@ -118,6 +118,72 @@ CSS/service-worker stamps, locales and badges before freezing. Push tested
 integration commits incrementally; do not mark the programme finished while
 acceptance criteria or operational blockers remain unresolved.
 
+### Current local checkpoints (documentation capture)
+
+Before this documentation follow-up, the coordinator recorded local/remote tip
+`2fb43756`; the latest pushed application change remains `717dfeb6`. The newer
+source, core, R9 and portability candidates below remain local. Full evidence,
+candidate boundaries and local artifact paths are in the
+[verification record](connected-library-verification.md#local-follow-up-candidates-documentation-capture).
+
+- **Source:** frozen `1767d0cb` completed the unchanged 31,400-record-per-source
+  known-schema benchmark and **422 browsers**. Its full units were **RED: 9301
+  passed, one stale-badge failure and four offline-fixture teardown errors**.
+  Test/README-only `89205f44` repairs those fixtures and stamps collection at
+  9302; **61 focused tests and checks-fast passed** (coordinator report). Its
+  full-unit rerun passed **9302 tests**, with no failures/errors/skips, in
+  2006.04 s. App/static/E2E/harness equivalence to `1767d0cb` and 782 committed
+  input blobs were verified after completion; this is not a new browser or
+  benchmark execution. A separately reviewed 64-record diagnostic reproduces
+  launch-path RSS telemetry contamination, not original full-size RAM usage.
+- **Core/recovery:** `a850b2a7` has bounded freshness source-review clearance and
+  a coordinator-reported **128-test** gate. SQLite composition `29ee` picks only
+  `d9051b88` as `4d1f` atop it; actual restore → cold restart → token-version-38
+  setup is blocked by `identity_provider_epochs` startup admission. Core
+  `e0f5a8d4` clears the two cascade-only oracle/manual-detach findings and passes an exact
+  archived **328-test** coordinator gate. Independent actual-R6 composition
+  `8c4d1aae` remains **RED: 126 passed / 3 failed**; all 13 new cases pass and
+  the three failures reproduce before 9d/e0. Public settings/users predicate and
+  ambient compile/step-authority follow-ups remain active, not fixed here.
+- **R2:** `d799a29e` versus `caf76382` adds a contract and reproducers, not a
+  productive private writer/startup implementation. Its combined gate remains
+  **5 failed / 6 passed**; **11** separate positive/denial controls pass. A real
+  password POST commits before returning 500; the chosen browser receipt remains
+  stopped. The finite identity-operation/one-use startup-permit proposal still
+  requires approval, implementation and actual-core verification.
+- **R9:** `b049de8a` composes the reviewed single-format helper and early-status
+  preflight with seven reviewed template-body conversions: **771 focused tests**,
+  zero bounded unmarked-string findings, four lints and exact seven-template
+  extraction preservation. The original **219-record** reconciliation is
+  incomplete. The first persisted 40-record batch records **34 source-closed /
+  6 still-open** dispositions; **179 records remain unfinalized by the batched
+  audit**, not 179 established defects. Three semantic/residual-repair lanes are
+  active; the whole matrix is not complete. Catalogues
+  and assets are stale; independently cleared Italian/Chinese TMDb drafts remain
+  unapplied. Semantic fixes must precede fresh English extraction, authorship,
+  language review and central regeneration. Historical catalogue preservation
+  below is not language completion.
+- **Portability:** frozen `93cc16d1` implements only phase-A TEMP-resource
+  handles, inode anchors, flock/fork lifetimes and filesystem startup recovery.
+  Worker gates report **246 passed / 1 final-artwork failure**, **412 focused**
+  and **429 adjacent** passes. Both independent phase-A reviews require changes:
+  exception-safe disposal of every owner, correct resource-inventory/corruption
+  tests, and multipart primary-failure preservation. Repairs and additional
+  threaded/final-send lifetime evidence are assigned. Phase-B operational DB
+  tables, incarnation and final-artwork reaping are unapproved; no overall X3 pass.
+- **Browser/offline:** `36260af1` has bounded source clearance for all-status
+  ownership, safe 429 handling and falsy aborts, excluding password receipts and
+  current-core Store/PWA acceptance. Offline `1f5ad79` follow-up reports **40
+  browser / 63 server** worker passes; review/current-core composition remains
+  pending. The source gates do not close these or other domain lanes.
+
+All acceptance remains unchecked and household activation stays **OFF**. Actions
+settings are unchanged under the operator's **continue local only** decision.
+Pinned Python 3.12/Playwright 1.52/container, named live-server/IdP/provider and
+licence acceptance remain unverified. Direct Audible access stays default-off;
+a configured reference is not a licence. No deployment, production/Portainer,
+key or operator-data change is authorised or evidenced by these local gates.
+
 ### Starting-point evidence
 
 - The unchanged `b336939` application passed **7669 unit/integration tests**
@@ -171,16 +237,18 @@ integration, **not closure of the full backlog or its dependent acceptance gates
   finished **8996 passed / 1 failed**. Its availability expectation was updated
   in test-only `86879998` to verify viewer-owned preferences and safe handoffs
   while still refusing catalogue edits; **118 focused tests passed**. Later
-  source-repair composition `7e86d0a4` passed **565 focused tests**. No later
-  full-suite pass is claimed. See the exact attribution in the verification
-  record; these candidates are not pushed application code.
+  source-repair composition `7e86d0a4` passed **565 focused tests**. These are
+  historical focused checkpoints; the later full gates belong to `1767d0cb`,
+  as recorded above. These candidates are not pushed application code.
 
 The operator chose **continue local only** when offered pinned CI/runner
 options. GitHub Actions execution settings remain unchanged. Python 3.12,
 pinned Playwright and production-container acceptance remain blocked, not
 passed. Named live-provider and IdP evidence remains separately incomplete.
 
-All 53 initial translation maps have structural validation: **4154 entries,
+### Historical translation checkpoints
+
+All 53 initial translation maps received structural validation: **4154 entries,
 4223 forms**, with no placeholder/plural/whitespace errors. Eleven independent
 language reviews supplied 15 corrections and flagged source-context problems.
 Secondary-only catalogue candidate `f89df61c` applied **3922 exact matches**,
@@ -193,10 +261,10 @@ all **4718** then-current translations and the original **798**. Independent
 exact-map/placeholder/four-MO checks and bounded source/catalogue review clear
 those checkpoints only. Two new TMDb locale identities remain empty there.
 
-The source audit against `2fa9ff54` still found **70 genuine records / 55
+The source audit against `2fa9ff54` recorded **70 genuine records / 55
 identities**, including the subsequently repaired TMDb case. The remaining
-source corrections are converging separately across scan/shelving, mixed-media
-Library and settings/statistics worktrees. Retirement is not semantic closure;
-new source messages and later merged feature strings require fresh extraction,
-language review and integrated gates. None of these catalogues is pushed or
-enabled by default. **R9 remains incomplete.**
+count at that checkpoint is historical, not today's open-audit count. Current
+scan/library/settings semantic and residual repairs are tracked above.
+Retirement is not semantic closure; new source messages and later merged feature
+strings require fresh extraction, language review and integrated gates. None of
+these catalogues is pushed or enabled by default. **R9 remains incomplete.**

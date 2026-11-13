@@ -122,10 +122,10 @@ PATH=/tmp/shelf-new-test-compatible-venv/bin:$PATH python -m pytest \
   -q --tb=short --no-header -m e2e
 ```
 
-Collection now has 8168 units; the earlier **full 8162-test pass belongs to
-`38c73f97`**, not this later application. No full-suite or pinned-runtime pass
-is inferred from this focused follow-up. Larger implementation candidates remain
-separate, unmerged and incomplete.
+At this cookie checkpoint, collection contained 8168 units; the earlier
+**full 8162-test pass belongs to `38c73f97`**, not this later application.
+No full-suite or pinned-runtime pass is inferred from this focused follow-up.
+The larger local candidates are recorded separately below.
 
 ### Second source-delivery batch: frozen local gate
 
@@ -148,22 +148,237 @@ protections, permits only the CSRF-protected personal-preference form, checks
 that a forged account field cannot select another owner, refuses a viewer's
 catalogue edit and compares unchanged catalogue rows. Availability, handoff and
 source-delivery integration tests passed **118 tests**, exit 0. Test-convention
-and whitespace checks passed. The full suite has **not** been rerun on that
-follow-up or the later source-repair/ASIN candidates.
+and whitespace checks passed. This was a focused-only checkpoint; later full
+source gates are separately attributed to `1767d0cb` below, not this follow-up.
 
 After composing the full-metadata benchmark and source-digest optimization,
 `7e86d0a4` passed **565 focused source-migration, authority, snapshot, availability,
-handoff and delivery tests**, exit 0, in 173.64 seconds. That is not a full-unit
-rerun or the required representative benchmark on the integrated schema/UI.
+handoff and delivery tests**, exit 0, in 173.64 seconds. This predates the
+separately declared integrated schema/UI benchmark below and is not a full run.
 
-Separately, the eight-width source layout/census checkpoint used `cc129371`
-with rebuilt CSS/SW outputs matching `29edfaf9`: **9 tests passed**, exit 0,
-in 467.43 seconds. The relevant tests and preferred-source template also match
-`29edfaf9`. The rebuilt outputs differ from the committed `cc129371` assets;
-this is not a clean-commit gate on that SHA alone. All eight widths retain the
-**80px** minimum. A separate focused pass captured **88 screenshots** without
-geometry failures. These bounded results are not a repeat of the complete
-browser programme, a provider-permission grant or live-server acceptance.
+Separately, the eight-width source layout/census checkpoint reported **9 tests
+passed**, exit 0, in 467.43 seconds, with **88 screenshots**. The tested tree is
+`56cbe996fe42de14fe1cb8b31b0627735b4f5f17`: base `cc129371` plus the recorded
+CSS/SW overlay, not clean `cc129371`. The relevant tests, preferred-source
+template and rebuilt outputs match `29edfaf9`. All eight widths retain the
+unchanged **80px** minimum. `.temp/source-delivery-layout-verification.json`
+records bounded artifact integrity/source equivalence, not an independent
+rerun of the worker's nine tests. These results are not a full-browser repeat,
+provider-permission grant or live-server acceptance.
+
+## Local follow-up candidates (documentation capture)
+
+The coordinator's pre-follow-up local/remote tip is `2fb43756`; the latest pushed
+application change remains `717dfeb6`. Newer candidates here are local, not a
+release. Evidence paths below are local ignored review copies, not published CI
+artifacts. Coordinator/worker reports are distinguished from independently
+executed gates; no tests were run by this documentation task.
+
+### Integrated source gates and unchanged scale protocol
+
+Frozen `1767d0cb2beb9eba26aac3f44123065e7aa1a9a6`, tree
+`6e5a1e6023b194b27af0d87b4fcd6a044aa2510f`, has a complete source copy and
+`candidate-manifest.json` under `.temp/swarm-reviews/source-integrated-1767d0c/`.
+Its `gate-evidence/` contains completed unit/browser logs, the 422-browser JUnit
+and copy checksums.
+
+| Candidate | Gate | Result |
+|---|---|---|
+| `1767d0cb` | Complete non-live units | **RED: 9301 passed, 1 stale-badge failure, 4 offline-fixture teardown errors**, 1971.10 s |
+| `1767d0cb` | Complete non-live browsers | **422 passed**, 1945.22 s |
+| `89205f44` | Test/README-only repair, focused tests and checks-fast | **61 passed** plus checks-fast, coordinator-reported; badge collection stamped at 9302 |
+| `89205f44` | Frozen complete non-live units, external-network guard enabled | **9302 passed**, zero failures/errors/skips, exit 0, 2006.04 s |
+
+The offline guard retained teardown failures for four caught outbound-artwork
+attempts in fixtures; they were not waived.
+`89205f44479fb58f08b2e90945bff57b0ce5401b` repairs the four mocks and badge only.
+Its copied `next-unit-89205f44-plan.md` and
+`next-unit-89205f44-freeze-before.json` identify tree
+`877949e9487dd7ba75086c8ecd407aaaade0edc2` and identical committed `app/`,
+`static/`, `tests/e2e/` and benchmark-harness inputs to `1767d0cb`.
+After the full unit run, the coordinator verified unchanged HEAD/tree, all four
+input objects, guard bytes and **782 committed application/static/test/tool
+blobs and file modes**. JUnit confirms all 9302 cases with zero failures, errors
+or skips. Results, complete log and before/after evidence remain in
+`/workspace/shelf/swarm-20261113/next-integration/.temp/frozen-unit-89205f44/`.
+Input equivalence is **not a new execution** of 422 browsers or the benchmark.
+The earlier `b0209aff` declaration was superseded **before execution** and has
+no result.
+
+The `benchmark-evidence/` copy retains the predeclared plan/protocol, manifest,
+85 raw samples, summary and coordinator read-only SQLite audit. The completed
+323.53-second run uses two sources of **31,400 records each**, real **8192-byte**
+metadata, **565,200 initial provenance rows**, 100 genuinely changed pairs and
+five cold/five warm cycles. Cold means a new SQLite connection/cache, not a cold
+OS cache. Separate allocation/profiling cycles are excluded from latency p95.
+Original limits remain unchanged: HTML p95 ≤ 3 s, writer-lock p95 ≤ 5 s, fresh
+Python allocation delta ≤ 32 MiB, 45 minutes and 4 GiB artifacts.
+
+| Measured p95 | Cold | Warm |
+|---|---|---|
+| Workspace HTML | 1.877 s | 1.887 s |
+| Full applied-receipt HTML | 2.364 s | 2.371 s |
+| Apply writer lock | 4.430 s | 4.320 s |
+
+All declared local budgets passed: **40/40 real competing writers committed
+within the original 5-second timeout**, 170 complete scans, and a maximum fresh
+Python-allocation delta of **11,242,163 bytes**. The read-only audit verifies
+62,800 protected catalogue rows and restored bindings, 12 rolled-back receipts,
+100 binding versions all at 24, and all 125,600 original manual overrides
+retained. Final provenance **568,200** and override count **130,000** intentionally
+include the measured cycles; they are not the initial 565,200-row fixture.
+Raw-sample SHA-256:
+`dd45e817e2bbdc8fac469a4f4e6046d485c9970c3ee0e05b0187d99f177cb954`.
+
+This is known-schema shared-host evidence only: no household-observer, legacy,
+unknown-trigger/generated-column, raw-mismatch, full-size RAM, live-provider or
+pinned-runtime/container acceptance is established.
+
+### Separate memory attribution diagnostic — not a RAM gate
+
+Every original sample reports raw `ru_maxrss` **11,373,289,472 bytes**, already
+present on the first page. Keep that telemetry unchanged; **11,242,163 bytes is
+Python allocation, not application RAM**.
+
+A separately predeclared **64-record** diagnostic on exact `1767d0cb` completed
+in **2.97 s** with **32 checkpoints**. Its plan, script, raw `stages.jsonl`,
+summary, coordinator audit and `REPORT.md` are under
+`.temp/source-memory-diagnostic-1767/`.
+
+| Diagnostic observation | Bytes |
+|---|---:|
+| Raw `ru_maxrss` at script entry, before app/binding/seed | 11,373,289,472 |
+| Parent `opencode` VmHWM at entry | 11,373,289,472 |
+| Current VmRSS at entry | 17,969,152 |
+| Maximum sampled current VmRSS | 105,701,376 |
+| Maximum observed per-exec VmHWM | 146,681,856 |
+
+Independent read-review supports this launch-path-specific telemetry discrepancy,
+not proof of its exact fork/exec inheritance internals or the original full-size
+execution's current occupancy/own peak. Entry means after interpreter/stdlib
+startup; `/proc` counters are approximate, and the displayed HWM is a maximum
+observed value. The 256 MiB check is post-work output size, not a RAM limit.
+The original run lacks current/per-exec RSS telemetry, so this tiny diagnostic
+cannot establish a scale-RAM pass. A separate post-diagnostic check confirms all
+six original recorded artifact hashes still match. No original sample or memory
+budget was replaced.
+
+### Core, recovery and R2 admission remain bounded
+
+- `a850b2a7` has **REVIEW_CLEAR** for callback reentry, standalone-autocommit
+  write admission and byte-exact username ABA repairs. The coordinator reports
+  **128 freshness/observer/dual-fence/cookie tests passed**. Its frozen source is
+  `.temp/swarm-reviews/sqlite-freshness-repair-a850b2a/`.
+- SQLite candidate `29ee` composes only `d9051b88` as `4d1f` atop `a850b2a7`.
+  Worker gates remain **57 passed / 6 failed** and **161 passed / 10 failed**
+  (all **151 convergence tests** passed). Actual F8 restore → cold restart →
+  token-version-38 setup is blocked at real `identity_provider_epochs` startup
+  admission.
+  The bounded setup-generation source is in
+  `.temp/swarm-reviews/recovery-setup-floor-d9051b8/`; these partial passes are
+  not successful end-to-end recovery.
+- Core `e0f5a8d4` versus `9d900f9` is **REVIEW_CLEAR only for the two
+  cascade-only predicate-oracle/manual-detach issues**. The exact-archive
+  coordinator gate passed **328 tests**, including **13 new regressions**, in
+  **301.45 s**, with **701 app/test/tool inputs** matching committed blobs
+  afterward. Evidence: `.temp/swarm-reviews/core-cascade-root-admission-e0f5a8d/coordinator-evidence/`
+  (`result.json`, JUnit, log and plan).
+- Actual-R6 composition `8c4d1aae` adds only reviewed 9d/e0 to the existing
+  `aae0a3a9`/`b4b3fcfa` reproduction. Its wider gate is **RED: 126 passed /
+  3 failed**, 150.27 s; all **13 new e0 cases pass**. A 6.40-second control on
+  unchanged `aae0a3a9` reproduces the same three names and failure messages.
+  Real merge stops at an unregistered cover-block INSERT/SELECT before R6's
+  private hook; upgrade/restore fixtures encounter managed DROP/unbounded DELETE
+  refusal before their intended lifecycle. No bypass or fixture weakening was
+  applied. Evidence: `.temp/swarm-reviews/r6-e0-composition-8c4d1aa/coordinator-evidence/`.
+  These inherited failures remain missing workflow coverage, not completion.
+- Public settings/users protected-predicate P1 and ambient compile/step-authority
+  mechanisms are separate source-supported findings with runtime follow-up
+  **active**. Neither is closed by `e0f5a8d4`, `d9051b88` or `a850b2a7`.
+
+R2 `d799a29e` versus `caf76382` is a test/contract-only checkpoint, not a
+productive private write/startup permit. Its copied `worker-evidence/` under
+`.temp/swarm-reviews/r2-current-core-contract-d799a29/` records **5 failed /
+6 passed** on the combined real-core/password-receipt gate and **11 passed**
+on a separate positive/denial selection. Real private reads/local cookie-session
+controls work; provider-epoch startup, public ciphertext protection and the
+registered-app OIDC path do not. The loopback IdP was not reached. A real
+password POST durably mutates password/version, then returns **500**; the chosen
+browser receipt remains stopped and incomplete.
+
+The proposed finite `library_access_identity` operations and maintenance-owned
+one-use startup permit are **not approved productive implementation**. Next work
+must protect exactly the **13 `identity_config.KEYS`**, including general
+`get_setting` / `_setting_identity` access, and port the crypto legacy reader;
+a filtered view alone is insufficient. Review and implement the actual-core
+private-operation/lifecycle seam before resuming R2/browser receipt acceptance.
+
+### R9 source checkpoint, not language completion
+
+`b049de8a` composes the reviewed `46d9721` single-format/slot helper as
+`a81beddc`, early-status preflight at `20a19249`, and seven reviewed template-body
+conversions. Its coordinator gate passed **771 focused tests** in **316.17 s**,
+with zero bounded unmarked-string findings, four lints and exact
+source/context/plural identity **and multiplicity** preservation in all seven
+templates. Evidence is in
+`.temp/swarm-reviews/r9-safe-body-converged-b049de8/coordinator-evidence/`.
+
+The original **219-record** semantic reconciliation is **incomplete**. The first
+persisted batch has **34 source-closed / 6 still-open** dispositions for exactly
+40 original IDs; **179 remain unfinalized by this batched audit**. Its
+`dispositions.json` preserves exact original identities, reasons and bindings
+under `.temp/r9-source-acceptance-b049de8/batch-01/`. The read-only auditor
+returned findings; the coordinator transcribed and mechanically joined them to
+the original input. This is source inspection, not new test execution. The three
+unlink controls are repaired but retained open conservatively because their
+same-action success toast still says books. Counts overlap earlier observations;
+do not add them as separate defect totals. Three scan/library/settings repair
+lanes remain active. Catalogues/assets remain stale; two
+independently cleared Italian/Simplified-Chinese TMDb drafts remain unapplied.
+Resolve semantics, then perform fresh English extraction/authorship/language
+review and central regeneration. The `2fa9ff54` / `7caf79c1` / `f89df61c` /
+`9a15c983` and 4718/798 preservation checkpoints in the delivery record remain
+historical evidence, not translation or locale-journey completion.
+
+### Portability and browser/offline dependencies
+
+Frozen `93cc16d1` is **phase A only**: explicit TEMP `Artifact`/preview handles,
+inode anchors, flock/fork lifetimes and filesystem-only startup recovery.
+`build_export`/`build_legacy_export` return a closeable `Artifact`, and staging
+returns a leased preview handle, not an unleased tuple. Source/API, worker logs
+and manifest are copied under
+`.temp/swarm-reviews/portability-temporary-phase-a-93cc16d/`.
+
+| Worker gate | Result |
+|---|---|
+| Portability/recovery | **246 passed / 1 failed**, 216.20 s; phase-B final-artwork leak remains red |
+| Focused archive/schema/write set | **412 passed**, 191.46 s |
+| Adjacent catalogue/music/source set | **429 passed**, 161.21 s |
+
+Both independent resource/consumer reviews are **CHANGES_REQUIRED**, not cleared.
+Confirmed P2 findings cover skipped remaining owner cleanup after a close error,
+obsolete cleanup inventories and corruption tests failing at the wrong boundary,
+and multipart disposal errors replacing the primary failure. Subsequent repairs
+are assigned; threaded cancellation and outermost final-send lifetime also need
+targeted proof. The frozen findings are retained in
+`.temp/portability-phase-a-review/FINDINGS.md`.
+Tracked source was clean at freeze, but untracked `ACTUAL*.diff` handoff artifacts
+are inventoried; this is not a wholly clean-tree claim. Phase-B DB operational
+tables, incarnation and final-artwork reaping remain **unapproved**. No overall
+X3/crash-recovery or new large-fixture memory pass follows from phase A.
+
+Browser `36260af1` has bounded source clearance for all-status ownership, safe
+429 handling and falsy aborts; password receipts and current-core Store/PWA are
+excluded. Offline `1f5ad79` follow-up has **40 browser / 63 server worker-reported
+passes**; review/current-core composition is pending. Neither these domains nor
+other unclosed lanes inherit the source candidate's full-browser/scale results.
+
+All acceptance stays unchecked, household activation **OFF**, and Actions
+settings unchanged under **continue local only**. Pinned Python 3.12/Playwright
+1.52/container and named live-server/IdP/provider/licence acceptance remain
+unverified. Direct Audible access is default-off; reference presence is not a
+licence. No deployment, production/Portainer, external-key or operator-data
+changes are part of these gates.
 
 ## Desktop spacing follow-up
 
@@ -338,10 +553,11 @@ settings page rather than changing application behavior.
 ```
 
 That expanded command predates the final added concurrency case; the subsequent
-20-case module run includes it. Collection now contains **7564 unit tests**
-and **384 browser tests**. Neither the complete suite nor pinned Python 3.12 CI
-was rerun here. The container-side `python -m app.verify_upgrade` command in
-the guide allows the operator to check a disposable copy with the real image
+20-case module run includes it. At that checkpoint, collection contained
+**7564 unit tests** and **384 browser tests**. Neither the complete suite nor
+pinned Python 3.12 CI was rerun there. The container-side
+`python -m app.verify_upgrade` command in the guide allows the operator to check
+a disposable copy with the real image
 runtime before deploying; a successful Cornelius check is not claimed here.
 
 ## First deployment hotfix: older 0.37/0.39 fork databases (`f161556`)
