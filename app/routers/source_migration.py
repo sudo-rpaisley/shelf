@@ -247,7 +247,7 @@ async def candidates(request: Request, old_source_id: int = Query(gt=0, le=2**63
 
 @api_router.post("/replacement/preview")
 async def preview_replacement(request: Request, _=Depends(require_role("admin")),
-                              _feature=Depends(require_feature("connected_library"))):
+                              _feature=Depends(require_feature("connected_library", context_free=True))):
     actor = None
     try:
         actor = _request_actor(request)
@@ -268,7 +268,7 @@ async def preview_replacement(request: Request, _=Depends(require_role("admin"))
 
 @api_router.post("/repair/preview")
 async def preview_repair(request: Request, _=Depends(require_role("admin")),
-                         _feature=Depends(require_feature("connected_library"))):
+                         _feature=Depends(require_feature("connected_library", context_free=True))):
     actor = None
     try:
         actor = _request_actor(request)
@@ -306,17 +306,17 @@ async def _decision(request: Request, plan_id: str, action):
 
 @api_router.post("/{plan_id}/apply")
 async def apply(request: Request, plan_id: str, _=Depends(require_role("admin")),
-                _feature=Depends(require_feature("connected_library"))):
+                _feature=Depends(require_feature("connected_library", context_free=True))):
     return await _decision(request, plan_id, migration.apply)
 
 
 @api_router.post("/{plan_id}/retire")
 async def retire(request: Request, plan_id: str, _=Depends(require_role("admin")),
-                 _feature=Depends(require_feature("connected_library"))):
+                 _feature=Depends(require_feature("connected_library", context_free=True))):
     return await _decision(request, plan_id, migration.retire)
 
 
 @api_router.post("/{plan_id}/rollback")
 async def rollback(request: Request, plan_id: str, _=Depends(require_role("admin")),
-                   _feature=Depends(require_feature("connected_library"))):
+                   _feature=Depends(require_feature("connected_library", context_free=True))):
     return await _decision(request, plan_id, migration.rollback)

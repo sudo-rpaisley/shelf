@@ -608,7 +608,7 @@ def disabled_page(request, key: str):
     })
 
 
-def _refusal(request, key: str):
+def _refusal(request, key: str, *, context_free: bool = False):
     """The response for a request that reached a disabled feature's route.
 
     Branch order matters. An EventSource hides a 403's body from the page, so
@@ -621,6 +621,13 @@ def _refusal(request, key: str):
     from app.routers import items_common
 
     message = disabled_message(key)
+    if context_free:
+        # A bounded mutation body may have awaited before dependency dispatch.
+        # Refuse without rendering navigation from the earlier request context.
+        return JSONResponse(
+            {"error": "feature_disabled", "feature": key, "ok": False, "message": message},
+            status_code=403, headers={"Cache-Control": "no-store"},
+        )
     headers = request.headers
     if "text/event-stream" in headers.get("accept", ""):
         import json
@@ -641,7 +648,7 @@ def _refusal(request, key: str):
     return disabled_page(request, key)
 
 
-def require_feature(key: str):
+def require_feature(key: str, *, context_free: bool = False):
     """A route dependency refusing the request while `key` is turned off.
 
     Declare it after the route's `require_role`: the role answer comes first,
@@ -656,7 +663,7 @@ def require_feature(key: str):
         if feature_enabled(key):
             return
         from app.auth import _ResponseException
-        raise _ResponseException(_refusal(request, key))
+        raise _ResponseException(_refusal(request, key, context_free=context_free))
 
     _dependency.feature_key = key
     return _dependency

@@ -182,7 +182,8 @@ class CSRFMiddleware(BaseHTTPMiddleware):
             try:
                 await bounded_body(request, review_limit)
             except BodyTooLarge:
-                return Response("Review form too large", status_code=413)
+                return Response("Review form too large", status_code=413, media_type="text/plain",
+                                headers={"Cache-Control": "no-store"})
 
         # Accept token from header (HTMX) or form field (plain HTML forms).
         # IMPORTANT: for form bodies we must cache the raw bytes BEFORE calling
@@ -220,7 +221,8 @@ class CSRFMiddleware(BaseHTTPMiddleware):
                     try:
                         body_bytes = await bounded_body(request, limit)
                     except BodyTooLarge:
-                        return Response("Review form too large", status_code=413)
+                        return Response("Review form too large", status_code=413, media_type="text/plain",
+                                        headers={"Cache-Control": "no-store"})
                 else:
                     body_bytes = await request.body()  # caches in request._body
                 form = await request.form()
