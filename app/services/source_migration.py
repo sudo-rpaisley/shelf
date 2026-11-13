@@ -8,9 +8,10 @@ that binding persists across sync without a special-case adapter hook.
 
 Reattachment does NOT transfer metadata authority. Descriptive observations
 are retained but frozen on both sides, including explicit blanks; old applied
-and follow_source claims are not restored by rollback. Covers and other source
-keys are untouched. Metadata sources remains the explicit way to follow a
-correct source again after inspecting the local values.
+and follow_source claims are not restored by rollback. Newer authority claims
+block a changed-binding rollback; binding-no-op rollback leaves them intact.
+Covers and other source keys are untouched. Metadata sources remains the
+explicit way to follow a correct source again after inspecting local values.
 """
 
 from __future__ import annotations
@@ -22,9 +23,10 @@ import re
 import uuid
 from datetime import datetime, timedelta, timezone
 
-from app.services import metadata_policy, sources
+from app.services import availability, metadata_policy, sources
 from app.services.isbn import canonical_isbn_pair
 from app.services.source_connectors import PROVIDERS
+from app.services.source_connectors.base import safe_url
 
 MAX_RECORDS = 5000
 MAX_MAPPINGS = 100
@@ -39,6 +41,17 @@ _SOURCE_COLUMNS = (
     "id, provider, name, enabled, config_revision, sync_token, last_attempt_at, "
     "last_sync_at, last_status, last_error, last_summary_json, updated_at"
 )
+_OPENING_REASONS = {
+    "available": "Cached opening URL; no live connection check.",
+    "missing_link": "No saved opening URL. This record provides no opening action.",
+    "unsafe_link": "The saved opening URL is unsafe and is not displayed.",
+    "incompatible_media": "Source and catalogue media types differ; no compatible opening action is promised.",
+    "source_disabled": "Source is disabled; its opening action is unavailable.",
+    "source_unconfirmed": "Source sync is running, incomplete or failed; the cached opening action is not confirmed.",
+    "unavailable": "The remote record is unavailable.",
+    "unknown": "The remote record availability is unknown.",
+    "not_live": "The catalogue entry is missing or in Trash.",
+}
 
 
 class MigrationError(ValueError):
@@ -173,7 +186,89 @@ def _display_record(db, record: dict) -> dict:
         "media_type": record["media_type"], "availability": record["availability"],
         "item_title": item["title"][:2000] if item else None, "live": item is not None,
         "identifiers": _identifiers(db, record),
+        "opening": _opening(db, record, record["item_id"]),
     }
+
+
+def _opening(db, record: dict, item_id: int, *, disabled=False) -> dict:
+    """Conservative cached projection, not a connection test or credential read.
+
+    URLs come only from the saved record and the connector's credential-free
+    allowlist, never raw source configuration. Share the existing action labels
+    but do not call availability_for_items: its legacy adapters may decrypt
+    configuration, which must not happen in a migration's write transaction.
+    """
+    source = db.execute(
+        "SELECT enabled, last_status, last_error, sync_token FROM source_instances WHERE id = ?",
+        (record["source_id"],),
+    ).fetchone()
+    item = db.execute("SELECT media_type FROM items_live WHERE id = ?", (item_id,)).fetchone()
+    url = safe_url(record["open_url"])
+    state = record["availability"]
+    if item is None:
+        reason = "not_live"
+    elif disabled or source is None or not source["enabled"]:
+        reason = "source_disabled"
+        state = "unavailable" if state == "unavailable" else "unknown"
+    elif record["media_type"] != item["media_type"]:
+        reason = "incompatible_media"
+    elif not record["open_url"]:
+        reason = "missing_link"
+    elif not url:
+        reason = "unsafe_link"
+    elif state != "available":
+        reason = "unavailable" if state == "unavailable" else "unknown"
+    elif source["sync_token"] or source["last_error"] or source["last_status"] in {"error", "partial", "syncing"}:
+        reason, state = "source_unconfirmed", "unknown"
+    else:
+        reason = "available"
+    return {"record_id": record["id"], "source_id": record["source_id"], "item_id": item_id,
+            "label": availability._ACTIONS.get(record["media_type"], "Open"), "url": url,
+            "usable": reason == "available", "availability": state,
+            "reason_code": reason, "reason": _OPENING_REASONS[reason]}
+
+
+def _opening_projection(db, mapping: dict, *, after=False, retired=False) -> list[dict]:
+    result = []
+    if "old_record_id" in mapping:
+        old = db.execute("SELECT * FROM source_records WHERE id = ?", (mapping["old_record_id"],)).fetchone()
+        if old:
+            result.append(_opening(db, dict(old), mapping["after_item_id"], disabled=retired))
+    record = db.execute("SELECT * FROM source_records WHERE id = ?", (mapping["record_id"],)).fetchone()
+    if record:
+        result.append(_opening(db, dict(record), mapping["after_item_id"] if after else mapping["before_item_id"]))
+    return result
+
+
+def _coverage(db, plan: dict) -> dict:
+    old = _records(db, plan["old_source_id"])
+    new = _records(db, plan["new_source_id"])
+    selected_old = {mapping.get("old_record_id") for mapping in plan["mappings"]}
+    selected_new = {mapping["record_id"] for mapping in plan["mappings"]}
+    return {"old_records": len(old), "new_records": len(new), "selected": len(plan["mappings"]),
+            "unmapped_old": sum(record["id"] not in selected_old for record in old),
+            "unmapped_new": sum(record["id"] not in selected_new for record in new)}
+
+
+def _inventory_fingerprint(db, plan: dict) -> str:
+    """Coverage/identity/action inventory, excluding mere observation timestamps.
+
+    Counts alone miss a same-sized replacement set. Include actual record IDs,
+    bindings, remote identities, media and links. Configuration changes also
+    require a fresh complete review, but no roots or credentials are selected.
+    """
+    inventory = []
+    for source_id in sorted({plan["old_source_id"], plan["new_source_id"]}):
+        source = _source(db, source_id)
+        records = [{key: value for key, value in record.items() if key not in {"last_seen_at", "created_at", "updated_at"}}
+                   | {"identifiers": _identifiers(db, record)} for record in _records(db, source_id)]
+        inventory.append([[source[key] for key in ("id", "provider", "enabled", "config_revision")], records])
+    return _hash(inventory)
+
+
+def _check_reviewed_inventory(db, plan: dict, result: dict) -> None:
+    if result.get("inventory_fingerprint") != _inventory_fingerprint(db, plan):
+        raise MigrationError("coverage_changed", "Source inventory or configuration changed after apply. Start a fresh complete replacement preview before retiring the old source.", 409)
 
 
 def workspace(db, old_source_id: int | None = None, new_source_id: int | None = None) -> dict:
@@ -327,6 +422,11 @@ def preview_repair(db, *, actor_id: int, source_id: int, record_id: int, item_id
 
 
 def _store_preview(db, actor_id: int, plan: dict) -> dict:
+    for mapping in plan["mappings"]:
+        mapping["openings_before"] = _opening_projection(db, mapping)
+        mapping["openings_after"] = _opening_projection(db, mapping, after=True, retired=plan["retire_old"])
+        if plan["kind"] == "replacement":
+            mapping["openings_after_retirement"] = _opening_projection(db, mapping, after=True, retired=True)
     fingerprint = _fingerprint(db, plan)
     plan_id, now = uuid.uuid4().hex, _now()
     db.execute(
@@ -356,6 +456,13 @@ def _check_fingerprint(submitted, expected) -> None:
 def _confirm(reviewed) -> None:
     if reviewed is not True:
         raise MigrationError("review_required", "Explicitly confirm the reviewed bindings and metadata-authority warning.")
+
+
+def _has_opening_review(plan: dict) -> bool:
+    fields = {"openings_before", "openings_after"}
+    if plan["kind"] == "replacement":
+        fields.add("openings_after_retirement")
+    return all(fields <= mapping.keys() for mapping in plan["mappings"])
 
 
 def _freeze_authority(db, record: dict, item_id: int, observed: dict) -> None:
@@ -419,6 +526,8 @@ def apply(db, plan_id: str, *, actor_id: int, fingerprint: str, reviewed: bool =
         _conflict()
     if journal["expires_at"] <= _time(_now()):
         raise MigrationError("expired", "This preview expired. Create and review a fresh preview.", 409)
+    if not _has_opening_review(plan):
+        raise MigrationError("review_required", "This older preview did not record opening actions. Start a fresh preview and review the before/after opening actions before applying.", 409)
     _check_fingerprint(fingerprint, _fingerprint(db, plan))
     old_enabled = _source(db, plan["old_source_id"])["enabled"]
     versions = {}
@@ -430,6 +539,7 @@ def apply(db, plan_id: str, *, actor_id: int, fingerprint: str, reviewed: bool =
             _freeze_authority(db, old, old["item_id"], _observations(db, old))
     revisions = _bump_sources(db, plan, retirement=plan["retire_old"])
     result = {"versions": versions, "revisions": revisions, "old_enabled": old_enabled, "retired": plan["retire_old"]}
+    result["inventory_fingerprint"] = _inventory_fingerprint(db, plan)
     db.execute("UPDATE source_migration_plans SET state = 'applied', result_json = ?, applied_at = ? WHERE id = ?",
                (_json(result), _time(_now()), plan_id))
     return {"ok": True, "id": plan_id, "state": "applied", "replayed": False}
@@ -447,6 +557,30 @@ def _check_owned_bindings(db, plan: dict, result: dict) -> None:
                 _conflict()
 
 
+def _check_rollback_authority(db, plan: dict) -> None:
+    """A refreshed receipt cannot authorize erasing a newer Follow decision.
+
+    Apply froze all affected fields, so a later applied/follow claim is a
+    superseding authority decision, not migration-owned state. No-op bindings
+    are excluded: rollback will not rewrite their provenance at all.
+    """
+    fields = sorted(metadata_policy.METADATA_FIELDS)
+    marks = ",".join("?" for _ in fields)
+    for mapping in plan["mappings"]:
+        if mapping["before_item_id"] == mapping["after_item_id"]:
+            continue
+        record = db.execute("SELECT source_id, external_id FROM source_records WHERE id = ?", (mapping["record_id"],)).fetchone()
+        key = sources.metadata_source_key(record["source_id"], record["external_id"])
+        for item_id in (mapping["before_item_id"], mapping["after_item_id"]):
+            rows = db.execute(
+                f"SELECT value_json FROM item_metadata_provenance WHERE item_id = ? AND source_key = ? AND field_name IN ({marks})",
+                (item_id, key, *fields),
+            ).fetchall()
+            snapshots = [_object(row["value_json"]) for row in rows]
+            if len(rows) != len(fields) or any("observed" not in value or "applied" in value or value.get("follow_source") for value in snapshots):
+                raise MigrationError("authority_changed", "A newer metadata authority decision supersedes this rollback. Keep it, or start a fresh explicit binding review; rollback cannot reset Follow source or applied decisions.", 409)
+
+
 def detail(db, plan_id: str, *, actor_id: int) -> dict:
     """Safe receipt and fresh rollback/retirement fingerprints; never fetches."""
     journal, plan = _load(db, plan_id, actor_id)
@@ -454,7 +588,10 @@ def detail(db, plan_id: str, *, actor_id: int) -> dict:
     context = {"id": plan_id, "plan": plan, "state": journal["state"], "fingerprint": journal["fingerprint"],
                "created_at": journal["created_at"], "expires_at": journal["expires_at"],
                "applied_at": journal["applied_at"], "rolled_back_at": journal["rolled_back_at"],
-               "retired": result.get("retired", False), "rows": [], "conflict": False}
+               "retired": result.get("retired", False), "rows": [], "conflict": False,
+               "rollback_blocked": False, "coverage_changed": False}
+    if plan["kind"] == "replacement":
+        context["coverage"] = _coverage(db, plan)
     context["source_names"] = {source["id"]: source["name"] for source in sources.list_instances(db)
                                if source["id"] in {plan["old_source_id"], plan["new_source_id"]}}
     for mapping in plan["mappings"]:
@@ -464,18 +601,34 @@ def detail(db, plan_id: str, *, actor_id: int) -> dict:
         for key in ("before_item_id", "after_item_id"):
             item = db.execute("SELECT id, title, media_type FROM items_live WHERE id = ?", (mapping[key],)).fetchone()
             items[key] = dict(item) if item else None
-        context["rows"].append({**mapping, **items, "record": _display_record(db, dict(record)) if record else None,
-                                "old_record": _display_record(db, dict(old)) if old else None})
+        current_records = [dict(row) for row in (old, record) if row is not None]
+        record_display = _display_record(db, dict(record)) if record else None
+        old_display = _display_record(db, dict(old)) if old else None
+        context["rows"].append({**mapping, **items, "record": record_display, "old_record": old_display,
+                                "openings_current": [value["opening"] for value in (old_display, record_display) if value],
+                                "openings_retire_now": [_opening(db, row, row["item_id"], disabled=row["source_id"] == plan["old_source_id"])
+                                                        for row in current_records] if plan["kind"] == "replacement" else []})
     try:
         if journal["state"] == "preview":
-            context["conflict"] = journal["expires_at"] <= _time(_now()) or _fingerprint(db, plan) != journal["fingerprint"]
+            context["conflict"] = (not _has_opening_review(plan) or journal["expires_at"] <= _time(_now())
+                                   or _fingerprint(db, plan) != journal["fingerprint"])
         elif journal["state"] == "applied":
             _check_owned_bindings(db, plan, result)
             if result["retired"] and _source(db, plan["old_source_id"])["config_revision"] != result["revisions"][str(plan["old_source_id"])]:
                 _conflict()
-            context["rollback_fingerprint"] = _fingerprint(db, plan, purpose="rollback", plan_id=plan_id)
+            try:
+                _check_rollback_authority(db, plan)
+            except MigrationError as error:
+                context["rollback_blocked"], context["rollback_notice"] = True, str(error)
+            else:
+                context["rollback_fingerprint"] = _fingerprint(db, plan, purpose="rollback", plan_id=plan_id)
             if plan["kind"] == "replacement" and not result["retired"]:
-                context["retire_fingerprint"] = _fingerprint(db, plan, purpose="retire", plan_id=plan_id)
+                try:
+                    _check_reviewed_inventory(db, plan, result)
+                except MigrationError as error:
+                    context["coverage_changed"], context["coverage_notice"] = True, str(error)
+                else:
+                    context["retire_fingerprint"] = _fingerprint(db, plan, purpose="retire", plan_id=plan_id)
     except MigrationError:
         context["conflict"] = True
     return context
@@ -492,6 +645,7 @@ def retire(db, plan_id: str, *, actor_id: int, fingerprint: str, reviewed: bool 
         _check_fingerprint(fingerprint, result.get("retire_fingerprint", ""))
         return {"ok": True, "id": plan_id, "state": "applied", "replayed": True}
     _check_owned_bindings(db, plan, result)
+    _check_reviewed_inventory(db, plan, result)
     _check_fingerprint(fingerprint, _fingerprint(db, plan, purpose="retire", plan_id=plan_id))
     # Only disable: credentials, snapshots and catalogue objects stay in place.
     source = _source(db, plan["old_source_id"])
@@ -514,10 +668,15 @@ def rollback(db, plan_id: str, *, actor_id: int, fingerprint: str, reviewed: boo
     if journal["state"] != "applied":
         _conflict()
     _check_owned_bindings(db, plan, result)
+    _check_rollback_authority(db, plan)
     _check_fingerprint(fingerprint, _fingerprint(db, plan, purpose="rollback", plan_id=plan_id))
     if result["retired"] and _source(db, plan["old_source_id"])["config_revision"] != result["revisions"][str(plan["old_source_id"])]:
         _conflict()
     for mapping in plan["mappings"]:
+        if mapping["before_item_id"] == mapping["after_item_id"]:
+            # An ISBN-adopted replacement can be a binding no-op. Rewinding it
+            # must not freeze metadata again or erase a later explicit choice.
+            continue
         record = dict(db.execute("SELECT * FROM source_records WHERE id = ?", (mapping["record_id"],)).fetchone())
         _rebind(db, record, mapping["before_item_id"], plan_id)
     _bump_sources(db, plan, restore_enabled=result["old_enabled"] if result["retired"] else None)

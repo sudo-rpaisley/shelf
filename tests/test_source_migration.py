@@ -10,7 +10,7 @@ import pytest
 
 from app import config
 from app.database import get_db, init_db
-from app.services import item_write, metadata_policy, source_migration as migration, sources
+from app.services import item_write, metadata_policy, metadata_review, source_migration as migration, sources
 from app.services.source_connectors import opds
 from app.services.source_connectors.base import Catalogue, SourceRecord
 from tests.conftest import _insert_item, _insert_location
@@ -373,6 +373,188 @@ def test_fresh_rollback_preserves_intervening_local_edits_and_never_restores_aut
     for item_id in (seed[4], seed[5]):
         row = _provenance(db, item_id, seed[1], "new-id")
         assert row["overridden"] is True and "applied" not in row and "follow_source" not in row
+
+
+def _follow_description(db, item_id, source_id, external_id):
+    key = sources.metadata_source_key(source_id, external_id)
+    row = next(row for row in metadata_review.context_for(db, item_id)["metadata_rows"]
+               if row["source_key"] == key and row["field_name"] == "description")
+    metadata_review.resolve_field(db, item_id, key, "description", "follow_source", row["fingerprint"])
+    db.commit()
+
+
+@pytest.mark.parametrize("side", ["original", "target"])
+def test_rollback_refuses_superseding_follow_source_even_after_receipt_refresh(db, side):
+    seed = _seed(db)
+    preview = _preview(db, seed)
+    _apply(db, preview)
+    _follow_description(db, seed[5 if side == "original" else 4], seed[1], "new-id")
+    receipt = _receipt(db, preview)
+    fingerprint = receipt.get("rollback_fingerprint") or migration._fingerprint(db, preview["plan"], purpose="rollback", plan_id=preview["id"])
+    before = [tuple(row) for row in db.execute("SELECT * FROM item_metadata_provenance ORDER BY item_id, source_key, field_name")]
+    with pytest.raises(migration.MigrationError) as error:
+        migration.rollback(db, preview["id"], actor_id=ACTOR, fingerprint=fingerprint, reviewed=True)
+    assert error.value.code == "authority_changed" and error.value.status_code == 409
+    assert receipt["rollback_blocked"] and "rollback_fingerprint" not in receipt
+    assert _binding(db, seed[3]) == seed[4]
+    assert [tuple(row) for row in db.execute("SELECT * FROM item_metadata_provenance ORDER BY item_id, source_key, field_name")] == before
+
+
+def test_binding_noop_rollback_preserves_later_real_resolver_decision_on_adopted_isbn(db):
+    old, new = _instance(db), _instance(db, "New")
+    item_id = _insert_item(db, isbn=ISBN, media_type="ebook", description="Local description")
+    for source_id, external_id in ((old, "old-id"), (new, "new-id")):
+        assert sources._persist_record(db, {"id": source_id}, SourceRecord(
+            external_id, "Remote title", "ebook", isbn=ISBN, metadata={"description": "Reviewed remote description"},
+        ), "2026-11-01 00:00:00") == "linked"
+    rows = db.execute("SELECT id FROM source_records ORDER BY source_id").fetchall()
+    seed = old, new, rows[0][0], rows[1][0], item_id, item_id
+    db.commit()
+    preview = _preview(db, seed)
+    _apply(db, preview)
+    _follow_description(db, item_id, new, "new-id")
+    receipt = _receipt(db, preview)
+    before = [tuple(row) for row in db.execute("SELECT * FROM item_metadata_provenance ORDER BY item_id, source_key, field_name")]
+    assert migration.rollback(db, preview["id"], actor_id=ACTOR, fingerprint=receipt["rollback_fingerprint"], reviewed=True)["ok"]
+    assert [tuple(row) for row in db.execute("SELECT * FROM item_metadata_provenance ORDER BY item_id, source_key, field_name")] == before
+    saved = _provenance(db, item_id, new, "new-id")
+    assert saved["follow_source"] is True and saved["applied"] == "Reviewed remote description"
+    assert _binding(db, seed[3]) == item_id
+    sources._persist_record(db, {"id": new}, SourceRecord(
+        "new-id", "Remote title", "ebook", isbn=ISBN, metadata={"description": "New followed description"},
+    ), "2026-11-02 00:00:00")
+    assert db.execute("SELECT description FROM items_live WHERE id = ?", (item_id,)).fetchone()[0] == "New followed description"
+
+
+@pytest.mark.parametrize("side", ["old", "new"])
+@pytest.mark.parametrize("change", ["added", "removed", "replaced", "unavailable"])
+def test_retirement_requires_new_complete_coverage_review_after_inventory_changes(db, side, change):
+    seed = _seed(db)
+    source_id = seed[0 if side == "old" else 1]
+    if change != "added":
+        extra_id, _ = _record(db, source_id, "extra-before-review", isbn=None)
+        db.commit()
+    preview = _preview(db, seed)
+    _apply(db, preview)
+    if change in {"removed", "replaced"}:
+        db.execute("DELETE FROM source_records WHERE id = ?", (extra_id,))
+    elif change == "unavailable":
+        db.execute("UPDATE source_records SET availability = 'unavailable' WHERE id = ?", (extra_id,))
+    if change in {"added", "replaced"}:
+        _record(db, source_id, "added-after-apply", isbn=None)
+    db.commit()
+    receipt = _receipt(db, preview)
+    fingerprint = receipt.get("retire_fingerprint") or migration._fingerprint(db, preview["plan"], purpose="retire", plan_id=preview["id"])
+    before = _protected(db)
+    with pytest.raises(migration.MigrationError) as error:
+        migration.retire(db, preview["id"], actor_id=ACTOR, fingerprint=fingerprint, reviewed=True)
+    assert error.value.code == "coverage_changed" and error.value.status_code == 409
+    assert receipt["coverage_changed"] and "retire_fingerprint" not in receipt
+    assert receipt["coverage"][f"{side}_records"] == db.execute("SELECT COUNT(*) FROM source_records WHERE source_id = ?", (source_id,)).fetchone()[0]
+    assert db.execute("SELECT enabled FROM source_instances WHERE id = ?", (seed[0],)).fetchone()[0] == 1
+    assert _protected(db) == before
+
+
+async def test_added_holdings_from_real_sync_require_complete_rereview_before_retirement(db, monkeypatch):
+    seed = _seed(db)
+    preview = _preview(db, seed)
+    _apply(db, preview)
+    db.commit()
+
+    async def fetch(source, credentials):
+        return Catalogue([SourceRecord("old-id", "Remote title", "ebook", isbn=ISBN),
+                          SourceRecord("added-by-sync", "New old-source holding", "ebook")])
+
+    monkeypatch.setattr(opds, "fetch_catalogue", fetch)
+    assert (await sources.sync_instance(seed[0]))["summary"]["added"] == 1
+    receipt = _receipt(db, preview)
+    assert receipt["coverage"]["unmapped_old"] == 1 and receipt["coverage_changed"]
+    assert "retire_fingerprint" not in receipt
+    before = _protected(db)
+    refreshed = _preview(db, seed)
+    assert refreshed["plan"]["coverage"]["unmapped_old"] == 1
+    _apply(db, refreshed)
+    current = _receipt(db, refreshed)
+    assert migration.retire(db, refreshed["id"], actor_id=ACTOR, fingerprint=current["retire_fingerprint"], reviewed=True)["ok"]
+    assert _protected(db) == before
+    assert db.execute("SELECT COUNT(*) FROM source_records WHERE source_id = ?", (seed[0],)).fetchone()[0] == 2
+
+
+async def test_timestamp_only_sync_refresh_does_not_invent_changed_coverage(db, monkeypatch):
+    seed = _seed(db)
+    preview = _preview(db, seed)
+    _apply(db, preview)
+    db.commit()
+
+    async def fetch(source, credentials):
+        return Catalogue([SourceRecord("old-id", "Remote title", "ebook", isbn=ISBN)])
+
+    monkeypatch.setattr(opds, "fetch_catalogue", fetch)
+    assert (await sources.sync_instance(seed[0]))["ok"]
+    receipt = _receipt(db, preview)
+    assert not receipt["coverage_changed"] and "retire_fingerprint" in receipt
+
+
+def test_old_receipts_without_inventory_reference_cannot_authorize_retirement(db):
+    seed = _seed(db)
+    preview = _preview(db, seed)
+    _apply(db, preview)
+    result = json.loads(db.execute("SELECT result_json FROM source_migration_plans WHERE id = ?", (preview["id"],)).fetchone()[0])
+    result.pop("inventory_fingerprint")
+    db.execute("UPDATE source_migration_plans SET result_json = ? WHERE id = ?", (json.dumps(result), preview["id"]))
+    assert _receipt(db, preview)["coverage_changed"]
+    fingerprint = migration._fingerprint(db, preview["plan"], purpose="retire", plan_id=preview["id"])
+    with pytest.raises(migration.MigrationError) as error:
+        migration.retire(db, preview["id"], actor_id=ACTOR, fingerprint=fingerprint, reviewed=True)
+    assert error.value.code == "coverage_changed"
+
+
+def test_old_preview_without_opening_review_requires_a_fresh_preview(db):
+    seed = _seed(db)
+    preview = _preview(db, seed)
+    plan = preview["plan"]
+    for mapping in plan["mappings"]:
+        for field in ("openings_before", "openings_after", "openings_after_retirement"):
+            mapping.pop(field)
+    fingerprint = migration._fingerprint(db, plan)
+    db.execute("UPDATE source_migration_plans SET plan_json = ?, fingerprint = ? WHERE id = ?",
+               (json.dumps(plan), fingerprint, preview["id"]))
+    assert _receipt(db, preview)["conflict"]
+    with pytest.raises(migration.MigrationError) as error:
+        migration.apply(db, preview["id"], actor_id=ACTOR, fingerprint=fingerprint, reviewed=True)
+    assert error.value.code == "review_required" and _binding(db, seed[3]) == seed[5]
+
+
+@pytest.mark.parametrize("new_url,new_media,reason", [
+    (None, "ebook", "missing_link"),
+    ("https://reader.invalid/new?token=do-not-display-this-token", "ebook", "unsafe_link"),
+    ("https://reader.invalid/video", "digital_video", "incompatible_media"),
+])
+def test_opening_preview_shows_before_after_and_retirement_loss_without_secrets_or_network(db, monkeypatch, new_url, new_media, reason):
+    seed = _seed(db)
+    old_url = "https://reader.invalid/read?id=old-book"
+    db.execute("UPDATE source_records SET open_url = ? WHERE id = ?", (old_url, seed[2]))
+    db.execute("UPDATE source_records SET open_url = ?, media_type = ? WHERE id = ?", (new_url, new_media, seed[3]))
+    db.commit()
+
+    def forbidden(*args, **kwargs):
+        pytest.fail("Opening review must not decrypt credentials or fetch a server")
+
+    monkeypatch.setattr(sources, "_credentials", forbidden)
+    monkeypatch.setattr(opds, "fetch_catalogue", forbidden)
+    context = migration.workspace(db, seed[0], seed[1])
+    assert context["old_records"][0]["opening"]["label"] == "Read"
+    preview = _preview(db, seed, manual_reviewed=True)
+    mapping = preview["plan"]["mappings"][0]
+    before = {opening["record_id"]: opening for opening in mapping["openings_before"]}
+    retired = {opening["record_id"]: opening for opening in mapping["openings_after_retirement"]}
+    assert before[seed[2]]["usable"] and before[seed[2]]["url"] == old_url
+    assert retired[seed[2]]["reason_code"] == "source_disabled" and not retired[seed[2]]["usable"]
+    assert retired[seed[3]]["reason_code"] == reason and not retired[seed[3]]["usable"]
+    assert not any(opening["usable"] for opening in mapping["openings_after_retirement"])
+    assert retired[seed[3]]["item_id"] == seed[4]
+    encoded = json.dumps(context) + json.dumps(preview) + json.dumps(_receipt(db, preview))
+    assert "do-not-display-this-token" not in encoded and "test-only" not in encoded and "gAAAAA" not in encoded
 
 
 async def test_rollback_after_followup_sync_reverts_binding_not_fresh_remote_snapshots(db, monkeypatch):

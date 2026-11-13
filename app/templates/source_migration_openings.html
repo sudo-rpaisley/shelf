@@ -1,0 +1,15 @@
+{% macro opening_card(opening) %}
+<div class="text-sm space-y-1">
+    <p>{{ _('Source') }} #{{ opening.source_id }} · {{ _('Record ID') }} #{{ opening.record_id }} · {{ _('Catalogue item') }} #{{ opening.item_id }} · {{ _('Cached availability') }}: {{ {'available': _('Available'), 'unavailable': _('Unavailable'), 'unknown': _('Unknown')}.get(opening.availability, _('Unknown')) }}</p>
+    {% if opening.usable %}<a href="{{ opening.url }}" target="_blank" rel="noopener noreferrer" referrerpolicy="no-referrer" class="text-shelf-accent2 hover:underline break-all">{{ _(opening.label) }} — {{ opening.url }}</a>
+    {% else %}<p>{{ _(opening.label) }} — {{ _('Opening action unavailable or unconfirmed') }}</p>{% if opening.url %}<p class="break-all">{{ _('Saved safe URL (not an opening action)') }}: {{ opening.url }}</p>{% endif %}{% endif %}
+    <p class="text-shelf-muted">{{ _(opening.reason) }}</p>
+</div>
+{% endmacro %}
+{% macro opening_list(openings) %}
+{% if openings %}
+    {% set usable_openings = openings|selectattr('usable')|list %}
+    {% if not usable_openings %}<p class="text-sm text-shelf-error">{{ _('No usable opening action among these reviewed records.') }}</p>{% endif %}
+    {% for opening in openings %}{{ opening_card(opening) }}{% endfor %}
+{% else %}<p class="text-sm text-shelf-muted">{{ _('Opening actions were not recorded by this older review, or its records no longer exist. Inspect the current saved actions before starting a fresh review.') }}</p>{% endif %}
+{% endmacro %}

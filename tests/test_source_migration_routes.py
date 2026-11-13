@@ -266,3 +266,84 @@ def test_failure_during_second_mapping_rolls_back_first_binding_and_authority_ch
     assert [tuple(row) for row in db.execute("SELECT * FROM item_metadata_provenance ORDER BY item_id, source_key, field_name")] == provenance
     assert db.execute("SELECT COUNT(*) FROM source_binding_versions").fetchone()[0] == 0
     assert db.execute("SELECT state FROM source_migration_plans WHERE id = ?", (preview["id"],)).fetchone()[0] == "preview"
+
+
+def test_receipt_hides_rollback_after_newer_real_metadata_decision_and_api_cannot_reset_it(admin_client, db):
+    from tests.test_source_migration import _follow_description
+
+    seed = _seed(db)
+    preview = _api_preview(admin_client, seed)
+    decision = {"fingerprint": preview["fingerprint"], "reviewed": True}
+    assert admin_client.post(f"/api/source-migrations/{preview['id']}/apply", json=decision).json()["ok"]
+    _follow_description(db, seed[4], seed[1], "new-id")
+    page = admin_client.get(f"/source-migrations/{preview['id']}")
+    assert page.status_code == 200 and "newer metadata authority decision supersedes this rollback" in page.text
+    assert f'action="/api/source-migrations/{preview["id"]}/rollback"' not in page.text
+    assert f'action="/api/source-migrations/{preview["id"]}/retire"' in page.text
+    fingerprint = migration._fingerprint(db, preview["plan"], purpose="rollback", plan_id=preview["id"])
+    response = admin_client.post(f"/api/source-migrations/{preview['id']}/rollback", json={"fingerprint": fingerprint, "reviewed": True})
+    assert response.status_code == 409 and response.json()["code"] == "authority_changed"
+    assert _binding(db, seed[3]) == seed[4]
+
+
+@pytest.mark.parametrize("side", ["old", "new"])
+def test_refreshed_receipt_reports_current_unmapped_counts_and_refuses_retirement(admin_client, db, side):
+    from tests.test_source_migration import _record
+
+    seed = _seed(db)
+    preview = _api_preview(admin_client, seed)
+    assert admin_client.post(f"/api/source-migrations/{preview['id']}/apply", json={"fingerprint": preview["fingerprint"], "reviewed": True}).json()["ok"]
+    _record(db, seed[0 if side == "old" else 1], "added-after-apply", isbn=None)
+    db.commit()
+    page = admin_client.get(f"/source-migrations/{preview['id']}")
+    assert page.status_code == 200
+    label = "Unmapped old records" if side == "old" else "Unmapped replacement records"
+    current = page.text.split("Current saved coverage", 1)[1].split("Coverage at original preview", 1)[0]
+    assert label + ": 1" in current
+    assert "fresh complete replacement preview" in page.text
+    assert f'action="/api/source-migrations/{preview["id"]}/retire"' not in page.text
+    assert f'action="/api/source-migrations/{preview["id"]}/rollback"' in page.text
+    fingerprint = migration._fingerprint(db, preview["plan"], purpose="retire", plan_id=preview["id"])
+    response = admin_client.post(f"/api/source-migrations/{preview['id']}/retire", json={"fingerprint": fingerprint, "reviewed": True})
+    assert response.status_code == 409 and response.json()["code"] == "coverage_changed"
+
+
+@pytest.mark.parametrize("new_url,new_media,notice", [
+    (None, "ebook", "No saved opening URL"),
+    ("https://reader.invalid/new?token=do-not-display-this-token", "ebook", "saved opening URL is unsafe"),
+    ("https://reader.invalid/watch", "digital_video", "Source and catalogue media types differ"),
+])
+def test_preview_and_receipt_show_safe_opening_actions_and_loss_on_retirement(admin_client, db, monkeypatch, new_url, new_media, notice):
+    from app.services import sources
+    from app.services.source_connectors import opds
+
+    seed = _seed(db)
+    old_url = "https://reader.invalid/read?id=old-book"
+    db.execute("UPDATE source_records SET open_url = ? WHERE id = ?", (old_url, seed[2]))
+    db.execute("UPDATE source_records SET open_url = ?, media_type = ? WHERE id = ?", (new_url, new_media, seed[3]))
+    db.commit()
+
+    def forbidden(*args, **kwargs):
+        pytest.fail("Opening action review must remain local and credential-free")
+
+    monkeypatch.setattr(sources, "_credentials", forbidden)
+    monkeypatch.setattr(opds, "fetch_catalogue", forbidden)
+    workspace = admin_client.get(f"/source-migrations?old_source_id={seed[0]}&new_source_id={seed[1]}")
+    assert workspace.status_code == 200 and f'href="{old_url}"' in workspace.text
+    preview = _api_preview(admin_client, seed, manual_reviewed=True, retire_old=True)
+    assert "do-not-display-this-token" not in preview.__str__()
+    for applied in (False, True):
+        if applied:
+            assert admin_client.post(f"/api/source-migrations/{preview['id']}/apply", json={"fingerprint": preview["fingerprint"], "reviewed": True}).json()["ok"]
+        page = admin_client.get(f"/source-migrations/{preview['id']}")
+        assert page.status_code == 200
+        assert "Before binding change (reviewed snapshot)" in page.text and "After apply (reviewed projection)" in page.text
+        assert "After retiring old source (reviewed projection)" in page.text
+        before = page.text.split('data-testid="opening-before"', 1)[1].split("</section>", 1)[0]
+        after = page.text.split('data-testid="opening-after"', 1)[1].split("</section>", 1)[0]
+        assert f'href="{old_url}"' in before and "Read —" in before
+        assert "No usable opening action among these reviewed records" in after
+        assert "Source is disabled" in after and notice in after
+        assert "do-not-display-this-token" not in page.text and "test-only" not in page.text and "gAAAAA" not in page.text
+        if applied:
+            assert "Current saved opening actions" in page.text
