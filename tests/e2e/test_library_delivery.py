@@ -583,3 +583,65 @@ def test_delivery_csrf_feature_and_source_role_boundaries_preserve_data(connecte
     expect(page.get_by_test_id("reading-journal-list")).to_contain_text("An account-private guard regression note.")
     expect(page.get_by_test_id("reading-goal")).to_contain_text("1 / 3 completed")
     assert _snapshot(server, tables) == before
+
+
+@pytest.mark.parametrize("session_linked", (False, True), ids=("item-entry", "session-entry"))
+def test_journal_initial_newline_survives_native_forms_and_validation(connected_library, session_linked):
+    """Browser HTML parsing, not a Jinja string assertion, owns this regression."""
+    server, page = connected_library, connected_library["page"]
+    with _db(server) as db:
+        item = _item(db, "A Journal With Intentional Blank Lines")
+    page.goto(f"{server['url']}/reading-life/items/{item}")
+    if session_linked:
+        _session(page)
+    original = "\nAn intentional blank first line.\nThe first private reflection."
+    entry = _journal(page, original)
+    form = page.get_by_test_id("reading-journal-form")
+    expect(form.get_by_label("Private journal entry", exact=True)).to_have_value(original)
+    page.reload()
+    expect(form.get_by_label("Private journal entry", exact=True)).to_have_value(original)
+
+    # Whitespace is nonempty for native required validation but not a journal
+    # entry for the service. The 422 document must retain even its first LF.
+    unsaved = "\n   \n"
+    form.get_by_label("Private journal entry", exact=True).fill(unsaved)
+    _submit(page, form, "Save journal correction", status=422)
+    expect(page.get_by_role("alert")).to_contain_text("Write a journal entry of 1 to 10000 characters")
+    expect(form.get_by_label("Private journal entry", exact=True)).to_have_value(unsaved)
+    expect(form.locator('[name="version"]')).to_have_value("1")
+
+    corrected = "\n\nA corrected reflection with two intentional blank lines."
+    form.get_by_label("Private journal entry", exact=True).fill(corrected)
+    form.get_by_label("Entry date", exact=True).fill("2025-02-02")
+    _submit(page, form, "Save journal correction")
+    page.reload()
+    expect(form.get_by_label("Private journal entry", exact=True)).to_have_value(corrected)
+    bodies = page.get_by_test_id("reading-revision-list").locator("li > p.whitespace-pre-wrap").all_text_contents()
+    assert bodies == [corrected, original]
+    with _db(server) as db:
+        row = db.execute("SELECT body, version, history_json FROM reading_journal WHERE id = ?", (entry,)).fetchone()
+        # Native URL-encoded forms use CRLF; textarea.value and HTML text nodes
+        # expose LF. Compare those representations without dropping blank lines.
+        assert (row["body"].replace("\r\n", "\n"), row["version"]) == (corrected, 2)
+        assert [revision["body"].replace("\r\n", "\n") for revision in json.loads(row["history_json"])] == [original, corrected]
+
+
+def test_source_review_exposes_exact_cached_opening_actions_and_labels(machine_delivery):
+    """Review the same safe action destinations actually offered by the library."""
+    server, page, ids = machine_delivery, machine_delivery["page"], machine_delivery["ids"]
+    page.goto(f"{server['url']}/library")
+    expected = set()
+    for key, item in (("old", ids["keep"]), ("new", ids["previous"])):
+        url = f"{server['catalogues']['root']}/{key}/edition.epub"
+        member = page.locator(f'[data-library-member="{item}"]')
+        action = member.get_by_role("link", name=f"Read · {key.title()} archive", exact=True)
+        expect(action).to_have_attribute("href", url)
+        expect(action).to_have_attribute("target", "_blank")
+        expect(action).to_have_attribute("rel", "noopener noreferrer")
+        expected.add((url, "Read"))
+    _replacement_preview(page, server, ids)
+    actions = page.get_by_test_id("source-migration-review").locator('a[target="_blank"]')
+    observed = {(action.get_attribute("href"), action.inner_text().strip()) for action in actions.all()}
+    assert observed == expected, f"Review opening actions differ from the cached library actions: {observed} != {expected}"
+    for action in actions.all():
+        expect(action).to_have_attribute("rel", "noopener noreferrer")
