@@ -1,0 +1,61 @@
+<section id="audiobook-metadata" class="bg-shelf-card border border-shelf-border rounded-xl p-4 sm:p-6 space-y-5" data-testid="audiobook-metadata">
+    <div>
+        <h2 class="text-lg font-semibold">{{ _('Audible metadata and artwork by ASIN') }}</h2>
+        <p class="text-sm text-shelf-muted mt-1">{{ _('Choose the marketplace for this edition. Shelf reads only the public catalogue, never your Audible account, audio or DRM. Regional availability and metadata coverage vary.') }}</p>
+    </div>
+    {% if audiobook_error %}<p role="alert" class="text-sm text-shelf-error">{{ audiobook_error }}</p>{% endif %}
+    {% if item %}
+    <p class="text-sm">{{ _('Saved ASIN') }}: <strong>{{ item.asin or _('Not set') }}</strong> · <a href="/item/{{ item.id }}/edit" class="text-shelf-accent2">{{ _('Edit audiobook identity') }}</a></p>
+    <p class="text-xs text-shelf-muted">{{ _('The ASIN, ISBN, format, source bindings, copies, ownership and personal activity will not change. Check narrator, duration and abridgement before applying metadata.') }}</p>
+    <form method="post" action="/api/audiobooks/{{ item.id }}/metadata/preview" hx-post="/api/audiobooks/{{ item.id }}/metadata/preview" hx-target="#audiobook-metadata" hx-swap="outerHTML" class="space-y-3" data-testid="audiobook-preview-form">
+        <input type="hidden" name="_csrf" value="{{ request.cookies.get('csrf_token', '') }}">
+        <label class="block text-sm text-shelf-muted" for="audible-marketplace">{{ _('Audible marketplace') }}</label>
+        <select id="audible-marketplace" name="marketplace" required class="w-full bg-shelf-bg border border-shelf-border rounded-lg px-3 py-2">
+            <option value="">{{ _('Choose a marketplace') }}</option>
+            {% for key, details in marketplaces.items() %}<option value="{{ key }}"{% if marketplace == key %} selected{% endif %}>{{ _(details[0]) }} · {{ details[1] }}</option>{% endfor %}
+        </select>
+        <button type="submit" class="px-4 py-2 bg-shelf-accent text-white rounded-lg text-sm">{{ _('Preview exact ASIN') }}</button>
+    </form>
+    {% if candidate %}
+    <article class="border-t border-shelf-border pt-4 space-y-4" data-testid="audiobook-preview">
+        <h3 class="text-lg font-semibold break-words">{{ candidate.fields.title }}</h3>
+        <p class="text-sm text-shelf-muted">{{ candidate.asin }} · {{ marketplaces[candidate.marketplace][1] }} · {{ candidate.edition.format or _('Abridgement not supplied') }} · {{ candidate.edition.release_date or '' }}</p>
+        <a href="{{ candidate.source_url }}" target="_blank" rel="noopener noreferrer" referrerpolicy="no-referrer" class="text-sm text-shelf-accent2 break-all">{{ _('View public Audible catalogue entry') }}</a>
+        <p class="text-sm text-shelf-muted">{{ _('Preview only: nothing has been saved. No fields are selected automatically. Unchecked fields, including blanks, stay local; missing provider values never erase metadata.') }}</p>
+        <form method="post" action="/api/audiobooks/{{ item.id }}/metadata/apply" hx-post="/api/audiobooks/{{ item.id }}/metadata/apply" hx-target="#audiobook-metadata" hx-swap="outerHTML" class="space-y-4" data-testid="audiobook-apply-form">
+            <input type="hidden" name="_csrf" value="{{ request.cookies.get('csrf_token', '') }}">
+            <input type="hidden" name="ticket" value="{{ candidate.ticket }}">
+            <fieldset class="space-y-3">
+                <legend class="font-medium text-sm">{{ _('Choose catalogue fields to replace explicitly') }}</legend>
+                {% for key, value in candidate.fields.items() %}
+                <label class="flex items-start gap-3 text-sm">
+                    <input type="checkbox" name="fields" value="{{ key }}" class="mt-1 shrink-0">
+                    <span class="min-w-0"><strong class="block">{{ _(field_labels[key]) }}</strong>
+                        <span class="block text-xs text-shelf-muted break-words">{{ _('Current') }}: {{ item[key] if item[key] is not none else _('Blank') }}</span>
+                        <span class="block break-words max-h-40 overflow-y-auto">{{ value }}</span>
+                        {% if key in backfill_fields %}<span class="block text-xs text-shelf-muted">{{ _('Eligible for fill-missing backfill') }}</span>
+                        {% elif item[key] in (none, '') %}<span class="block text-xs text-shelf-muted">{{ _('Local clear or series decision preserved; select explicitly to replace') }}</span>{% endif %}
+                    </span>
+                </label>
+                {% endfor %}
+            </fieldset>
+            <fieldset class="space-y-3">
+                <legend class="font-medium text-sm">{{ _('Artwork') }}</legend>
+                <label class="flex items-center gap-2 text-sm"><input type="radio" name="image" value="-1" checked> {{ _('Keep current artwork') }}</label>
+                {% if candidate.images %}
+                <label class="block max-w-xs border border-shelf-border rounded-lg p-2">
+                    <img src="/api/audiobooks/{{ item.id }}/metadata/image?ticket={{ candidate.image_ticket | urlencode }}" alt="{{ _('Cover candidate for the exact ASIN') }}" loading="lazy" class="w-full aspect-square object-contain">
+                    <span class="flex items-center gap-2 text-sm mt-2"><input type="radio" name="image" value="0"> {{ _('Use this artwork') }}</span>
+                </label>
+                {% else %}<p class="text-sm text-shelf-muted">{{ _('No permitted artwork was supplied. Existing artwork will be kept.') }}</p>{% endif %}
+            </fieldset>
+            <div class="flex flex-wrap gap-3">
+                <button type="submit" name="mode" value="selected" class="px-4 py-2 bg-shelf-accent text-white rounded-lg text-sm">{{ _('Apply only selected fields') }}</button>
+                <button type="submit" name="mode" value="backfill" class="px-4 py-2 bg-shelf-hover rounded-lg text-sm">{{ _('Backfill missing metadata only') }}</button>
+            </div>
+            <p class="text-xs text-shelf-muted">{{ _('Backfill ignores the field checkboxes and fills only eligible blanks. Existing values and recorded manual clears are preserved. Artwork is optional and cannot be backfilled over an existing or removed cover. Explicitly selected artwork pauses automatic source artwork.') }}</p>
+        </form>
+    </article>
+    {% endif %}
+    {% endif %}
+</section>
