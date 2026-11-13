@@ -38,6 +38,11 @@ to implement every item, a dated delivery promise or an upstream release plan.
 The roadmap's status labels are not sufficient evidence of a gap: several of
 its planned foundations already exist on `new-test`.
 
+**Implementation authorised:** the operator subsequently requested the whole
+backlog, including optional refinements, on 2026-11-13. See the
+[delivery programme](connected-library-delivery.md) for ownership and acceptance
+tracking. The entries below are requirements, not claims that this work is done.
+
 ### Frontend delivery backlog
 
 | ID | Work remaining | Completion boundary |
