@@ -14,7 +14,7 @@
     <section id="reading-goals" data-testid="reading-goals" class="bg-shelf-card border border-shelf-border rounded-lg p-5 mb-8">
         <h2 class="text-lg font-semibold">{{ _('Annual goals') }}</h2>
         <form method="get" action="/reading-life" class="flex flex-wrap items-end gap-3 my-4">
-            <div><label for="goal-year-filter" class="block text-sm mb-1">{{ _('Year') }}</label><input id="goal-year-filter" name="year" type="number" min="1" max="9999" step="1" required value="{{ reading_year }}" class="bg-shelf-bg border border-shelf-border rounded-lg px-3 py-2"></div>
+            <div><label for="goal-year-filter" class="block text-sm mb-1">{{ _('Year') }}</label><input id="goal-year-filter" name="year" type="number" min="1" max="9999" step="1" required value="{{ reading_year }}" class="w-36 bg-shelf-bg border border-shelf-border rounded-lg px-3 py-2"></div>
             <button type="submit" class="px-4 py-2 border border-shelf-border rounded-lg text-sm">{{ _('Show year') }}</button>
         </form>
         <details class="mb-5" open data-testid="reading-goal-rules">
@@ -37,7 +37,7 @@
                 <div class="flex flex-wrap gap-4 mt-3">
                     <form method="post" action="/api/reading-life/goals/{{ goal.id }}" class="flex flex-wrap items-end gap-2" data-testid="reading-goal-edit">
                         <input type="hidden" name="_csrf" value="{{ request.cookies.get('csrf_token', '') }}"><input type="hidden" name="version" value="{{ attempt.version }}">
-                        <div><label for="goal-target-{{ goal.id }}" class="block text-sm mb-1">{{ _('Target') }}</label><input id="goal-target-{{ goal.id }}" name="target" type="number" min="1" max="10000" step="1" required value="{{ attempt.target }}" class="bg-shelf-bg border border-shelf-border rounded-lg px-3 py-2"></div>
+                        <div><label for="goal-target-{{ goal.id }}" class="block text-sm mb-1">{{ _('Target') }}</label><input id="goal-target-{{ goal.id }}" name="target" type="number" min="1" max="10000" step="1" required value="{{ attempt.target }}" class="w-36 bg-shelf-bg border border-shelf-border rounded-lg px-3 py-2"></div>
                         <button type="submit" class="px-4 py-2 border border-shelf-border rounded-lg text-sm">{{ _('Update target') }}</button>
                     </form>
                     <form method="post" action="/api/reading-life/goals/{{ goal.id }}/remove" class="flex items-end">
