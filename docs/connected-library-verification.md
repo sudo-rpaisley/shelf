@@ -127,6 +127,44 @@ Collection now has 8168 units; the earlier **full 8162-test pass belongs to
 is inferred from this focused follow-up. Larger implementation candidates remain
 separate, unmerged and incomplete.
 
+### Second source-delivery batch: frozen local gate
+
+Candidate `29edfaf9` completed the full non-live unit/integration command in
+`/workspace/shelf/swarm-20261113/source-delivery-fullgate`:
+
+```bash
+PATH=/tmp/shelf-new-test-compatible-venv/bin:$PATH \
+  make test PYTEST_PAR='-n 4 --dist loadfile'
+```
+
+Result: **8996 passed, 1 failed**, exit 2 from `make`, in 1907.12 seconds.
+This is a failed gate, not a full-suite pass. Its sole failure was the older
+availability test's assumption that a viewer has one outbound link and no forms.
+The integrated F4 fragment deliberately supplies two re-resolved links and an
+account-owned source-preference form; it must still prohibit catalogue edits.
+
+Test-only follow-up `86879998` verifies both exact handoff destinations and link
+protections, permits only the CSRF-protected personal-preference form, checks
+that a forged account field cannot select another owner, refuses a viewer's
+catalogue edit and compares unchanged catalogue rows. Availability, handoff and
+source-delivery integration tests passed **118 tests**, exit 0. Test-convention
+and whitespace checks passed. The full suite has **not** been rerun on that
+follow-up or the later source-repair/ASIN candidates.
+
+After composing the full-metadata benchmark and source-digest optimization,
+`7e86d0a4` passed **565 focused source-migration, authority, snapshot, availability,
+handoff and delivery tests**, exit 0, in 173.64 seconds. That is not a full-unit
+rerun or the required representative benchmark on the integrated schema/UI.
+
+Separately, the eight-width source layout/census checkpoint used `cc129371`
+with rebuilt CSS/SW outputs matching `29edfaf9`: **9 tests passed**, exit 0,
+in 467.43 seconds. The relevant tests and preferred-source template also match
+`29edfaf9`. The rebuilt outputs differ from the committed `cc129371` assets;
+this is not a clean-commit gate on that SHA alone. All eight widths retain the
+**80px** minimum. A separate focused pass captured **88 screenshots** without
+geometry failures. These bounded results are not a repeat of the complete
+browser programme, a provider-permission grant or live-server acceptance.
+
 ## Desktop spacing follow-up
 
 **PASS — verified locally on 2026-11-13** with the compatible runtime above.

@@ -167,6 +167,13 @@ integration, **not closure of the full backlog or its dependent acceptance gates
   `a4103d4d`; only delivery documentation differs. This verifies the first
   application batch, not any unmerged implementation branch. No full
   expanded-programme gate is claimed.
+- `29edfaf9`, a separate source-delivery candidate: complete non-live units
+  finished **8996 passed / 1 failed**. Its availability expectation was updated
+  in test-only `86879998` to verify viewer-owned preferences and safe handoffs
+  while still refusing catalogue edits; **118 focused tests passed**. Later
+  source-repair composition `7e86d0a4` passed **565 focused tests**. No later
+  full-suite pass is claimed. See the exact attribution in the verification
+  record; these candidates are not pushed application code.
 
 The operator chose **continue local only** when offered pinned CI/runner
 options. GitHub Actions execution settings remain unchanged. Python 3.12,
@@ -176,9 +183,20 @@ passed. Named live-provider and IdP evidence remains separately incomplete.
 All 53 initial translation maps have structural validation: **4154 entries,
 4223 forms**, with no placeholder/plural/whitespace errors. Eleven independent
 language reviews supplied 15 corrections and flagged source-context problems.
-Secondary-only catalogue candidate `f89df61c` has applied **3922 exact matches**,
+Secondary-only catalogue candidate `f89df61c` applied **3922 exact matches**,
 preserved **798 existing translations** and retired **232 mappings** without
-reusing fragments. **334 locale identities remain untranslated**. Application
-and linguistic review, a remaining source-escaping fix and coverage of newly
-integrated feature strings are still required; these catalogues are not pushed
-or enabled by default. R9 remains incomplete.
+reusing fragments. Subsequent reviewed source fixes `2fa9ff54` / `7caf79c1`
+repair attribute escaping, false enum extraction and the TMDb grammar fragment.
+Catalogue candidate `9a15c983` applies **328 independently reviewed fresh
+identities / 357 forms**, including four Chinese corrections, while preserving
+all **4718** then-current translations and the original **798**. Independent
+exact-map/placeholder/four-MO checks and bounded source/catalogue review clear
+those checkpoints only. Two new TMDb locale identities remain empty there.
+
+The source audit against `2fa9ff54` still found **70 genuine records / 55
+identities**, including the subsequently repaired TMDb case. The remaining
+source corrections are converging separately across scan/shelving, mixed-media
+Library and settings/statistics worktrees. Retirement is not semantic closure;
+new source messages and later merged feature strings require fresh extraction,
+language review and integrated gates. None of these catalogues is pushed or
+enabled by default. **R9 remains incomplete.**
