@@ -613,7 +613,7 @@ the next boot re-indexes everything.
 The national leg is a registry, `services/national.py`: unhyphenated ISBN-13
 registration-group prefixes mapped to provider modules, resolved by
 **longest** prefix match, so a narrow key can coexist with a broader one. It
-currently serves seven providers — **BnF** (`services/bnf.py`, UNIMARC over SRU at
+currently serves eight providers — **BnF** (`services/bnf.py`, UNIMARC over SRU at
 `catalogue.bnf.fr`) for the French-language 978-2 group and 979-10, **DNB** (`services/dnb.py`, MARC21 over SRU)
 for 978-3, **OSZK NEKTÁR** (`services/oszk.py`, HUNMARC over Z39.50 at
 `tagetes2.oszk.hu:1616/ANY`) for the Hungarian 978-615 and 978-963 groups,
@@ -623,7 +623,9 @@ Bibliografie Totaal) for the Dutch 978-90 and 978-94 groups, **PORBASE**
 (`services/porbase.py`, Dublin Core XML from the `urn.porbase.org` resolver) for
 the Portuguese 978-972 and 978-989 groups, and **NeoDB** (`services/neodb.py`,
 JSON from the public catalogue search at `neodb.social`) for the Chinese-language
-978-7, 978-957, 978-986, 978-626, 978-962 and 978-988 groups. NeoDB's search is
+978-7, 978-957, 978-986, 978-626, 978-962 and 978-988 groups, plus **BN Poland**
+(`services/bn.py`, MARC JSON from Biblioteka Narodowa's public API) for 978-83.
+NeoDB's search is
 full-text, so only a record whose `isbn` equals the scanned ISBN-13 is a hit.
 PORBASE answers a miss with HTTP 200
 and an `<error>` body, marks non-sorting articles with literal `?` or `<>`, and
@@ -634,12 +636,46 @@ All providers build stored bibliographic strings through
 `services/bib_normalize.py`, so text is NFC and comparable.
 An ISBN in no registered group skips the leg entirely and costs no request.
 Adding a provider is a module plus a registry entry — no call-site change.
+
+BN's [documented, keyless CC0 API](https://data.bn.org.pl/docs/bibs) is
+`https://data.bn.org.pl/api/institutions/bibs.json`. One GET uses
+`isbnIssn=<ISBN-13> | <ISBN-10>`, `boolean=true`, `limit=5`; the ISBN-10 term
+is omitted when unavailable. `isbn=` is not the documented filter and can
+silently return unrelated records. The broad `isbnIssn` index includes
+cancelled/original-reference ISBNs and other identifier fields, so the adapter
+accepts only a checksum-valid exact MARC **020 $a** (including equivalent
+ISBN-10), never 020 $z or the flattened index. Metadata reads 245 $a/$b/$n/$p,
+author-filtered 100/700, publication 264 with second indicator 1 (else 260),
+page-labelled 300, and language 041 $a (else 008 positions 35–37), all through
+the shared normalization helpers. It never guesses language from the ISBN,
+the original's 041 $h, or Polish display-language names. Series and covers
+are not read.
+
+Read-only verification on 2026-11-13 returned HTTP 200 UTF-8 JSON for Polish
+*Ostatnie życzenie* (9788375780635), an English Polish-published *Venus in furs*
+(9788365646156), and older ISBN-10-only encyclopedia records (9788386075652).
+The first search also returned Ukrainian translations carrying the queried
+ISBN only in 020 $z; those are rejected. The ISBN Agency's
+[public range message](https://www.isbn-international.org/export_rangemessage.xml)
+confirmed only 978-83 for Poland. Capture URLs, full-body hashes and projected
+fixtures are recorded in `tests/fixtures/bn_README.md`. These samples establish
+real coverage, not completeness: reprints sharing an ISBN cannot be reliably
+distinguished, and the first usable exact hit among five candidates wins.
+No numeric quota was found in the API documentation or response headers;
+the adapter delegates to the shared host limiter and requires a conservative
+one-second entry for `data.bn.org.pl` in `config.py`. BN makes no retries,
+redirects or pagination requests, limits decoded bodies to 512 KiB, and applies
+a five-second whole-request deadline. Invalid ISBNs cost no request; 429 and
+transport failures retain their usual provider outcomes, while misses,
+malformed/oversized bodies and other HTTP statuses fall through to Open
+Library → optional Hardcover → Google Books unchanged.
+
 NEKTÁR uses `yaz-client` and `pymarc`; it paces each query against
 `tagetes2.oszk.hu` and accepts records only when a 020 ISBN exactly matches
 the requested edition. Its five-second query timeout and provider diagnostics
 stay server-side, while the scan surface receives only the normal provider
 outcome and `oszk` identifier.
-**The covers cascade and picker below are unchanged by this**: BnF, OSZK, SBN and KB
+**The covers cascade and picker below are unchanged by this**: BN, BnF, OSZK, SBN and KB
 contribute no cover source, and the DNB cover rung is a separate hand-written
 prefix test in `services/covers.py`, not a read of this registry. NeoDB returns a
 `cover_url` the way Google Books does, so its image is tried at the existing
