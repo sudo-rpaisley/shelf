@@ -47,6 +47,7 @@ PROTOCOL = {
     "contender_budget": "successful real write+commit within observed PRAGMA busy_timeout; no raised timeout",
     "cold_definition": "new SQLite connection/cache, NOT cold OS cache or cold Python process",
     "timing": "untraced; BEGIN call/acquired/action end/COMMIT start/end, DB+context and HTML separately",
+    "page_budget_scope": "all cold/warm read-only HTML phases, INCLUDING the full applied receipt",
     "barrier": "preopened rival; primary acquired -> zero-wait SQLITE_BUSY proof -> real BEGIN trace -> primary action",
     "memory": "separate full-size cycle; per-phase tracemalloc peak minus baseline, exclude traced latency from p95",
     "profile": "one additional full-size cProfile cycle without contention, excluded from timing p95",
@@ -470,7 +471,7 @@ class Run:
                     failures.append(name + ":writer_lock")
                 if result["contender_failures"]:
                     failures.append(name + ":contender_timeout")
-            elif name == "warm/page" and result["p95_seconds"] > BUDGETS["warm_page_p95_seconds"]:
+            elif rows[0].get("html_bytes") is not None and result["p95_seconds"] > BUDGETS["warm_page_p95_seconds"]:
                 failures.append(name + ":page_latency")
             summary["groups"][name] = result
         memory = [r for r in self.samples if r["mode"] == "memory"]
@@ -510,13 +511,20 @@ def main(argv=None):
     group.add_argument("--write-plan", action="store_true")
     group.add_argument("--run", action="store_true")
     parser.add_argument("--artifact-root", type=Path, default=ROOT / ".temp/source-migration-x2-full")
+    parser.add_argument("--source-revision", default=BASE,
+                        help="Frozen candidate commit; only source_migration.py may differ from the baseline app")
     args = parser.parse_args(argv)
     root = args.artifact_root.resolve()
     if not root.is_relative_to(ROOT / ".temp"):
         parser.error("Artifacts must be inside this worktree's ignored .temp directory")
     root.mkdir(parents=True, exist_ok=True)
+    revision = subprocess.check_output(["git", "rev-parse", "--verify", args.source_revision + "^{commit}"], cwd=ROOT, text=True).strip()
+    changed = subprocess.check_output(["git", "diff", "--name-only", BASE, revision, "--", "app"], cwd=ROOT, text=True).splitlines()
+    if set(changed) - {"app/services/source_migration.py"}:
+        parser.error("Candidate changes production files outside the assigned source-migration service")
     plan = root / "protocol.json"
-    expected = dump(PROTOCOL) + "\n"
+    protocol = PROTOCOL | {"source_revision": revision}
+    expected = dump(protocol) + "\n"
     if args.write_plan:
         if plan.exists() and plan.read_text() != expected:
             parser.error("Refusing to overwrite a different predeclared protocol")
@@ -527,17 +535,18 @@ def main(argv=None):
         parser.error("Write the fixed protocol with --write-plan BEFORE executing measurements")
     if "app.config" in sys.modules:
         parser.error("Run this standalone in a fresh interpreter, not in an existing application process")
-    if subprocess.check_output(["git", "diff", BASE, "--", "app"], cwd=ROOT):
-        parser.error("Production app files differ from a408; do not measure a moving candidate")
+    if subprocess.check_output(["git", "diff", revision, "--", "app"], cwd=ROOT):
+        parser.error("Production app files differ from the frozen source revision; do not measure a moving candidate")
     if shutil.disk_usage(root).free < PROTOCOL["limits"]["artifact_bytes"]:
         parser.error("Insufficient local disk for the declared artifact budget")
     run = Run(root)
     shutil.copyfile(plan, run.path / "protocol.json")
     if (root / "PLAN.md").exists():
         shutil.copyfile(root / "PLAN.md", run.path / "PLAN.md")
-    manifest = {"source_base": BASE, "head": subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=ROOT, text=True).strip(),
+    manifest = {"source_base": BASE, "source_revision": revision,
+                "head": subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=ROOT, text=True).strip(),
                 "python": sys.version, "sqlite": sqlite3.sqlite_version, "platform": platform.platform(),
-                "cpu_count": os.cpu_count(), "loadavg_start": os.getloadavg(), "protocol": PROTOCOL,
+                "cpu_count": os.cpu_count(), "loadavg_start": os.getloadavg(), "protocol": protocol,
                 "protocol_sha256": hashlib.sha256(expected.encode()).hexdigest(),
                 "source_sha256": {p: hashlib.sha256((ROOT / p).read_bytes()).hexdigest() for p in (
                     "app/services/source_migration.py", "app/routers/source_migration.py", "app/database.py",

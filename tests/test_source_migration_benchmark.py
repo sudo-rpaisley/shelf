@@ -90,3 +90,15 @@ def test_cli_cannot_point_artifacts_at_a_live_or_external_directory(tmp_path):
     with pytest.raises(SystemExit) as refused:
         bench.main(["--write-plan", "--artifact-root", str(tmp_path)])
     assert refused.value.code == 2
+
+
+def test_full_applied_receipt_html_is_subject_to_the_unchanged_three_second_gate(tmp_path):
+    run = bench.Run(tmp_path)
+    run.samples = [{"mode": "warm", "phase": "receipt_applied", "writer": False,
+                    "seconds": 3.01, "html_bytes": 100} for _ in range(5)]
+    try:
+        result = run.summarize()
+        assert "warm/receipt_applied:page_latency" in result["failed_budgets"]
+        assert result["budgets"]["warm_page_p95_seconds"] == 3.0
+    finally:
+        run.log.close()

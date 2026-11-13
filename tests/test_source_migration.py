@@ -730,7 +730,7 @@ def test_guard_reads_are_under_write_lock_and_no_network_or_credential_decryptio
     original = migration._state
     calls = []
 
-    def locked(conn, plan):
+    def locked(conn, plan, **kwargs):
         assert conn.in_transaction
         rival = sqlite3.connect(str(config.DATABASE_PATH), timeout=0)
         try:
@@ -739,7 +739,7 @@ def test_guard_reads_are_under_write_lock_and_no_network_or_credential_decryptio
         finally:
             rival.close()
         calls.append(True)
-        return original(conn, plan)
+        return original(conn, plan, **kwargs)
 
     def forbidden(*args, **kwargs):
         pytest.fail("Binding writes must not decrypt credentials or contact a connector")
