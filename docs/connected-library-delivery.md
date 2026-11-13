@@ -30,30 +30,30 @@ changes, regenerates assets, runs combined gates and pushes `new-test`.
 Workers do not push or deploy independently. Worktrees are not production
 data directories and must never be seeded from the operator's live catalogue.
 
-| Lane | Backlog responsibility | Initial state |
+| Lane | Backlog responsibility | Evidence state, not completion |
 |---|---|---|
-| Search | F1 indexing, ranking, bounded grouping/paging and scale measurements | Assigned |
-| Front door | F2 shelves, creators, collections, preferences and navigation | Assigned |
-| Source jobs | F3 scheduling, progress, retry/recovery and large-source boundaries | Assigned |
-| Handoff/progress | F4 preferred source and explicitly linked account progress | Assigned |
-| Media hierarchy | F5 works/editions/copies, music and source children | Assigned |
-| Artwork/review | F6 source artwork, TV artwork and bounded reviewed batches | Assigned |
-| Household access | F7/R3 ownership, invitations, visibility and legacy enforcement | Assigned |
-| Recovery | F8 restore preflight, integrity and synthetic recovery evidence | Assigned |
-| Read API | R1 documented, typed, paginated read contracts | Assigned |
-| Identity | R2 trusted proxy login and OIDC with local recovery | Assigned |
-| Borrowing | R4 authorised owner search, requests and lending ledger | Assigned |
-| Gifts | R5 recipient-safe concurrent gift claims | Assigned |
-| Reading life | R6 repeat sessions, journal and annual goals | Assigned |
-| Audiobook enrichment | R7 exact-ASIN marketplace-aware review/backfill | Assigned |
-| Author discovery | R8 account-local following and deduplicated releases | Assigned |
-| Translation | R9 existing surfaces, followed by an integrated new-string pass | Assigned |
-| National providers | R10 additional documented, permitted provider coverage | Assigned |
-| History/undo | General change history, supported rollback and merge snapshots | Assigned |
-| Source repair | Reviewed replacement/rebinding and non-destructive retirement | Assigned |
-| Portability | Versioned music/account-data export/import and round trips | Assigned |
-| Offline reference | Explicit bounded, account-isolated offline reference browsing | Assigned |
-| Browser privacy | Account/library-scoped Store queues and navigation storage | Assigned |
+| Search | F1 indexing, ranking, bounded grouping/paging and scale measurements | Candidate/fix review; synthetic 31,200-record measurements |
+| Front door | F2 shelves, creators, collections, preferences and navigation | Candidate review/fixes; household composition open |
+| Source jobs | F3 scheduling, progress, retry/recovery and large-source boundaries | Streaming/lease integration and runtime verification open |
+| Handoff/progress | F4 preferred source and explicitly linked account progress | Next-batch integration; scheduled-pull acceptance open |
+| Media hierarchy | F5 works/editions/copies, music and source children | Atomic child hook prepared; production composition open |
+| Artwork/review | F6 source artwork, TV artwork and bounded reviewed batches | Candidate/fix review; actual job fencing open |
+| Household access | F7/R3 ownership, invitations, visibility and legacy enforcement | Security fixes plus six legacy-port lanes; activation off |
+| Recovery | F8 restore preflight, integrity and synthetic recovery evidence | Candidate/fix review; maintenance and identity composition open |
+| Read API | R1 documented, typed, paginated read contracts | First integration pushed; household/operational gates open |
+| Identity | R2 trusted proxy login and OIDC with local recovery | Protocol/race fixes; live IdP acceptance open |
+| Borrowing | R4 authorised owner search, requests and lending ledger | Lifecycle/scan-race fixes; real household adapter open |
+| Gifts | R5 recipient-safe concurrent gift claims | Candidate/fix review; backup/history/household composition open |
+| Reading life | R6 repeat sessions, journal and annual goals | First integration pushed; portability/household gates open |
+| Audiobook enrichment | R7 exact-ASIN marketplace-aware review/backfill | Next-batch integration; provider-permission/coverage gate open |
+| Author discovery | R8 account-local following and deduplicated releases | Alias/revocation fixes; scheduler/household composition open |
+| Translation | R9 existing surfaces, followed by an integrated new-string pass | Source fixes and reviewed mapping reconciliation; not complete |
+| National providers | R10 additional documented, permitted provider coverage | BN Poland first integration pushed; final operational gates open |
+| History/undo | General change history, supported rollback and merge snapshots | Integrity fixes and later-table registry composition open |
+| Source repair | Reviewed replacement/rebinding and non-destructive retirement | First integration pushed; large-inventory/authority work open |
+| Portability | Versioned music/account-data export/import and round trips | Base candidate measured; full-artwork/new-table work open |
+| Offline reference | Explicit bounded, account-isolated offline reference browsing | Canonical lifecycle and stale-read fixes; not integrated |
+| Browser privacy | Account/library-scoped Store queues and navigation storage | Canonical owner protocol, queue recovery and revocation fixes |
 
 Independent architecture, requirements, privacy and recovery audits accompany
 implementation. Additional reviewers/testers are assigned to completed
@@ -143,3 +143,42 @@ acceptance criteria or operational blockers remain unresolved.
   exact inventory assertions needing the two deliberately added destinations.
   Independent review also found uncovered correctness defects; their fixes
   and new regression tests remain required even if this focused suite passes.
+
+### First application integration pushed
+
+`a4103d4d` was pushed to `new-test`, without deployment or image publication.
+It contains the versioned read API, reading-life additions, reviewed source
+replacement/repair and BN Poland provider, with central registration, native
+form bounds, navigation and browser/layout coverage. This is an incremental
+integration, **not closure of the full backlog or its dependent acceptance gates**.
+
+- `c7fe681f`: **1260** focused unit/integration tests and **27** browser tests.
+- `3cbecaa4`: complete local unit/integration suite, **8158 passed** in
+  1642.67 seconds. The subsequent browser gate found three integration issues;
+  all eight widths passed the corrected number-control geometry checks.
+- `a4103d4d`: after correcting the opening labels/fragment location and no-op
+  review continuity, **1264** focused tests passed in 276.06 seconds and
+  **21** browser/layout tests passed in 510.92 seconds. Fast offline checks pass.
+- `a4103d4d`: the expanded full browser suite passed **417 tests** in
+  1741.12 seconds. The original full 8158-test unit result belongs to
+  `3cbecaa4`.
+- `38c73f97`: a subsequent frozen full unit run passed **8162 tests** in
+  3265.91 seconds. Its application/static/test code is unchanged from
+  `a4103d4d`; only delivery documentation differs. This verifies the first
+  application batch, not any unmerged implementation branch. No full
+  expanded-programme gate is claimed.
+
+The operator chose **continue local only** when offered pinned CI/runner
+options. GitHub Actions execution settings remain unchanged. Python 3.12,
+pinned Playwright and production-container acceptance remain blocked, not
+passed. Named live-provider and IdP evidence remains separately incomplete.
+
+All 53 initial translation maps have structural validation: **4154 entries,
+4223 forms**, with no placeholder/plural/whitespace errors. Eleven independent
+language reviews supplied 15 corrections and flagged source-context problems.
+Secondary-only catalogue candidate `f89df61c` has applied **3922 exact matches**,
+preserved **798 existing translations** and retired **232 mappings** without
+reusing fragments. **334 locale identities remain untranslated**. Application
+and linguistic review, a remaining source-escaping fix and coverage of newly
+integrated feature strings are still required; these catalogues are not pushed
+or enabled by default. R9 remains incomplete.

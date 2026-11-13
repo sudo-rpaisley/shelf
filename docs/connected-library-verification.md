@@ -15,6 +15,80 @@ These results are **not pinned-CI verification** (the project CI uses Python
 3.12 and its pinned Playwright browser). Dependency manifests were not changed
 to accommodate the local environment.
 
+## Full-backlog delivery: first integration (2026-11-13)
+
+The expanded programme is tracked in the
+[delivery record](connected-library-delivery.md) and
+[acceptance checklist](connected-library-acceptance.md). These are local
+incremental results, not completion of all F/R/X requirements.
+
+The first application integration was pushed as `a4103d4d`. It includes typed
+read APIs, reading sessions/journal/goals, source replacement/repair and BN
+Poland metadata, with registration, native-form bounds, navigation and layout
+coverage. Subsequent implementation lanes remain outside this candidate.
+
+| Frozen application candidate | Gate | Result |
+|---|---|---|
+| `c7fe681f` | Combined focused unit/integration set | **1260 passed**, exit 0, 269.61 s |
+| `c7fe681f` | Reading-life, Connected Library and navigation browser journeys | **27 passed**, exit 0, 101.26 s |
+| `3cbecaa4` | Complete non-live unit/integration suite | **8158 passed**, exit 0, 1642.67 s |
+| `a4103d4d` | Combined affected-feature/schema/legacy/privacy regression set | **1264 passed**, exit 0, 276.06 s |
+| `a4103d4d` | Reading-life, delivery and all-page/eight-width layout browsers | **21 passed**, exit 0, 510.92 s |
+| `a4103d4d` | Complete expanded non-live browser suite | **417 passed**, exit 0, 1741.12 s |
+| `a4103d4d` | `make checks-fast`, whitespace checks | Passed; private roadmap-map lint explicitly skipped because `.devdocs` is absent |
+| `38c73f97` (application unchanged from `a4103d4d`) | Complete non-live unit/integration suite, frozen sibling worktree | **8162 passed**, exit 0, 3265.91 s |
+
+The `3cbecaa4` browser run initially reported **15 passed / 3 failed**:
+opening-action labels, a macro incorrectly placed among top-level pages, and
+the retirement journey needing a fresh inventory review. That strict journey
+then exposed no-op apply superseding an earlier repair's rollback authority.
+The later candidate corrects these issues without weakening the layout gates,
+stale-inventory checks, real-binding ABA guards or metadata-authority protections.
+Its full browser pass includes the unchanged 80-pixel content-width threshold.
+
+The original full 8158-test unit result predates those final small fixes;
+the later 1264-test gate covers the affected features. A subsequent frozen
+run at `38c73f97` independently passed all **8162** units, including those fixes.
+That commit changes only delivery documentation relative to `a4103d4d`.
+Neither full result verifies any unmerged programme candidate. Warnings were
+existing Starlette/httpx, deliberate duplicate-ZIP-fixture and browser-stack
+deprecations; no blanket warning suppression or xfail was added.
+
+Commands used the compatible interpreter and native browser described above:
+
+```bash
+PATH=/tmp/shelf-new-test-compatible-venv/bin:$PATH \
+  make test PYTEST_PAR='-n 4 --dist loadfile'
+
+PLAYWRIGHT_NODEJS_PATH=/usr/bin/node \
+SHELF_E2E_CHROMIUM_EXECUTABLE=/home/opencode/.cache/michael-doctor-verification/chromium \
+PATH=/tmp/shelf-new-test-compatible-venv/bin:$PATH make test-e2e
+
+PATH=/tmp/shelf-new-test-compatible-venv/bin:$PATH make checks-fast
+```
+
+Application/static/test files remained frozen during each gate; delivery
+documentation and isolated sibling worktrees did not change the served code.
+No production data, keys, Portainer resources, ports or deployment were changed.
+
+The final 8162-test command ran in
+`/workspace/shelf/swarm-20261113/first-batch-fullgate`:
+
+```bash
+PATH=/tmp/shelf-new-test-compatible-venv/bin:$PATH \
+  make test PYTEST_PAR='-n 2 --dist loadfile'
+```
+
+It reported four existing warnings (Starlette/httpx and the deliberate
+duplicate-ZIP fixture). Its result does not transfer to the later source,
+household, history, browser-storage, portability or translation branches.
+
+GitHub explicitly paused Actions execution on this fork because of usage
+volume. The operator selected **continue local only** rather than re-enabling
+Actions or supplying another runner. Its execution settings remain unchanged.
+Python 3.12/pinned-Playwright/container acceptance and named live-server/IdP
+acceptance remain unverified—not passes, waivers or claims of release readiness.
+
 ## Desktop spacing follow-up
 
 **PASS — verified locally on 2026-11-13** with the compatible runtime above.
