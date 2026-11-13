@@ -22,6 +22,13 @@ from tests.e2e.conftest import (
     attach_page_guard,
 )
 from tests.e2e.test_responsive import _COLLAPSE, _MEASURE, _settle
+from tests.e2e.test_library_delivery import (
+    _decision,
+    _repair_preview,
+    _replacement_preview,
+    _seed_machine_records,
+    _seed_reading_life,
+)
 
 
 pytestmark = pytest.mark.e2e
@@ -34,6 +41,10 @@ PAGES = (
     ("library", "/library", "library.html"),
     ("library-series", "/library?view=series", "library.html"),
     ("activity", "/activity", "activity.html"),
+    ("reading-life", "/reading-life?year=2025", "reading_life.html"),
+    ("reading-life-item", "/reading-life/items/{book}", "reading_life_item.html"),
+    ("reading-life-session", "/reading-life/sessions/{reading_session}", "reading_life_session.html"),
+    ("reading-life-journal", "/reading-life/journal/{reading_entry}", "reading_life_journal.html"),
     ("browse", "/browse", "browse.html"),
     ("browse-list", "/browse", "browse.html"),
     ("series", "/series", "series.html"),
@@ -52,6 +63,16 @@ PAGES = (
     ("sources", "/sources", "sources.html"),
     ("source-opds", "/sources/{opds}", "source_detail.html"),
     ("source-links", "/sources/{links}", "source_detail.html"),
+    ("source-migration-workspace", "/source-migrations", "source_migration.html"),
+    ("source-migration-compare", "/source-migrations?old_source_id={old_source}&new_source_id={new_source}", "source_migration.html"),
+    ("source-migration-repair", "/source-migrations?repair_source_id={new_source}&repair_record_id={new_record}", "source_migration.html"),
+    ("source-migration-repair-preview", "/source-migrations/{repair_plan}", "source_migration_review.html"),
+    ("source-migration-preview", "/source-migrations/{migration_plan}", "source_migration_review.html"),
+    ("source-migration-applied", "/source-migrations/{migration_plan}", "source_migration_review.html"),
+    ("source-migration-retired", "/source-migrations/{migration_plan}", "source_migration_review.html"),
+    ("source-migration-rolled-back", "/source-migrations/{migration_plan}", "source_migration_review.html"),
+    ("source-migration-stale", "/source-migrations/{stale_plan}", "source_migration_review.html"),
+    ("source-migration-error", "/source-migrations/layout-missing-review", "source_migration_error.html"),
     ("attention", "/needs-attention", "needs_attention.html"),
     ("covers", "/cover-review", "cover_review.html"),
     ("duplicates", "/duplicates", "duplicates.html"),
@@ -74,6 +95,9 @@ PAGES = (
     ("store", "/store", "store.html"),
     ("store-result", "/store", "store.html"),
 )
+
+# Refusal pages are measured, not exempted from the walk or the geometry rules.
+PAGE_STATUSES = {"source-migration-error": 404}
 
 _GEOMETRY = """(() => {
     const main = document.querySelector('main');
@@ -153,6 +177,8 @@ def _seed(server):
         watch = db.execute("INSERT INTO release_watches (series_name) VALUES ('The Archive Collection')").lastrowid
         db.execute("INSERT INTO upcoming_releases (watch_id, hc_book_id, title, authors, release_date) VALUES (?, 12345, 'An Upcoming Archive Collection Volume', 'Rowan Avery', '2099-01-01')", (watch,))
         db.execute("INSERT OR REPLACE INTO settings (key, value) VALUES ('vision_provider', 'ollama')")
+        ids.update(_seed_reading_life(db, user, ids["book"]))
+        ids.update(_seed_machine_records(db, keep=ids["book"], previous=ids["ebook"]))
         db.commit()
         return {**ids, "location": location}
     finally:
@@ -258,6 +284,10 @@ def test_all_pages_use_available_width_without_mobile_regressions(server_factory
             page.locator('button[type="submit"]').click()
         expect(page).to_have_url(server["url"] + "/")
         ids = _seed(server)
+        ids["repair_plan"] = _repair_preview(page, server, ids)
+        ids["migration_plan"] = _replacement_preview(page, server, ids, manual=False)
+        # A second real review becomes stale when the first review is applied.
+        ids["stale_plan"] = _replacement_preview(page, server, ids, manual=False)
         for label, path, template in PAGES:
             if label.startswith("settings-"):
                 page.evaluate("tab => localStorage.setItem('shelf_settings_tab', tab)", label.removeprefix("settings-"))
@@ -266,7 +296,24 @@ def test_all_pages_use_available_width_without_mobile_regressions(server_factory
             elif label == "browse":
                 page.evaluate("localStorage.setItem('shelf-view', 'grid')")
             response = page.goto(server["url"] + path.format(**ids))
-            assert response.status == 200, (label, response.status)
+            assert response.status == PAGE_STATUSES.get(label, 200), (label, response.status)
+            if label == "source-migration-compare":
+                for details in page.get_by_test_id("source-migration-workspace").locator("details").all():
+                    details.locator("summary").click()
+                    expect(details).to_have_attribute("open", "")
+                expect(page.locator('textarea[name="mappings"]')).to_have_value(f"{ids['old_record']},{ids['new_record']}\n")
+            if label in ("source-migration-applied", "source-migration-retired", "source-migration-rolled-back"):
+                action = {"source-migration-applied": "apply", "source-migration-retired": "retire", "source-migration-rolled-back": "rollback"}[label]
+                _decision(page, action)
+            if label in ("source-migration-repair-preview", "source-migration-preview", "source-migration-applied", "source-migration-retired", "source-migration-rolled-back"):
+                expected = ("Bindings rolled back" if label.endswith("rolled-back") else
+                            "Reviewed bindings applied" if label.endswith(("applied", "retired")) else "Dry run only")
+                expect(page.get_by_test_id("source-migration-review").get_by_role("status")).to_contain_text(expected)
+            if label == "source-migration-repair-preview":
+                expect(page.get_by_role("alert")).to_contain_text("Different source and local media types")
+            if label == "source-migration-stale":
+                expect(page.get_by_role("alert")).to_contain_text("This review is stale")
+                expect(page.get_by_test_id("source-migration-review").locator('form[method="post"]')).to_have_count(0)
             if label == "scan-result":
                 page.locator("#isbn-input").fill("LAYOUT-000001")
                 page.locator("#isbn-input").press("Enter")
