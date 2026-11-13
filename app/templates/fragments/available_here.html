@@ -43,7 +43,7 @@
                 {% if row.detail %}<p class="text-xs text-shelf-muted mt-1">{{ row.detail }}</p>{% endif %}
             </div>
             {% if row.url and (row.eligible if source_handoff else row.state not in ('unavailable', 'missing', 'lent')) %}
-            <a href="{% if source_handoff %}/api/library/items/{{ row.item_id }}/open/{{ row.action }}?source_key={{ row.source_key }}{% else %}{{ row.url }}{% endif %}" target="_blank" rel="noopener noreferrer" referrerpolicy="no-referrer" class="text-sm text-shelf-accent2 hover:underline shrink-0">{{ _(row.action or 'Open') }}</a>
+            <a href="{% if source_handoff %}/api/library/items/{{ row.item_id }}/open/{{ row.action }}?binding={{ row.binding }}{% else %}{{ row.url }}{% endif %}" target="_blank" rel="noopener noreferrer" referrerpolicy="no-referrer" class="text-sm text-shelf-accent2 hover:underline shrink-0">{{ _(row.action or 'Open') }}</a>
             {% endif %}
         </li>
         {% endfor %}

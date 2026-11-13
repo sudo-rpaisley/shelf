@@ -103,7 +103,8 @@ async def test_link_encrypts_and_never_reuses_admin_key_or_shares_remote_user(db
         await _link(other["id"], bound["key"])
     dto = svc.context(db, viewer_user["id"])
     assert TOKEN not in json.dumps(dto) and "credentials_enc" not in json.dumps(dto)
-    assert dto["capabilities"] == {"pull": True, "remote_write": False, "bidirectional": False, "scheduled": False}
+    assert dto["capabilities"] == {"pull": True, "remote_write": False, "bidirectional": False, "scheduled": True}
+    assert dto["scheduler_active"] is False
     assert svc.context(db, other["id"])["accounts"] == []
     for call in remote.calls:
         assert call.request.headers["X-Emby-Token"] == TOKEN

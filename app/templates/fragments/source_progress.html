@@ -1,5 +1,6 @@
 <section id="source-progress-accounts" class="mb-6">
     <h2 class="text-lg font-semibold mb-3">{{ _('My linked accounts') }}</h2>
+    {% if not progress.scheduler_active %}<p class="text-sm text-shelf-muted mb-3" data-testid="progress-scheduler-inactive">{{ _('The automatic-pull worker is not active in this process. Schedule choices can be saved, but no automatic freshness is claimed until the worker is connected and running.') }}</p>{% endif %}
     {% for account in progress.accounts %}
     <div class="bg-shelf-card border border-shelf-border rounded-lg p-4 mb-3">
         <p class="font-medium">{{ account.name }} · {{ account.remote_user_id }}</p>
@@ -11,6 +12,26 @@
             <button type="submit" class="text-sm text-shelf-accent2 hover:underline">{{ _('Pull this edition; preview conflicts') }}</button>
         </form>
         {% elif progress.item_id and account.available %}<p class="text-sm text-shelf-muted mt-2">{{ _('No unambiguous supported binding for this edition. Progress is never copied from another format.') }}</p>{% endif %}
+        <details class="mt-3">
+            <summary class="cursor-pointer text-sm font-medium">{{ _('My automatic pull schedule') }}</summary>
+            <p class="text-xs text-shelf-muted mt-2">{{ _('Separate opt-in for this remote account only. Pulls read already catalogued, supported bindings in bounded batches; large libraries continue in later batches. The same conflict rules apply. No remote writes or catalogue API keys.') }}</p>
+            {% if account.schedule.interval_minutes %}
+            <p class="text-xs text-shelf-muted mt-2">{{ _('Next due:') }} {{ account.schedule.next_due_at }} · {{ _('Last attempt:') }} {{ account.schedule.last_attempt_at or _('Not recorded') }} · {{ account.schedule.last_status }}</p>
+            {% if account.schedule.last_error %}<p class="text-xs text-shelf-muted mt-1">{{ _('Last automatic-pull outcome:') }} {{ account.schedule.last_error }}</p>{% endif %}
+            {% if not account.schedule.authorization_current %}<p class="text-sm text-shelf-muted mt-2">{{ _('Your account/session version changed. Automatic pulls are paused until you renew consent below.') }}</p>{% endif %}
+            {% endif %}
+            <form method="post" action="/api/source-progress/accounts/{{ account.id }}/schedule" class="space-y-3 mt-3">
+                <input type="hidden" name="_csrf" value="{{ request.cookies.get('csrf_token', '') }}">
+                <label class="block text-sm">{{ _('Automatic pull interval') }}
+                    <select name="interval_minutes" class="bg-shelf-bg border border-shelf-border rounded-lg p-2">
+                        <option value="0"{% if not account.schedule.interval_minutes %} selected{% endif %}>{{ _('Off') }}</option>
+                        {% for minutes in progress.schedule_intervals %}<option value="{{ minutes }}"{% if account.schedule.interval_minutes == minutes %} selected{% endif %}>{{ minutes }} {{ _('minutes') }}</option>{% endfor %}
+                    </select>
+                </label>
+                <label class="flex items-start gap-2 text-sm"><input type="checkbox" name="consent" value="{{ progress.schedule_consent_version }}"><span>{{ _('I consent to automatic pull-only progress imports for this connection at the chosen interval, subject to conflict review. This separate consent is required to enable or change the schedule, not to turn it off.') }}</span></label>
+                <button type="submit" class="text-sm text-shelf-accent2 hover:underline">{{ _('Save my automatic-pull choice') }}</button>
+            </form>
+        </details>
         <form method="post" action="/api/source-progress/accounts/{{ account.id }}/disconnect" class="mt-3">
             <input type="hidden" name="_csrf" value="{{ request.cookies.get('csrf_token', '') }}">
             <button type="submit" class="text-sm text-shelf-error hover:underline">{{ _('Disconnect and forget my token') }}</button>
