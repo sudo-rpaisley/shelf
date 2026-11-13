@@ -82,6 +82,47 @@ for every multi-household feature. Schedule R9/R10 around actual language and
 catalogue needs. These priorities do not remove any item from the upstream
 roadmap.
 
+### Final practical refinements
+
+These refine the existing delivery areas, rather than introduce another set
+of projects. They remain **planned, not implemented** beyond the foundations
+described below. The first four belong in the relevant area's acceptance
+criteria; they do not change the F1/F2-first delivery order.
+
+| Priority | Attach to | Refinement and completion boundary |
+|---|---|---|
+| Core safety | F6/F8 | **Understandable change history and safe undo.** Record who or which provider changed catalogue fields, when, and the before/after values; preview high-impact bulk changes and retain the snapshots needed for supported rollback. Reversible merges require snapshots of identities, child records and artwork decisions, not just a copy of the kept title. Refuse or explicitly review rollback conflicts after later edits. Define retention/asset limits and permission-scoped history without exposing credentials or another account's personal activity |
+| Core reliability | F3/F4/F6 | **Guided source replacement and binding repair.** Distinguish moving the same server to a new URL from replacing it with a different server or rebuilt remote IDs. Preview old/new identity mappings, ambiguous or unmatched entries and changes to opening actions before confirmation; make repeated application safe. Allow reviewed correction of a wrong attachment without the next sync silently undoing it. Preserve local item identity, copies, activity, manual metadata and artwork decisions; retiring a source must not delete catalogue records. Never transfer bindings by title similarity alone |
+| Portability | F8/R6 | **Complete, permission-scoped export/import.** Design versioned portable export/import for music details, personal state/history and saved views, with explicit choices for source bindings and metadata/artwork decisions. Publish the supported-field and exclusion contract, preview imports and test round trips. Reuse existing archive/import safeguards where applicable; do not export credentials or other users' private state, or imply that a portable export replaces the full database, artwork and key backup |
+| Everyday acceptance | F2/F8 | **Keep navigation and failures usable.** Check return-to-results filters/scroll, Back/deep links, keyboard and screen-reader focus, contrast and zoom across Library, review dialogs and source handoff. Make loading, empty, stale and error states clear; protect unsaved input through recoverable errors or reauthentication and report which bulk actions succeeded. Preserve existing Browse restoration rather than rebuilding it |
+| Optional later | F2 | **Cross-device preferences.** Extend existing account-owned saved views with useful shelf ordering, default views and selected display preferences where wanted. Browse currently stores view/column/sort choices in the browser; define account-versus-device precedence and shared-device privacy before moving any of those choices server-side. Do not duplicate saved views or blindly assign a shared browser's preferences to its next user |
+| Optional later | F2/F7/F8 | **Offline reference browsing beyond Store Mode.** Only if useful, add an explicit, bounded opt-in catalogue/artwork cache with visible last-sync time and clear unavailable actions. Design account isolation, expiry and logout/next-contact revocation cleanup first, and document that an offline device cannot observe an immediate remote permission change. Keep credentials and private activity out of a generic cache; preserve private-page no-store defaults unless a separate reviewed offline design replaces them. This does not imply offline media downloads or playback |
+
+Current evidence keeps these gaps distinct from existing safeguards:
+
+- `routers/items.py::merge_items` reparents children and deletes the losing
+  item. `services/item_merge.py` preserves defined history/bindings, but does
+  not retain a general unmerge snapshot. Personal activity history, inventory
+  audit entries, Trash and saved metadata provenance are not a general
+  catalogue-edit undo facility.
+- `services/sources.py::save_settings` preserves external-ID bindings on a
+  root change; `attach_record` refuses moving an existing identity to another
+  item. `services/source_links.py::detach` only removes manual links. Existing
+  disable/re-enable, exact-ISBN adoption and configuration invalidation are
+  safeguards, not a guided server-replacement or machine-binding repair flow.
+  See [source configuration changes](user-guide/connected-library.md#change-configuration-disable-or-re-enable).
+- [Backup and portability](user-guide/connected-library.md#backup-and-portability)
+  documents the existing export exclusions. Full recovery and portable
+  per-account data movement need separate acceptance tests.
+- `static/js/browse.js` already restores filters and browser-local display
+  preferences. Account-owned Library saved views already exist;
+  `static/sw.js` explicitly supports offline **Store Mode only**. Neither
+  optional refinement is a prerequisite for the first everyday Library.
+
+With these boundaries recorded, focus on delivering and measuring F1/F2,
+then F3/F4. Add more scope only when real collection use exposes a specific
+gap; do not make every optional refinement a release prerequisite.
+
 ### Already covered: do not duplicate
 
 - Setup profiles, feature switches and grouped navigation are implemented
