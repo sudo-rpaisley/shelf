@@ -178,25 +178,31 @@ async def _read_public(url, *, params=None, image=False):
                 "Accept-Encoding": "identity", "User-Agent": "Shelf/1.0 (public catalogue metadata preview)",
             }) as response:
                 if response.status_code != 200:
-                    return response.status_code, response.headers.get("location"), None
-                mime = response.headers.get("content-type", "").split(";", 1)[0].strip().lower()
-                allowed = {"image/jpeg", "image/png", "image/webp", "image/gif"} if image else {"application/json"}
-                if mime not in allowed or response.headers.get("content-encoding", "identity").lower() not in {"", "identity"}:
-                    raise _Unreadable
-                limit = covers.MAX_COVER_SIZE if image else MAX_RESPONSE_BYTES
-                length = response.headers.get("content-length")
-                if length and (not length.isascii() or not length.isdigit() or int(length) > limit):
-                    raise _Unreadable
-                data = bytearray()
-                async for chunk in response.aiter_raw():
-                    if len(data) + len(chunk) > limit:
+                    result = response.status_code, response.headers.get("location"), None
+                else:
+                    mime = response.headers.get("content-type", "").split(";", 1)[0].strip().lower()
+                    allowed = {"image/jpeg", "image/png", "image/webp", "image/gif"} if image else {"application/json"}
+                    if mime not in allowed or response.headers.get("content-encoding", "identity").lower() not in {"", "identity"}:
                         raise _Unreadable
-                    data.extend(chunk)
-                return 200, None, bytes(data)
-    finally:
-        # Return expressions run before async context cleanup. Check only AFTER
-        # both HTTP contexts exit, including redirect/error/no-body returns.
+                    limit = covers.MAX_COVER_SIZE if image else MAX_RESPONSE_BYTES
+                    length = response.headers.get("content-length")
+                    if length and (not length.isascii() or not length.isdigit() or int(length) > limit):
+                        raise _Unreadable
+                    data = bytearray()
+                    async for chunk in response.aiter_raw():
+                        if len(data) + len(chunk) > limit:
+                            raise _Unreadable
+                        data.extend(chunk)
+                    result = 200, None, bytes(data)
+    except asyncio.CancelledError:
+        # Preserve shutdown/deadline cancellation even if configuration changed.
+        raise
+    except Exception:
         audible_permission.require_enabled()
+        raise
+    # Check AFTER both HTTP contexts exit, including redirects/no-body results.
+    audible_permission.require_enabled()
+    return result
 
 
 def _unique_object(pairs):

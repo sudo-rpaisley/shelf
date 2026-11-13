@@ -270,3 +270,150 @@ async def test_direct_http_results_require_gate_after_stream_and_context_exit(mo
                                                      image=kind == "image")
     assert returned is None and closed == ["response", "client"]
     assert list(config.COVERS_DIR.iterdir()) == []
+
+
+@pytest.mark.parametrize("missing", ["enable", "grant_reference"])
+@pytest.mark.parametrize("source", ["raised", "external_task", "deadline"])
+@pytest.mark.parametrize("operation,boundary", [(operation, boundary) for operation in ("raw_json", "raw_image", "lookup", "artwork")
+                                              for boundary in ("body", "response_exit", "client_exit")]
+                                             + [("redirect", "response_exit"), ("redirect", "client_exit")])
+@pytest.mark.asyncio
+async def test_revocation_does_not_replace_http_cancellation(monkeypatch, mock_audible_authorization, missing, source, operation, boundary):
+    reached, waiting = asyncio.Event(), asyncio.Event()
+    cancellations, propagated, calls, closed, returned, chunks = [], [], [], [], [], []
+    deadline = None
+    later = Mock(side_effect=AssertionError("Work continued after cancellation"))
+    stage = Mock(side_effect=AssertionError("Cancelled artwork was staged"))
+    normalise = Mock(side_effect=AssertionError("Cancelled metadata was normalised"))
+
+    async def interrupt(where):
+        await asyncio.sleep(0)
+        if where != boundary:
+            return
+        monkeypatch.delenv(audible_permission.ENABLE_ENV if missing == "enable" else audible_permission.GRANT_ENV)
+        if source == "raised":
+            error = asyncio.CancelledError("HTTP stream/context cancelled")
+            cancellations.append(error)
+            raise error
+        if source == "deadline":
+            deadline.reschedule(asyncio.get_running_loop().time())
+        reached.set()
+        try:
+            await waiting.wait()
+        except asyncio.CancelledError as error:
+            cancellations.append(error)
+            raise
+
+    class Stream(httpx.AsyncByteStream):
+        async def __aiter__(self):
+            content = PNG if operation in {"raw_image", "artwork"} else json.dumps({"products": [PRODUCT]}).encode()
+            chunks.append("first")
+            yield content[:4]
+            await interrupt("body")
+            chunks.append("tail")
+            yield content[4:]
+
+        async def aclose(self):
+            closed.append("response")
+            await interrupt("response_exit")
+
+    async def handler(request):
+        calls.append(request)
+        assert len(calls) == 1, "Cancellation triggered another HTTP request"
+        return httpx.Response(302 if operation == "redirect" else 200, headers={
+            "content-type": "image/png" if operation in {"raw_image", "artwork"} else "application/json",
+            "location": IMAGE,
+        }, stream=Stream())
+
+    class Transport(httpx.MockTransport):
+        async def aclose(self):
+            closed.append("client")
+            await interrupt("client_exit")
+
+    image = operation in {"raw_image", "artwork", "redirect"}
+    target = AsyncMock(return_value=("m.media-amazon.com" if image else "api.audible.com", "8.8.8.8"))
+    pace = AsyncMock()
+    monkeypatch.setattr(manual_cover, "_public_target", target)
+    monkeypatch.setattr(manual_cover, "_PinnedIPTransport", lambda address: Transport(handler))
+    monkeypatch.setattr(outbound, "acquire", pace)
+    monkeypatch.setattr(audible_catalog, "_stage_artwork", stage)
+    monkeypatch.setattr(audible_catalog, "normalise", normalise)
+
+    async def run():
+        nonlocal deadline
+        async with asyncio.timeout(None) as deadline:
+            try:
+                if operation == "lookup":
+                    result = await audible_catalog.lookup(ASIN, "us")
+                elif operation in {"artwork", "redirect"}:
+                    result = await audible_catalog.download_artwork(1, IMAGE)
+                else:
+                    result = await audible_catalog._read_public(IMAGE if image else "https://api.audible.com/1.0/catalog/products", image=image)
+            except asyncio.CancelledError as error:
+                propagated.append(error)
+                raise
+            returned.append(result)
+            later()
+
+    task = asyncio.create_task(run())
+    if source == "external_task":
+        await asyncio.wait_for(reached.wait(), timeout=5)
+        task.cancel("External shutdown cancellation")
+    with pytest.raises(TimeoutError if source == "deadline" else asyncio.CancelledError) as caught:
+        await task
+    assert len(cancellations) == len(propagated) == 1 and propagated[0] is cancellations[0]
+    assert (caught.value.__cause__ if source == "deadline" else caught.value) is cancellations[0]
+    assert returned == [] and closed == ["response", "client"] and len(calls) == 1
+    if boundary == "body":
+        assert chunks == ["first"]
+    target.assert_awaited_once()
+    pace.assert_awaited_once()
+    later.assert_not_called()
+    stage.assert_not_called()
+    normalise.assert_not_called()
+    assert list(config.COVERS_DIR.iterdir()) == []
+
+
+@pytest.mark.parametrize("missing", [None, "enable", "grant_reference"])
+@pytest.mark.parametrize("boundary", ["body", "validation", "response_exit", "client_exit"])
+@pytest.mark.asyncio
+async def test_ordinary_http_errors_recheck_gate_after_cleanup(monkeypatch, mock_audible_authorization, missing, boundary):
+    error = audible_catalog._Unreadable() if boundary == "validation" else httpx.ReadError("Mock HTTP failure")
+    closed, returned = [], []
+
+    async def interrupt(where):
+        await asyncio.sleep(0)
+        if boundary == where:
+            if missing is not None:
+                monkeypatch.delenv(audible_permission.ENABLE_ENV if missing == "enable" else audible_permission.GRANT_ENV)
+            raise error
+
+    class Stream(httpx.AsyncByteStream):
+        async def __aiter__(self):
+            await interrupt("body")
+            yield b'{"products":[]}'
+
+        async def aclose(self):
+            closed.append("response")
+            await interrupt("response_exit")
+
+    async def handler(request):
+        # Revoke before validation; the adapter itself must raise _Unreadable.
+        if boundary == "validation" and missing is not None:
+            monkeypatch.delenv(audible_permission.ENABLE_ENV if missing == "enable" else audible_permission.GRANT_ENV)
+        return httpx.Response(200, headers={"content-type": "text/html" if boundary == "validation" else "application/json"}, stream=Stream())
+
+    class Transport(httpx.MockTransport):
+        async def aclose(self):
+            closed.append("client")
+            await interrupt("client_exit")
+
+    monkeypatch.setattr(manual_cover, "_public_target", AsyncMock(return_value=("api.audible.com", "8.8.8.8")))
+    monkeypatch.setattr(manual_cover, "_PinnedIPTransport", lambda address: Transport(handler))
+    monkeypatch.setattr(outbound, "acquire", AsyncMock())
+    with pytest.raises(type(error) if missing is None else audible_permission.ProviderBlocked) as caught:
+        returned.append(await audible_catalog._read_public("https://api.audible.com/1.0/catalog/products"))
+    if missing is None and boundary != "validation":
+        assert caught.value is error
+    assert returned == [] and closed == ["response", "client"]
+    assert list(config.COVERS_DIR.iterdir()) == []
