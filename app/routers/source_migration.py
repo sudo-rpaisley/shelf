@@ -132,6 +132,27 @@ def _error(request: Request, error: migration.MigrationError):
                                                         status_code=error.status_code, headers={"Cache-Control": "no-store"})
 
 
+def _mutation_error(request: Request, error: migration.MigrationError, actor: dict | None):
+    # Entry refusals already have context-free responses and no captured actor.
+    if actor is None and error.code in {"actor_changed", "feature_disabled"}:
+        return _error(request, error)
+    if actor is not None:
+        try:
+            # A failed body read or mutation has unwound its transaction. Check
+            # the ORIGINAL actor afresh, never a newer login/request state.
+            with get_db() as db:
+                db.execute("BEGIN IMMEDIATE")
+                migration.authorize_mutation(db, actor)
+        except migration.MigrationError as denied:
+            return _error(request, denied)
+        except sqlite3.Error:
+            pass  # Unverifiable authority must not render stale admin context.
+        else:
+            return _error(request, error)
+    return Response("Source review is temporarily unavailable. Nothing was saved. Try again.",
+                    status_code=503, media_type="text/plain", headers={"Cache-Control": "no-store"})
+
+
 def _success(request: Request, result: dict):
     if request.headers.get("content-type", "").startswith("application/json"):
         return JSONResponse({"ok": True, **result}, headers={"Cache-Control": "no-store"})
@@ -227,6 +248,7 @@ async def candidates(request: Request, old_source_id: int = Query(gt=0, le=2**63
 @api_router.post("/replacement/preview")
 async def preview_replacement(request: Request, _=Depends(require_role("admin")),
                               _feature=Depends(require_feature("connected_library"))):
+    actor = None
     try:
         actor = _request_actor(request)
         body = await _body(request, {"old_source_id", "new_source_id", "mappings"}, {"manual_reviewed", "retire_old"})
@@ -241,12 +263,13 @@ async def preview_replacement(request: Request, _=Depends(require_role("admin"))
             migration.authorize_mutation(db, actor)
         return _success(request, result)
     except migration.MigrationError as error:
-        return _error(request, error)
+        return _mutation_error(request, error, actor)
 
 
 @api_router.post("/repair/preview")
 async def preview_repair(request: Request, _=Depends(require_role("admin")),
                          _feature=Depends(require_feature("connected_library"))):
+    actor = None
     try:
         actor = _request_actor(request)
         body = await _body(request, {"source_id", "record_id", "item_id", "manual_reviewed"})
@@ -260,10 +283,11 @@ async def preview_repair(request: Request, _=Depends(require_role("admin")),
             migration.authorize_mutation(db, actor)
         return _success(request, result)
     except migration.MigrationError as error:
-        return _error(request, error)
+        return _mutation_error(request, error, actor)
 
 
 async def _decision(request: Request, plan_id: str, action):
+    actor = None
     try:
         actor = _request_actor(request)
         body = await _body(request, {"fingerprint", "reviewed"})
@@ -275,9 +299,9 @@ async def _decision(request: Request, plan_id: str, action):
             migration.authorize_mutation(db, actor)
         return _success(request, result)
     except migration.MigrationError as error:
-        return _error(request, error)
+        return _mutation_error(request, error, actor)
     except (sqlite3.IntegrityError, sqlite3.DataError):
-        return _error(request, migration.MigrationError("write_failed", "The binding decision could not be saved. No partial changes were saved.", 409))
+        return _mutation_error(request, migration.MigrationError("write_failed", "The binding decision could not be saved. No partial changes were saved.", 409), actor)
 
 
 @api_router.post("/{plan_id}/apply")
