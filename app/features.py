@@ -258,13 +258,14 @@ FEATURES: dict[str, Feature] = {
         label="Connected library",
         description="Unified format stacks, source availability, read-only connectors, personal activity and catalogue maintenance.",
         profile="standard",
-        nav_tabs=("library", "activity", "reading-life", "sources", "source-migrations", "needs-attention"),
+        nav_tabs=("library", "activity", "reading-life", "source-progress", "sources", "source-migrations", "needs-attention"),
         entry_path="/library",
         modules=(
             "app.routers.library", "app.routers.availability",
             "app.routers.sources", "app.routers.personal_library",
             "app.routers.library_attention", "app.routers.metadata_review",
             "app.routers.reading_life", "app.routers.source_migration",
+            "app.routers.audiobook_metadata", "app.routers.source_progress",
         ),
     ),
     "intake": Feature(

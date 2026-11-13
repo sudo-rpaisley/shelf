@@ -164,6 +164,7 @@ def client(monkeypatch):
     monkeypatch.setenv("SHELF_DISABLE_COVER_ENRICH", "1")  # no network from import tests
     monkeypatch.setenv("SHELF_DISABLE_PRICE_ALERTS", "1")  # no ISBNdb pass from the lifespan loop
     monkeypatch.setenv("SHELF_DISABLE_RELEASE_RADAR", "1")  # no Hardcover pass from the lifespan loop
+    monkeypatch.setenv("SHELF_DISABLE_SOURCE_PROGRESS", "1")  # opt-in scheduler tests enable it explicitly
     from app.main import app
     c = TestClient(app, base_url="https://testserver")
     c.cookies.set("csrf_token", _TEST_CSRF_TOKEN)

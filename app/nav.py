@@ -49,6 +49,8 @@ NAV_TABS = [
       "roles": ("admin", "editor", "viewer"), "menu": "account", "heading": N_("Personal")},
     {"key": "reading-life", "label": N_("Reading life"), "path": "/reading-life",
      "roles": ("admin", "editor", "viewer"), "menu": "account", "heading": N_("Personal")},
+    {"key": "source-progress", "label": N_("Source progress"), "path": "/account/source-progress",
+     "roles": ("admin", "editor", "viewer"), "menu": "account", "heading": N_("Personal")},
     {"key": "sources", "label": N_("Sources"), "path": "/sources",
       "roles": ("admin", "editor", "viewer"), "menu": "account", "heading": N_("Library")},
     {"key": "source-migrations", "label": N_("Source repair"), "path": "/source-migrations",

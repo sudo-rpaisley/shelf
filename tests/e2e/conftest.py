@@ -222,6 +222,7 @@ def _boot_server(
         # Likewise the release-radar loop: a test that saved a Hardcover token
         # beside a watched series would otherwise call Hardcover live.
         "SHELF_DISABLE_RELEASE_RADAR": "1",
+        "SHELF_DISABLE_SOURCE_PROGRESS": "1",
         # The UPC Item DB stub, in the *fixed* block rather than in `env_extra`:
         # every E2E server gets it with no test opting in, and `clear_env`
         # cannot remove it. `env_extra` is applied after, so a test that wants
