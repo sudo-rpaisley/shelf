@@ -1,0 +1,10 @@
+{% extends "base.html" %}
+{% block title %}{{ _('Source review refused') }} — Shelf{% endblock %}
+{% block content %}
+<div class="page-layout space-y-4">
+    <h1 class="text-2xl font-bold">{{ _('Source review refused') }}</h1>
+    <p role="alert">{{ error }}</p>
+    <p>{{ _('No partial binding changes were saved. Return to the workspace and preview the current records again.') }}</p>
+    <a href="/source-migrations" class="text-shelf-accent2 hover:underline">{{ _('Start a fresh source review') }}</a>
+</div>
+{% endblock %}

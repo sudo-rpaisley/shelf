@@ -1,0 +1,50 @@
+{% extends "base.html" %}
+{% block title %}{{ _('Review source bindings') }} — Shelf{% endblock %}
+{% block content %}
+<div class="page-layout space-y-6" data-testid="source-migration-review">
+    <header class="space-y-2">
+        <a href="/source-migrations" class="text-shelf-accent2 hover:underline">{{ _('Source replacement and binding repair') }}</a>
+        <h1 class="text-2xl font-bold">{{ _('Review source bindings') }}</h1>
+        <p>{{ _('Review state') }}: {{ state }} · {{ _('Old source') }} #{{ plan.old_source_id }} {{ source_names.get(plan.old_source_id, '') }} · {{ _('New source') }} #{{ plan.new_source_id }} {{ source_names.get(plan.new_source_id, '') }}</p>
+        {% if plan.coverage is defined %}<p>{{ _('Selected pairs') }}: {{ plan.coverage.selected }} · {{ _('Unmapped old records') }}: {{ plan.coverage.unmapped_old }} · {{ _('Unmapped replacement records') }}: {{ plan.coverage.unmapped_new }}</p><p class="text-sm text-shelf-muted">{{ _('Unmapped records and their catalogue entries remain unchanged. Retirement disables the entire old instance, including any unmatched holdings; review coverage before retiring it.') }}</p>{% endif %}
+        {% if state == 'preview' %}<p role="status">{{ _('Dry run only. No source bindings or catalogue values have changed. This preview expires at') }} {{ expires_at }} UTC.</p>{% elif state == 'applied' %}<p role="status">{{ _('Reviewed bindings applied. Verify the correct source availability on each catalogue item before retiring the old source.') }}</p>{% else %}<p role="status">{{ _('Bindings rolled back. Local edits and metadata-authority protections remain; rollback does not restore old automatic metadata claims.') }}</p>{% endif %}
+        {% if retired %}<p>{{ _('The old instance was disabled, not deleted. Rollback restores its previous enabled state only if its settings have not changed.') }}</p>{% endif %}
+    </header>
+    <section class="bg-shelf-card rounded-xl border border-shelf-border p-4 space-y-3">
+        <h2 class="text-lg font-semibold">{{ _('Safety boundary') }}</h2>
+        <p>{{ _('Only source-record attachments change. Catalogue entries, duplicate imported entries, copies, activity, ownership, personal notes, identifiers, manual fields, cover files and cover decisions stay in place. Credentials are never transferred. No remote server is contacted.') }}</p>
+        <p>{{ _('Existing descriptive metadata authority is frozen for the affected source identities on both the old and correct local items, including blank fields. No applied or Follow source claims move to another item. Inspect Metadata sources to explicitly follow the correct provider again. Rollback never resurrects the old claims.') }}</p>
+    </section>
+    {% for row in rows %}
+    <article class="bg-shelf-card rounded-xl border border-shelf-border p-4 space-y-2">
+        <h2 class="font-semibold">{{ _('Machine record ID') }} #{{ row.record_id }}{% if row.old_record_id is defined %} · {{ _('Reviewed old record ID') }} #{{ row.old_record_id }}{% endif %}</h2>
+        {% if row.record %}<p class="break-all">{{ row.record.title }} · {{ row.record.media_type }} · {{ _('External ID') }}: {{ row.record.external_id }}</p><p class="text-sm break-all">{{ _('Replacement remote identifiers') }}: {% for kind, values in row.record.identifiers.items() %}{{ kind }}: {{ values|join(', ') }}; {% else %}{{ _('None') }}{% endfor %}</p>{% else %}<p>{{ _('The machine record no longer exists.') }}</p>{% endif %}
+        {% if row.old_record %}<p class="break-all">{{ _('Old record') }}: {{ row.old_record.title }} · {{ row.old_record.media_type }} · {{ _('External ID') }}: {{ row.old_record.external_id }}</p><p class="text-sm break-all">{{ _('Old remote identifiers') }}: {% for kind, values in row.old_record.identifiers.items() %}{{ kind }}: {{ values|join(', ') }}; {% else %}{{ _('None') }}{% endfor %}</p>{% endif %}
+        <p>{{ _('Before') }}: {% if row.before_item_id %}<a href="/item/{{ row.before_item_id.id }}" class="text-shelf-accent2 hover:underline">#{{ row.before_item_id.id }} {{ row.before_item_id.title }}</a> · {{ row.before_item_id.media_type }}{% else %}{{ _('Missing or in Trash') }}{% endif %}</p>
+        <p>{{ _('After') }}: {% if row.after_item_id %}<a href="/item/{{ row.after_item_id.id }}" class="text-shelf-accent2 hover:underline">#{{ row.after_item_id.id }} {{ row.after_item_id.title }}</a> · {{ row.after_item_id.media_type }}{% else %}{{ _('Missing or in Trash') }}{% endif %}</p>
+        <ul class="text-sm space-y-1">{% for fact in row.evidence %}<li class="break-all">{% if fact.kind == 'reviewed_record_ids' %}{{ _('Explicit administrator review of old/new record IDs') }}: {{ fact.old_record_id }},{{ fact.new_record_id }}{% elif fact.kind == 'reviewed_record_and_item_ids' %}{{ _('Explicit administrator review of record/item IDs') }}: {{ fact.record_id }},{{ fact.item_id }}{% else %}{{ _('Exact remote identifier evidence') }} — {{ fact.kind }}: {{ fact.value }}{% endif %}</li>{% endfor %}</ul>
+        {% for warning in row.conflicts %}<p role="alert" class="text-shelf-error">{{ _(warning) }} — {{ _('Manually reviewed; no local metadata will be replaced.') }}</p>{% endfor %}
+    </article>
+    {% endfor %}
+    {% if conflict %}<p role="alert">{{ _('This review is stale, expired, busy or superseded by another binding decision. No action is available. Start a fresh preview; do not reuse an old confirmation.') }}</p>
+    {% elif state == 'preview' %}
+    <form method="post" action="/api/source-migrations/{{ id }}/apply" class="space-y-3">
+        <input type="hidden" name="_csrf" value="{{ request.cookies.get('csrf_token', '') }}"><input type="hidden" name="fingerprint" value="{{ fingerprint }}">
+        {% if plan.retire_old %}<p>{{ _('Apply will also disable the old instance, keeping all its records and settings.') }}</p>{% endif %}
+        <label class="block"><input type="checkbox" name="reviewed" value="1" required> {{ _('I reviewed every before/after ID, the identity evidence and conflicts, and the metadata-authority warning above.') }}</label>
+        <button type="submit" class="px-4 py-2 bg-shelf-accent text-white rounded-lg">{{ _('Apply reviewed bindings') }}</button>
+    </form>
+    {% elif state == 'applied' %}
+    {% if retire_fingerprint is defined %}<form method="post" action="/api/source-migrations/{{ id }}/retire" class="space-y-3">
+        <input type="hidden" name="_csrf" value="{{ request.cookies.get('csrf_token', '') }}"><input type="hidden" name="fingerprint" value="{{ retire_fingerprint }}">
+        <label class="block"><input type="checkbox" name="reviewed" value="1" required> {{ _('I verified the replacement and unmapped records. Disable the entire old source, including unmatched holdings; keep its records, catalogue entries and credentials.') }}</label>
+        <button type="submit" class="px-4 py-2 bg-shelf-hover rounded-lg">{{ _('Retire old source') }}</button>
+    </form>{% endif %}
+    <form method="post" action="/api/source-migrations/{{ id }}/rollback" class="space-y-3">
+        <input type="hidden" name="_csrf" value="{{ request.cookies.get('csrf_token', '') }}"><input type="hidden" name="fingerprint" value="{{ rollback_fingerprint }}">
+        <label class="block"><input type="checkbox" name="reviewed" value="1" required> {{ _('Restore the before bindings only. Keep current local edits, snapshots, activity, covers and the conservative metadata protections.') }}</label>
+        <button type="submit" class="px-4 py-2 bg-shelf-hover rounded-lg">{{ _('Roll back bindings') }}</button>
+    </form>
+    {% endif %}
+</div>
+{% endblock %}

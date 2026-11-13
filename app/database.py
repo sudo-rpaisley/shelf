@@ -869,6 +869,29 @@ CREATE TABLE IF NOT EXISTS source_records (
 CREATE INDEX IF NOT EXISTS idx_source_records_item ON source_records(item_id);
 CREATE INDEX IF NOT EXISTS idx_source_records_source ON source_records(source_id, availability);
 
+-- Local administrative review receipts, not portable catalogue data. Plans
+-- contain record/item IDs and identity evidence, never source credentials.
+-- Keep receipts if a source/item is later purged so old requests cannot replay.
+CREATE TABLE IF NOT EXISTS source_migration_plans (
+    id             TEXT PRIMARY KEY,
+    actor_id       INTEGER NOT NULL,
+    plan_json      TEXT NOT NULL,
+    fingerprint    TEXT NOT NULL,
+    state          TEXT NOT NULL DEFAULT 'preview'
+                   CHECK(state IN ('preview', 'applied', 'rolled_back')),
+    result_json    TEXT NOT NULL DEFAULT '{}',
+    created_at     TEXT NOT NULL,
+    expires_at     TEXT NOT NULL,
+    applied_at     TEXT,
+    rolled_back_at TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_source_migration_actor ON source_migration_plans(actor_id, created_at);
+CREATE TABLE IF NOT EXISTS source_binding_versions (
+    record_id    INTEGER PRIMARY KEY REFERENCES source_records(id) ON DELETE CASCADE,
+    revision     INTEGER NOT NULL CHECK(revision > 0),
+    last_plan_id TEXT NOT NULL REFERENCES source_migration_plans(id)
+);
+
 CREATE TABLE IF NOT EXISTS user_item_state (
     user_id     INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
     item_id     INTEGER NOT NULL REFERENCES items(id) ON DELETE CASCADE,
