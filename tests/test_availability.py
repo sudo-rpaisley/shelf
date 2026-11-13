@@ -1,6 +1,7 @@
 import json
 import sqlite3
 from html.parser import HTMLParser
+from urllib.parse import parse_qs, urlsplit
 
 import httpx
 import pytest
@@ -433,6 +434,10 @@ class _Fragment(HTMLParser):
         super().__init__()
         self.roots = []
         self.external_links = []
+        self.forms = []
+        self.inputs = []
+        self.selects = []
+        self.buttons = []
         self.feed(html)
 
     def handle_starttag(self, tag, attrs):
@@ -441,12 +446,22 @@ class _Fragment(HTMLParser):
             self.roots.append(attrs)
         if tag == "a" and attrs.get("target") == "_blank":
             self.external_links.append(attrs)
+        if tag in {"form", "input", "select", "button"}:
+            getattr(self, {"form": "forms", "input": "inputs", "select": "selects", "button": "buttons"}[tag]).append(attrs)
 
 
-def test_viewer_can_read_the_fragment_with_safe_actions_and_no_mutation_controls(viewer_client, db):
+def test_viewer_fragment_has_rechecked_links_and_only_own_preference_controls(viewer_client, viewer_user, db):
     item_id = _item(db, "Reader's local edition", "ebook")
-    _record(db, _source(db, name="My source"), item_id)
+    source_id = _source(db, name="My source")
+    _record(db, source_id, item_id)
     db.commit()
+    catalogue_tables = ("items", "source_instances", "source_records", "item_copies")
+
+    def catalogue():
+        return {table: [tuple(row) for row in db.execute(f"SELECT * FROM {table} ORDER BY id")]
+                for table in catalogue_tables}
+
+    before = catalogue()
 
     response = viewer_client.get(f"/api/library/items/{item_id}/availability")
 
@@ -455,11 +470,46 @@ def test_viewer_can_read_the_fragment_with_safe_actions_and_no_mutation_controls
     assert len(fragment.roots) == 1
     assert fragment.roots[0]["data-testid"] == "available-here"
     assert "hx-swap-oob" not in fragment.roots[0]
-    assert len(fragment.external_links) == 1
-    assert set(fragment.external_links[0]["rel"].split()) == {"noopener", "noreferrer"}
+    # The action picker and the exact holding each re-resolve on navigation.
+    # Neither exposes a caller-provided destination or skips link protections.
+    assert len(fragment.external_links) == 2
+    targets = [urlsplit(link["href"]) for link in fragment.external_links]
+    assert all(not target.scheme and not target.netloc and target.path == f"/api/library/items/{item_id}/open/Read"
+               for target in targets)
+    assert targets[0].query == ""
+    binding = parse_qs(targets[1].query, strict_parsing=True)
+    assert set(binding) == {"binding"} and len(binding["binding"]) == 1
+    assert len(binding["binding"][0]) == 64 and set(binding["binding"][0]) <= set("0123456789abcdef")
+    for link in fragment.external_links:
+        assert set(link["rel"].split()) == {"noopener", "noreferrer"}
+        assert link["referrerpolicy"] == "no-referrer"
+        opened = viewer_client.get(link["href"], follow_redirects=False)
+        assert opened.status_code == 303 and opened.headers["location"] == "https://books.example/read/edition"
+        assert opened.headers["referrer-policy"] == "no-referrer"
     assert "Available here" in response.text and "My source" in response.text
     assert "Read</a>" in response.text and _SEEN in response.text
-    assert "<button" not in response.text and "<form" not in response.text
+    # Viewers may change their own F4 preference, never catalogue metadata.
+    preference_path = f"/api/library/items/{item_id}/preferred-source"
+    assert len(fragment.forms) == len(fragment.buttons) == len(fragment.selects) == 1
+    assert fragment.forms[0]["method"] == "post"
+    assert fragment.forms[0]["action"] == fragment.forms[0]["hx-post"] == preference_path
+    assert fragment.buttons[0]["type"] == "submit"
+    assert fragment.selects[0]["name"] == "source_key"
+    assert {entry["name"] for entry in fragment.inputs} == {"_csrf", "action"}
+    assert all(entry["type"] == "hidden" for entry in fragment.inputs)
+    assert next(entry["value"] for entry in fragment.inputs if entry["name"] == "action") == "Read"
+    assert next(entry["value"] for entry in fragment.inputs if entry["name"] == "_csrf") == viewer_client.cookies.get("csrf_token")
+    assert db.execute("SELECT COUNT(*) FROM user_source_preferences").fetchone()[0] == 0
+    assert catalogue() == before
+
+    saved = viewer_client.post(preference_path, data={"action": "Read", "source_key": f"source:{source_id}", "user_id": "99999"})
+    assert saved.status_code == 200
+    assert [tuple(row) for row in db.execute("SELECT user_id, item_id, action, source_key FROM user_source_preferences")] == [
+        (viewer_user["id"], item_id, "Read", f"source:{source_id}"),
+    ]
+    denied = viewer_client.post(f"/api/items/{item_id}", data={"title": "Forbidden catalogue edit"})
+    assert denied.status_code == 403
+    assert catalogue() == before
     assert "A different remote title" not in response.text
 
 
