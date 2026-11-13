@@ -20,16 +20,19 @@ from __future__ import annotations
 import hashlib
 import hmac
 import json
+import math
 import re
 import uuid
 from datetime import datetime, timedelta, timezone
 
+from app import features
 from app.services import availability, metadata_policy, sources
 from app.services.isbn import canonical_isbn_pair
 from app.services.source_connectors import PROVIDERS
 from app.services.source_connectors.base import safe_url
 
-MAX_RECORDS = 5000
+PAGE_SIZE = 50
+STREAM_BATCH = 64
 MAX_MAPPINGS = 100
 PREVIEW_MINUTES = 15
 _HEX = re.compile(r"[0-9a-f]{64}\Z")
@@ -109,12 +112,102 @@ def _source(db, source_id: int) -> dict:
     return dict(row)
 
 
-def _records(db, source_id: int) -> list[dict]:
-    rows = db.execute("SELECT * FROM source_records WHERE source_id = ? ORDER BY id LIMIT ?",
-                      (source_id, MAX_RECORDS + 1)).fetchall()
-    if len(rows) > MAX_RECORDS:
-        raise MigrationError("limit_reached", "Narrow the source scope before reviewing more than 5000 records.")
-    return [dict(row) for row in rows]
+def authorize_mutation(db, actor: dict) -> None:
+    """Fresh request authority on the same locked connection as the mutation.
+
+    This is the capability seam for the coordinator's household authorization,
+    not a maintenance bypass. Never re-decode a JWT or open another connection
+    here: that could log or accept a replacement session after a body await.
+    """
+    if not db.in_transaction:
+        raise RuntimeError("Source migration authorization requires the write lock")
+    current = db.execute("SELECT username, role, token_version FROM users WHERE id = ?", (actor.get("id"),)).fetchone()
+    expiry = actor.get("expires_at")
+    if (current is None or type(expiry) not in (int, float) or not math.isfinite(expiry)
+            or expiry <= _now().timestamp() or current["token_version"] != actor.get("token_version")
+            or not isinstance(actor.get("username"), str)
+            or current["username"].casefold() != actor["username"].casefold()):
+        raise MigrationError("actor_changed", "Your session changed or expired during this request. Sign in and review again; nothing was saved.", 401)
+    if actor.get("role") != "admin" or current["role"] != "admin":
+        raise MigrationError("actor_changed", "Administrator permission changed during this request. Nothing was saved.", 403)
+    flag = db.execute("SELECT value FROM settings WHERE key = ?", (features.setting_key("connected_library"),)).fetchone()
+    if flag is not None and flag["value"] == "0":
+        raise MigrationError("feature_disabled", "Connected library was disabled during this request. Nothing was saved.", 403)
+
+
+def _iter_inventory(db, source_id: int):
+    """All rows, in indexed stable order, with bounded Python hydration.
+
+    The unique (source_id, external_id) index supplies ordering without sorting
+    whole metadata blobs. The pure SQL function makes the indexed provenance
+    join exact without an N+1 query or a persistent derived-identity table.
+    """
+    db.create_function("shelf_migration_key", 2, sources.metadata_source_key, deterministic=True)
+    cursor = db.execute(
+        "SELECT r.*, COALESCE(v.revision, 0) AS migration_revision, i.id AS migration_live_id, "
+        "p.value_json AS migration_isbn FROM source_records r "
+        "LEFT JOIN source_binding_versions v ON v.record_id = r.id "
+        "LEFT JOIN items_live i ON i.id = r.item_id "
+        "LEFT JOIN item_metadata_provenance p ON p.item_id = r.item_id "
+        "AND p.source_key = shelf_migration_key(r.source_id, r.external_id) AND p.field_name = 'isbn' "
+        "WHERE r.source_id = ? ORDER BY r.external_id", (source_id,),
+    )
+    try:
+        while rows := cursor.fetchmany(STREAM_BATCH):
+            for row in rows:
+                yield dict(row)
+    finally:
+        cursor.close()
+
+
+def _digest(rows) -> str:
+    digest = hashlib.sha256()
+    for row in rows:
+        digest.update(_json(row).encode())
+        digest.update(b"\n")
+    return digest.hexdigest()
+
+
+def record_page(db, source_id: int, *, after: int = 0, before: int | None = None,
+                record_id: int | None = None, external_id: str | None = None) -> dict:
+    source_id = positive_id(source_id)
+    _source(db, source_id)
+    if type(after) is not int or not 0 <= after <= 2**63 - 1:
+        raise MigrationError("invalid_id", "Choose a valid record page cursor.")
+    if before is not None:
+        before = positive_id(before)
+    conditions, args = ["source_id = ?"], [source_id]
+    if record_id is not None:
+        conditions.append("id = ?")
+        args.append(positive_id(record_id))
+    if external_id is not None:
+        if not isinstance(external_id, str) or not 1 <= len(external_id) <= 512:
+            raise MigrationError("invalid_id", "Enter one exact external record ID, at most 512 characters.")
+        conditions.append("external_id = ?")
+        args.append(external_id)
+    if before is not None:
+        conditions.append("id < ?")
+        args.append(before)
+    elif after:
+        conditions.append("id > ?")
+        args.append(after)
+    order = "DESC" if before is not None else "ASC"
+    rows = db.execute("SELECT * FROM source_records WHERE " + " AND ".join(conditions)
+                      + f" ORDER BY id {order} LIMIT ?", (*args, PAGE_SIZE + 1)).fetchall()
+    rows = rows[:PAGE_SIZE]
+    if before is not None:
+        rows.reverse()
+    records = [_display_record(db, dict(row)) for row in rows]
+    total = db.execute("SELECT COUNT(*) FROM source_records WHERE source_id = ?", (source_id,)).fetchone()[0]
+    filtered = record_id is not None or external_id is not None
+    previous = records[0]["id"] if records and not filtered and db.execute(
+        "SELECT 1 FROM source_records WHERE source_id = ? AND id < ? LIMIT 1", (source_id, records[0]["id"]),
+    ).fetchone() else None
+    following = records[-1]["id"] if records and not filtered and db.execute(
+        "SELECT 1 FROM source_records WHERE source_id = ? AND id > ? LIMIT 1", (source_id, records[-1]["id"]),
+    ).fetchone() else None
+    return {"records": records, "total": total, "previous_before": previous, "next_after": following,
+            "after": after, "before": before, "filtered": filtered, "page_size": PAGE_SIZE}
 
 
 def _object(raw) -> dict:
@@ -159,7 +252,8 @@ def _identifiers(db, record: dict) -> dict[str, list[str]]:
             identities.setdefault("ISBN", set()).add(canonical_isbn_pair(value)[0])
         elif name in _IDENTITIES:
             identities.setdefault(name, set()).add(value.lower() if name.startswith("MusicBrainz") else value)
-    isbn = _observations(db, record).get("isbn")
+    isbn = (_object(record["migration_isbn"]).get("observed") if "migration_isbn" in record
+            else _observations(db, record).get("isbn"))
     if isinstance(isbn, str) and re.fullmatch(r"[0-9Xx -]{1,100}", isbn):
         pair = canonical_isbn_pair(isbn)
         if pair:
@@ -242,13 +336,15 @@ def _opening_projection(db, mapping: dict, *, after=False, retired=False) -> lis
 
 
 def _coverage(db, plan: dict) -> dict:
-    old = _records(db, plan["old_source_id"])
-    new = _records(db, plan["new_source_id"])
-    selected_old = {mapping.get("old_record_id") for mapping in plan["mappings"]}
-    selected_new = {mapping["record_id"] for mapping in plan["mappings"]}
-    return {"old_records": len(old), "new_records": len(new), "selected": len(plan["mappings"]),
-            "unmapped_old": sum(record["id"] not in selected_old for record in old),
-            "unmapped_new": sum(record["id"] not in selected_new for record in new)}
+    result = {"selected": len(plan["mappings"])}
+    for side, field in (("old", "old_record_id"), ("new", "record_id")):
+        source_id = plan[side + "_source_id"]
+        total = db.execute("SELECT COUNT(*) FROM source_records WHERE source_id = ?", (source_id,)).fetchone()[0]
+        ids = sorted({mapping[field] for mapping in plan["mappings"] if field in mapping})
+        selected = db.execute("SELECT COUNT(*) FROM source_records WHERE source_id = ? AND id IN ("
+                              + ",".join("?" for _ in ids) + ")", (source_id, *ids)).fetchone()[0] if ids else 0
+        result[side + "_records"], result["unmapped_" + side] = total, total - selected
+    return result
 
 
 def _inventory_fingerprint(db, plan: dict) -> str:
@@ -261,10 +357,13 @@ def _inventory_fingerprint(db, plan: dict) -> str:
     inventory = []
     for source_id in sorted({plan["old_source_id"], plan["new_source_id"]}):
         source = _source(db, source_id)
-        records = [{key: value for key, value in record.items() if key not in {"last_seen_at", "created_at", "updated_at"}}
-                   | {"identifiers": _identifiers(db, record)} for record in _records(db, source_id)]
-        inventory.append([[source[key] for key in ("id", "provider", "enabled", "config_revision")], records])
-    return _hash(inventory)
+        def records():
+            for record in _iter_inventory(db, source_id):
+                yield {key: value for key, value in record.items() if key not in {
+                    "last_seen_at", "created_at", "updated_at", "migration_revision", "migration_isbn",
+                }} | {"identifiers": _identifiers(db, record)}
+        inventory.append([[source[key] for key in ("id", "provider", "enabled", "config_revision")], _digest(records())])
+    return _hash(["complete-inventory-v2", inventory])
 
 
 def _check_reviewed_inventory(db, plan: dict, result: dict) -> None:
@@ -272,8 +371,60 @@ def _check_reviewed_inventory(db, plan: dict, result: dict) -> None:
         raise MigrationError("coverage_changed", "Source inventory or configuration changed after apply. Start a fresh complete replacement preview before retiring the old source.", 409)
 
 
-def workspace(db, old_source_id: int | None = None, new_source_id: int | None = None) -> dict:
-    """Read-only choices and unique identifier suggestions, not approved mappings."""
+def _identity_keys(record: dict):
+    return ((record["media_type"], kind, value) for kind, values in record["identifiers"].items() for value in values)
+
+
+def _suggestions(db, old_source_id: int, new_source_id: int, new_records: list[dict]) -> list[dict]:
+    """Match only this bounded selection, checking ambiguity across BOTH scopes.
+
+    Memory is O(page identities), not O(catalogue size). A collision anywhere,
+    including after the visible page, prevents an automatic suggestion.
+    """
+    new_by_id = {record["id"]: record for record in new_records if record["live"]}
+    index = {}
+    for record in new_by_id.values():
+        for key in _identity_keys(record):
+            index.setdefault(key, set()).add(record["id"])
+    if not index:
+        return []
+    possible = {record_id: [] for record_id in new_by_id}
+    for raw in _iter_inventory(db, old_source_id):
+        if raw["migration_live_id"] is None:
+            continue
+        old = {"id": raw["id"], "media_type": raw["media_type"], "identifiers": _identifiers(db, raw)}
+        matched = {new_id for key in _identity_keys(old) for new_id in index.get(key, ())}
+        for new_id in matched:
+            if len(possible[new_id]) < 2:
+                possible[new_id].append(old)
+    unique = {new_id: choices[0] for new_id, choices in possible.items() if len(choices) == 1}
+    reverse, counts = {}, {}
+    for old in unique.values():
+        counts.setdefault(old["id"], set())
+        for key in _identity_keys(old):
+            reverse.setdefault(key, set()).add(old["id"])
+    if not reverse:
+        return []
+    for raw in _iter_inventory(db, new_source_id):
+        if raw["migration_live_id"] is None:
+            continue
+        record = {"media_type": raw["media_type"], "identifiers": _identifiers(db, raw)}
+        matched = {old_id for key in _identity_keys(record) for old_id in reverse.get(key, ())}
+        for old_id in matched:
+            if len(counts[old_id]) < 2:
+                counts[old_id].add(raw["id"])
+    result = []
+    for new_id, old in unique.items():
+        evidence, conflicts = _evidence(old, new_by_id[new_id])
+        if counts[old["id"]] == {new_id} and evidence and not conflicts:
+            result.append({"old_record_id": old["id"], "new_record_id": new_id, "evidence": evidence})
+    return result
+
+
+def workspace(db, old_source_id: int | None = None, new_source_id: int | None = None, *,
+              old_after=0, new_after=0, old_before=None, new_before=None,
+              old_record_id=None, new_record_id=None, old_external_id=None, new_external_id=None) -> dict:
+    """Bounded read-only pages and exact identity suggestions; never title search."""
     instances = [row for row in sources.list_instances(db) if row["syncable"]]
     result = {"sources": instances, "old_records": [], "new_records": [], "suggestions": [],
               "old_source_id": old_source_id, "new_source_id": new_source_id}
@@ -284,41 +435,16 @@ def workspace(db, old_source_id: int | None = None, new_source_id: int | None = 
         raise MigrationError("same_source", "Choose different old and replacement instances; use binding repair within one instance.")
     _source(db, old_source_id)
     _source(db, new_source_id)
-    old = [_display_record(db, record) for record in _records(db, old_source_id)]
-    new = [_display_record(db, record) for record in _records(db, new_source_id)]
-    # Index exact shaped identities. Duplicate matches remain visibly unselected.
-    index: dict[tuple[str, str, str], set[int]] = {}
-    for record in old:
-        if record["live"]:
-            for kind, values in record["identifiers"].items():
-                for value in values:
-                    index.setdefault((record["media_type"], kind, value), set()).add(record["id"])
-    old_by_id = {record["id"]: record for record in old}
-    candidates = []
-    for record in new:
-        possible = set()
-        if record["live"]:
-            for kind, values in record["identifiers"].items():
-                for value in values:
-                    possible.update(index.get((record["media_type"], kind, value), ()))
-        if len(possible) == 1:
-            previous = old_by_id[next(iter(possible))]
-            evidence, conflicts = _evidence(previous, record)
-            if evidence and not conflicts:
-                candidates.append({"old_record_id": previous["id"], "new_record_id": record["id"], "evidence": evidence})
-    counts = {}
-    for pair in candidates:
-        counts[pair["old_record_id"]] = counts.get(pair["old_record_id"], 0) + 1
-    result.update(old_records=old, new_records=new,
-                  suggestions=[pair for pair in candidates if counts[pair["old_record_id"]] == 1])
+    old = record_page(db, old_source_id, after=old_after, before=old_before, record_id=old_record_id, external_id=old_external_id)
+    new = record_page(db, new_source_id, after=new_after, before=new_before, record_id=new_record_id, external_id=new_external_id)
+    result.update(old_records=old["records"], new_records=new["records"], old_page=old, new_page=new,
+                  suggestions=_suggestions(db, old_source_id, new_source_id, new["records"]))
     return result
 
 
-def repair_records(db, source_id: int) -> list[dict]:
-    """Record-ID lookup for the single-instance repair form."""
-    source_id = positive_id(source_id)
-    _source(db, source_id)
-    return [_display_record(db, record) for record in _records(db, source_id)]
+def repair_records(db, source_id: int, *, after=0, before=None, record_id=None, external_id=None) -> dict:
+    """Repair lookup returns a page WITH total/cursors, never an unlabeled prefix."""
+    return record_page(db, source_id, after=after, before=before, record_id=record_id, external_id=external_id)
 
 
 def _version(db, record_id: int) -> int:
@@ -330,15 +456,16 @@ def _state(db, plan: dict) -> dict:
     """Exact state for stale checks; only its digest is persisted or returned."""
     source_ids = sorted({plan["old_source_id"], plan["new_source_id"]})
     source_rows = [_source(db, source_id) for source_id in source_ids]
-    records = [record for source_id in source_ids for record in _records(db, source_id)]
-    by_id = {record["id"]: record for record in records}
+    inventory = [[source_id, _digest(_iter_inventory(db, source_id))] for source_id in source_ids]
     item_ids = set()
     for mapping in plan["mappings"]:
-        record = by_id.get(mapping["record_id"])
+        record = db.execute("SELECT item_id FROM source_records WHERE id = ?", (mapping["record_id"],)).fetchone()
         if record is None:
             _conflict()
         item_ids.update((record["item_id"], mapping["before_item_id"], mapping["after_item_id"]))
-        if mapping.get("old_record_id") is not None and mapping["old_record_id"] not in by_id:
+        if mapping.get("old_record_id") is not None and db.execute(
+            "SELECT 1 FROM source_records WHERE id = ?", (mapping["old_record_id"],),
+        ).fetchone() is None:
             _conflict()
     items, provenance = [], []
     for item_id in sorted(item_ids):
@@ -346,15 +473,14 @@ def _state(db, plan: dict) -> dict:
         if row is None:
             raise MigrationError("not_found", "Every affected catalogue entry must be live. Restore it before reviewing bindings.", 409)
         items.append(dict(row))
-        provenance.extend(dict(row) for row in db.execute(
+        provenance.append([item_id, _digest(dict(row) for row in db.execute(
             "SELECT * FROM item_metadata_provenance WHERE item_id = ? ORDER BY source_key, field_name", (item_id,),
-        ))
-    versions = [[record["id"], _version(db, record["id"])] for record in records]
-    return {"sources": source_rows, "records": records, "items": items, "provenance": provenance, "versions": versions}
+        ))])
+    return {"sources": source_rows, "complete_inventory": inventory, "items": items, "provenance": provenance}
 
 
 def _fingerprint(db, plan: dict, *, purpose="apply", plan_id="") -> str:
-    return _hash(["source-migration-v1", purpose, plan_id, plan, _state(db, plan)])
+    return _hash(["source-migration-v2-streamed", purpose, plan_id, plan, _state(db, plan)])
 
 
 def preview_replacement(db, *, actor_id: int, old_source_id: int, new_source_id: int,
@@ -364,19 +490,28 @@ def preview_replacement(db, *, actor_id: int, old_source_id: int, new_source_id:
     old_source_id, new_source_id = positive_id(old_source_id), positive_id(new_source_id)
     if type(manual_reviewed) is not bool or type(retire_old) is not bool:
         raise MigrationError("invalid_form", "Review the source replacement options.")
-    choices = workspace(db, old_source_id, new_source_id)
+    if old_source_id == new_source_id:
+        raise MigrationError("same_source", "Choose different old and replacement instances; use binding repair within one instance.")
+    _source(db, old_source_id)
     if not _source(db, new_source_id)["enabled"]:
         raise MigrationError("disabled", "Enable and sync the replacement instance before reviewing its records.")
     if not isinstance(mappings, list) or not 1 <= len(mappings) <= MAX_MAPPINGS:
         raise MigrationError("invalid_mappings", "Review between 1 and 100 old/new record pairs at a time.")
-    old = {record["id"]: record for record in choices["old_records"]}
-    new = {record["id"]: record for record in choices["new_records"]}
-    suggested = {(pair["old_record_id"], pair["new_record_id"]) for pair in choices["suggestions"]}
-    selected, seen_old, seen_new = [], set(), set()
+    old, new, pairs = {}, {}, []
     for pair in mappings:
         if not isinstance(pair, dict) or set(pair) != {"old_record_id", "new_record_id"}:
             raise MigrationError("invalid_mappings", "Supply only reviewed old/new record IDs, not source metadata.")
         old_id, new_id = positive_id(pair["old_record_id"]), positive_id(pair["new_record_id"])
+        pairs.append((old_id, new_id))
+        for source_id, record_id, selected in ((old_source_id, old_id, old), (new_source_id, new_id, new)):
+            row = db.execute("SELECT * FROM source_records WHERE source_id = ? AND id = ?", (source_id, record_id)).fetchone()
+            if row is None:
+                raise MigrationError("not_found", "Choose live records belonging to the selected old and replacement sources.", 404)
+            selected[record_id] = _display_record(db, dict(row))
+    suggested = {(pair["old_record_id"], pair["new_record_id"])
+                 for pair in _suggestions(db, old_source_id, new_source_id, list(new.values()))} if not manual_reviewed else set()
+    selected, seen_old, seen_new = [], set(), set()
+    for old_id, new_id in pairs:
         if old_id in seen_old or new_id in seen_new:
             raise MigrationError("ambiguous_mapping", "Each old and new record may appear only once per review.")
         seen_old.add(old_id)
@@ -395,9 +530,8 @@ def preview_replacement(db, *, actor_id: int, old_source_id: int, new_source_id:
             "old_version": _version(db, old_id), "before_version": _version(db, new_id),
         })
     plan = {"kind": "replacement", "old_source_id": old_source_id, "new_source_id": new_source_id,
-            "retire_old": retire_old, "mappings": selected,
-            "coverage": {"old_records": len(old), "new_records": len(new), "selected": len(selected),
-                         "unmapped_old": len(old) - len(selected), "unmapped_new": len(new) - len(selected)}}
+            "retire_old": retire_old, "mappings": selected}
+    plan["coverage"] = _coverage(db, plan)
     return _store_preview(db, actor_id, plan)
 
 

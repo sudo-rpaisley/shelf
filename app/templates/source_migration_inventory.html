@@ -1,0 +1,50 @@
+{% extends "base.html" %}
+{% from "fragments/source_migration_inventory_page.html" import inventory_page with context %}
+{% block title %}{{ _('Source replacement and binding repair') }} — Shelf{% endblock %}
+{% block content %}
+<div class="page-layout space-y-6" data-testid="source-migration-workspace">
+    <header class="space-y-2"><a href="/sources" class="text-shelf-accent2 hover:underline">{{ _('Connected libraries') }}</a><h1 class="text-2xl font-bold">{{ _('Source replacement and binding repair') }}</h1>
+        <p>{{ _('Configure and sync a new instance separately. Editing a URL retains old external IDs; it does not migrate identities. This workflow never fetches a server, copies credentials, merges or deletes catalogue entries, copies, activity, manual metadata or covers.') }}</p>
+        <p class="text-sm text-shelf-muted">{{ _('Only unique exact remote identifier evidence suggests pairs. Titles and server-local external IDs are never automatic identity evidence. Review explicit batches of at most 100 pairs. Every preview fingerprints both complete inventories, not only this page.') }}</p>
+    </header>
+    <form method="get" action="/source-migrations" class="bg-shelf-card rounded-xl border border-shelf-border p-4 space-y-3">
+        {% for name, label, selected in [('old_source_id', _('Old instance'), old_source_id), ('new_source_id', _('Replacement instance'), new_source_id)] %}<label class="block">{{ label }}<select name="{{ name }}" required class="block w-full bg-shelf-bg border border-shelf-border rounded-lg p-2"><option value="">{{ _('Choose a source') }}</option>{% for source in sources %}<option value="{{ source.id }}" {% if source.id == selected %}selected{% endif %}>#{{ source.id }} {{ source.name }} · {{ _(source.provider_label) }}</option>{% endfor %}</select></label>{% endfor %}
+        <button type="submit" class="px-4 py-2 bg-shelf-hover rounded-lg">{{ _('Compare local snapshots') }}</button>
+    </form>
+    {% if old_page is defined and new_page is defined %}
+    <p class="text-sm">{{ _('Exact lookup across the whole source. Enter a Shelf record ID or a complete external ID, not a title.') }}</p>
+    {% for side, label in [('old', _('Old')), ('new', _('Replacement'))] %}
+    <form method="get" action="/source-migrations" class="space-y-3">
+        <input type="hidden" name="old_source_id" value="{{ old_source_id }}"><input type="hidden" name="new_source_id" value="{{ new_source_id }}">
+        <label class="block">{{ label }} {{ _('record ID') }}<input type="number" min="1" max="9223372036854775807" name="{{ side }}_record_id" required class="bg-shelf-bg border border-shelf-border rounded-lg p-2"></label><button type="submit" class="px-4 py-2 bg-shelf-hover rounded-lg">{{ _('Look up record ID') }}</button>
+    </form>
+    <form method="get" action="/source-migrations" class="space-y-3">
+        <input type="hidden" name="old_source_id" value="{{ old_source_id }}"><input type="hidden" name="new_source_id" value="{{ new_source_id }}">
+        <label class="block">{{ label }} {{ _('complete external ID') }}<input name="{{ side }}_external_id" maxlength="512" required class="block w-full bg-shelf-bg border border-shelf-border rounded-lg p-2"></label><button type="submit" class="px-4 py-2 bg-shelf-hover rounded-lg">{{ _('Look up external ID') }}</button>
+    </form>{% endfor %}
+    {{ inventory_page(_('Old source records'), old_page, old_source_id) }}
+    {{ inventory_page(_('Replacement source records'), new_page, new_source_id) }}
+    <section class="space-y-3"><h2 class="text-lg font-semibold">{{ _('Exact identifier suggestions for this replacement page') }}</h2>
+        {% for pair in suggestions %}<p class="text-sm break-all"><a class="text-shelf-accent2 hover:underline" href="/source-migrations?old_source_id={{ old_source_id }}&amp;new_source_id={{ new_source_id }}&amp;old_record_id={{ pair.old_record_id }}&amp;new_record_id={{ pair.new_record_id }}">{{ pair.old_record_id }},{{ pair.new_record_id }}</a> — {% for fact in pair.evidence %}{{ fact.kind }}: {{ fact.value }}; {% endfor %}</p>{% else %}<p>{{ _('No unambiguous identifier pairs on this page. Manually reviewed IDs are allowed; titles are not identity proof.') }}</p>{% endfor %}
+        <form method="post" action="/api/source-migrations/replacement/preview" class="space-y-3">
+            <input type="hidden" name="_csrf" value="{{ request.cookies.get('csrf_token', '') }}"><input type="hidden" name="old_source_id" value="{{ old_source_id }}"><input type="hidden" name="new_source_id" value="{{ new_source_id }}">
+            <label class="block">{{ _('Old record ID,new record ID — one pair per line, at most 100') }}<textarea name="mappings" required rows="6" maxlength="8192" class="block w-full bg-shelf-bg border border-shelf-border rounded-lg p-2 font-mono">{% for pair in suggestions %}{{ pair.old_record_id }},{{ pair.new_record_id }}{{ '\n' }}{% endfor %}</textarea></label>
+            <label class="block"><input type="checkbox" name="manual_reviewed" value="1"> {{ _('I manually checked these exact old/new identities, including any ambiguity or conflicts.') }}</label>
+            <label class="block"><input type="checkbox" name="retire_old" value="1"> {{ _('Disable the entire old instance on apply, including all unmatched holdings, not just this page. Keep its configuration and records.') }}</label>
+            <button type="submit" class="px-4 py-2 bg-shelf-accent text-white rounded-lg">{{ _('Create dry-run preview') }}</button>
+        </form>
+    </section>{% endif %}
+    <section class="bg-shelf-card rounded-xl border border-shelf-border p-4 space-y-3" id="repair"><h2 class="text-lg font-semibold">{{ _('Correct a wrong machine attachment') }}</h2>
+        <form method="get" action="/source-migrations" class="space-y-3"><label class="block">{{ _('Look up saved machine record IDs') }}<select name="repair_source_id" required class="block w-full bg-shelf-bg border border-shelf-border rounded-lg p-2">{% for source in sources %}<option value="{{ source.id }}" {% if source.id == repair_source_id %}selected{% endif %}>#{{ source.id }} {{ source.name }}</option>{% endfor %}</select></label><button class="px-4 py-2 bg-shelf-hover rounded-lg" type="submit">{{ _('Show saved records') }}</button></form>
+        {% if repair_page is defined %}<h3>{{ _('Machine records') }}</h3>{{ inventory_page(_('Machine records'), repair_page, repair_source_id, open_page=True) }}{% endif %}
+        <form method="post" action="/api/source-migrations/repair/preview" class="space-y-3">
+            <input type="hidden" name="_csrf" value="{{ request.cookies.get('csrf_token', '') }}">
+            <label class="block">{{ _('Machine source') }}<select name="source_id" required class="block w-full bg-shelf-bg border border-shelf-border rounded-lg p-2">{% for source in sources %}<option value="{{ source.id }}" {% if source.id == repair_source_id %}selected{% endif %}>#{{ source.id }} {{ source.name }}</option>{% endfor %}</select></label>
+            <label class="block">{{ _('Machine record ID') }}<input type="number" min="1" max="9223372036854775807" name="record_id" value="{{ repair_record_id or '' }}" required class="block w-full bg-shelf-bg border border-shelf-border rounded-lg p-2"></label>
+            <label class="block">{{ _('Correct catalogue item ID') }}<input type="number" min="1" max="9223372036854775807" name="item_id" required class="block w-full bg-shelf-bg border border-shelf-border rounded-lg p-2"></label>
+            <label class="block"><input type="checkbox" name="manual_reviewed" value="1" required> {{ _('I checked the record and correct catalogue item identities, not just their titles.') }}</label><button type="submit" class="px-4 py-2 bg-shelf-accent text-white rounded-lg">{{ _('Preview binding repair') }}</button>
+        </form>
+    </section>
+    {% if recent %}<section class="space-y-2"><h2 class="text-lg font-semibold">{{ _('Your recent reviews') }}</h2>{% for review in recent %}<p><a href="/source-migrations/{{ review.id }}" class="text-shelf-accent2 hover:underline">{{ review.created_at }} · {{ review.state }} · {{ review.id[:8] }}</a></p>{% endfor %}</section>{% endif %}
+</div>
+{% endblock %}
