@@ -168,13 +168,15 @@ provider-permission grant or live-server acceptance.
 
 ## Local follow-up candidates (documentation capture)
 
-Before the evidence refresh, local/remote tip was `2fb43756` and the latest pushed
-application change was `717dfeb6`. The source integration incorporates tested
-`89205f44`, preserving the refreshed delivery records rather than the source
-branch's older copies. Other core/R9/portability candidates remain separate and
-local; this is not a release. Evidence paths are ignored local copies, not CI
-artifacts. Coordinator/worker reports are distinguished from independently
-executed gates; no tests were run by this documentation task.
+The latest published test-only follow-up is
+`89388e317689686b6e1023bc31492abbc0db544e`; its application/static/harness/
+dependency objects remain identical to source integration
+`1cf3c0b6560dc2d0b5d7cd00ecd1a2008b5351d0`, whose parents are `fdd51186` and
+tested source `89205f44`. The earlier `2fb43756` / `717dfeb6` checkpoint is
+historical. Core/R9/portability/offline follow-ups remain separate and local;
+this is not a release. Evidence paths are ignored local copies, not CI artifacts.
+Coordinator/worker reports are distinguished from independent gates; no tests
+were run by this documentation task.
 
 ### Integrated source gates and unchanged scale protocol
 
@@ -201,11 +203,37 @@ Its copied `next-unit-89205f44-plan.md` and
 After the full unit run, the coordinator verified unchanged HEAD/tree, all four
 input objects, guard bytes and **782 committed application/static/test/tool
 blobs and file modes**. JUnit confirms all 9302 cases with zero failures, errors
-or skips. Results, complete log and before/after evidence remain in
+or skips. Results, complete log and before/after evidence were recorded in
 `/workspace/shelf/swarm-20261113/next-integration/.temp/frozen-unit-89205f44/`.
+Frozen copies are in
+`.temp/swarm-reviews/source-unit-repair-89205f4/coordinator-evidence/`.
 Input equivalence is **not a new execution** of 422 browsers or the benchmark.
 The earlier `b0209aff` declaration was superseded **before execution** and has
 no result.
+
+The independent promotion gate passed **27/27 archived-evidence/input checks**
+on `1cf3c0b6`: all **822 non-documentation files** equal `89205f44`, all **866
+tracked files** match the promoted blobs/modes, and the three complete 1767/892/
+promoted archives match their respective commits. Only the two canonical
+delivery documents differ from the tested source parent. The gate reconciles
+the narrower 782-input count, parses the original 9302-unit/422-browser JUnit
+and recomputes benchmark sample metrics/checksums; it is **not a new unit,
+browser, benchmark or SQLite-database audit execution**. Evidence:
+`.temp/source-promotion-89205f44/independent-gate.json`; promoted source:
+`.temp/swarm-reviews/source-promoted-1cf3c0b/`. These are promotion-time checks,
+not a claim that subsequent WIP is frozen or independently cleared.
+
+After that push, test-only `89388e31` strengthens an existing music-wishlist
+test and passed **28 module cases** in **26.54 s**. A
+test-process-only membership-write suppression produced the expected **1
+failure** in **2.02 s** at the new positive assertion while owned=0/partition
+checks remained valid. Independent P3 review is **REVIEW_CLEAR** for this bounded
+positive-oracle change. It is committed and pushed, with no application or
+case-count change; checks-fast also passed (private roadmap check unavailable).
+Frozen evidence:
+`.temp/swarm-reviews/wishlist-positive-membership-1cf3c0b/`. The historical full
+suites were not rerun or reattributed. The committed/pushed identity and source
+equivalence are recorded in `.temp/wishlist-positive-membership/published-result.json`.
 
 The `benchmark-evidence/` copy retains the predeclared plan/protocol, manifest,
 85 raw samples, summary and coordinator read-only SQLite audit. The completed
@@ -271,7 +299,7 @@ budget was replaced.
   write admission and byte-exact username ABA repairs. The coordinator reports
   **128 freshness/observer/dual-fence/cookie tests passed**. Its frozen source is
   `.temp/swarm-reviews/sqlite-freshness-repair-a850b2a/`.
-- SQLite candidate `29ee` composes only `d9051b88` as `4d1f` atop `a850b2a7`.
+- SQLite candidate `29ee407a` composes only `d9051b88` as `4d1f` atop `a850b2a7`.
   Worker gates remain **57 passed / 6 failed** and **161 passed / 10 failed**
   (all **151 convergence tests** passed). Actual F8 restore → cold restart →
   token-version-38 setup is blocked at real `identity_provider_epochs` startup
@@ -285,7 +313,7 @@ budget was replaced.
   **301.45 s**, with **701 app/test/tool inputs** matching committed blobs
   afterward. Evidence: `.temp/swarm-reviews/core-cascade-root-admission-e0f5a8d/coordinator-evidence/`
   (`result.json`, JUnit, log and plan).
-- Actual-R6 composition `8c4d1aae` adds only reviewed 9d/e0 to the existing
+- Earlier R6 composition `8c4d1aae` adds only reviewed 9d/e0 to the existing
   `aae0a3a9`/`b4b3fcfa` reproduction. Its wider gate is **RED: 126 passed /
   3 failed**, 150.27 s; all **13 new e0 cases pass**. A 6.40-second control on
   unchanged `aae0a3a9` reproduces the same three names and failure messages.
@@ -294,12 +322,42 @@ budget was replaced.
   refusal before their intended lifecycle. No bypass or fixture weakening was
   applied. Evidence: `.temp/swarm-reviews/r6-e0-composition-8c4d1aa/coordinator-evidence/`.
   These inherited failures remain missing workflow coverage, not completion.
-- Public settings/users protected-predicate P1 and ambient compile/step-authority
-  mechanisms are now **runtime-confirmed** in test/contract-only `42927e71`,
-  directly after e0: **107 failed / 10 passed**, reproduced on fresh e0 and actual
-  R6. Callback arguments, foreign native reads and swallowed-denial behavior are
-  exposed. No production repair is present; earlier 682/292 regression passes do
-  not close these new failures. Neither d905 nor a850 fixes this boundary.
+- Test/contract-only `42927e71` reported **107 failed / 10 passed** on the
+  **historical e0 component**, not the actual current façade. Earlier 682/292
+  regression passes do not close those findings; neither d905 nor a850 fixes
+  the protected-predicate/callback boundary.
+
+The actual-façade replay is separately frozen at
+`6d2906d2757fdff56074149b389c3150e2ffe02c`, directly atop
+`29ee407a73aab0837772d7ea2232e0b996a9e65e`. Only the two exact original 429
+test/contract files were added; app/static remain identical to actual 29ee, with
+no e0 kernel transplant. Its unchanged **117 cases** report **RED: 92 failed /
+25 passed**, exit 1, **453.44 s**, with no setup/API/collection/teardown/guard
+errors, skips or xfails. Full report, classification, raw log/JUnit and exact
+source proof are in
+`.temp/swarm-reviews/core-current-replay-6d2906d/worker-evidence/`.
+
+- Public C-base access is unavailable on the façade, but a **cold EXPLAIN
+  formatter receives a native cursor and reads foreign data**. Warm-cache cases
+  do not invoke that formatter; C-base unavailability alone is not proof that
+  all managed reentry or denial poisoning is closed.
+- Seeded step cases leak **during EXPLAIN seeding only**. The actual step probe
+  is unavailable and captures nothing; no actual-step foreign-read claim follows.
+- Fetch formatting attempts a foreign read that is **denied**, yet the outer
+  fetch still acknowledges after the callback swallows denial. There is **no
+  foreign capture in this fetch group**; retained-cursor reuse outside also denies.
+- Fixed credential formatting exposes the synthetic private hash. Protected
+  settings/users predicates and exact-13 configuration/getter leaks remain.
+  **Four productive ordinary-settings/profile/self-password controls pass**.
+
+The actual one-native façade and permanent dual DENY-wins guards are retained,
+not repaired by this replay. Subsequent independent read-review corroborates
+**92/25 and the phase classification**; production/API-compatibility readiness
+remains **CHANGES_REQUIRED**, not a fresh test run or source repair. The parent
+has reserved one writer for actual-façade files and a separate test-only managed
+reentry lane. The core owner's compatibility proposal is **not production-repair
+approval**. R2/private admission, F8 cold startup and activation remain blocked,
+not cleared by fixture initialization.
 
 R2 `d799a29e` versus `caf76382` is a test/contract-only checkpoint, not a
 productive private write/startup permit. Its copied `worker-evidence/` under
@@ -315,8 +373,19 @@ The proposed finite `library_access_identity` operations and maintenance-owned
 one-use startup permit are **not approved productive implementation**. Next work
 must protect exactly the **13 `identity_config.KEYS`**, including general
 `get_setting` / `_setting_identity` access, and port the crypto legacy reader;
-a filtered view alone is insufficient. Review and implement the actual-core
-private-operation/lifecycle seam before resuming R2/browser receipt acceptance.
+a filtered view alone is insufficient. Owner agreement and separately authorised
+implementation/verification of the actual-core seam are required before resuming
+R2/browser receipt acceptance.
+
+The first-milestone specification records **four proposed finite APIs**
+(`configuration_snapshot`, `observe_configuration`, `boot_rotate`,
+`rewrite_boot_secrets`), **17 future acceptance cases** and nine owner questions.
+The proposal remains `.temp/r2-finite-milestone-spec/OWNER_DECISION_PROPOSAL.md`.
+Copied `OWNER_RESPONSE.md` / `.json` there records R2-domain **AGREE for
+Q1/Q2/Q4/Q6 only**. Q3/Q5 still need technical-owner acknowledgement; Q7–Q9 are
+unapproved. The reserved writer alone does not close Q9's frozen-composition/
+verification gate. These are contract decisions, **not available APIs or
+productive implementation**; Q8's actual-core repair remains unfixed.
 
 ### R9 source checkpoint, not language completion
 
@@ -328,17 +397,63 @@ source/context/plural identity **and multiplicity** preservation in all seven
 templates. Evidence is in
 `.temp/swarm-reviews/r9-safe-body-converged-b049de8/coordinator-evidence/`.
 
-The original **219-record** semantic reconciliation is **incomplete**. Two saved
-batches cover **80 exact original IDs: 70 source-closed / 10 still-open** at
-frozen `b049de8a`; **139 remain unfinalized**. Their `dispositions.json` files
-preserve original identities, reasons and bindings under
-`.temp/r9-source-acceptance-b049de8/batch-01/` and `batch-02/`. The read-only auditor
-returned findings; the coordinator transcribed and mechanically joined them to
-the original input. This is source inspection, not new test execution. The three
-unlink controls are repaired but retained open conservatively because their
-same-action success toast still says books. Counts overlap earlier observations;
-do not add them as separate defect totals. Three scan/library/settings repair
-lanes remain active. Catalogues/assets remain stale; two
+The reviewed settings chain `5e52459e` → `672ec441` → `19f7fa94` closes the
+prototype-property opaque-error counterexample that the earlier **18 passing
+cases at 672** missed. The parent's exact strengthened `19f7fa94` archive gate
+passed **18 cases**, zero failures/errors/skips, in **12.54 s**; all **816
+archived tracked blobs/modes** were verified afterward. This is bounded source
+**REVIEW_CLEAR**, not broader language acceptance. Evidence:
+`.temp/swarm-reviews/r9-settings-own-property-19f7fa9/coordinator-evidence/`.
+
+Local scan/settings composition `f52884aaa60e9662890f600d19a0d58958e6fba3`
+then passed the parent's **946-test affected-selection union**, zero
+failures/errors/skips, in **183.40 s**. All **817 tracked blobs/modes** and guard
+bytes matched afterward. This is new combined execution, not reuse of the
+418-test settings worker result or other worker passes. Plan, raw log/JUnit,
+result and freeze are in
+`.temp/swarm-reviews/r9-scan-settings-f52884a/coordinator-evidence/`.
+**Library is not composed**; full R9 language/browser/current-core acceptance
+does not follow.
+
+Library `d4d7992a` → `c4b4d57e` is **REVIEW_CLEAR only for bounded source/test
+quality**: four source files and a 53-case dedicated set. The candidate remains
+**RED: 52 passed / 1 failed** (41.31 s), broader **539 passed / 9 failed**
+(130.42 s). Eight broader failures are stale parent assertions; the real
+COUNTBOUNDARY failure previews one live item but unlinks two including Trash.
+Source/tests/logs are frozen under
+`.temp/swarm-reviews/r9-library-count-c4b4d57/`.
+
+The operator has now selected **live-only visible unlink**, preserving Trash,
+inaccessible entries, copies, history and private information without disclosing
+hidden counts. `app/routers/series.py` was unchanged/read-only at c4; only the
+new bounded unlink follow-up is approved. The coordinator reports that test-only
+`6bd04bda` adopts the live-only expected set: **161 passed / 1 failed**, then stopped because
+watch retention lacks a supported capability. Metadata GC is correct, but a
+watch-only entry without metadata must retain hidden references. The parent has
+now approved only a narrow internal conditional watch-GC helper, its exact lint
+entry and live-view target update. Implementation is active, **not yet passing**,
+not in f528 and not current-core/household acceptance. Rename policy and
+hidden-count disclosure remain unchanged.
+
+The original **219-record** reconciliation is still **incomplete**. Four
+persisted batches cover **160 exact original IDs: 142 source-closed / 18
+still-open** at frozen `b049de8a`; **59 remain unfinalized**, not 59 defects.
+`batch-01` through `batch-04` `dispositions.json` files under
+`.temp/r9-source-acceptance-b049de8/` retain original metadata/reasons/bindings
+and the mechanically joined read-only audit returns. The earlier two batches
+accounted for 80 IDs (70 closed / 10 open); batch 03 added 40 (35 / 5), and batch
+04 adds 40 (37 / 3). This is source inspection, not new execution. The final two
+bounded batches remain active; no finalized result is claimed at capture. A prior
+batch-05 attempt exhausted its inspection capacity without reading or finalizing
+any records, so fresh read-only sessions own the remaining disjoint batches.
+Later repairs need reviewed
+source overlays, never retroactive baseline-count changes. At b049 the three unlink controls remained
+open because the same-action success toast still said books. These dispositions
+overlap earlier observations; do not add them as separate defect totals.
+The multi-location `dcec0769d87dc33c6018e036` finding also retains a dismissed-
+duplicate title-pair concern. A separate whole-message follow-up is active;
+reviewed CSV/ABS successors alone do not close every binding. Catalogues/assets
+remain stale; two
 independently cleared Italian/Simplified-Chinese TMDb drafts remain unapplied.
 Resolve semantics, then perform fresh English extraction/authorship/language
 review and central regeneration. The `2fa9ff54` / `7caf79c1` / `f89df61c` /
@@ -354,19 +469,44 @@ returns a leased preview handle, not an unleased tuple. Source/API, worker logs
 and manifest are copied under
 `.temp/swarm-reviews/portability-temporary-phase-a-93cc16d/`.
 
-| Worker gate | Result |
+| Historical `93cc16d1` worker gate | Result |
 |---|---|
 | Portability/recovery | **246 passed / 1 failed**, 216.20 s; phase-B final-artwork leak remains red |
 | Focused archive/schema/write set | **412 passed**, 191.46 s |
 | Adjacent catalogue/music/source set | **429 passed**, 161.21 s |
 
-Both independent resource/consumer reviews are **CHANGES_REQUIRED**, not cleared.
-Confirmed P2 findings cover skipped remaining owner cleanup after a close error,
-obsolete cleanup inventories and corruption tests failing at the wrong boundary,
-and multipart disposal errors replacing the primary failure. Subsequent repairs
-are assigned; threaded cancellation and outermost final-send lifetime also need
-targeted proof. The frozen findings are retained in
-`.temp/portability-phase-a-review/FINDINGS.md`.
+The initial independent resource/consumer reviews required changes for skipped
+owner cleanup after close errors, obsolete inventories/wrong-boundary corruption
+fixtures and multipart disposal masking the primary failure. Those frozen
+findings remain in `.temp/portability-phase-a-review/FINDINGS.md`.
+
+Follow-up `6d0f4407` is frozen under
+`.temp/swarm-reviews/portability-disposal-followup-6d0f440/`. Rereview supports its
+bounded consumer/RowStore/parser-disposal and inventory/index-fixture repairs;
+the following remain **worker executions**, not overall independent clearance:
+
+| `6d0f4407` worker gate | Result |
+|---|---|
+| Consumer/upload | **53 passed**, 39.86 s |
+| All portability cases enabled | **271 passed / 5 failed**, 218.89 s |
+| Focused archive/schema/write set | **412 passed**, 175.54 s |
+| Adjacent catalogue/music/source set | **429 passed**, 151.67 s |
+
+Rereview is still **CHANGES_REQUIRED**: bare completed-form `form.close()` runs
+after reservation exit and can mask a downstream primary failure. The owner's
+bounded repro/fix and contract refinement are active, with no closure result at
+capture. Four enabled RED cases exercise **real threaded open/read/seek/write**
+ownership, not merely async producers; the fifth failure remains phase-B final
+artwork. Two actual registered-app outer-final-send latch controls pass, but
+**are not I/O-drain proof**.
+
+The proposed operation-level submitted-work drain contract still needs ownership
+before queue/submission, preservation of the first competing primary exception's
+identity plus observable late I/O errors, returned `UploadFile`/completed-form
+cleanup, and repeated raw-task/AnyIO cancellation coverage. Broader thread
+implementation is **not approved**. A stalled kernel call cannot be forcibly
+cancelled; retaining its lease is not bounded cancellation latency.
+
 Tracked source was clean at freeze, but untracked `ACTUAL*.diff` handoff artifacts
 are inventoried; this is not a wholly clean-tree claim. Phase-B DB operational
 tables, incarnation and final-artwork reaping remain **unapproved**. No overall
@@ -374,14 +514,25 @@ X3/crash-recovery or new large-fixture memory pass follows from phase A.
 
 Browser `36260af1` has bounded source clearance for all-status ownership, safe
 429 handling and falsy aborts; password receipts and current-core Store/PWA are
-excluded. Offline `1f5ad79` has **40 browser / 63 server worker-reported passes**,
-but source review is **CHANGES_REQUIRED**: canonical retirement can stop on a
-consent-read exception before independent captured-generation/legacy deletions.
-Repair and current-core composition remain pending. Neither these domains nor
-other unclosed lanes inherit the source candidate's full-browser/scale results.
+excluded. Historical offline `1f5ad79` reported **40 browser / 63 server worker
+passes**, but retirement stopped on consent-read failure before independent
+captured-generation/legacy deletions. Follow-up `e8ae0890` now has bounded source
+**REVIEW_CLEAR**: independent deletions are attempted despite that failure,
+rejection waits for all attempts, original-generation retry preserves successor
+and pending work, and blocked → late ERROR replacements retain both barriers.
+Frozen source/worker evidence:
+`.temp/swarm-reviews/offline-retirement-e8ae089/`.
 
-All acceptance stays unchecked, household activation **OFF**, and Actions
-settings unchanged under **continue local only**. Pinned Python 3.12/Playwright
+Its **42 browser passes** (194.28 s) and **63 server passes** (38.16 s) are worker
+results on the canonical **830 composition only**, not strict 362/current core.
+Strict all-status ownership, current-core Store/PWA and password-receipt
+independent gates remain pending. Earlier broader **87 passed / 1 failed** and
+**190 passed / 10 failed** stay separately attributed RED; they were not rerun
+or reclassified. Neither these domains nor other unclosed lanes inherit the
+source candidate's full-browser/scale results.
+
+All **185** acceptance checks stay unchecked, household activation **OFF**, and
+Actions settings unchanged under **continue local only**. Pinned Python 3.12/Playwright
 1.52/container and named live-server/IdP/provider/licence acceptance remain
 unverified. Direct Audible access is default-off; reference presence is not a
 licence. No deployment, production/Portainer, external-key or operator-data

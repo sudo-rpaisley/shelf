@@ -47,12 +47,12 @@ data directories and must never be seeded from the operator's live catalogue.
 | Reading life | R6 repeat sessions, journal and annual goals | First integration pushed; portability/household gates open |
 | Audiobook enrichment | R7 exact-ASIN marketplace-aware review/backfill | Next-batch integration; provider-permission/coverage gate open |
 | Author discovery | R8 account-local following and deduplicated releases | Alias/revocation fixes; scheduler/household composition open |
-| Translation | R9 existing surfaces, followed by an integrated new-string pass | Controlled-slot source review clear; semantic audit/language acceptance open |
+| Translation | R9 existing surfaces, followed by an integrated new-string pass | Reviewed scan/settings composition gated; Library count repair and language acceptance open |
 | National providers | R10 additional documented, permitted provider coverage | BN Poland first integration pushed; final operational gates open |
 | History/undo | General change history, supported rollback and merge snapshots | Integrity fixes and later-table registry composition open |
 | Source repair | Reviewed replacement/rebinding and non-destructive retirement | Known-schema integrated scale gate passed locally; broader authority gates open |
-| Portability | Versioned music/account-data export/import and round trips | TEMP-only phase-A review requires cleanup repairs; final-artwork/phase B open |
-| Offline reference | Explicit bounded, account-isolated offline reference browsing | Failure follow-up worker gates reported; review/current-core composition pending |
+| Portability | Versioned music/account-data export/import and round trips | Disposal follow-up still requires changes; thread ownership/final-artwork/phase B open |
+| Offline reference | Explicit bounded, account-isolated offline reference browsing | Bounded retirement source review clear; strict-browser/current-core composition pending |
 | Browser privacy | Account/library-scoped Store queues and navigation storage | Bounded error/abort source review clear; password/current-core Store/PWA open |
 
 Independent architecture, requirements, privacy and recovery audits accompany
@@ -120,11 +120,12 @@ acceptance criteria or operational blockers remain unresolved.
 
 ### Current local checkpoints (documentation capture)
 
-Before the evidence refresh, local/remote tip was `2fb43756` and the latest
-pushed application change was `717dfeb6`. The source follow-up now integrates
-the tested `89205f44` candidate while preserving this newer evidence record.
-Core, R9 and portability candidates remain separate and local. Full evidence,
-candidate boundaries and local artifact paths are in the
+The latest published test follow-up is `89388e31`; its application remains
+unchanged from source integration `1cf3c0b6`, after `fdd51186`, incorporating
+tested `89205f44`. The earlier `2fb43756` / `717dfeb6` push checkpoint is
+historical. Core, R9, portability and offline
+follow-ups remain separate and local. Full evidence, candidate boundaries and
+local artifact paths are in the
 [verification record](connected-library-verification.md#local-follow-up-candidates-documentation-capture).
 
 - **Source:** frozen `1767d0cb` completed the unchanged 31,400-record-per-source
@@ -134,55 +135,80 @@ candidate boundaries and local artifact paths are in the
   9302; **61 focused tests and checks-fast passed** (coordinator report). Its
   full-unit rerun passed **9302 tests**, with no failures/errors/skips, in
   2006.04 s. App/static/E2E/harness equivalence to `1767d0cb` and 782 committed
-  input blobs were verified after completion; this is not a new browser or
-  benchmark execution. A separately reviewed 64-record diagnostic reproduces
-  launch-path RSS telemetry contamination, not original full-size RAM usage.
+  input blobs were verified after completion. The independent promotion gate
+  passed **27/27 evidence checks**: all **822 non-documentation files** match
+  `89205f44`, all **866 tracked files** and three full archives match their
+  respective commits/modes. No unit/browser/benchmark rerun occurred at merge.
+  The reviewed 64-record RSS diagnostic does not measure original full-size RAM.
+  Test-only `89388e31` closes the music wishlist positive-membership coverage
+  gap: **28 tests passed**, and a membership-suppression negative control fails
+  at the new assertion while ownership/partition checks still hold.
 - **Core/recovery:** `a850b2a7` has bounded freshness source-review clearance and
-  a coordinator-reported **128-test** gate. SQLite composition `29ee` picks only
+  a coordinator-reported **128-test** gate. SQLite composition `29ee407a` picks only
   `d9051b88` as `4d1f` atop it; actual restore → cold restart → token-version-38
-  setup is blocked by `identity_provider_epochs` startup admission. Core
-  `e0f5a8d4` clears the two cascade-only oracle/manual-detach findings and passes an exact
-  archived **328-test** coordinator gate. Independent actual-R6 composition
-  `8c4d1aae` remains **RED: 126 passed / 3 failed**; all 13 new cases pass and
-  the three failures reproduce before 9d/e0. Public settings/users predicate and
-  ambient compile/step-authority defects are now runtime-confirmed by test-only
-  `42927e71`: **107 failed / 10 passed**, with no production repair. They are not
-  fixed here and block private admission/activation.
+  setup remains blocked by `identity_provider_epochs` startup admission. The
+  bounded e0 **328-test** pass and R6 `8c4d1aae` **126 passed / 3 failed** retain
+  their original scope. `42927e71`'s **107 failed / 10 passed** belongs to the
+  historical e0 component, not the actual façade. Exact original-test replay
+  `6d2906d2` on unchanged actual `29ee407a` is **RED: 92 failed / 25 passed**,
+  with no setup/API/guard errors. Independent read-review corroborates that RED
+  and its classification; production/API-compatibility readiness remains
+  **CHANGES_REQUIRED**. Protected predicates/getters and callback privacy are not
+  fixed. A sole façade writer and separate test-only reentry lane are reserved;
+  the compatibility proposal is not production-repair approval.
 - **R2:** `d799a29e` versus `caf76382` adds a contract and reproducers, not a
   productive private writer/startup implementation. Its combined gate remains
   **5 failed / 6 passed**; **11** separate positive/denial controls pass. A real
   password POST commits before returning 500; the chosen browser receipt remains
-  stopped. The finite identity-operation/one-use startup-permit proposal still
-  requires approval, implementation and actual-core verification.
-- **R9:** `b049de8a` composes the reviewed single-format helper and early-status
-  preflight with seven reviewed template-body conversions: **771 focused tests**,
-  zero bounded unmarked-string findings, four lints and exact seven-template
-  extraction preservation. The original **219-record** reconciliation is
-  incomplete. Two persisted batches cover **80/219 original IDs: 70 source-closed /
-  10 still-open** at frozen `b049de8a`; **139 remain unfinalized**, not 139
-  established defects. Later repairs need explicit overlays. Three repair lanes are
-  active; the whole matrix is not complete. Catalogues
-  and assets are stale; independently cleared Italian/Chinese TMDb drafts remain
-  unapplied. Semantic fixes must precede fresh English extraction, authorship,
-  language review and central regeneration. Historical catalogue preservation
-  below is not language completion.
-- **Portability:** frozen `93cc16d1` implements only phase-A TEMP-resource
-  handles, inode anchors, flock/fork lifetimes and filesystem startup recovery.
-  Worker gates report **246 passed / 1 final-artwork failure**, **412 focused**
-  and **429 adjacent** passes. Both independent phase-A reviews require changes:
-  exception-safe disposal of every owner, correct resource-inventory/corruption
-  tests, and multipart primary-failure preservation. Repairs and additional
-  threaded/final-send lifetime evidence are assigned. Phase-B operational DB
-  tables, incarnation and final-artwork reaping are unapproved; no overall X3 pass.
+  stopped. The first milestone has **four proposed finite APIs and 17 future
+  acceptance cases**. The R2 owner agrees **Q1/Q2/Q4/Q6 only**; Q3/Q5 technical
+  acknowledgement is pending, and Q7–Q9 remain unapproved. This is partial domain
+  agreement, not implementation approval; Q8's actual-core prerequisite is unfixed.
+- **R9:** the historical `b049de8a` **771-test** checkpoint remains bounded.
+  Reviewed settings chain `19f7fa94` passes **18 strengthened cases**; reviewed
+  scan/settings composition `f52884aa` passes a new parent **946-test union**,
+  not reused worker results. Library `d4d7992a` → `c4b4d57e` is source/test-quality
+  review-clear only: **52 passed / 1 failed**, broader **539 passed / 9 failed**.
+  The operator chose **live-only visible unlink**, preserving Trash,
+  inaccessible entries, copies/history and private information. Its narrowly
+  approved follow-up is not passed or composed; rename policy and hidden-count
+  disclosure are not changed. Test-only `6bd04bda` adopts that expected set and
+  reports **161 passed / 1 failed**, stopping at missing watch-retention
+  capability. Metadata GC is correct, but watch-only entries without metadata
+  must retain hidden references. The internal conditional watch-GC helper,
+  exact lint entry and live-view target update are now narrowly approved and
+  active, not a passing/current-core gate. Four persisted baseline-audit batches
+  cover **160/219 exact IDs: 142 source-closed / 18 still-open** at frozen
+  `b049de8a`; **59 remain unfinalized**, not 59 established defects. The final
+  two bounded batches are active, with no finalized result at capture. A separate
+  dismissed-duplicate pair follow-up addresses a surviving whole-message concern;
+  fixing that multi-location finding's CSV text alone is insufficient.
+  Later repairs require reviewed source
+  overlays, not retroactive baseline counts. Catalogues/assets are stale; two
+  reviewed Italian/Chinese TMDb drafts remain unapplied. Semantic convergence
+  must precede fresh English extraction/authorship, language review and central
+  regeneration; historical 4718/798 preservation is not language completion.
+- **Portability:** phase-A `93cc16d1` remains historical. Frozen disposal
+  follow-up `6d0f4407` reports **53 passed**, **271 passed / 5 failed**, **412**
+  and **429** worker passes. Rereview supports the bounded disposal/inventory/
+  corruption-fixture repairs but remains **CHANGES_REQUIRED**: completed-form
+  close after reservation exit can mask a downstream primary failure. Its
+  bounded repro/fix and contract refinement are active. Four real threaded-I/O
+  cancellation failures remain; two registered-app final-send passes are not
+  I/O-drain proof. Broader thread implementation and phase-B operational DB
+  tables/incarnation/final-artwork reaping are unapproved; no overall X3 pass.
 - **Browser/offline:** `36260af1` has bounded source clearance for all-status
   ownership, safe 429 handling and falsy aborts, excluding password receipts and
-  current-core Store/PWA acceptance. Offline `1f5ad79` follow-up reports **40
-  browser / 63 server** worker passes. Review requires canonical retirement to
-  attempt independent deletions despite consent-read failures; repair and
-  current-core composition remain pending. Source gates do not close these lanes.
+  current-core Store/PWA acceptance. Offline `e8ae0890` after `1f5ad79` is bounded
+  source-review clear for independent retirement attempts and truthful retry/
+  replacement barriers. Its **42 browser / 63 server** worker passes use the
+  canonical **830-only** composition. Strict 362/current-core, Store/PWA and
+  password-receipt independent gates remain pending; prior broader RED results
+  are not reclassified. Source gates do not close these lanes.
 
-All acceptance remains unchecked and household activation stays **OFF**. Actions
-settings are unchanged under the operator's **continue local only** decision.
+All **185** acceptance checks remain unchecked and household activation stays
+**OFF**. Actions settings are unchanged under the operator's **continue local
+only** decision.
 Pinned Python 3.12/Playwright 1.52/container, named live-server/IdP/provider and
 licence acceptance remain unverified. Direct Audible access stays default-off;
 a configured reference is not a licence. No deployment, production/Portainer,
@@ -242,8 +268,9 @@ integration, **not closure of the full backlog or its dependent acceptance gates
   in test-only `86879998` to verify viewer-owned preferences and safe handoffs
   while still refusing catalogue edits; **118 focused tests passed**. Later
   source-repair composition `7e86d0a4` passed **565 focused tests**. These are
-  historical focused checkpoints; the later full gates belong to `1767d0cb`,
-  as recorded above. These candidates are not pushed application code.
+  historical focused checkpoints; later full browsers/benchmark belong to
+  `1767d0cb` and full units to `89205f44`. These were local checkpoints at the
+  time; the later source promotion is recorded above.
 
 The operator chose **continue local only** when offered pinned CI/runner
 options. GitHub Actions execution settings remain unchanged. Python 3.12,
