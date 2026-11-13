@@ -1,8 +1,10 @@
 """Default-off containment: no live network, provider approval or coverage claim."""
 
+import asyncio
 import json
 from unittest.mock import AsyncMock, Mock
 
+import httpx
 import pytest
 
 from app import auth, config
@@ -217,3 +219,54 @@ def test_mock_configuration_is_not_echoed_or_presented_as_a_licence(editor_clien
     assert "it is not a licence" in response.text and "not a regional coverage promise" in response.text
     for call in no_egress:
         call.assert_not_called()
+
+
+@pytest.mark.parametrize("missing", ["enable", "grant_reference"])
+@pytest.mark.parametrize("kind,boundary", [(kind, boundary) for kind in ("json", "image", "redirect", "empty", "error")
+                                         for boundary in ("response_exit", "client_exit")]
+                                        + [("json", "body"), ("image", "body"), ("redirect", "headers"), ("error", "headers")])
+@pytest.mark.asyncio
+async def test_direct_http_results_require_gate_after_stream_and_context_exit(monkeypatch, mock_audible_authorization, missing, kind, boundary):
+    closed, returned = [], None
+
+    def revoke():
+        monkeypatch.delenv(audible_permission.ENABLE_ENV if missing == "enable" else audible_permission.GRANT_ENV)
+
+    class Stream(httpx.AsyncByteStream):
+        async def __aiter__(self):
+            if boundary == "body":
+                await asyncio.sleep(0)
+                revoke()
+            yield PNG if kind == "image" else b'{"products":[]}'
+
+        async def aclose(self):
+            await asyncio.sleep(0)
+            closed.append("response")
+            if boundary == "response_exit":
+                revoke()
+
+    async def handler(request):
+        if boundary == "headers":
+            await asyncio.sleep(0)
+            revoke()
+        status = {"redirect": 302, "empty": 204, "error": 503}.get(kind, 200)
+        return httpx.Response(status, headers={"content-type": "image/png" if kind == "image" else "application/json",
+                                              "location": IMAGE}, stream=Stream())
+
+    class Transport(httpx.MockTransport):
+        async def aclose(self):
+            await asyncio.sleep(0)
+            closed.append("client")
+            if boundary == "client_exit":
+                revoke()
+
+    async def target(url):
+        return httpx.URL(url).host, "8.8.8.8"
+
+    monkeypatch.setattr(manual_cover, "_public_target", target)
+    monkeypatch.setattr(manual_cover, "_PinnedIPTransport", lambda address: Transport(handler))
+    with pytest.raises(audible_permission.ProviderBlocked):
+        returned = await audible_catalog._read_public(IMAGE if kind == "image" else "https://api.audible.com/1.0/catalog/products",
+                                                     image=kind == "image")
+    assert returned is None and closed == ["response", "client"]
+    assert list(config.COVERS_DIR.iterdir()) == []
