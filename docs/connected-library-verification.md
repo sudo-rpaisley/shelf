@@ -89,6 +89,44 @@ Actions or supplying another runner. Its execution settings remain unchanged.
 Python 3.12/pinned-Playwright/container acceptance and named live-server/IdP
 acceptance remain unverified—not passes, waivers or claims of release readiness.
 
+### Explicit authentication-cookie follow-up
+
+Application commit `717dfeb6` fixes a separately reproduced middleware defect:
+an aged request's optional sliding refresh appended its old session after a
+route had explicitly logged out, logged in another account, changed the password
+version or updated the profile. The four reproductions failed before repair;
+ordinary aged/fresh read controls already passed.
+
+Routes now retain ownership of explicit authentication/CSRF response cookies.
+Ordinary aged reads still refresh and preserve their CSRF token. On frozen
+`c528985c` (the same application, plus the generated collection badge):
+
+| Gate | Result |
+|---|---|
+| Auth, boundary, cross-site, secure-cookie, security and API-auth regression set | **167 passed**, exit 0, 73.55 s |
+| Native-browser authentication arrival and CSRF/XSS regressions | **6 passed**, exit 0, 14.54 s |
+| `make badges checks-fast`, whitespace checks | Passed; private roadmap-map check remains unavailable |
+
+```bash
+PATH=/tmp/shelf-new-test-compatible-venv/bin:$PATH python -m pytest \
+  tests/test_auth_response_cookie_ownership.py tests/test_auth.py \
+  tests/test_auth_routes.py tests/test_auth_boundaries.py \
+  tests/test_auth_cross_site_arrival.py tests/test_auth_cookie_secure.py \
+  tests/test_security_fixes.py tests/test_api_v1_auth.py \
+  -q --tb=short --no-header -n 2 --dist loadfile
+
+PLAYWRIGHT_NODEJS_PATH=/usr/bin/node \
+SHELF_E2E_CHROMIUM_EXECUTABLE=/home/opencode/.cache/michael-doctor-verification/chromium \
+PATH=/tmp/shelf-new-test-compatible-venv/bin:$PATH python -m pytest \
+  tests/e2e/test_auth_arrival.py tests/e2e/test_csrf_and_xss_fixes.py \
+  -q --tb=short --no-header -m e2e
+```
+
+Collection now has 8168 units; the earlier **full 8162-test pass belongs to
+`38c73f97`**, not this later application. No full-suite or pinned-runtime pass
+is inferred from this focused follow-up. Larger implementation candidates remain
+separate, unmerged and incomplete.
+
 ## Desktop spacing follow-up
 
 **PASS — verified locally on 2026-11-13** with the compatible runtime above.
