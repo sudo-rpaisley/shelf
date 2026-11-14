@@ -91,11 +91,15 @@ def test_library_optional_controls_are_closed_inside_the_search_form(viewer_clie
     assert options not in search.ancestors
     assert _text(next(button for button in markup.find("button", within=form)
                       if options not in button.ancestors)) == "Search"
+    types = markup.one(within=form, name="types")
+    assert types.tag == "input" and types.attrs["type"] == "hidden" and types.attrs["value"] == ""
+    assert form in types.ancestors and options not in types.ancestors
+    assert _form_values(markup, form)["types"] == types.attrs["value"]
     selects = markup.find("select", within=form)
-    assert {select.attrs["name"] for select in selects} == library_catalog.FILTER_KEYS - {"q"}
+    assert {select.attrs["name"] for select in selects} == library_catalog.FILTER_KEYS - {"q", "types"}
     assert all(options in select.ancestors for select in selects)
     assert _text(markup.one("button", within=options)) == "Apply filters"
-    assert _text(markup.one("a", within=options, href="/library")) == "Clear filters"
+    assert _text(markup.one("a", within=options, href="/library?reset=1")) == "Clear filters"
     assert _form_values(markup, form) == library_catalog.DEFAULT_FILTERS
     presets = markup.one("nav", **{"aria-label": "Library presets"})
     assert len(markup.find("a", within=presets)) == len(library_catalog.PRESETS)
