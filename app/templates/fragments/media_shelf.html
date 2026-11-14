@@ -1,0 +1,21 @@
+{# shelf is a MediaShelf. Titles may be custom metadata; only empty_label is an
+   owned msgid. No key-derived IDs, inline events, controls or JS dependency. #}
+<section class="media-shelf" data-shelf-key="{{ shelf.key }}" aria-label="{{ shelf.title }}">
+    <h2 class="media-shelf__title">{{ shelf.title }}</h2>
+    {% if shelf.items %}
+    <ul class="media-shelf__items" tabindex="0" aria-label="{{ shelf.title }}">
+        {% for card in shelf.items %}
+        <li class="media-shelf__slot">{% include "components/media_card.html" %}</li>
+        {% endfor %}
+        <li class="media-shelf__slot">
+            <a class="media-shelf__view-more" href="{{ shelf.view_more_href }}">
+                <span>{{ _('View more')|forceescape }}</span>
+                <span class="media-card__sr-only"> — {{ shelf.title }}</span>
+                {% if shelf.has_more %}<span class="media-shelf__hint">{{ _('More items are available.')|forceescape }}</span>{% endif %}
+            </a>
+        </li>
+    </ul>
+    {% else %}
+    <p class="media-shelf__empty">{{ _(shelf.empty_label)|forceescape }}</p>
+    {% endif %}
+</section>

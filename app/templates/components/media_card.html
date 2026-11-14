@@ -1,0 +1,18 @@
+{# No Browse/Alpine state; links/cover_path are validated by the pure adapter. #}
+{% if card.title %}{% set card_title = card.title %}{% else %}{% set card_title = _('Untitled item')|forceescape %}{% endif %}
+<article class="media-card" data-item-id="{{ card.id }}" data-media-type="{{ card.media_type }}">
+    <a class="media-card__detail" href="{{ card.detail_href }}">
+        {% include "components/media_artwork.html" %}
+        <h3 class="media-card__title">{{ card_title }}</h3>
+    </a>
+    {% if card.creator_text %}<p class="media-card__creator">{{ card.creator_text }}</p>{% endif %}
+    {% if card.media_type %}<p class="media-card__type">{% if card.media_type_label is not none %}{{ _(card.media_type_label)|forceescape }}{% else %}{{ card.media_type }}{% endif %}</p>{% endif %}
+    {% if card.badges %}
+    <div class="media-card__badges">
+        {% for badge in card.badges %}<span class="media-card__badge">{{ badge }}</span>{% endfor %}
+    </div>
+    {% endif %}
+    {% if card.edit_href %}
+    <a class="media-card__edit" href="{{ card.edit_href }}">{{ _('Edit')|forceescape }}<span class="media-card__sr-only"> — {{ card_title }}</span></a>
+    {% endif %}
+</article>

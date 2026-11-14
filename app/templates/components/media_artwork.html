@@ -1,0 +1,9 @@
+{# card is a validated MediaCard; artwork comes from the immutable registry spec.
+   Its adjacent title names the link. Neither artwork branch repeats that name. #}
+<span class="media-artwork" data-cover-shape="{{ card.artwork.shape }}" data-media-type="{{ card.media_type }}">
+    {% if card.cover_path %}
+    <img class="media-artwork__image" src="/{{ card.cover_path }}" alt="" loading="lazy" decoding="async">
+    {% else %}
+    <span class="media-artwork__placeholder" aria-hidden="true"></span>
+    {% endif %}
+</span>
