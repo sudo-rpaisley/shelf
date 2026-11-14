@@ -69,7 +69,9 @@ its planned foundations already exist on `new-test`.
 **Implementation authorised:** the operator subsequently requested the whole
 backlog, including optional refinements, on 2026-11-13. See the
 [delivery programme](connected-library-delivery.md) for ownership and acceptance
-tracking. The entries below are requirements, not claims that this work is done.
+tracking. That earlier decision does not automatically authorise implementation
+of the later [research candidates](#research-additions-2026-11-14). The entries
+below are requirements or labelled proposals, not claims that this work is done.
 
 ### Operator media-experience refinements (2026-11-14)
 
@@ -186,6 +188,118 @@ The original F1/F2-first, then F3/F4 ordering remains useful. It does not remove
 any F/R/X requirement or the refinements included in the subsequent whole-backlog
 authorisation; additional scope still needs an explicit decision.
 
+### Research additions (2026-11-14)
+
+The operator requested research into further functional, integration and visual
+improvements and their addition to this list. **This intake authorises research
+and backlog recording only**, not implementation, provider registration/account
+connections, production access, push or deployment. None of the following is
+implemented or accepted by this research. Existing F/R/X requirements, ME7 and
+their safety blockers remain intact.
+
+The source comparison used **`f637f475`**, including the feature registry,
+schema, services, routes, templates and browser assets, alongside the official
+public documentation linked below, accessed **2026-11-14**. **Extend** means a
+missing subcapability of an existing feature; **Gap** means no implementation
+was found in the checked surfaces, not proof of absence from every experimental
+branch. Independent source inventory and public integration research were
+read-only; no app tests, provider authentication or live-server API calls were
+part of this survey.
+
+Priorities are recommendations, not delivery dates: **P1** alongside the existing
+F1/F2 work, **P2** after the relevant foundations, **P3** optional/later. They do
+not outrank unresolved safety/recovery gates or authorise a new implementation
+lane. Reuse the existing server-rendered architecture and account/device
+preference design; do not create another saved-view, alert or import platform.
+
+#### Functional and visual candidates
+
+| ID / priority / existing area | Useful addition and proposed completion boundary | Source-grounded distinction and research |
+|---|---|---|
+| RF1 · P1 · F2/ME6/X5 · Extend | **Appearance and card-display preferences:** light/dark/system themes, comfortable/compact card density, readable text sizing, and selectable card metadata such as creator, year, format, availability and own progress. Retain today's default, spacious gutters and the 80px control-width rule. Coordinate with ME7 rather than add another cover slider; preserve proportions, readable titles, contrast and shared-device preference isolation | [Base](../app/templates/base.html) and [theme tokens](../static/css/input.css) are explicitly dark; [MediaCard](../app/services/media_cards.py) already has badges and [Browse](../app/browse_columns.py) has selectable columns. The gap is configurable shared-card/theme presentation, not cards themselves. Compare [Komga themes](https://komga.org/docs/guides/theme) and [calibre cover-grid fields](https://manual.calibre-ebook.com/gui.html#cover-grid) |
+| RF2 · P1 · F2/X4 · Gap | **Searchable command palette:** a visible button and optional Cmd/Ctrl+K entry for permitted destinations, catalogue search and common actions. Make keyboard selection, Escape/focus return and shortcut discovery work without capturing text entry/IME or bypassing confirmation for destructive actions. Normal links and existing shortcuts remain usable; do not turn navigation into a frontend rewrite | [Global shortcuts](../static/js/app.js) already implement `/`, `b`, `s` and `?`; no searchable command-menu surface was found. [Linear's command menu](https://linear.app/enablement/guide/navigating-linear) is an interaction reference, not a dependency |
+| RF3 · P1 · F1/F6 · Extend | **Advanced query builder and richer smart shelves:** understandable ANY/ALL/NOT groups, exclusions, date/number ranges and missing-field filters; save them in existing account-owned views. Bound expression depth/work, parameterise evaluation and report invalid expressions rather than silently broadening results. Preserve same-edition/same-holding matches, authorised facet counts and F1's 31k-scale paging guarantees | [Browse filters](../app/browse_filters.py) and [Library matching/saved views](../app/services/library_catalog.py) already support conjunctive filters, multi-format selection and wishlist negation. The gap is composable grouped expressions and their UI, not saved searches. Compare [calibre search](https://manual.calibre-ebook.com/gui.html#the-search-interface) and [virtual libraries](https://manual.calibre-ebook.com/virtual_libraries.html) |
+| RF4 · P2 · F2/F6/F7/R3 · Extend | **Ordered mixed-media plans/collections:** reading, watching and playing orders across books, comics, films and games, with descriptions, move-up/down controls and progress derived from the current account. Keep personal ordering/progress distinct from shared membership; removing a list must not delete items. Collaboration/sharing waits for F7/R3, not a public-link shortcut | [My List/Up Next](../app/services/personal_library.py) and [public collection/wishlist links](../app/routers/share.py) already exist; `list_items` in [the schema](../app/database.py) has no curated position. Compare [Komga read lists](https://komga.org/docs/guides/readlists/) and [Audiobookshelf collections/private playlists](https://www.audiobookshelf.org/guides/collections); neither establishes Shelf support |
+| RF5 · P2 · F5/F6/F8/X3 · Gap | **Typed custom metadata and reusable templates:** bounded text, numbers, dates, booleans and choice fields for collection-specific facts without misusing notes/tags. Decide definition/edit permissions and item/copy/private-value scope first. Keep stable field IDs through renames, validate and escape values, define safe type changes and include search/API/export mappings. No executable templates, arbitrary SQL or replacement of standard identifiers | [Fixed schema/tags](../app/database.py) and [common editor fields](../app/templates/fragments/item_editor_common_fields.html) are foundations, not a configurable field-definition/value model. [Koillection fields](https://github.com/benjaminjonard/koillection/wiki/Fields) and [templates](https://github.com/benjaminjonard/koillection/wiki/Templates) demonstrate the pattern; these older wiki pages are not a current interoperability contract |
+| RF6 · P2 · F5/F6/F7/F8/X3 · Extend | **Copy-linked receipts and evidence attachments:** condition photos, purchase receipts and provenance documents attached to the right physical copy. Require a visibility/retention design, authenticated downloads rather than a public static mount, size/type quotas and safe data-only handling. Cover backup/restore, Trash/merge behaviour and explicit portable-export exclusions or inclusion before delivery | [Copy editing](../app/routers/item_copies.py) and [its form](../app/templates/fragments/item_copy_edit.html) already expose condition, acquisition date/source/price and provenance. Only file attachments are the new gap. Compare [calibre extra data files](https://manual.calibre-ebook.com/metadata.html#adding-extra-data-files-to-a-book) and Koillection's file/image fields; do not add another condition/acquisition subsystem |
+| RF7 · P2 · F2/F3/R8/F7 · Gap | **Personal notification inbox and preferences:** durable unread/read state, category/channel choices, digests/quiet hours, deduplication and useful links for relevant releases, loans and source issues. Reuse existing outbound delivery; define event ownership, retention, retry and disconnect behaviour. Admin job failures, another person's loans/activity and secret gift claims must not leak through inbox counts or messages | [notify.py](../app/services/notify.py) already sends reminders/price/release digests via ntfy or JSON webhook, with [instance destination settings](../app/routers/settings.py). The gap is an account-owned inbox/preferences layer, not alerts, a new sender or a required push service |
+| RF8 · P2 · F8/R1/X3 · Extend | **Standards-based metadata/list exchange:** select useful codecs such as RIS/BibTeX/CSL JSON, then separately assess CBL lists and NFO metadata. Publish supported fields and loss/exclusion reports; preview identity matches, preserve manual edits and safely parse bounded data without executing templates, external XML entities or imported actions. Keep personal watched/progress data opt-in. Assess formats individually, not a promise to deliver every codec or a replacement for full backup | [CSV](../app/routers/items_csv.py), [portable ZIP/JSON](../app/services/archive.py), [typed API schemas](../app/api_v1_schemas.py) and [internal JSON-LD extraction](../app/services/shop_metadata.py) already exist. Missing user-facing codecs extend them. References: [Zotero formats](https://www.zotero.org/support/dev/data_formats), [Komga CBL matching](https://komga.org/docs/guides/readlists/#import-read-lists-from-comicrack), [Jellyfin NFO](https://jellyfin.org/docs/general/server/metadata/nfo) |
+| RF9 · P3 · F2/F6/X5 · Gap | **Optional spoiler/advisory presentation:** separate content advisories and spoiler-marked descriptions/episode details with explicit reveal and account preferences. Reuse typed metadata where appropriate; keep private notes private. Define behaviour in search previews, assistive announcements, shares and exports. This is a presentation choice, not parental controls or a substitute for server-side access restrictions | [Descriptions/catalogue notes](../app/templates/fragments/item_editor_common_fields.html) and [private notes](../app/templates/fragments/personal_library.html) exist; dedicated advisory/spoiler flags and reveal controls were not found. This is a source-derived candidate, not a claim of missing notes |
+| RF10 · P3 · F2/F1 · Gap | **Local “pick for me” discovery:** an optional random pick or transparent suggestions within the authorised, filtered catalogue, for example owned/unread items or a chosen list. Explain selection, offer another choice and leave status/history unchanged. Keep work bounded and personal taste local; no cloud AI, mandatory recommender service, automatic media launch or cross-account activity profiling | [Discover](../app/templates/discover.html) is an existing search surface; [Continue/Up Next](../app/services/personal_library.py) follows explicit personal state, not local recommendation ranking. No local random-pick route/control was found. [calibre's Library menu](https://manual.calibre-ebook.com/gui.html#library) includes a random-book action |
+
+#### Integration feasibility candidates
+
+No dedicated Plex, Navidrome/OpenSubsonic, Trakt or Playnite adapter/intake was
+found in the checked feature registry, services or routes. The explicit
+[new-source registry](../app/services/source_connectors/__init__.py) currently
+lists OPDS, Jellyfin and manual links; the separate existing ABS/Komga/RomM and
+metadata integrations are not missing features. These are **feasibility tasks**,
+not supported connectors or permission to register an app or obtain credentials.
+First confirm which services the operator actually uses.
+
+| ID / priority / existing area | Opportunity and public evidence | Required feasibility boundary |
+|---|---|---|
+| RI1 · P2 · F3/F4/F5 | **Plex personal-server catalogue:** enumerate selected permitted libraries and retain server-scoped identities/availability. Plex now has an [official PMS API](https://developer.plex.tv/pms/); an unofficial Python wrapper is not the API contract | Validate the named PMS/API/auth versions, selected-library permissions, safe connectivity, token renewal/revocation and returned pagination offsets/counts. Published API 1.0 starts at PMS 1.41.9; documented 1.2.3 requires 1.43.4. Keep tokens in headers, not links. Read-only calls do not imply a read-only credential scope. Prove a credential-free external handoff separately; `server://` identity is not an OS-launch protocol. No management, scrobbling, playback, downloads or transcoding |
+| RI2 · P2 · F3/F4/F5 | **Navidrome/OpenSubsonic music catalogue:** artists/albums/holdings and eventual external-app handoff, not another MusicBrainz/Discogs metadata authority. [Navidrome compatibility](https://navidrome.org/docs/developers/subsonic-api/) documents Subsonic 1.16.1 with exceptions and string IDs; [getAlbumList2](https://opensubsonic.netlify.app/docs/endpoints/getalbumlist2/) has offset/size paging, max 500 | Discover actual extensions/auth support and accessible music libraries; require HTTPS and supported [form POST](https://opensubsonic.netlify.app/docs/extensions/formpost/) for secret-bearing requests, with no URL-credential fallback or secret-bearing artwork links. API keys only when advertised; do not assume read-only scopes or universal quotas. Bound the artist index, which has no documented paging, prove album completeness during rescans and preserve server-scoped string IDs. No scrobbling, playlist/rating writes, scans, streaming or downloads |
+| RI3 · P3 · F4/F5/X3 | **Trakt own-history/progress intake:** prefer a user-supplied one-time export where sufficient; consider consented ongoing observation only if needed. The [official API](https://developer.trakt.tv/openapi.json) documents history/playback observations; the [use policy](https://developer.trakt.tv/docs/api-use-policy) recommends user data export for one-time migration | Verify export coverage rather than assume partial playback is included; handle episode identity, repeat watches, timestamps and paging. For API observation, verify registered-app access and endpoint eligibility; broad [Standard Production access](https://developer.trakt.tv/docs/create-an-app) requires review, not owner/invite-only Development use. Respect current limits/429 handling and use [OAuth/PKCE with safe single-use refresh-token rotation](https://developer.trakt.tv/docs/authentication-oauth). Ordinary public-data read-only access does not grant private-account history access. Minimise retention, support disconnect/deletion and required attribution. Observations never silently overwrite personal progress/history; any accepted import follows F4 conflict/provenance rules. No watched-state writes or scrobbling |
+| RI4 · P3 · F3/F4/ST1/X3 | **Playnite export intake, including user-supplied GOG entries:** extend existing game import/review paths rather than promise direct store-account synchronisation. Playnite documents [library enumeration](https://api.playnite.link/docs/tutorials/extensions/library.html) and [GUID-based details/start links](https://api.playnite.link/docs/manual/advanced/cmdlineArguments.html). These do not establish a universal stable export schema | Select a maintained exporter/version and redacted sample format; require stable provider/library IDs, preview duplicates and record playtime as separate observations, not completion. Exclude credentials, executable actions, installation paths and unnecessary notes; never run imported scripts or actions. Any later GUID handoff needs a narrow allowlist and explicit user activation. **Direct GOG account integration remains BLOCKED:** the [Galaxy integration API](https://github.com/gogcom/galaxy-integrations-python-api) supplies other platforms into Galaxy, not an account-wide GOG library-read API. No private endpoints, copied client credentials, cookie or database scraping |
+
+All integration proposals retain encrypted credentials, source-specific identity,
+manual metadata/artwork decisions, bounded work and complete-only absence
+reconciliation. Validate remote permissions against Shelf's account/shared-library
+model before exposing private provider observations. Read-only catalogue access,
+availability, play counts and playtime are not consent to change personal status,
+progress or history. No universal read-only credential scope or numerical quota
+was established for Plex/OpenSubsonic; do not invent either. Rate/terms/version
+and named-server acceptance must be rechecked when selecting an implementation.
+
+KOReader metadata snapshots are a **parked F4/RF8 investigation**, not a new
+Kobo/cloud connector commitment: the [official guide](https://koreader.rocks/user_guide/#L2-metadataarchive)
+describes metadata archives/sidecars, but a stable third-party interchange schema,
+safe data-only parser and reliable edition/progress mapping have not been
+established. Do not execute settings files, import annotations by default or
+treat a partial-file hash as a bibliographic identifier.
+
+#### Existing requirements sharpened by this research
+
+- **F3/F4 — source history and capability clarity:** extend existing
+  [capability declarations](../app/services/source_connectors/__init__.py),
+  [legacy health](../app/services/legacy_sources.py) and
+  [latest source snapshots](../app/services/sources.py) with bounded run history,
+  counts, partial/error explanations and next steps. Show catalogue, handoff and
+  progress support separately. This is not another health system or scheduler.
+- **F5/F6 — compare editions without merging:** extend the existing
+  [duplicate comparison](../app/templates/duplicates.html) and
+  [format-stack expansion](../app/templates/fragments/library_results.html) with
+  a general authorised edition/pressing comparison and selection view. Contrast
+  identifiers, language, narrator, duration, source and copy/availability where
+  known; unknowns remain unknown. Comparison must not create format links or
+  merge records from title similarity. Duplicate detection itself is not missing.
+- **F2/X1/X4 — bulk clarity and recovery:** existing selection and loaded-row
+  Select All in [browse.js](../static/js/browse.js) remain foundations. Make the
+  selection scope/count explicit, consider keyboard range selection, inspect
+  individual outcomes and retain refused/stale rows for safe retry. General
+  history/merge undo remains X1; do not count current merging or Trash as unmerge.
+- **F2/ME2/ME4/ME7/X4 — accessibility as a shared gate:** apply
+  [WCAG 2.2](https://www.w3.org/WAI/WCAG22/quickref/) to new preferences, cards,
+  dialogs, menus, lists and status messages, not a separate decorative redesign.
+  Check text scaling/reflow, contrast, reduced-motion preference and full
+  keyboard/screen-reader journeys. [AA target size](https://www.w3.org/WAI/WCAG22/Understanding/target-size-minimum.html)
+  is 24×24 CSS px with defined exceptions; 44×44 is the enhanced AAA criterion,
+  not the AA minimum. Give dragging/reordering and the cover slider a
+  [non-drag single-pointer alternative](https://www.w3.org/WAI/WCAG22/Understanding/dragging-movements.html)
+  as well as keyboard access. Ensure focus is not entirely hidden by author
+  content under [AA 2.4.11](https://www.w3.org/WAI/WCAG22/Understanding/focus-not-obscured-minimum.html).
+  Existing navbar geometry/browser receipts are not WCAG conformance evidence.
+
+The references establish design patterns or documented external interfaces,
+not compatibility with Shelf. Older Koillection/Zotero references and evolving
+provider documentation require version/field checks before implementation.
+All **185 original acceptance checks remain unchanged and unchecked**; new
+candidates need their own explicit acceptance criteria if selected. Existing
+tests, original data, keys, integrations, native editor fallback, complete mixed
+Browse and administrative/bulk Browse are not replaced or weakened by this list.
+
 ### Already covered: do not duplicate
 
 - Setup profiles, feature switches and grouped navigation are implemented
@@ -201,6 +315,15 @@ authorisation; additional scope still needs an explicit decision.
   separate external metadata lookup/backfill capability.
 - Vinyl/shop matching and the shared artwork chooser are implemented; **F6**
   addresses remaining provider coverage, batch workflows and collections.
+- ABS, Komga, RomM, OPDS/Jellyfin, Hardcover and MusicBrainz/Discogs already have
+  integration foundations; Steam is already **ST1**, not a newly found gap.
+- [CSV import/export](../app/routers/items_csv.py) and
+  [staged archive intake](../app/services/import_staging.py) already exist.
+  RF8 adds selected exchange formats, not another import/archive foundation.
+- Barcode/copy labels, inventory audits, valuation, overdue reminders, price
+  alerts and series release radar are existing optional capabilities recorded in
+  [the feature registry](../app/features.py). RF6/RF7 add attachments and account
+  notification state, not those systems.
 
 ### Acceptance rules for future work
 
