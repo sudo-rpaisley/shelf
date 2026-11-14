@@ -89,8 +89,10 @@ assignments, not delivered features or inherited media/navbar test results.
 The initial cover control is deliberately 50–100% of today's size, with native
 keyboard input, non-drag buttons and reset. Its reviewed, explicitly selected
 geometry retains fixed slots/columns and an 80px card floor: it shrinks cards,
-not shelf density. Integration must explain the limit and omit it for Library's
-non-card series thumbnails. It does not close above-default enlargement,
+not shelf density. Integration explains the limit and omits the control for all
+Library series views, including drilldowns. Producer wiring has bounded source
+clearance and fresh 368-unit/96-browser passes; the final test-only correction
+needs independent re-review and combined UI qualification. It does not close above-default enlargement,
 ME5/X5 account-owned persistence/CAS or cross-device privacy. The
 palette derives only from rendered authorised navigation; locating uses exact
 live copy/item IDs, bounded saved-order neighbours and truthful missing/unknown
@@ -112,23 +114,31 @@ Clean UI baselines pass 993 affected unit and 19 original navbar browser tests.
 The corrected palette component has fresh **229-unit/59-browser parent passes**
 and bounded source clearance. Real shell wiring is frozen separately for review
 and wider checks; its new standalone harness was adapted after a genuine duplicate
-fixture RED, without changing any test bodies or assertions. It is not selected
-or called complete. A clean parent baseline also confirms **five original navbar
-failures**; a bounded presentation repair is active, not a test waiver. The
+fixture RED, without changing any test bodies or assertions. Shared wiring has
+bounded source clearance and **1158 unit passes**, but the wider browser band is
+**81 passed / seven original failures**. All seven reproduce on the unchanged
+baseline: five navbar failures plus two phone checks. The bounded five-regression
+repair has source clearance and fresh original 234-unit/31-browser passes; a
+conforming phone-opener follow-up remains under contract review. Local-vector
+artwork compatibility needs a distinct validated
+source design, not an unsafe whitelist or test waiver. UI is not selected. The
 unrelated original linter's temporary-path
 assumption is qualified without changing source/assertions; earlier setup errors
 and RED evidence remain retained. No original acceptance check is closed.
 
-Next-wave architecture permits a narrowly selected **pure search-helper
-foundation**, with semantics-preserving catalogue delegation owned centrally;
-it is not indexed F1/RF3 or a schema/SQL-authority grant. Final-artwork recovery
+The narrowly selected **pure search-helper foundation and reachable catalogue
+delegation** are now on primary at `0d448bcd`, after independent source review,
+**533 final passes** and seven offline checks. All original tests/acceptance bytes
+remain unchanged. This is not indexed F1/RF3 or a schema/SQL-authority grant;
+whole-catalogue hydration persists. Final-artwork recovery
 still needs distinct commit/incarnation/lifecycle design approval. Only an additive
 six-case crash-observation packet is frozen; its fresh parent **six passes** are
 boundary evidence only, retaining the original Phase-B RED and TEMP's no-artwork
-authority. Packet-quality review remains pending. The locator and pure-helper
-follow-ups have bounded source clearance but still need parent qualification and
-central wiring. Single-item editor-dialog requirements review requires changes
-to freeze limits, stored-state/actor checks, response ownership, unknown outcomes,
+authority. Packet-quality review clears its test-only scope; the fresh original
+334 remain **333 passed / the same precommit failure**. Locator source and parent
+368-unit/39-browser checks clear only their bounded scope; shared assets/i18n and
+actual producer integration remain open. Single-item editor-dialog requirements
+review requires changes to freeze limits, stored-state/actor checks, response ownership, unknown outcomes,
 cookie-refresh privacy and artwork boundaries before assigning writers.
 
 Independent architecture, requirements, privacy and recovery audits accompany

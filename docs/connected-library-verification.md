@@ -526,7 +526,11 @@ inject fragment/assets/help marker when absent, assert singleton wiring and reta
 `app.js` → host handlers → palette order. Its unchanged targeted case passes
 **1 / 2.50 s**; all 40 component identities, test bodies, decorators, assertions
 and the controlled-UA regression remain unchanged. Independent shared-wiring
-review and fresh wider frozen gates are pending; no primary selection follows.
+review returns bounded **SOURCE_REVIEW_CLEAR**. Fresh frozen gates give **1158
+unit passes / 737.33 s** and **81 browser passes / seven failures / 261.86 s**.
+All 905 input hashes/modes and guards remain exact, with zero errors/skips or
+child attempts. All 40 component and five authenticated journeys pass, but the
+seven original browser failures remain enabled blockers; no UI primary selection.
 README's **10205 unit / 486 E2E** badges are collection counts, not pass totals.
 
 A separate clean-baseline parent run of the older original navbar file gives
@@ -539,14 +543,67 @@ quick Store link, expanded in-flow collapsible Explore and narrow-menu primary
 collapse, preserving navigation policy, the exact original 234-unit band and
 all original 12 + 19 browser cases.
 
-ME7 component `b7daa1af` has bounded source clearance; fresh parent browser checks
-pass **37 / 56.42 s** (18 component plus 19 original navbar). Unit and actual
-producer wiring qualification remain pending. The selected first increment keeps
+That writer is now frozen at `39007ccb`, reporting unchanged **234 original unit
+and 31 original browser passes**, 63 new controls and 103 ancillary unit passes.
+A fresh parent run passes **234 / 187.13 s**, separately **12 original browser /
+35.07 s**, and **19 original + 39 new browser / 77.60 s**. Independent review
+returns bounded **SOURCE_REVIEW_CLEAR**. This does not repair primary or close the
+remaining phone journey. Original-12 and layout-19 invocations stay separate to
+avoid the older settings fixture's legitimate hidden-Library state contaminating
+later HTTP fixtures. Wider worker runs retain SVG and Home overflow failures;
+no original case is removed.
+
+The wider band also finds two original connected-Library phone failures. A fresh
+clean `95ff5d63` run reproduces **both / 43.62 s** with unchanged inputs/guards and
+zero attempts: a local SVG does not render through the raster-only shared-card
+adapter, and the phone Main menu does not resolve as the expected button. The
+palette run matches all 12 navbar and both phone baseline identities/outcomes.
+The SVG case has a real contract conflict: existing unit tests explicitly reject
+raw SVG paths and fix ordinary IMG attributes, while the original browser case
+requires a genuine SVG image and an IMG shape hook. Neither test can be weakened,
+and neither SVG allowlisting nor fake artwork is authorised. A separately reviewed
+validated-source compatibility design is needed. Later account-scroll assertions
+remain unreachable and unqualified; these are not obsolete tests.
+
+The phone opener cannot be fixed by adding `role="button"` to the native first
+Summary: official HTML-ARIA prohibits that override. The proposed external real
+button also conflicts with an enabled enhanced-DOM Browse→shell adjacency check.
+Both proposals are rejected. A capability-gated real button inside the same
+shell, following its retained native Summary, is under bounded interface review;
+synthetic browser capability evidence is not application or accessibility
+qualification. No writer is reopened yet. The existing authorised nested
+`all_media` link can be named **Library**, with **All media** retained as an
+outside noninteractive description; no extra anchor or permission is approved.
+
+ME7 component `b7daa1af` has bounded source clearance; fresh parent checks pass
+**359 unit / 206.44 s** and **37 browser / 56.42 s** (18 component plus 19 original
+navbar). Actual producer wiring at `7257402a` receives bounded
+**SOURCE_REVIEW_CLEAR**, not primary selection. Predecessor `74e2ec8e` introduced four genuine original Music
+unit failures by putting control buttons inside the protected local-record root.
+The panel now sits immediately before that root; all original assertions remain
+unchanged and the same four cases pass. A fresh frozen producer/unit band now
+passes **368 / 234.25 s**, including 22 new HTTP/locale cases and the original
+Music assertions. Its browser band gives **95 passed / one new test-locator
+failure / 278.70 s**: Playwright excludes text on the `noscript` wrapper. Test-only
+`98730939` instead checks the actual visible fallback paragraph and strengthens
+native-card default sizing/focus/destination coverage. The targeted case passes;
+fresh complete gates give **368 unit / 188.06 s** and **96 browser / 271.15 s** on
+exact-tree receipt `b06b7357`. All 913 inputs/guards remain exact, zero attempts,
+errors or skips. The one-file test delta still needs independent re-review and
+the eventual combined UI tree needs fresh qualification. The selected increment keeps
 grid columns and 10rem shelf slots fixed and sizes cards to
 `min(host width, max(80px, host width × requested scale))`, 50–100%, default 100%.
 This is floor-limited shrinking, not greater density or persistence. Integration
-must explain that limit accessibly and hide the control in Library series view,
-whose direct thumbnails do not resize. No whole-ME7/account preference closure.
+must explain that limit accessibly and hide the control for every Library
+`view=series` page, including drilldowns that contain shared cards. Additive
+drilldown coverage and actual-grid/layout checks at 50%, before Reset, remain
+follow-up requirements. No whole-ME7/account preference closure.
+
+Both unchanged original Home page walks at 320/1024 pass in the cover candidate's
+96-case band. Fresh clean `95ff5d63` reproduces both Home overflow failures
+**2 failed / 116.71 s**, retaining the original screen-reader-text and shelf
+offenders. This attributes them to the unchanged baseline, not the navbar repair;
+the cover containing-block correction is qualified only on its tested candidate.
 
 Locator follow-up `995b1d37` and pure search-helper follow-up `aad34891` each
 receive independent bounded **SOURCE_REVIEW_CLEAR**, resolving their respective
@@ -554,10 +611,31 @@ confirmed defects with qualified unchanged-test RED→GREEN evidence. Locator
 preserves empty non-NULL SQLite position types rather than substituting zero;
 helpers casefold after compatibility decomposition without changing canonical or
 identifier semantics. Captured worker results are **368 unit / 39 focused browser**
-and **374 helper/reference passes**, respectively. Fresh parent checks are queued;
-their earlier reviews/passes are not transferred. Locator shared assets/i18n and
-reachable helper catalogue delegation are still absent. F1 whole-catalogue
-hydration, persistent indexing, RF3 and scale/RAM acceptance remain open.
+and **374 helper/reference passes**, respectively. Fresh parent checks independently
+pass **368 locator unit / 279.83 s**, **39 focused locator browser / 69.71 s** and
+**374 helper/reference / 248.91 s**, with exact inputs/guards and zero attempts.
+Locator shared assets/i18n remain unwired; this does not close whole RF11.
+
+**Selected primary foundation:** `0d448bcd` integrates the exact reviewed helper
+files and semantics-preserving catalogue delegation, not an index. Its two private
+wrappers forward canonical folding and retain fresh ordered mutable snapshot
+lists; the existing identifier-key binding aliases the same frozen registry.
+The initial glue mistakenly removed that binding, causing an original retained
+component assertion to fail. The strict purity guard then prevented pytest error
+reporting/JUnit: that aborted run remains explicitly unqualified. An added binding
+regression gives qualified `AttributeError` RED, then unchanged GREEN plus the
+original strict-guard case after the alias repair. No helper or original assertion
+was changed. Independent re-review clears the repaired source.
+
+Fresh final **533 passes / 235.90 s** comprise 215 helper cases, 12 glue cases and
+306 original references; all prior 374 identities/outcomes remain. Seven offline
+checks pass. All 902 primary bytes/modes match the reviewed/tested tree; the
+original 432 test files and 185 unchecked acceptance checks remain exact. Primary
+badges **10352 unit / 441 E2E** record collection only. The planner still hydrates
+the whole catalogue; forgiving matching, identifier ranking, persistent indexing,
+RF3, bounded total SQL/RAM and eventual isolated-core compatibility remain open.
+Selection receipts are `SEARCH_FOUNDATION_PRIMARY_SELECTION.json` and
+`SEARCH_FOUNDATION_FINAL_RECEIPT.json` under `.temp/implementation-wave-20261114/`.
 
 The worker's broader **228 passed / 1 failed** is retained as an initial harness
 path-format incompatibility. An original linter test expects a basename for its
@@ -966,6 +1044,18 @@ receipts or references alone cannot prove rollback. On the existing RED, later
 post-kill database/descriptor assertions are unreachable; live-cover digest
 preservation also needs stronger additive observation. No new runtime result or
 artwork-deletion permission is supplied by this diagnosis.
+
+Additive test-only `98d1313b` now has independent **TEST_PACKET_REVIEW_CLEAR** and
+fresh parent evidence: the new six cases pass **6 / 27.62 s**; separately, the
+unchanged original 334 remain **333 passed / the same precommit failure / 402.37 s**.
+All original identities/outcomes match captured worker evidence, all 839 inputs
+and guards remain exact, and no child attempts occur. The 37 submitted-I/O
+ownership cases, two named final-send cancellation cases and 31 image controls
+all pass unchanged. These are separate invocations, not a green 340-case result.
+The packet observes genuine precommit and post-SQLite-COMMIT/pre-hook boundaries,
+fresh database state, descriptors and actual cover digests before verdicts. It
+documents TEMP separation and retention; it does not repair final-artwork recovery
+or approve durable commit/incarnation/core interfaces. No productive Phase-B grant.
 
 Browser `36260af1` has bounded source clearance for all-status ownership, safe
 429 handling and falsy aborts; password receipts and current-core Store/PWA are
