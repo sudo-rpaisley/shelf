@@ -35,7 +35,7 @@ data directories and must never be seeded from the operator's live catalogue.
 | Lane | Backlog responsibility | Evidence state, not completion |
 |---|---|---|
 | Search | F1 indexing, ranking, bounded grouping/paging and scale measurements | Candidate/fix review; synthetic 31,200-record measurements |
-| Front door | F2 shelves, creators, collections, preferences and navigation; ME1–ME6 | Frozen `916a4dd6` media composition: 1935 affected passes; dialog/preferences/browser/scale gates open |
+| Front door | F2 shelves, creators, collections, preferences, navigation and cover-size slider; ME1–ME7 | Frozen `916a4dd6` media composition: 1935 affected passes; dialog/preferences/browser/scale gates open; ME7 slider not yet implemented |
 | Source jobs | F3 scheduling, progress, retry/recovery and large-source boundaries | Streaming/lease integration and runtime verification open |
 | Handoff/progress | F4 preferred source and explicitly linked account progress | Next-batch integration; scheduled-pull acceptance open |
 | Media hierarchy | F5 works/editions/copies, music and source children | Atomic child hook prepared; production composition open |
@@ -51,7 +51,7 @@ data directories and must never be seeded from the operator's live catalogue.
 | Audiobook enrichment | R7 exact-ASIN marketplace-aware review/backfill | Next-batch integration; provider-permission/coverage gate open |
 | Steam | ST1 owned library, launch/store links and reported playtime | `333289b` standalone logging remains RED; isolated host-policy `481bdab` clear; Steam unregistered |
 | Author discovery | R8 account-local following and deduplicated releases | Alias/revocation fixes; scheduler/household composition open |
-| Translation | R9 existing surfaces and new English UI, including ME1–ME6/ST1 | Bounded source gates and complete baseline ledger; final composition/language/browser acceptance open |
+| Translation | R9 existing surfaces and new English UI, including ME1–ME7/ST1 | Bounded source gates and complete baseline ledger; final composition/language/browser acceptance open |
 | National providers | R10 additional documented, permitted provider coverage | BN Poland first integration pushed; final operational gates open |
 | History/undo | General change history, supported rollback and merge snapshots | Integrity fixes and later-table registry composition open |
 | Source repair | Reviewed replacement/rebinding and non-destructive retirement | Known-schema integrated scale gate passed locally; broader authority gates open |
@@ -91,7 +91,7 @@ candidates, not used as substitutes for implementation ownership.
 
 ## Media-experience refinement (2026-11-14)
 
-The [canonical ME1–ME6/ST1 requirements](connected-library-plan.md#operator-media-experience-refinements-2026-11-14)
+The [canonical ME1–ME7/ST1 requirements](connected-library-plan.md#operator-media-experience-refinements-2026-11-14)
 require one primary Browse click to open the complete authorised mixed live
 catalogue, with nested family/format disclosure usable by hover, click/touch and
 keyboard. Remove duplicate top-level media links, not capabilities or the
@@ -105,6 +105,12 @@ with View more; and account-owned mixed/family/format/custom grouping. Shared
 partials and a media presentation registry extend the existing server-rendered
 framework, not a separate SPA. Permissions, validation, private activity,
 catalogue/copies/history, integrations, keys and original data must survive.
+
+**ME7 — cover-size slider** is a newly requested F2 backlog item, not an
+implemented control: provide live cover/card resizing, keyboard access and a
+default-size reset while preserving artwork proportions and responsive layouts.
+Persistence belongs with the existing account/device preference work. Previous
+media and navbar test results do not close this new requirement.
 
 The operator explicitly selected **Steam library, launch/store links and
 playtime**. Reported playtime remains separate source data and must never
