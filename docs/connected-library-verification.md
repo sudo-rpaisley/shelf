@@ -658,9 +658,11 @@ returns bounded **SOURCE_REVIEW_CLEAR**. New checks give **12 HTTP/unit passes /
 while at 50%, before Reset. Three initial new unit cases failed because their
 fixture called a nonexistent series-key helper; only that fixture changed to an
 explicit canonical ASCII key, retaining every assertion. Their RED is preserved.
-Series drilldowns now have explicit no-control coverage. A low proof limitation
-remains: the new geometry check should independently assert media type→shape,
-not just compare geometry with its rendered shape token.
+Series drilldowns now have explicit no-control coverage. Review identified a low
+proof limitation: geometry agreed with a rendered shape token without independently
+asserting media type→shape. Follow-up `8971dd90` adds explicit native-shape
+expectations while retaining every existing assertion and case identity; its six
+cases pass **14.17 s**, and independent re-review clears that test-only delta.
 
 Seven offline checks and four JS syntax checks pass with exact inputs/guards and
 zero attempts. **10582 unit / 583 E2E** badges are collection counts only. The
@@ -673,12 +675,31 @@ and exposes **two genuine new composition failures**: unsupported-dialog palette
 fallback expects the authorised primary Browse visible, while enhanced narrow
 navigation hides it. Earlier isolated component passes do not waive this conflict.
 
-A bounded fallback contract is under review: retain the same direct Browse anchor
-when the actual palette cannot enhance, without automatically opening menus,
-adding destinations or changing normal supported primary-collapse behaviour.
-No source repair or test migration is approved yet. The phone writer and proposed
-local-vector compatibility contract remain separate; neither has a passing final
-composition. No UI primary selection or whole-programme approval follows.
+The bounded fallback contract now has implementation-contract clearance. Frozen
+repair `9562f558` changes only palette JS/CSS plus additive tests, docs and generated
+assets. A present, complete component with unavailable native dialog support marks
+the existing navbar; scoped CSS exposes the **same** primary Browse anchor without
+opening menus. Missing/incomplete markup is not mislabeled, normal supported
+collapse remains unchanged, and successful later initialization clears the marker.
+No navigation-file, anchor, permission, request, storage or focus change is made.
+
+Both original failures pass unchanged with 18 new browser controls; independent
+review returns bounded **SOURCE_REVIEW_CLEAR**. Fresh exact frozen bands give
+**371 unit / 262.25 s**, **116 browser / 151.28 s** and, separately, **12 original
+navbar / 38.07 s**. The 116 retain all 98 earlier palette/layout/navigation IDs;
+only the two known fallback outcomes change from RED to GREEN. All 933 inputs and
+guards remain exact, zero attempts/errors/skips. Seven offline checks and four
+JS syntax checks also pass. Badges **10588 unit / 601 E2E** remain collection only.
+These are candidate-specific bands, not a replacement full-UI or pinned gate.
+
+Phone navigation and local-vector compatibility remain separate implementations,
+neither with a passing final composition. The vector contract has independent
+design clearance for a Library-only, bounded read/validate/captured-bytes source;
+it does not widen the raw SVG adapter, acquisition, API, CSP or filesystem write
+authority. A writer owns four source files and three new test modules, while all
+original rejection/raster/phone tests remain enabled and unchanged. No vector
+implementation or later Account-scroll pass is claimed yet. No UI primary
+selection or whole-programme approval follows.
 
 #### Retained early palette harness evidence
 
