@@ -4,6 +4,7 @@
 {% macro item_card(item) %}
 <div class="min-w-0 space-y-3" data-library-member="{{ item.id }}" data-matches="{{ 'true' if item.matches else 'false' }}">
     {% set card = build_media_card(item, detail_href='/item/' ~ item.id ~ '?from=library', creator_text='') %}
+    {% set validated_artwork_source = prepared_library_artwork.source_for(item.id, item.cover_path) if prepared_library_artwork is defined else none %}
     {% include "components/media_card.html" %}
     <div class="min-w-0 space-y-1">
         {% if item.subtitle %}<p class="text-sm text-shelf-muted break-words">{{ item.subtitle }}</p>{% endif %}
@@ -79,6 +80,7 @@
         <article class="rounded-xl bg-shelf-card border border-shelf-border p-4" data-library-series="{{ series.key }}">
             <a href="{{ series.url }}" class="flex gap-3 hover:text-shelf-accent2">
                 {% set card = build_media_card(series.representative) %}
+                {% set validated_artwork_source = prepared_library_artwork.source_for(series.representative.id, series.representative.cover_path) if prepared_library_artwork is defined else none %}
                 <span class="block w-12 shrink-0">{% include "components/media_artwork.html" %}</span>
                 <div>
                     <h3 class="font-semibold break-words">{{ series.name }}</h3>

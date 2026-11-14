@@ -7,14 +7,18 @@ Pages are never saved. All routes are ordinary
 cookie-session routes: viewer first, connected_library feature second.
 """
 
+import asyncio
+
+import anyio
 from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import RedirectResponse
+from starlette.concurrency import run_in_threadpool
 
 from app import config, i18n, media_type_filters
 from app.auth import require_role
 from app.database import get_db
 from app.features import require_feature
-from app.services import library_catalog
+from app.services import library_artwork, library_catalog
 
 
 router = APIRouter()
@@ -105,6 +109,33 @@ def _html_context(request: Request, context: dict) -> dict:
     }
 
 
+async def _prepared_html_context(request: Request, user: dict) -> dict:
+    context = _read_context(request, user)  # The existing DB context has exited.
+    cancellation = None
+    # Own this one operation until its physical worker has closed its FDs.
+    # AnyIO shielding handles level cancellation; asyncio.shield plus the loop
+    # also handles repeated direct Task.cancel() without abandoning the worker.
+    with anyio.CancelScope(shield=True):
+        worker = asyncio.create_task(run_in_threadpool(library_artwork.prepare_library_artwork, context))
+        while True:
+            try:
+                prepared = await asyncio.shield(worker)
+                break
+            except asyncio.CancelledError as error:
+                if worker.cancelled():
+                    raise
+                if cancellation is None:
+                    cancellation = error
+            except BaseException as error:
+                if cancellation is not None:
+                    raise cancellation from error
+                raise
+    if cancellation is not None:
+        raise cancellation
+    await anyio.lowlevel.checkpoint_if_cancelled()
+    return {**_html_context(request, context), "prepared_library_artwork": prepared}
+
+
 @router.get("/library")
 async def library_page(
     request: Request,
@@ -112,7 +143,7 @@ async def library_page(
     _=Depends(require_feature("connected_library")),
 ):
     response = request.app.state.templates.TemplateResponse(
-        request, "library.html", _html_context(request, _read_context(request, user)),
+        request, "library.html", await _prepared_html_context(request, user),
         headers={"Cache-Control": "no-store"},
     )
     if request.cookies.get(_NOTICE_COOKIE):
@@ -129,7 +160,7 @@ async def search_library(
     """HTML results fragment; its pagination links deliberately open /library."""
     return request.app.state.templates.TemplateResponse(
         request, "fragments/library_results.html",
-        _html_context(request, _read_context(request, user)),
+        await _prepared_html_context(request, user),
         headers={"Cache-Control": "no-store"},
     )
 
