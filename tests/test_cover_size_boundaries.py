@@ -4,7 +4,6 @@ from urllib.parse import urlencode
 
 import pytest
 
-from app.services import library_catalog
 from tests.conftest import _insert_item
 from tests.test_connected_layout import _Markup
 
@@ -13,7 +12,7 @@ from tests.test_connected_layout import _Markup
 def test_series_drilldown_keeps_the_declared_no_control_boundary_even_for_shared_cards(request, db, client_name):
     item = _insert_item(db, title="A series boundary", isbn=None, series_name="Series boundary")
     db.commit()
-    key = library_catalog.series_key("Series boundary")
+    key = "series boundary"  # Explicit canonical key for this ASCII fixture.
     response = request.getfixturevalue(client_name).get(
         "/library?" + urlencode({"reset": "1", "view": "series", "series": key}),
     )
