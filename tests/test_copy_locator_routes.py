@@ -283,3 +283,46 @@ def test_lone_empty_unlocated_copy_has_link_but_zero_copy_legacy_only_keeps_brow
     assert f'href="/browse?location_filter={shelf}"' in legacy_html
     assert "Find this copy" not in legacy_html
     assert item_copies.copies_for_item(db, legacy) == []
+
+
+@pytest.mark.parametrize("position,storage_class,sql_literal", [
+    pytest.param("", "text", "''", id="empty-text"),
+    pytest.param(b"", "blob", "X''", id="empty-blob"),
+])
+def test_empty_typed_position_single_copy_http_has_no_neighbours_or_duplicate_target(
+        viewer_client, db, position, storage_class, sql_literal):
+    from app.database import get_db
+
+    shelf = locations.create_location(db, "HTTP single typed copy")
+    item_id = _insert_item(db, title="Only exact typed copy", isbn=None)
+    copy_id = item_copies.insert_copy(db, {
+        "item_id": item_id, "copy_number": 1, "location_id": shelf,
+        "is_primary": 1, "position_order": position,
+    })
+    db.commit()
+    with get_db() as reopened:
+        saved = tuple(reopened.execute(
+            "SELECT position_order, typeof(position_order), quote(position_order) "
+            "FROM copies_live WHERE id = ?", (copy_id,),
+        ).fetchone())
+    print("HTTP durable SQL position oracle:", saved)
+    assert type(saved[0]) is type(position)
+    assert saved == (position, storage_class, sql_literal)
+    before = list(db.iterdump())
+
+    response = viewer_client.get(f"/item/{item_id}/copies/{copy_id}/locate", params={"at": shelf})
+
+    assert response.status_code == 200
+    context = response.context
+    print("HTTP context window IDs:", [row["copy_id"] for row in context["before"]],
+          context["target"]["copy_id"], [row["copy_id"] for row in context["after"]])
+    assert context["before"] == context["after"] == []  # not a UI-only dedup fix
+    assert context["target"]["copy_id"] == copy_id
+    assert context["target"]["position_order"] == position
+    assert type(context["target"]["position_order"]) is type(position)
+    tags = _Tags(response.text).tags
+    assert [attrs["data-locator-copy-id"] for _, attrs in tags if "data-locator-copy-id" in attrs] == [str(copy_id)]
+    assert sum("data-copy-locator-target" in attrs for _, attrs in tags) == 1
+    assert sum(attrs.get("id") == f"copy-{copy_id}" for _, attrs in tags) == 1
+    assert "No position recorded" not in response.text
+    assert list(db.iterdump()) == before

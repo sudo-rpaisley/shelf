@@ -37,8 +37,10 @@ def copy_neighbours(db, target: dict) -> dict:
     """
     if target["location_id"] is None:
         return {"before": [], "after": []}
+    # Match SQL COALESCE: non-NULL empty TEXT/BLOB values must keep their type.
     key = (
-        int(target["position_order"] is None), target["position_order"] or 0,
+        int(target["position_order"] is None),
+        0 if target["position_order"] is None else target["position_order"],
         target["title"], target["copy_number"], target["copy_id"],
     )
     result = {}

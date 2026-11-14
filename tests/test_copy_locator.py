@@ -257,3 +257,117 @@ def test_service_reads_work_with_sqlite_query_only(db):
     # Negative control proves query_only is actually preventing writes.
     with pytest.raises(sqlite3.OperationalError, match="readonly"):
         db.execute("UPDATE item_copies SET missing_since = NULL")
+
+
+@pytest.mark.parametrize("position,storage_class,sql_literal", [
+    pytest.param(0, "integer", "0", id="integer-zero"),
+    pytest.param("", "text", "''", id="empty-text"),
+    pytest.param(b"", "blob", "X''", id="empty-blob"),
+])
+def test_permissive_funnel_durably_preserves_falsey_position_storage_classes(
+        db, position, storage_class, sql_literal):
+    """Qualify the legacy-value fixtures independently of locator behaviour."""
+    from app.database import get_db
+
+    shelf = locations.create_location(db, "Durable position storage")
+    _, copy_id = _copy(db, shelf, position=position)
+    db.commit()
+    with get_db() as reopened:
+        row = reopened.execute(
+            "SELECT position_order, typeof(position_order), quote(position_order), "
+            "typeof(COALESCE(position_order, 0)), quote(COALESCE(position_order, 0)) "
+            "FROM copies_live WHERE id = ?", (copy_id,),
+        ).fetchone()
+    print("Durable SQL position/COALESCE oracle:", tuple(row))
+    assert type(row[0]) is type(position)
+    assert tuple(row) == (position, storage_class, sql_literal, storage_class, sql_literal)
+
+
+@pytest.mark.parametrize("position,storage_class,sql_literal", [
+    pytest.param("", "text", "''", id="empty-text"),
+    pytest.param(b"", "blob", "X''", id="empty-blob"),
+])
+def test_empty_typed_position_single_copy_has_no_service_neighbours(
+        db, position, storage_class, sql_literal):
+    shelf = locations.create_location(db, "Only one typed copy")
+    item_id, copy_id = _copy(db, shelf, position=position)
+    db.commit()
+    saved = tuple(db.execute(
+        "SELECT position_order, typeof(position_order), quote(position_order) "
+        "FROM copies_live WHERE id = ?", (copy_id,),
+    ).fetchone())
+    assert saved == (position, storage_class, sql_literal)
+    assert type(saved[0]) is type(position)
+    db.execute("PRAGMA query_only = ON")
+    recorder = _RecordingDB(db)
+    changes_before = db.total_changes
+
+    context = copy_locator.locate_copy(recorder, item_id, copy_id)
+
+    print("Saved SQL position oracle:", saved)
+    print("Service window IDs:", _ids(context["before"]), copy_id, _ids(context["after"]))
+    assert context["before"] == context["after"] == []
+    assert context["target"]["copy_id"] == copy_id
+    assert type(context["target"]["position_order"]) is type(position)
+    assert context["target"]["position_order"] == position
+    assert len(recorder.calls) == 4
+    assert sum(call["rows"] for call in recorder.calls) == 2  # target + location only
+    for call in recorder.calls[-2:]:
+        assert len(call["parameters"]) == 7 and call["parameters"][-1] == 3
+        assert type(call["parameters"][2]) is type(position)
+        assert call["parameters"][2] == position
+    assert db.total_changes == changes_before
+    assert tuple(db.execute(
+        "SELECT position_order, typeof(position_order), quote(position_order) "
+        "FROM copies_live WHERE id = ?", (copy_id,),
+    ).fetchone()) == saved
+
+
+def test_mixed_storage_class_windows_match_original_literal_native_sql_order(db):
+    """Oracle is the original pre-locator SQL, not the shared order constant."""
+    shelf = locations.create_location(db, "Mixed native values")
+    specs = [
+        (None, "a", 1, "null"), (0, "Zero", 1, "integer"),
+        (-7, "Negative", 1, "integer"), (3, "Tie", 2, "integer"),
+        (2.5, "Real", 1, "real"), ("", "Empty", 1, "text"),
+        (b"", "Empty blob", 1, "blob"), ("legacy", "Text", 1, "text"),
+        (b"\x00\x01", "Blob", 1, "blob"), (3, "tie", 1, "integer"),
+        (3, "TIE", 1, "integer"), (3, "tie", 1, "integer"),
+        (None, "A", 2, "null"), (-0.5, "Negative real", 1, "real"),
+        (12, "Positive", 1, "integer"),
+    ]
+    pairs = [_copy(db, shelf, position=p, title=t, number=n) for p, t, n, _ in specs]
+    db.commit()
+    oracle = db.execute(
+        "SELECT c.id AS copy_id, c.item_id, c.position_order, "
+        "typeof(c.position_order) AS storage_class, quote(c.position_order) AS sql_literal "
+        "FROM copies_live c JOIN items_live i ON i.id = c.item_id "
+        "WHERE c.location_id = ? "
+        "ORDER BY CASE WHEN c.position_order IS NULL THEN 1 ELSE 0 END, "
+        "c.position_order, i.title COLLATE NOCASE, c.copy_number, c.id",
+        (shelf,),
+    ).fetchall()
+    by_id = {row["copy_id"]: row for row in oracle}
+    for (_, copy_id), (position, _, _, storage_class) in zip(pairs, specs):
+        assert type(by_id[copy_id]["position_order"]) is type(position)
+        assert by_id[copy_id]["position_order"] == position
+        assert by_id[copy_id]["storage_class"] == storage_class
+    print("Original literal native SQL oracle:",
+          [(row["copy_id"], row["storage_class"], row["sql_literal"]) for row in oracle])
+    # Independent expected storage-class ordering, with NOCASE/number/ID ties.
+    indexes = [2, 13, 1, 4, 9, 10, 11, 3, 14, 5, 7, 6, 8, 0, 12]
+    expected = [pairs[index][1] for index in indexes]
+    assert _ids(oracle) == expected
+    assert _ids(location_order.direct_copies(db, shelf)) == expected
+    changes_before = db.total_changes
+    for index, row in enumerate(oracle):
+        context = copy_locator.locate_copy(db, row["item_id"], row["copy_id"])
+        assert context["target"]["position_order"] == row["position_order"]
+        assert type(context["target"]["position_order"]) is type(row["position_order"])
+        assert _ids(context["before"]) == expected[max(0, index - 3):index]
+        assert _ids(context["after"]) == expected[index + 1:index + 4]
+        neighbours = _ids(context["before"]) + _ids(context["after"])
+        assert row["copy_id"] not in neighbours
+        window = _ids(context["before"]) + [row["copy_id"]] + _ids(context["after"])
+        assert len(window) == len(set(window)) <= 7
+    assert db.total_changes == changes_before
