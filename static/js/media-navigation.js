@@ -116,7 +116,10 @@
         const quick = details => details.getAttribute('data-nav-group') === 'explore';
         let shellButton = null;
         let processedShellOpen = shell.open;
+        let lastOpenerFocus = null;
+        let layoutDesktop = desktop.matches;
         const opener = details => details === shell && shellButton ? shellButton : summary(details);
+        const desktopFocus = () => browse ? summary(browse) : primary || root.querySelector('a[href="/"]');
 
         function sync(details) {
             summary(details).setAttribute('aria-expanded', String(details.open));
@@ -170,8 +173,12 @@
         }
 
         shellButton = replaceShellOpener(shell, function () {
+            const hadFocus = document.activeElement === shellButton;
             shell.open = !shell.open;
             toggled(shell);
+            // Reopening a closed desktop shell hides its opener in favor of
+            // the visible row. Keep a real user's focus in that row.
+            if (hadFocus && desktop.matches && shell.open) desktopFocus().focus();
         });
 
         for (const details of disclosures) {
@@ -225,6 +232,7 @@
         });
 
         document.addEventListener('pointerdown', function (event) {
+            if (!main.contains(event.target)) lastOpenerFocus = null;
             returnShellFocus = !desktop.matches && (document.activeElement === primary || shell.contains(document.activeElement))
                 && !main.contains(event.target);
             if (!main.contains(event.target)) close(shell);
@@ -237,15 +245,22 @@
         });
         root.addEventListener('focusin', function (event) {
             lastTreeFocus = tree && tree.contains(event.target) ? event.target : null;
+            lastOpenerFocus = event.target === opener(shell) ? event.target : null;
         });
         root.addEventListener('focusout', function (event) {
+            if (event.relatedTarget && event.relatedTarget !== opener(shell)) lastOpenerFocus = null;
             if (event.relatedTarget && !shell.contains(event.relatedTarget)) lastTreeFocus = null;
             if (!main.contains(event.relatedTarget)) close(shell);
         });
 
         function layout() {
             const active = document.activeElement;
-            const hadFocus = shell.contains(active) || active === primary;
+            // CSS can hide the open-shell button before matchMedia dispatches
+            // change, leaving body focused. Remember that genuine opener focus
+            // across the seam, but never a deliberate outside focus/click.
+            const hadFocus = shell.contains(active) || active === primary
+                || (desktop.matches !== layoutDesktop && lastOpenerFocus && active === document.body);
+            layoutDesktop = desktop.matches;
             close(shell);
             shell.open = desktop.matches;
             processedShellOpen = shell.open;
@@ -254,9 +269,12 @@
                 // An explicit empty nav context has no Browse/primary link.
                 // Keep focus visible on the existing brand, without inventing tabs.
                 const target = desktop.matches
-                    ? (active === primary ? primary : browse ? summary(browse) : primary || root.querySelector('a[href="/"]'))
+                    ? (active === primary ? primary : desktopFocus())
                     : opener(shell);
-                if (target) target.focus();
+                if (target) {
+                    target.focus();
+                    lastOpenerFocus = target === opener(shell) ? target : null;
+                }
             }
         }
         desktop.addEventListener('change', layout);

@@ -634,6 +634,7 @@ def test_phone_actual_programmatic_toggles_and_focus_return_use_the_correct_open
         expect(button).to_have_attribute("aria-expanded", "true")
         expect(tree).to_be_visible()
         expect(page.get_by_role("button", name="Main menu", exact=True)).to_have_count(0)
+        expect(page.locator('[data-nav-browse] > summary')).to_be_focused()
         primary.focus()
         page.set_viewport_size({"width": 1023, "height": 900})
         expect(button).to_be_focused()
