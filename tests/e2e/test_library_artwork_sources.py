@@ -83,7 +83,14 @@ def test_real_validated_images_decode_exactly_once_with_native_shapes_under_exis
         assert measure['contentWidth'] <= measure['width'] + 1 and measure['contentHeight'] <= measure['height'] + 1
         if media_type == 'vinyl':
             assert abs(measure['width'] - measure['height']) <= 1
-            assert measure['width'] >= 48
+            if view == 'series':
+                # The existing series thumbnail is w-12 (48px), with a 1px
+                # border on each side. Its contained IMG is therefore 46px.
+                box = member.locator('.media-artwork').bounding_box()
+                assert box['width'] == 48 and box['height'] == 48
+                assert measure['width'] == box['width'] - 2
+            else:
+                assert measure['width'] >= 48
             assert measure['contentWidth'] < measure['width']
         metrics.append({'id': item_id, 'media_type': media_type, 'shape': shape, **measure})
         assert (server['data_dir'] / 'covers' / name).read_bytes() == content
