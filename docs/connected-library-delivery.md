@@ -92,7 +92,8 @@ geometry retains fixed slots/columns and an 80px card floor: it shrinks cards,
 not shelf density. Integration explains the limit and omits the control for all
 Library series views, including drilldowns. Producer wiring has bounded source
 clearance and fresh 368-unit/96-browser passes; the final test-only correction
-needs independent re-review and combined UI qualification. It does not close above-default enlargement,
+also has source clearance. Combined UI qualification remains open. It does not
+close above-default enlargement,
 ME5/X5 account-owned persistence/CAS or cross-device privacy. The
 palette derives only from rendered authorised navigation; locating uses exact
 live copy/item IDs, bounded saved-order neighbours and truthful missing/unknown
@@ -119,7 +120,7 @@ bounded source clearance and **1158 unit passes**, but the wider browser band is
 **81 passed / seven original failures**. All seven reproduce on the unchanged
 baseline: five navbar failures plus two phone checks. The bounded five-regression
 repair has source clearance and fresh original 234-unit/31-browser passes; a
-conforming phone-opener follow-up remains under contract review. Local-vector
+conforming phone-opener follow-up is assigned after bounded contract clearance. Local-vector
 artwork compatibility needs a distinct validated
 source design, not an unsafe whitelist or test waiver. UI is not selected. The
 unrelated original linter's temporary-path
@@ -136,10 +137,21 @@ six-case crash-observation packet is frozen; its fresh parent **six passes** are
 boundary evidence only, retaining the original Phase-B RED and TEMP's no-artwork
 authority. Packet-quality review clears its test-only scope; the fresh original
 334 remain **333 passed / the same precommit failure**. Locator source and parent
-368-unit/39-browser checks clear only their bounded scope; shared assets/i18n and
-actual producer integration remain open. Single-item editor-dialog requirements
+368-unit/39-browser checks clear only their bounded scope; actual shared
+asset/i18n producer integration is qualified only in the unselected candidate
+below. Single-item editor-dialog requirements
 review requires changes to freeze limits, stored-state/actor checks, response ownership, unknown outcomes,
 cookie-refresh privacy and artwork boundaries before assigning writers.
+
+The first combined search/UI/locator candidate `cfffa6dc` now has bounded shared
+wiring source clearance, **12 new HTTP/unit and 15 new real-browser passes**, and
+eleven offline/syntax checks. Its wider browser gate is **178 passed / four
+failed**, with the separate original-navbar 12 passing. Two retained phone
+failures remain, and two unsupported-dialog palette fallback failures are genuine
+composition regressions—not test waivers. The wider unit gate passes **1704**. The
+same navigation writer is implementing the reviewed genuine-button contract;
+palette fallback and safe existing-local-vector contracts are under independent
+review. Original tests remain unchanged and enabled; UI is still unselected.
 
 Independent architecture, requirements, privacy and recovery audits accompany
 implementation. Additional reviewers/testers are assigned to completed
