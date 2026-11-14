@@ -1,11 +1,24 @@
 {% extends "base.html" %}
+{% set library_presentation_mode = 'phone-wrap-v1' %}
+{% set library_explanations_hosted = true %}
 {% block title %}{{ _('Library') }} — Shelf{% endblock %}
+{% block head %}<link rel="stylesheet" href="/static/css/library-presentation.source.css">{% endblock %}
+{% macro library_help() -%}
+<details class="library-phone-help" data-library-help="phone-wrap-v1">
+    <summary class="cursor-pointer text-sm font-medium">{{ _('About this Library')|forceescape }}</summary>
+    <div class="space-y-2 mt-2 text-xs text-shelf-muted">
+        <p class="text-sm">{{ _('Your local catalogue, physical copies and synced digital holdings in one place.')|forceescape }}</p>
+        {% if filters.view != 'series' %}<p id="library-cover-size-description">{{ _('Percentages request a card size, not more cards per row. Small cards stop shrinking to keep text readable.')|forceescape }}</p>{% endif %}
+        <p>{{ _('Availability uses local copies and cached source records, not a live connection check. All filters must match the same item; source and availability must match the same holding.')|forceescape }}</p>
+        {% if result_kind == 'groups' and groups %}<p>{{ _('Groups use explicit format links only. Every live edition is shown, including editions that do not match your filters.')|forceescape }}</p>{% endif %}
+    </div>
+</details>
+{%- endmacro %}
 {% block content %}
-<div class="page-layout space-y-6" data-testid="library-page">
-    <header class="flex flex-wrap items-start justify-between gap-4">
+<div class="page-layout space-y-6" data-testid="library-page" data-library-presentation="phone-wrap-v1">
+    <header class="library-phone-heading flex flex-wrap items-start justify-between gap-4">
         <div>
             <h1 class="text-2xl font-bold">{{ _('Library') }}</h1>
-            <p class="text-sm text-shelf-muted mt-1">{{ _('Your local catalogue, physical copies and synced digital holdings in one place.') }}</p>
         </div>
         {% if feature_on('connected_library') and user %}
         <nav aria-label="{{ _('Connected library') }}" class="flex flex-wrap gap-4 text-sm">
@@ -17,16 +30,22 @@
     </header>
 
     {% if filters.view != 'series' %}
-    {% with cover_size_description_id='library-cover-size-description' %}{% include "fragments/cover_size_panel.html" %}{% endwith %}
+    <div role="group" aria-label="{{ _('Cover size')|forceescape }}"
+         aria-describedby="library-cover-size-description" data-cover-size-panel data-library-presentation-tools="phone-wrap-v1">
+        {% include "fragments/cover_size_control.html" %}
+        {{ library_help() }}
+    </div>
+    {% else %}
+    {{ library_help() }}
     {% endif %}
 
     {% if notice %}<p role="status" class="rounded-lg border border-shelf-border bg-shelf-card p-3 text-sm">{{ _(notice) }}</p>{% endif %}
 
-    <nav aria-label="{{ _('Library presets') }}" class="flex flex-wrap gap-2">
+    <nav aria-label="{{ _('Library presets') }}" class="library-phone-presets flex flex-wrap gap-2">
         {% for preset in presets %}<a href="{{ preset.url }}" class="px-3 py-2 rounded-lg bg-shelf-card border border-shelf-border text-sm hover:text-shelf-accent2">{{ _(preset.label) }}</a>{% endfor %}
     </nav>
 
-    <form method="get" action="/library" class="rounded-xl border border-shelf-border bg-shelf-card p-4 space-y-4" role="search" data-testid="library-filters">
+    <form method="get" action="/library" class="library-phone-filters rounded-xl border border-shelf-border bg-shelf-card p-4 space-y-4" role="search" data-testid="library-filters">
         {% if saved_view %}<input type="hidden" name="saved_view" value="{{ saved_view.id }}">{% endif %}
         <input type="hidden" name="types" value="{{ filters.types }}">
         <div>
@@ -117,7 +136,7 @@
         </details>
     </form>
 
-    <details class="rounded-xl border border-shelf-border bg-shelf-card p-4" data-testid="library-saved-views">
+    <details class="library-phone-saved rounded-xl border border-shelf-border bg-shelf-card p-4" data-testid="library-saved-views">
         <summary class="cursor-pointer font-medium">{{ _('Personal saved views') }}{% if saved_view %} · {{ saved_view.name }}{% endif %}</summary>
         <div class="mt-4 space-y-4">
             <p class="text-sm text-shelf-muted">{{ _('Saved views belong to your account. Saving an existing name replaces its filters.') }}</p>

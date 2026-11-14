@@ -1,0 +1,73 @@
+/* Explicit Library presentation, never a new default for shared cards. The
+   direct link supports an old cached bundle; the same rules are also bundled.
+   Both page AND member markers are mandatory for every card formatting rule. */
+[data-library-presentation="phone-wrap-v1"] .library-phone-help > summary {
+    min-block-size: 2.5rem;
+    padding-block: 0.5rem;
+}
+
+@media (max-width: 47.999rem) {
+    [data-library-presentation="phone-wrap-v1"] > :not(:last-child) {
+        margin-block-end: 0.25rem;
+    }
+    [data-library-presentation="phone-wrap-v1"] .library-phone-heading {
+        align-items: center;
+        gap: 0.25rem 0.5rem;
+    }
+    [data-library-presentation="phone-wrap-v1"] .library-phone-heading > nav {
+        gap: 0.25rem 0.5rem;
+    }
+    [data-library-presentation="phone-wrap-v1"] [data-library-presentation-tools="phone-wrap-v1"] .cover-size-control {
+        gap: 0.25rem;
+    }
+    /* Group noninteractive label/output/note above the native range/buttons.
+       The actual input then button focus order is unchanged. Preserve every
+       80px floor; real flex wrapping handles narrower or enlarged text. */
+    [data-library-presentation="phone-wrap-v1"] [data-library-presentation-tools="phone-wrap-v1"] .cover-size-control__range { display: contents; }
+    [data-library-presentation="phone-wrap-v1"] [data-library-presentation-tools="phone-wrap-v1"] .cover-size-control__range > span { order: 1; }
+    [data-library-presentation="phone-wrap-v1"] [data-library-presentation-tools="phone-wrap-v1"] .cover-size-control__output { order: 2; }
+    [data-library-presentation="phone-wrap-v1"] [data-library-presentation-tools="phone-wrap-v1"] .cover-size-control__note {
+        order: 3;
+        flex: 1 1 auto;
+    }
+    [data-library-presentation="phone-wrap-v1"] [data-library-presentation-tools="phone-wrap-v1"] input[data-cover-size-input] {
+        order: 4;
+        flex: 1 1 80px;
+        width: 80px;
+    }
+    [data-library-presentation="phone-wrap-v1"] [data-library-presentation-tools="phone-wrap-v1"] .cover-size-control__choices { order: 5; gap: 0.25rem; }
+    [data-library-presentation="phone-wrap-v1"] [data-library-presentation-tools="phone-wrap-v1"] .cover-size-control > noscript { order: 6; flex-basis: 100%; }
+    [data-library-presentation="phone-wrap-v1"] .library-phone-filters { padding: 0.5rem 0.75rem; }
+    [data-library-presentation="phone-wrap-v1"] .library-phone-filters > :not(:last-child) { margin-block-end: 0.5rem; }
+    [data-library-presentation="phone-wrap-v1"] .library-phone-saved { padding: 0.5rem 0.75rem; }
+    [data-library-presentation="phone-wrap-v1"] #library-results > :not(:last-child) { margin-block-end: 0.5rem; }
+
+    /* A member establishes the sole wrapping boundary. Flex formatting on the
+       inner card would isolate following metadata from its floated artwork.
+       Keep the card a REAL block with its existing width/host/scale rules. */
+    [data-library-presentation="phone-wrap-v1"] [data-library-member-presentation="phone-wrap-v1"] {
+        display: flow-root;
+        overflow-wrap: anywhere;
+    }
+    [data-library-presentation="phone-wrap-v1"] [data-library-member-presentation="phone-wrap-v1"] > :not(:last-child) { margin-block-end: 0.25rem; }
+    [data-library-presentation="phone-wrap-v1"] [data-library-member-presentation="phone-wrap-v1"] .media-card { display: block; }
+    [data-library-presentation="phone-wrap-v1"] [data-library-member-presentation="phone-wrap-v1"] .media-artwork {
+        float: inline-start;
+        width: min(30%, 6rem);
+        margin-inline-end: 0.75rem;
+        margin-block-end: 0.5rem;
+    }
+    [data-library-presentation="phone-wrap-v1"] [data-library-member-presentation="phone-wrap-v1"] .media-card__title { margin-block-start: 0; }
+    [data-library-presentation="phone-wrap-v1"] [data-library-member-presentation="phone-wrap-v1"] .library-phone-facts > span:not(:last-child) { margin-inline-end: 0.5rem; }
+    [data-library-presentation="phone-wrap-v1"] [data-library-member-presentation="phone-wrap-v1"] > ul { clear: both; }
+    [data-library-presentation="phone-wrap-v1"] [data-library-member-presentation="phone-wrap-v1"]:focus-within {
+        outline: 2px solid var(--color-shelf-accent2, #818cf8);
+        outline-offset: 2px;
+        border-radius: 0.5rem;
+    }
+}
+
+@media print {
+    [data-library-presentation="phone-wrap-v1"] [data-library-help="phone-wrap-v1"],
+    [data-library-presentation="phone-wrap-v1"] [data-library-member-presentation="phone-wrap-v1"] { break-inside: avoid; }
+}

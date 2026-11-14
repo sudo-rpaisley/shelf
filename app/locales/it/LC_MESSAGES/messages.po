@@ -3,7 +3,7 @@
 msgid ""
 msgstr ""
 "Report-Msgid-Bugs-To: andrea@bergamasco.me\n"
-"PO-Revision-Date: 2026-11-14 20:53+0000\n"
+"PO-Revision-Date: 2026-11-14 23:26+0000\n"
 "Last-Translator: Andrea Bergamasco\n"
 "Language: it\n"
 "Language-Team: Italian\n"
@@ -101,7 +101,7 @@ msgstr "ISBN/UPC"
 msgid "Tags"
 msgstr "Tag"
 
-#: app/browse_filters.py:227 app/templates/library.html:36
+#: app/browse_filters.py:227 app/templates/library.html:55
 msgid "Search"
 msgstr "Ricerca"
 
@@ -115,7 +115,7 @@ msgstr ""
 msgid "Source"
 msgstr "Origine"
 
-#: app/browse_filters.py:232 app/templates/library.html:99
+#: app/browse_filters.py:232 app/templates/library.html:118
 msgid "Sort"
 msgstr "Ordinamento"
 
@@ -283,7 +283,7 @@ msgstr "Periodici"
 
 #: app/nav.py:40 app/nav.py:61 app/nav.py:63 app/nav.py:65 app/nav.py:67
 #: app/nav.py:69 app/nav.py:71 app/nav.py:73 app/nav.py:243
-#: app/templates/library.html:2 app/templates/library.html:7
+#: app/templates/library.html:4 app/templates/library.html:21
 msgid "Library"
 msgstr "Biblioteca"
 
@@ -315,7 +315,7 @@ msgstr "Scopri"
 msgid "Stats"
 msgstr "Statistiche"
 
-#: app/nav.py:54 app/templates/home.html:13 app/templates/library.html:13
+#: app/nav.py:54 app/templates/home.html:13 app/templates/library.html:26
 msgid "My Activity"
 msgstr ""
 
@@ -334,7 +334,7 @@ msgid "Source progress"
 msgstr ""
 
 #: app/nav.py:60 app/templates/fragments/unsupported_title_search.html:6
-#: app/templates/home.html:93 app/templates/library.html:12
+#: app/templates/home.html:93 app/templates/library.html:25
 msgid "Sources"
 msgstr ""
 
@@ -342,7 +342,7 @@ msgstr ""
 msgid "Source repair"
 msgstr ""
 
-#: app/nav.py:64 app/templates/home.html:98 app/templates/library.html:14
+#: app/nav.py:64 app/templates/home.html:98 app/templates/library.html:27
 msgid "Needs Attention"
 msgstr ""
 
@@ -382,7 +382,7 @@ msgstr ""
 msgid "Explore"
 msgstr ""
 
-#: app/nav.py:335 app/templates/library.html:56
+#: app/nav.py:335 app/templates/library.html:75
 msgid "All media"
 msgstr ""
 
@@ -671,7 +671,7 @@ msgstr ""
 msgid "Individual items"
 msgstr ""
 
-#: app/routers/library.py:98 app/templates/library.html:60
+#: app/routers/library.py:98 app/templates/library.html:79
 msgid "Local series"
 msgstr ""
 
@@ -1216,7 +1216,7 @@ msgstr ""
 
 #: app/services/library_catalog.py:44 app/services/library_catalog.py:57
 #: app/templates/fragments/available_here.html:40
-#: app/templates/fragments/library_results.html:2
+#: app/templates/fragments/library_results.html:4
 #: app/templates/fragments/source_migration_openings.html:3
 #: app/templates/source_detail.html:73
 msgid "Available"
@@ -1232,7 +1232,7 @@ msgstr ""
 
 #: app/services/library_catalog.py:46 app/services/library_catalog.py:58
 #: app/templates/fragments/available_here.html:40
-#: app/templates/fragments/library_results.html:2
+#: app/templates/fragments/library_results.html:4
 msgid "Lent out"
 msgstr ""
 
@@ -1261,8 +1261,8 @@ msgstr "Tutti"
 #: app/templates/fragments/filter_counts_oob.html:28
 #: app/templates/fragments/item_card.html:7
 #: app/templates/fragments/item_row.html:51
-#: app/templates/fragments/library_results.html:18 app/templates/home.html:127
-#: app/templates/item_detail.html:66 app/templates/library.html:87
+#: app/templates/fragments/library_results.html:27 app/templates/home.html:127
+#: app/templates/item_detail.html:66 app/templates/library.html:106
 msgid "Wishlist"
 msgstr "Lista desideri"
 
@@ -1865,8 +1865,8 @@ msgstr "Nessuna posizione"
 
 #: app/templates/browse.html:235
 #: app/templates/fragments/filter_counts_oob.html:27
-#: app/templates/fragments/library_results.html:17
-#: app/templates/library.html:82
+#: app/templates/fragments/library_results.html:26
+#: app/templates/library.html:101
 msgid "Owned"
 msgstr "Posseduti"
 
@@ -2341,7 +2341,7 @@ msgstr "Modifica"
 msgid "Add another like this"
 msgstr "Aggiungine un altro simile"
 
-#: app/templates/item_detail.html:330 app/templates/library.html:139
+#: app/templates/item_detail.html:330 app/templates/library.html:158
 msgid "Delete"
 msgstr "Elimina"
 
@@ -2468,30 +2468,55 @@ msgid "Tags save as you add or remove them."
 msgstr "I tag si salvano mentre li aggiungi o li rimuovi."
 
 #: app/templates/library.html:8
+msgid "About this Library"
+msgstr "Informazioni sulla libreria"
+
+#: app/templates/library.html:10
 msgid "Your local catalogue, physical copies and synced digital holdings in one place."
 msgstr ""
 
+#: app/templates/fragments/cover_size_panel.html:5
 #: app/templates/library.html:11
+msgid "Percentages request a card size, not more cards per row. Small cards stop shrinking to keep text readable."
+msgstr "Le percentuali indicano la dimensione richiesta delle schede, non più schede per riga. Le schede piccole smettono di ridursi per mantenere il testo leggibile."
+
+#: app/templates/fragments/library_results.html:56
+#: app/templates/library.html:12
+msgid "Availability uses local copies and cached source records, not a live connection check. All filters must match the same item; source and availability must match the same holding."
+msgstr ""
+
+#: app/templates/fragments/library_results.html:65
+#: app/templates/library.html:13
+msgid "Groups use explicit format links only. Every live edition is shown, including editions that do not match your filters."
+msgstr ""
+
+#: app/templates/library.html:24
 msgid "Connected library"
 msgstr ""
 
-#: app/templates/library.html:25
+#: app/templates/fragments/cover_size_control.html:7
+#: app/templates/fragments/cover_size_panel.html:2
+#: app/templates/library.html:33
+msgid "Cover size"
+msgstr "Dimensione delle copertine"
+
+#: app/templates/library.html:44
 msgid "Library presets"
 msgstr ""
 
-#: app/templates/library.html:33
+#: app/templates/library.html:52
 msgid "Search your library"
 msgstr ""
 
-#: app/templates/library.html:35
+#: app/templates/library.html:54
 msgid "Title, creator, ISBN, UPC, ASIN, narrator, series, publisher, tag or external ID"
 msgstr ""
 
-#: app/templates/library.html:44
+#: app/templates/library.html:63
 msgid "Filters and display"
 msgstr ""
 
-#: app/templates/library.html:45
+#: app/templates/library.html:64
 #, python-format
 msgid "%(count)s active option"
 msgid_plural "%(count)s active options"
@@ -2503,117 +2528,117 @@ msgstr[1] ""
 #: app/templates/fragments/music_matching.html:70
 #: app/templates/fragments/music_matching.html:124
 #: app/templates/fragments/related_media_search.html:15
-#: app/templates/library.html:48 app/templates/music.html:4
+#: app/templates/library.html:67 app/templates/music.html:4
 #: app/templates/music.html:35
 msgid "Format"
 msgstr "Formato"
 
-#: app/templates/library.html:50
+#: app/templates/library.html:69
 msgid "All formats"
 msgstr ""
 
-#: app/templates/library.html:54
+#: app/templates/library.html:73
 msgid "Media family"
 msgstr ""
 
-#: app/templates/library.html:62
+#: app/templates/library.html:81
 msgid "All series"
 msgstr ""
 
-#: app/templates/library.html:67
+#: app/templates/library.html:86
 msgid "Holding source"
 msgstr ""
 
-#: app/templates/library.html:69
+#: app/templates/library.html:88
 msgid "All sources"
 msgstr ""
 
-#: app/templates/library.html:70
+#: app/templates/library.html:89
 msgid "disabled; cached"
 msgstr ""
 
-#: app/templates/library.html:71
+#: app/templates/library.html:90
 msgid "Selected source is unavailable"
 msgstr ""
 
-#: app/templates/library.html:74
+#: app/templates/library.html:93
 msgid "Availability"
 msgstr ""
 
-#: app/templates/library.html:79
+#: app/templates/library.html:98
 msgid "Catalogue ownership"
 msgstr ""
 
-#: app/templates/library.html:81
+#: app/templates/library.html:100
 msgid "Any ownership"
 msgstr ""
 
-#: app/templates/library.html:83
+#: app/templates/library.html:102
 msgid "Not owned"
 msgstr ""
 
-#: app/templates/library.html:84
+#: app/templates/library.html:103
 msgid "Neither owned nor wishlisted"
 msgstr ""
 
-#: app/templates/library.html:89
+#: app/templates/library.html:108
 msgid "Any wishlist state"
 msgstr ""
 
-#: app/templates/library.html:90
+#: app/templates/library.html:109
 msgid "On wishlist"
 msgstr ""
 
-#: app/templates/library.html:91
+#: app/templates/library.html:110
 msgid "Not on wishlist"
 msgstr ""
 
-#: app/templates/library.html:94
+#: app/templates/library.html:113
 msgid "View"
 msgstr ""
 
-#: app/templates/library.html:104
+#: app/templates/library.html:123
 msgid "Results per page"
 msgstr ""
 
-#: app/templates/library.html:112
+#: app/templates/library.html:131
 msgid "Apply filters"
 msgstr ""
 
-#: app/templates/library.html:113
+#: app/templates/library.html:132
 msgid "Clear filters"
 msgstr ""
 
-#: app/templates/library.html:114
+#: app/templates/library.html:133
 msgid "Ownership alone does not mean a physical copy is on a shelf."
 msgstr ""
 
-#: app/templates/library.html:121
+#: app/templates/library.html:140
 msgid "Personal saved views"
 msgstr ""
 
-#: app/templates/library.html:123
+#: app/templates/library.html:142
 msgid "Saved views belong to your account. Saving an existing name replaces its filters."
 msgstr ""
 
-#: app/templates/library.html:127
+#: app/templates/library.html:146
 msgid "View name"
 msgstr ""
 
-#: app/templates/library.html:130
+#: app/templates/library.html:149
 msgid "Save current view"
 msgstr ""
 
-#: app/templates/library.html:139
+#: app/templates/library.html:158
 #, python-format
 msgid "Delete saved view: %(name)s"
 msgstr ""
 
-#: app/templates/library.html:144
+#: app/templates/library.html:163
 msgid "No personal views saved yet."
 msgstr ""
 
-#: app/templates/library.html:145
+#: app/templates/library.html:164
 #, python-format
 msgid "Up to %(count)s saved views per account."
 msgstr ""
@@ -3145,7 +3170,7 @@ msgid "Linked"
 msgstr ""
 
 #: app/templates/fragments/available_here.html:40
-#: app/templates/fragments/library_results.html:2
+#: app/templates/fragments/library_results.html:4
 #: app/templates/fragments/source_migration_openings.html:3
 #: app/templates/source_detail.html:18 app/templates/source_detail.html:73
 #: app/templates/sources.html:44
@@ -3270,7 +3295,7 @@ msgstr ""
 
 #: app/templates/fragments/available_here.html:40
 #: app/templates/fragments/item_editor_common_fields.html:39
-#: app/templates/fragments/library_results.html:2
+#: app/templates/fragments/library_results.html:4
 #: app/templates/fragments/metadata_provenance.html:24
 #: app/templates/fragments/source_migration_openings.html:3
 #: app/templates/source_detail.html:73
@@ -3971,7 +3996,7 @@ msgid "My linked progress accounts, pull, conflicts and history"
 msgstr ""
 
 #: app/templates/fragments/available_here.html:40
-#: app/templates/fragments/library_results.html:2
+#: app/templates/fragments/library_results.html:4
 msgid "Missing"
 msgstr ""
 
@@ -4188,11 +4213,6 @@ msgstr "Carica"
 msgid "Remove cover"
 msgstr "Rimuovi copertina"
 
-#: app/templates/fragments/cover_size_control.html:7
-#: app/templates/fragments/cover_size_panel.html:2
-msgid "Cover size"
-msgstr "Dimensione delle copertine"
-
 #: app/templates/fragments/cover_size_control.html:12
 msgid "Smaller"
 msgstr "Riduci"
@@ -4212,10 +4232,6 @@ msgstr "Solo per questa pagina; non viene salvato."
 #: app/templates/fragments/cover_size_control.html:17
 msgid "Enable JavaScript to change cover size."
 msgstr "Abilita JavaScript per modificare la dimensione delle copertine."
-
-#: app/templates/fragments/cover_size_panel.html:5
-msgid "Percentages request a card size, not more cards per row. Small cards stop shrinking to keep text readable."
-msgstr "Le percentuali indicano la dimensione richiesta delle schede, non più schede per riga. Le schede piccole smettono di ridursi per mantenere il testo leggibile."
 
 #: app/templates/fragments/dvd_search_results.html:38
 #, python-format
@@ -4526,121 +4542,115 @@ msgstr "Inizia a scansionare i libri"
 msgid "+ tag"
 msgstr "+ tag"
 
-#: app/templates/fragments/library_results.html:14
+#: app/templates/fragments/library_results.html:17
+#: app/templates/fragments/library_results.html:22
 msgid "Matches filters"
 msgstr ""
 
-#: app/templates/fragments/library_results.html:14
+#: app/templates/fragments/library_results.html:17
+#: app/templates/fragments/library_results.html:22
 msgid "Other format — does not match filters"
 msgstr ""
 
-#: app/templates/fragments/library_results.html:19
+#: app/templates/fragments/library_results.html:28
 #, python-format
 msgid "%(count)s physical copy"
 msgid_plural "%(count)s physical copies"
 msgstr[0] ""
 msgstr[1] ""
 
-#: app/templates/fragments/library_results.html:23
+#: app/templates/fragments/library_results.html:32
 msgid "Copies and sources"
 msgstr ""
 
-#: app/templates/fragments/library_results.html:27
+#: app/templates/fragments/library_results.html:36
 msgid "Physical copy"
 msgstr ""
 
-#: app/templates/fragments/library_results.html:31
+#: app/templates/fragments/library_results.html:40
 #, python-format
 msgid "Last seen: %(when)s"
 msgstr ""
 
-#: app/templates/fragments/library_results.html:36
+#: app/templates/fragments/library_results.html:45
 msgid "No recorded holdings · availability unknown"
 msgstr ""
 
-#: app/templates/fragments/library_results.html:40
+#: app/templates/fragments/library_results.html:49
 msgid "Library results"
 msgstr ""
 
-#: app/templates/fragments/library_results.html:42
-#: app/templates/fragments/library_results.html:87
+#: app/templates/fragments/library_results.html:51
+#: app/templates/fragments/library_results.html:96
 #, python-format
 msgid "%(count)s matching item"
 msgid_plural "%(count)s matching items"
 msgstr[0] ""
 msgstr[1] ""
 
-#: app/templates/fragments/library_results.html:42
+#: app/templates/fragments/library_results.html:51
 msgid "in"
 msgstr ""
 
-#: app/templates/fragments/library_results.html:42
-#: app/templates/fragments/library_results.html:87
+#: app/templates/fragments/library_results.html:51
+#: app/templates/fragments/library_results.html:96
 #, python-format
 msgid "%(count)s group"
 msgid_plural "%(count)s groups"
 msgstr[0] ""
 msgstr[1] ""
 
-#: app/templates/fragments/library_results.html:43
+#: app/templates/fragments/library_results.html:52
 msgid "Result view"
 msgstr ""
 
-#: app/templates/fragments/library_results.html:47
-msgid "Availability uses local copies and cached source records, not a live connection check. All filters must match the same item; source and availability must match the same holding."
-msgstr ""
-
-#: app/templates/fragments/library_results.html:50
+#: app/templates/fragments/library_results.html:59
 msgid "All local series"
 msgstr ""
 
-#: app/templates/fragments/library_results.html:52
+#: app/templates/fragments/library_results.html:61
 msgid "Numeric series order; unknown positions last."
 msgstr ""
 
-#: app/templates/fragments/library_results.html:56
-msgid "Groups use explicit format links only. Every live edition is shown, including editions that do not match your filters."
-msgstr ""
-
-#: app/templates/fragments/library_results.html:63
+#: app/templates/fragments/library_results.html:72
 #, python-format
 msgid "%(formats)s live editions · %(matches)s matching — show other formats"
 msgstr ""
 
-#: app/templates/fragments/library_results.html:77
+#: app/templates/fragments/library_results.html:86
 msgid "Series are grouped by their local names, preserving punctuation and scripts. No remote series lookup is needed."
 msgstr ""
 
-#: app/templates/fragments/library_results.html:88
+#: app/templates/fragments/library_results.html:97
 msgid "Explore series"
 msgstr ""
 
-#: app/templates/fragments/library_results.html:96
+#: app/templates/fragments/library_results.html:105
 msgid "No matching results"
 msgstr ""
 
-#: app/templates/fragments/library_results.html:97
+#: app/templates/fragments/library_results.html:106
 msgid "Try fewer filters or sync a source. Only locally catalogued, live items are searched."
 msgstr ""
 
-#: app/templates/fragments/library_results.html:98
+#: app/templates/fragments/library_results.html:107
 msgid "Show all library items"
 msgstr ""
 
-#: app/templates/fragments/library_results.html:102
+#: app/templates/fragments/library_results.html:111
 msgid "Library result pages"
 msgstr ""
 
-#: app/templates/fragments/library_results.html:103
+#: app/templates/fragments/library_results.html:112
 msgid "Previous"
 msgstr ""
 
-#: app/templates/fragments/library_results.html:105
+#: app/templates/fragments/library_results.html:114
 #, python-format
 msgid "Page %(number)s"
 msgstr ""
 
-#: app/templates/fragments/library_results.html:108
+#: app/templates/fragments/library_results.html:117
 msgid "Next"
 msgstr ""
 

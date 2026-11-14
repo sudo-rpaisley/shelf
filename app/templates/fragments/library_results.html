@@ -1,17 +1,26 @@
+{% set _library_phone_wrap = library_presentation_mode is defined and library_presentation_mode == 'phone-wrap-v1' %}
+{% set _library_explanations_hosted = _library_phone_wrap and library_explanations_hosted is defined and library_explanations_hosted is sameas true %}
 {% macro state_label(state) -%}
     {% if state == 'available' %}{{ _('Available')|forceescape }}{% elif state == 'lent' %}{{ _('Lent out')|forceescape }}{% elif state == 'missing' %}{{ _('Missing')|forceescape }}{% elif state == 'unavailable' %}{{ _('Unavailable')|forceescape }}{% else %}{{ _('Unknown')|forceescape }}{% endif %}
 {%- endmacro %}
 {% macro item_card(item) %}
-<div class="min-w-0 space-y-3" data-library-member="{{ item.id }}" data-matches="{{ 'true' if item.matches else 'false' }}">
+<div class="min-w-0 space-y-3" data-library-member="{{ item.id }}" data-matches="{{ 'true' if item.matches else 'false' }}"{% if _library_phone_wrap %} data-library-member-presentation="phone-wrap-v1"{% endif %}>
     {% set card = build_media_card(item, detail_href='/item/' ~ item.id ~ '?from=library', creator_text='') %}
     {% set validated_artwork_source = prepared_library_artwork.source_for(item.id, item.cover_path) if prepared_library_artwork is defined else none %}
     {% include "components/media_card.html" %}
     <div class="min-w-0 space-y-1">
         {% if item.subtitle %}<p class="text-sm text-shelf-muted break-words">{{ item.subtitle }}</p>{% endif %}
         {% if item.authors %}<p class="text-sm break-words" aria-label="{{ _(creator_label(item.media_type))|forceescape }}">{{ item.authors }}</p>{% endif %}
+        {% if _library_phone_wrap %}
+        <p class="library-phone-facts text-xs text-shelf-muted"><span>#{{ item.id }}</span>
+            {% if item.series_key %}<span class="text-sm">{{ item.series_name }}{% if item.series_position is not none %} · {{ item.series_position }}{% endif %}</span>{% endif %}
+            <span class="{% if item.matches %}text-shelf-accent2{% else %}text-shelf-muted{% endif %}">{% if item.matches %}{{ _('Matches filters')|forceescape }}{% else %}{{ _('Other format — does not match filters')|forceescape }}{% endif %}</span>
+        </p>
+        {% else %}
         <p class="text-xs text-shelf-muted">#{{ item.id }}</p>
         {% if item.series_key %}<p class="text-sm">{{ item.series_name }}{% if item.series_position is not none %} · {{ item.series_position }}{% endif %}</p>{% endif %}
         <p class="text-xs {% if item.matches %}text-shelf-accent2{% else %}text-shelf-muted{% endif %}">{% if item.matches %}{{ _('Matches filters')|forceescape }}{% else %}{{ _('Other format — does not match filters')|forceescape }}{% endif %}</p>
+        {% endif %}
     </div>
     <div class="flex flex-wrap gap-2 text-xs">
         {% if item.owned %}<span class="rounded bg-shelf-hover px-2 py-1">{{ _('Owned')|forceescape }}</span>{% endif %}
@@ -44,7 +53,7 @@
             {% for link in view_links %}<a href="{{ link.url }}" class="{% if filters.view == link.value %}font-semibold text-shelf-text{% else %}text-shelf-accent2 hover:underline{% endif %}"{% if filters.view == link.value %} aria-current="page"{% endif %}>{{ _(link.label)|forceescape }}</a>{% endfor %}
         </nav>
     </div>
-    <p class="text-xs text-shelf-muted">{{ _('Availability uses local copies and cached source records, not a live connection check. All filters must match the same item; source and availability must match the same holding.')|forceescape }}</p>
+    {% if not _library_explanations_hosted %}<p class="text-xs text-shelf-muted">{{ _('Availability uses local copies and cached source records, not a live connection check. All filters must match the same item; source and availability must match the same holding.')|forceescape }}</p>{% endif %}
     {% if filters.series %}
     <div class="flex flex-wrap items-center gap-3">
         <a href="{{ series_index_url }}" class="text-sm text-shelf-accent2 hover:underline">{{ _('All local series')|forceescape }}</a>
@@ -53,7 +62,7 @@
     </div>
     {% endif %}
     {% if result_kind == 'groups' and groups %}
-    <p class="text-xs text-shelf-muted">{{ _('Groups use explicit format links only. Every live edition is shown, including editions that do not match your filters.')|forceescape }}</p>
+    {% if not _library_explanations_hosted %}<p class="text-xs text-shelf-muted">{{ _('Groups use explicit format links only. Every live edition is shown, including editions that do not match your filters.')|forceescape }}</p>{% endif %}
     <div class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
         {% for group in groups %}
         <article class="rounded-xl bg-shelf-card border border-shelf-border p-4 space-y-4" data-library-group="{{ group.id }}" data-member-ids="{{ group.member_ids|join(',') }}" data-matching-ids="{{ group.matching_ids|join(',') }}">
