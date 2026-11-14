@@ -777,9 +777,8 @@ journey, with exact inputs/guards and zero attempts/errors/skips. All earlier
 This qualifies the bounded repair, not other platforms, full SVG compatibility,
 slow-filesystem deadlines or the final composition.
 
-Current phone/caption composition is frozen at `ced7fa30`; corrected vector source
-is qualified separately and still requires full-range composition/regeneration
-and fresh combined gates. All
+Phone/caption qualification is frozen at `ced7fa30`; corrected vector source is
+qualified separately. All
 original rejection/raster/phone tests remain enabled and unchanged. No UI primary
 selection or whole-programme approval follows.
 The fresh broader `ced7fa30` browser band completes **241 passed / four failed /
@@ -800,6 +799,24 @@ mode, compact always-available controls and single-copy native help, preserving
 ordering, grid density, ME7 outer-card sizing and default shared components. No
 layout writer is authorized before that review; estimated pixel budgets are not
 runtime proof. Vector-renderer ownership must be sequenced, not edited concurrently.
+
+Parent `d11b37d4` now composes `ced7fa30` with the **full six-commit vector range**
+from `8971dd90` through `5ef2a7ea`, plus current primary documentation. All seven
+vector paths match the reviewed repair exactly; all 456 prior composed test files
+and phone/caption/palette source remain unchanged. Central generation updates only
+collection badges and PO references; CSS/SW digest remains `v5bda40f0`. All 939
+files' bytes/modes are verified in both exact-tree qualification worktrees.
+
+The first actual combined checks give **five passed / three retained geometry
+failures / 29.22 s**: the complete original SVG/Account phone journey through line
+962 now passes on this composition, not just on the component candidate. The other
+four vector cases pass; original main-phone 1003, later-leg 734 and focused 239
+retain y=2209.1875 versus y<900. A separate original-navbar invocation passes
+**12 / 38.57 s**. Both have exact inputs/guards and zero attempts/errors/skips.
+Broader combined unit/browser gates are running; no results transfer from `ced`
+or `5ef`. Badges **10852 unit / 650 E2E** are collection counts, not suite passes.
+The new Library-presentation contract is still under requirements review; no
+layout implementation or UI primary selection is authorized by these results.
 
 #### ME2-A protocol refinement — design ratified, no writer
 
