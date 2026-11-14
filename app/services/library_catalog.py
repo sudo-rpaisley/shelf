@@ -22,7 +22,7 @@ from urllib.parse import urlencode
 
 from app import config, features, media_type_filters
 from app.i18n import N_
-from app.services import availability, format_groups
+from app.services import availability, format_groups, library_search
 from app.services.lists import WISHLISTED_SQL
 
 
@@ -72,11 +72,6 @@ _ITEM_COLUMNS = (
     "series_position", "owned", "created_at", "abs_id", "hardcover_book_id",
     "hardcover_edition_id", "hardcover_user_book_id",
 )
-_IDENTIFIER_KEYS = frozenset({
-    "isbn", "isbn10", "isbn13", "upc", "ean", "asin", "imdb", "tmdb", "tvdb",
-    "igdb", "discogs", "musicbrainz", "musicbrainzalbum", "musicbrainzreleasegroup",
-    "musicbrainzrelease", "openlibrary", "googlebooks", "hardcover", "goodreads",
-})
 
 
 def positive_int(value, default: int = 1, maximum: int = 1_000_000) -> int:
@@ -152,7 +147,7 @@ def library_url(filters: Mapping | None = None, *, page: int = 1,
 
 
 def _fold(value) -> str:
-    return unicodedata.normalize("NFC", str(value) if value is not None else "").casefold()
+    return library_search.canonical(value)
 
 
 def _position_key(value) -> tuple[bool, Fraction]:
@@ -203,29 +198,8 @@ def _source_choices(db) -> list[dict]:
 
 def _snapshot_identifiers(payload) -> list[str]:
     """Index named identifier fields, never arbitrary provider JSON or secrets."""
-    if not isinstance(payload, str) or len(payload) > 64_000:
-        return []
-    try:
-        metadata = json.loads(payload)
-    except (TypeError, ValueError, RecursionError):
-        return []
-    if not isinstance(metadata, dict):
-        return []
-    result = []
-    dictionaries = [metadata]
-    for field in ("provider_ids", "identifiers", "external_ids"):
-        if isinstance(metadata.get(field), dict):
-            dictionaries.append(metadata[field])
-    for values in dictionaries:
-        for key, value in values.items():
-            if not isinstance(key, str):
-                continue
-            key = key.strip().casefold().replace("_", "").replace("-", "")
-            if key in _IDENTIFIER_KEYS and type(value) in (str, int):
-                value = _text(str(value), maximum=512)
-                if value:
-                    result.extend((value, f"{key}:{value}"))
-    return result
+    # Keep the established private list contract; the pure helper is immutable.
+    return list(library_search.snapshot_identifiers(payload))
 
 
 def _external_ids(db, items) -> dict[int, list[str]]:

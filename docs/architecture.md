@@ -1452,6 +1452,15 @@ unknown positions last. Saved views hold only normalized filters, not SQL,
 account IDs or page number. GET `/api/library/items` shares the HTML contract;
 `/api/library/search` returns an HTML fragment, not the versioned bearer API.
 
+Text folding and bounded named snapshot-identifier extraction delegate to pure
+`services/library_search.py` helpers. Default matching remains NFC plus casefold
+and literal substring matching; the catalogue wrapper retains its ordered list
+return type. Opt-in forgiving folding, document/gram preparation and validated
+identifier ranking remain unwired foundations. This delegation adds no search
+tables, maintenance hooks, query grammar or authority. The current planner still
+hydrates the live catalogue before pagination; persistent indexed F1/RF3 and
+bounded total SQL/RAM qualification remain unfinished.
+
 **Availability is observation, not a probe.** `services/availability.py` uses
 `copies_live`, legacy bindings/health and `source_records`, with no network
 requests or repairs. Owned alone never manufactures a copy. Missing precedes
