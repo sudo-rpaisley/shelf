@@ -213,14 +213,25 @@ def test_real_local_account_switch_starts_at_default_without_copying_the_prior_d
 def test_real_no_js_session_has_labelled_disabled_controls_and_unchanged_native_cards(
     authed_page, live_server, browser,
 ):
-    context = browser.new_context(java_script_enabled=False, service_workers="block")
+    _, ids = _seed(live_server, "no-js")
+    context = browser.new_context(java_script_enabled=False, service_workers="block",
+                                  viewport={"width": 375, "height": 900})
     context.add_cookies(authed_page.context.cookies())
     page = attach_page_guard(context.new_page())
     try:
         page.goto(live_server["url"] + "/", wait_until="load")
         control = page.locator("[data-cover-size-control]")
         expect(control.get_by_role("slider", name="Cover size")).to_be_disabled()
-        expect(control.locator("noscript")).to_contain_text("Enable JavaScript")
+        # Playwright intentionally excludes NOSCRIPT itself from text matching;
+        # verify its actual rendered fallback paragraph, not the skipped wrapper.
+        expect(control.locator("noscript p")).to_have_count(1)
+        expect(control.get_by_text("Enable JavaScript to change cover size.", exact=True)).to_be_visible()
+        card = page.locator(f'.media-card[data-item-id="{ids["book", True]}"]')
+        _assert_width(card, _measure(card)["host"], 100)
+        link = card.locator(".media-card__detail")
+        link.focus()
+        expect(link).to_be_focused()
+        expect(link).to_have_attribute("href", f'/item/{ids["book", True]}')
         assert_page_clean(page)
     finally:
         context.close()
