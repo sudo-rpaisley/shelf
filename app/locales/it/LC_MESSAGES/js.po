@@ -38,25 +38,25 @@ msgstr "Seleziona"
 msgid "Press ? for keyboard shortcuts"
 msgstr "Premi ? per le scorciatoie da tastiera"
 
-#: static/js/browse.js:482
+#: static/js/browse.js:490
 #, python-brace-format
 msgid "Updated {count} items"
 msgstr "Elementi aggiornati: {count}"
 
-#: static/js/browse.js:486 static/js/browse.js:489
+#: static/js/browse.js:494 static/js/browse.js:497
 msgid "Update failed"
 msgstr "Aggiornamento non riuscito"
 
-#: static/js/browse.js:523 static/js/browse.js:526
+#: static/js/browse.js:531 static/js/browse.js:534
 msgid "Tag update failed"
 msgstr "Aggiornamento dei tag non riuscito"
 
-#: static/js/browse.js:531
+#: static/js/browse.js:539
 #, python-brace-format
 msgid "Move {count} items to Trash?"
 msgstr "Elementi da spostare nel cestino: {count}. Confermi?"
 
-#: static/js/browse.js:535
+#: static/js/browse.js:543
 #, python-brace-format
 msgid "Moved {count} items to Trash"
 msgstr "Elementi spostati nel cestino: {count}"
