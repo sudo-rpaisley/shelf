@@ -364,6 +364,14 @@ assert.equal(url.searchParams.get('q'), '🐈'.repeat(200));
 """)
 
 
+def test_search_label_treats_replacement_metacharacters_as_literal_query_text():
+    _node(render_component(), r"""
+open(); const literal = '$& $\' $` <svg> & q=//evil.example'; query(literal);
+assert.equal(options().at(-1).textContent, 'Search catalogue for “' + literal + '”');
+assert.equal(new URL(options().at(-1).getAttribute('href'), window.location.origin).searchParams.get('q'), literal);
+""")
+
+
 def test_no_primary_means_no_invented_search_and_empty_results_cannot_activate_stale_selection():
     _node(render_component(), r"""
 nav.querySelector('[data-nav-primary="browse"]').remove();

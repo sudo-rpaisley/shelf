@@ -213,7 +213,9 @@ def test_native_result_anchors_actually_follow_the_rendered_destinations(browser
         assert len([request for request in requests if request["path"] == urlsplit(path).path]) == before + 1
 
 
-def test_search_is_encoded_bounded_and_inert_with_no_typing_requests(browser):
+@pytest.mark.parametrize("case", ["default", "feature"])
+def test_search_is_encoded_bounded_and_inert_with_no_typing_requests(browser, db, case):
+    _configure(db, case)
     with _shell(browser) as (page, requests):
         _open(page)
         before = list(requests)
@@ -227,8 +229,9 @@ def test_search_is_encoded_bounded_and_inert_with_no_typing_requests(browser):
         href = option.get_attribute("href")
         parts, expected_query = urlsplit(href), query.strip()[:200]
         values = parse_qs(parts.query)
-        assert parts.path == "/library"
-        assert values == {"reset": ["1"], "view": ["items"], "sort": ["recent"], "q": [expected_query]}
+        assert parts.path == ("/library" if case == "default" else "/browse")
+        assert values == ({"reset": ["1"], "view": ["items"], "sort": ["recent"], "q": [expected_query]}
+                          if case == "default" else {"sort": ["newest"], "q": [expected_query]})
         assert requests == before
         page.keyboard.press("Enter")
         page.wait_for_url(ORIGIN + href)
@@ -261,11 +264,14 @@ def test_malicious_anchor_payloads_metadata_and_form_actions_are_never_commands(
         page.wait_for_url(ORIGIN + "/browse?sort=recent")
 
 
-@pytest.mark.parametrize("empty", [False, True])
-def test_no_primary_or_empty_navigation_cannot_invent_search_or_activate_old_result(browser, empty):
-    with _shell(browser, empty=empty) as (page, requests):
-        if not empty:
+@pytest.mark.parametrize("context", ["empty", "missing", "unsafe", "redirect", "noncatalogue"])
+def test_no_primary_or_empty_navigation_cannot_invent_search_or_activate_old_result(browser, context):
+    with _shell(browser, empty=context == "empty") as (page, requests):
+        if context == "missing":
             page.locator('[data-nav-primary="browse"]').evaluate("e => e.remove()")
+        elif context != "empty":
+            href = {"unsafe": "javascript:alert(1)", "redirect": "/browse?next=//evil.example", "noncatalogue": "/settings"}[context]
+            page.locator('[data-nav-primary="browse"]').evaluate("(e,href) => e.setAttribute('href',href)", href)
         _open(page)
         before = list(requests)
         page.locator("[data-command-palette-query]").fill("No such destination anywhere")
@@ -276,6 +282,63 @@ def test_no_primary_or_empty_navigation_cannot_invent_search_or_activate_old_res
             page.keyboard.press(key)
         assert requests == before
         expect(page.get_by_role("dialog", name="Commands", exact=True)).to_be_visible()
+
+
+def test_unicode_limit_native_text_editing_and_modified_enter_remain_functional(browser):
+    with _shell(browser) as (page, requests):
+        _open(page)
+        input = page.locator("[data-command-palette-query]")
+        before = list(requests)
+        page.keyboard.type("abcdef")
+        page.keyboard.press("Home")
+        page.keyboard.press("Shift+End")
+        assert input.evaluate("e => [e.selectionStart,e.selectionEnd]") == [0, 6]
+        page.keyboard.type("replacement")
+        expect(input).to_have_value("replacement")
+        selected = input.get_attribute("aria-activedescendant")
+        for key in ("Shift+ArrowDown", "Control+ArrowUp", "Shift+Enter", "Control+Enter"):
+            page.keyboard.press(key)
+            expect(input).to_have_attribute("aria-activedescendant", selected)
+        input.evaluate("e => {const event=new KeyboardEvent('keydown',{key:'Enter',bubbles:true,cancelable:true});event.preventDefault();e.dispatchEvent(event);}")
+        input.evaluate("e => {e.value='🐈'.repeat(210);e.dispatchEvent(new Event('input',{bubbles:true}));}")
+        expect(_options(page)).to_have_count(1)
+        href = _options(page).first.get_attribute("href")
+        assert parse_qs(urlsplit(href).query)["q"] == ["🐈" * 200]
+        assert requests == before
+
+
+def test_removed_authorized_anchor_cannot_be_followed_from_stale_pointer_result(browser):
+    with _shell(browser) as (page, requests):
+        _open(page)
+        page.locator("[data-command-palette-query]").fill("Settings")
+        option = page.get_by_role("option", name="Settings", exact=True)
+        expect(option).to_be_visible()
+        page.locator('[data-media-navigation] [data-nav-tab="settings"]').evaluate("e => e.remove()")
+        before = list(requests)
+        option.click()
+        expect(page.get_by_role("option", name="Settings", exact=True)).to_have_count(0)
+        expect(_options(page)).to_have_count(1)  # Only the authorized primary's literal catalogue search remains.
+        assert requests == before
+
+
+def test_queued_native_close_does_not_reset_a_reopened_palette(browser):
+    with _shell(browser) as (page, requests):
+        _open(page)
+        before = list(requests)
+        page.evaluate("""() => {
+            document.querySelector('[data-command-palette-dialog]').close();
+            document.querySelector('[data-command-palette-launcher]').click();
+        }""")
+        # A native close event is queued rather than dispatched by close().
+        page.evaluate("() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)))")
+        expect(page.get_by_role("dialog", name="Commands", exact=True)).to_be_visible()
+        expect(page.locator("[data-command-palette-launcher]")).to_have_attribute("aria-expanded", "true")
+        input = page.locator("[data-command-palette-query]")
+        expect(input).to_have_attribute("aria-expanded", "true")
+        page.keyboard.type("Book")
+        expect(input).to_have_value("Book")
+        assert _options(page).count() > 1
+        assert requests == before
 
 
 def test_owned_keys_are_stopped_before_real_document_app_and_browse_handlers(browser):

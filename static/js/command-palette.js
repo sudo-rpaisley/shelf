@@ -140,7 +140,7 @@
                 return words.every(function (word) { return text.indexOf(word) !== -1; });
             });
             var href = searchHref(current.primary, query);
-            if (href) matches.push({href: href, label: dialog.getAttribute('data-search-label').replace('{query}', query), context: ''});
+            if (href) matches.push({href: href, label: dialog.getAttribute('data-search-label').replace('{query}', function () { return query; }), context: ''});
             return matches;
         }
 
@@ -196,7 +196,7 @@
         }
 
         function openPalette(trigger) {
-            if (dialog.open || otherOverlay(dialog)) return false;
+            if (!root.isConnected || !dialog.isConnected || dialog.open || otherOverlay(dialog)) return false;
             opener = trigger;
             input.value = '';
             composing = false;
