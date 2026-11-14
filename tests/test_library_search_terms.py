@@ -260,3 +260,19 @@ def test_grams_cover_all_substrings_without_forgiving_or_tokenization(no_runtime
 def test_grams_refuse_non_documents_or_unbounded_bodies(no_runtime, document):
     with pytest.raises(ValueError, match="^invalid_document$"):
         library_search.document_grams(document)
+
+
+@pytest.mark.parametrize("value", ["\u1d2c", "\U0001d400"])
+def test_forgiving_compatibility_capitals_match_plain_a_and_are_idempotent(monkeypatch, _isolated_db, value):
+    from contextlib import contextmanager
+
+    # Reuse the unchanged guard around actual calls, but close it before failed
+    # assertions so pytest can read source files while reporting the red case.
+    with contextmanager(no_runtime.__wrapped__)(monkeypatch, _isolated_db):
+        folded = library_search.forgiving_fold(value)
+        folded_again = library_search.forgiving_fold(folded)
+        plain_upper = library_search.forgiving_fold("A")
+        plain_lower = library_search.forgiving_fold("a")
+    assert folded == "a"
+    assert folded == plain_upper == plain_lower
+    assert folded_again == folded

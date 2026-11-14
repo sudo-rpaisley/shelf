@@ -83,7 +83,7 @@ def forgiving_fold(value: object) -> str:
     categories are removed. This is not transliteration (e.g. ø/ł stay ø/ł),
     does not strip whitespace, and must not replace canonical or series/ID keys.
     """
-    return "".join(char for char in unicodedata.normalize("NFKD", canonical(value))
+    return "".join(char for char in unicodedata.normalize("NFKD", canonical(value)).casefold()
                    if not unicodedata.category(char).startswith("M"))
 
 

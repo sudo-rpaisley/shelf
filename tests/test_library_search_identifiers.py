@@ -335,3 +335,13 @@ def test_identity_validation_calls_actual_existing_pure_validators(monkeypatch):
     assert calls == ["canonical_isbn_pair", "canonical_retail_barcode", "clean_asin"]
     assert result.keys == (("asin", "B0D1234567"), ("ean", "0078073003501"),
                            ("imdb", "078073003501"), ("isbn", "9780547928227"))
+
+
+@pytest.mark.parametrize("value", ["\u1d2c", "\U0001d400"])
+def test_compatibility_capitals_stay_distinct_in_canonical_and_opaque_keys(value):
+    assert library_search.canonical(value) == value
+    assert library_search.canonical("A") == library_search.canonical("a") == "a"
+    assert library_search.canonical(value) != library_search.canonical("A")
+    result = library_search.validated_identifiers([("imdb", value), ("imdb", "A"), ("imdb", "a")])
+    assert result.exact == (("imdb", value), ("imdb", "A"), ("imdb", "a"))
+    assert result.keys == (("imdb", "a"), ("imdb", value))
