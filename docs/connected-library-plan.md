@@ -73,6 +73,22 @@ tracking. That earlier decision does not automatically authorise implementation
 of the later [research candidates](#research-additions-2026-11-14). The entries
 below are requirements or labelled proposals, not claims that this work is done.
 
+**Subsequent implementation continuation (2026-11-14):** after reviewing the
+complete list, the operator explicitly requested continued implementation of the
+consolidated programme, useful parallel agents, additional improvements found
+along the way, and incremental commits. This now includes selecting and
+implementing RF/RI candidates within their documented dependencies and feasibility
+limits; the research-only wording below records the earlier intake's authority,
+not a cancellation of this subsequent instruction. Feasibility research does not
+become working provider support by authorisation alone.
+
+Work remains local and proceeds in bounded, reviewed increments. Preserve all
+original acceptance tests and existing data/integrations/keys; keep shared-file
+integration and schema changes coordinated. This instruction does not authorise
+production access, provider-account connections/registration, household/graph
+activation, pushes, deployment or weakening database authority. Existing narrowly
+scoped core-repair contracts remain in force until separately revised.
+
 ### Operator media-experience refinements (2026-11-14)
 
 These additions are authorised within the active programme. They refine F2/F5/F6

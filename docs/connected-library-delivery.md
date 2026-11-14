@@ -10,6 +10,21 @@ not replace the remaining F/R/X requirements or inherit historical test passes.
 The later [research intake](#research-intake-2026-11-14) is **research/list-only**;
 its proposals do not inherit that earlier implementation authorisation.
 
+**Subsequent operator continuation (2026-11-14):** the operator then explicitly
+requested implementation of the full consolidated list, useful parallel agents,
+continued discovery of relevant improvements and commits as work progresses.
+RF/RI implementation may now proceed through their stated dependencies and
+feasibility gates. Earlier research-only passages remain historical attribution;
+they are not provider compatibility evidence or a prohibition on this newly
+authorised implementation work.
+
+Use coherent local commits, with independent review and relevant frozen-candidate
+checks before coordinator integration. Preserve original tests, data, keys and
+existing workflows. No production/provider-account access, app registration,
+household/graph activation, push, deployment or expansion of narrowly approved
+core SQL authority follows from the continuation request. Blocked operational
+gates remain explicitly open rather than being marked complete.
+
 ## Completion and evidence
 
 Assignment, a local implementation commit and a mock-provider test are not
