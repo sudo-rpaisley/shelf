@@ -112,3 +112,5 @@ def test_quicklink_render_uses_only_the_explicit_authorized_payload_without_quer
     _, dom = _render(None, family_nodes(), filter_intent, model=empty, nav_tabs=[])
     assert not any("data-nav-tab" in node.attrs for node in dom.walk())
     assert [link.attrs["href"] for link in dom.find("a")] == ["/"]
+    shell, = dom.find("details", **{"data-nav-shell": None})
+    assert "No navigation available." in shell.text

@@ -22,6 +22,9 @@
                 <details data-nav-disclosure data-nav-shell open class="media-navigation__shell">
                     <summary class="media-navigation__shell-toggle" data-testid="nav-menu-button">{{ _('Main menu')|forceescape }} {{ chevron() }}</summary>
                     <div class="media-navigation__tree" data-testid="nav-menu-panel">
+                        {% if not media_navigation.primary and not media_navigation.groups and not media_navigation.management %}
+                        <p class="media-navigation__empty">{{ _('No navigation available.')|forceescape }}</p>
+                        {% endif %}
                         {% if media_navigation.primary %}
                         <div class="media-navigation__top" data-nav-hover>
                             <details data-nav-disclosure data-nav-browse>
@@ -53,8 +56,30 @@
                         </div>
                         {% endif %}
                         {% for group in media_navigation.groups %}
-                        <div class="media-navigation__top" data-nav-hover>
-                            <details data-nav-disclosure data-nav-group="{{ group.key }}">
+                        {% if group.key == 'add' %}
+                        {# Store is a quick destination, not an action hidden in
+                           Add / Scan. Both lists still come only from this payload. #}
+                        {% set actions = group.tabs | rejectattr('key', 'equalto', 'store') | list %}
+                        <div class="media-navigation__activity">
+                            {% if actions %}
+                            <div class="media-navigation__top" data-nav-hover>
+                                <details data-nav-disclosure data-nav-group="{{ group.key }}">
+                                    <summary>{{ _(group.label)|forceescape }} {{ chevron() }}</summary>
+                                    <ul class="media-navigation__panel">
+                                        {% for tab in actions %}
+                                        <li>{{ tab_link(tab) }}</li>
+                                        {% endfor %}
+                                    </ul>
+                                </details>
+                            </div>
+                            {% endif %}
+                            {% for tab in group.tabs | selectattr('key', 'equalto', 'store') %}
+                            {{ tab_link(tab) }}
+                            {% endfor %}
+                        </div>
+                        {% else %}
+                        <div class="media-navigation__top media-navigation__quick">
+                            <details data-nav-disclosure data-nav-group="{{ group.key }}" open>
                                 <summary>{{ _(group.label)|forceescape }} {{ chevron() }}</summary>
                                 <ul class="media-navigation__panel">
                                     {% for tab in group.tabs %}
@@ -63,6 +88,7 @@
                                 </ul>
                             </details>
                         </div>
+                        {% endif %}
                         {% endfor %}
                         {% if media_navigation.management %}
                         <div class="media-navigation__top" data-nav-hover>

@@ -35,15 +35,20 @@
     align-items: start;
     min-inline-size: 0;
 }
-.media-navigation__shell { min-inline-size: 0; }
+.media-navigation__primary { grid-column: 1; }
+.media-navigation__shell { grid-column: 2; min-inline-size: 0; }
+/* The same primary anchor remains before/outside the native shell. Hide it
+   only for the enhanced narrow closed state, never in the no-JS fallback. */
+.media-navigation[data-nav-enhanced="true"][data-nav-menu-open="false"] .media-navigation__primary { display: none; }
 .media-navigation summary,
 .media-navigation__link {
     display: flex;
     align-items: center;
     justify-content: space-between;
-    gap: 0.5rem;
+    gap: min(0.5rem, 8px);
+    min-inline-size: 80px;
     min-block-size: 2.75rem;
-    padding: 0.625rem 0.875rem;
+    padding: 0.625rem min(0.875rem, 14px);
     border-radius: 0.5rem;
     color: var(--color-shelf-muted, #94a3b8);
     font-size: 0.875rem;
@@ -106,22 +111,49 @@
     border-inline-start: 1px solid var(--color-shelf-border, #2d3148);
 }
 .media-navigation__top + .media-navigation__top { border-block-start: 1px solid var(--color-shelf-border, #2d3148); }
+.media-navigation__activity { display: flex; flex-wrap: wrap; align-items: start; gap: 0.125rem; max-inline-size: 100%; }
+.media-navigation__empty { padding: 0.625rem 0.875rem; color: var(--color-shelf-muted, #94a3b8); }
+/* Unlike the ordinary menus, Explore is deliberately expanded IN FLOW. These
+   explicit resets also undo the actual previously published dropdown rules. */
+.media-navigation .media-navigation__top.media-navigation__quick .media-navigation__panel {
+    position: static;
+    inset: auto;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.125rem;
+    inline-size: auto;
+    max-inline-size: 100%;
+    max-block-size: none;
+    overflow: visible;
+    margin: 0;
+    padding: 0;
+    border: 0;
+    border-radius: 0;
+    background: transparent;
+    box-shadow: none;
+}
 @media (prefers-reduced-motion: reduce) {
     .media-navigation__chevron { transition: none; }
 }
 @media (min-width: 64rem) {
-    .media-navigation__bar { grid-template-columns: auto minmax(0, 1fr) auto; gap: 1.75rem; }
+    .media-navigation__bar { grid-template-columns: auto minmax(0, 1fr) auto; gap: 0.5rem; }
     .media-navigation__account { grid-column: 3; }
-    .media-navigation__main { grid-column: 2; grid-row: 1; display: flex; align-items: center; gap: 0.25rem; }
+    .media-navigation__main { grid-column: 2; grid-row: 1; display: flex; align-items: center; gap: 0.125rem; }
     .media-navigation__primary { flex-shrink: 0; font-weight: 600; }
+    .media-navigation[data-nav-enhanced="true"][data-nav-menu-open="false"] .media-navigation__primary { display: flex; }
     .media-navigation__shell { flex: 1; }
     /* Native closed state survives mobile -> desktop resizing without JS.
        Hide its opener only after enhancement and while the shell is open. */
     .media-navigation[data-nav-enhanced="true"] .media-navigation__shell[open] > .media-navigation__shell-toggle { display: none; }
-    .media-navigation__tree { display: flex; align-items: center; gap: 0.25rem; inline-size: auto; margin: 0; padding: 0; max-block-size: none; overflow: visible; }
-    .media-navigation__top, .media-navigation__family { position: relative; }
+    .media-navigation__tree { display: flex; flex-wrap: wrap; align-items: center; gap: 0.125rem; inline-size: auto; margin: 0; padding: 0; max-block-size: none; overflow: visible; }
+    .media-navigation__top, .media-navigation__family { position: relative; flex-shrink: 0; }
+    .media-navigation__activity { align-items: center; flex-shrink: 0; }
+    .media-navigation summary, .media-navigation__link { gap: 0.25rem; padding-inline: 0.5rem; }
+    .media-navigation__quick { flex-shrink: 1; min-inline-size: 0; max-inline-size: 100%; }
+    /* Native details exposes its summary and content as the two grid cells;
+       the links remain in flow and wrap when text is enlarged. */
+    .media-navigation__quick details { display: grid; grid-template-columns: auto minmax(0, 1fr); align-items: center; inline-size: max-content; max-inline-size: 100%; }
     .media-navigation__top + .media-navigation__top { border: 0; }
-    .media-navigation__top > details > summary { white-space: nowrap; }
     .media-navigation__panel,
     .media-navigation__formats {
         position: absolute;
@@ -147,6 +179,13 @@
     }
     .media-navigation__family > details > summary > .media-navigation__chevron { transform: rotate(-90deg); }
     .media-navigation__family > details[open] > summary > .media-navigation__chevron { transform: rotate(0); }
+}
+/* At the desktop seam the real Account button retains its existing accessible
+   name, visible avatar, 44px target and focus ring. Only its optional name/role
+   preview and redundant chevron give way to the immediately usable quick links. */
+@media (min-width: 64rem) and (max-width: 79.999rem) {
+    .media-navigation__account [data-testid="account-menu-button"] > span + span,
+    .media-navigation__account [data-testid="account-menu-button"] > svg { display: none; }
 }
 /* Short desktop windows use the same in-flow branch pattern as phones rather
    than clipping a nested flyout below the viewport. */
