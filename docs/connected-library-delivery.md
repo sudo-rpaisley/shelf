@@ -149,9 +149,14 @@ eleven offline/syntax checks. Its wider browser gate is **178 passed / four
 failed**, with the separate original-navbar 12 passing. Two retained phone
 failures remain, and two unsupported-dialog palette fallback failures are genuine
 composition regressions—not test waivers. The wider unit gate passes **1704**. The
-same navigation writer is implementing the reviewed genuine-button contract;
-palette fallback and safe existing-local-vector contracts are under independent
-review. Original tests remain unchanged and enabled; UI is still unselected.
+same navigation writer is implementing the reviewed genuine-button contract.
+The palette fallback repair `9562f558` now has bounded source clearance and fresh
+**371-unit / 116-browser**, separately **12-original-navbar**, passes; the two
+original fallback failures pass unchanged without a forced-open menu or new link.
+Safe existing-local-vector compatibility has design-contract clearance and an
+isolated writer, not source/runtime acceptance. Both phone journeys still need
+final composition qualification. Original tests remain unchanged and enabled;
+UI is still unselected.
 
 Independent architecture, requirements, privacy and recovery audits accompany
 implementation. Additional reviewers/testers are assigned to completed
