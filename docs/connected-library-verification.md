@@ -569,9 +569,10 @@ The phone opener cannot be fixed by adding `role="button"` to the native first
 Summary: official HTML-ARIA prohibits that override. The proposed external real
 button also conflicts with an enabled enhanced-DOM Browse→shell adjacency check.
 Both proposals are rejected. A capability-gated real button inside the same
-shell, following its retained native Summary, is under bounded interface review;
-synthetic browser capability evidence is not application or accessibility
-qualification. No writer is reopened yet. The existing authorised nested
+shell, following its retained native Summary, now has bounded
+**IMPLEMENTATION_CONTRACT_REVIEW_CLEAR** and is assigned to the same isolated
+navigation writer. Synthetic browser capability evidence is not application or
+accessibility qualification. The existing authorised nested
 `all_media` link can be named **Library**, with **All media** retained as an
 outside noninteractive description; no extra anchor or permission is approved.
 
@@ -589,15 +590,17 @@ failure / 278.70 s**: Playwright excludes text on the `noscript` wrapper. Test-o
 native-card default sizing/focus/destination coverage. The targeted case passes;
 fresh complete gates give **368 unit / 188.06 s** and **96 browser / 271.15 s** on
 exact-tree receipt `b06b7357`. All 913 inputs/guards remain exact, zero attempts,
-errors or skips. The one-file test delta still needs independent re-review and
-the eventual combined UI tree needs fresh qualification. The selected increment keeps
+errors or skips. The one-file test delta also receives bounded
+**SOURCE_REVIEW_CLEAR**; the combined UI tree still needs fresh qualification.
+The selected increment keeps
 grid columns and 10rem shelf slots fixed and sizes cards to
 `min(host width, max(80px, host width × requested scale))`, 50–100%, default 100%.
 This is floor-limited shrinking, not greater density or persistence. Integration
 must explain that limit accessibly and hide the control for every Library
 `view=series` page, including drilldowns that contain shared cards. Additive
 drilldown coverage and actual-grid/layout checks at 50%, before Reset, remain
-follow-up requirements. No whole-ME7/account preference closure.
+follow-up requirements until qualified in composition. No whole-ME7/account
+preference closure.
 
 Both unchanged original Home page walks at 320/1024 pass in the cover candidate's
 96-case band. Fresh clean `95ff5d63` reproduces both Home overflow failures
@@ -614,7 +617,8 @@ identifier semantics. Captured worker results are **368 unit / 39 focused browse
 and **374 helper/reference passes**, respectively. Fresh parent checks independently
 pass **368 locator unit / 279.83 s**, **39 focused locator browser / 69.71 s** and
 **374 helper/reference / 248.91 s**, with exact inputs/guards and zero attempts.
-Locator shared assets/i18n remain unwired; this does not close whole RF11.
+Locator shared assets/i18n are wired only in the unselected composition below;
+this does not close whole RF11.
 
 **Selected primary foundation:** `0d448bcd` integrates the exact reviewed helper
 files and semantics-preserving catalogue delegation, not an index. Its two private
@@ -636,6 +640,47 @@ the whole catalogue; forgiving matching, identifier ranking, persistent indexing
 RF3, bounded total SQL/RAM and eventual isolated-core compatibility remain open.
 Selection receipts are `SEARCH_FOUNDATION_PRIMARY_SELECTION.json` and
 `SEARCH_FOUNDATION_FINAL_RECEIPT.json` under `.temp/implementation-wave-20261114/`.
+
+#### First combined UI and locator candidate — not selected
+
+Parent `cfffa6dc` composes selected search with the reviewed palette, cover,
+exact-copy locator and five-regression navbar increments. The only cherry-pick
+conflict was generated README counts, then centrally regenerated. All **931**
+tracked files' bytes/modes are verified against the immutable review archive; all 435
+primary test files and 448 pre-existing composed test files remain unchanged.
+No isolated core, portability or additional authority is transplanted.
+
+The parent adds real locator asset registration, compiled Italian/Simplified
+Chinese strings and four additive test modules. Independent shared-wiring review
+returns bounded **SOURCE_REVIEW_CLEAR**. New checks give **12 HTTP/unit passes /
+9.13 s** and, separately on the same production bytes, **15 browser passes /
+32.72 s**: nine non-injected locator journeys and six actual-grid/artwork checks
+while at 50%, before Reset. Three initial new unit cases failed because their
+fixture called a nonexistent series-key helper; only that fixture changed to an
+explicit canonical ASCII key, retaining every assertion. Their RED is preserved.
+Series drilldowns now have explicit no-control coverage. A low proof limitation
+remains: the new geometry check should independently assert media type→shape,
+not just compare geometry with its rendered shape token.
+
+Seven offline checks and four JS syntax checks pass with exact inputs/guards and
+zero attempts. **10582 unit / 583 E2E** badges are collection counts only. The
+fresh wider unit band completes **1704 passed / 886.52 s** with exact inputs and
+guards, zero attempts, errors or skips. The combined browser band completes
+**178 passed / four failed / 530.93 s**; the separate original navbar invocation
+passes **12 / 38.57 s**. Both have exact inputs/guards and zero errors/skips or
+attempts. The full browser band retains the original SVG and Main-menu failures
+and exposes **two genuine new composition failures**: unsupported-dialog palette
+fallback expects the authorised primary Browse visible, while enhanced narrow
+navigation hides it. Earlier isolated component passes do not waive this conflict.
+
+A bounded fallback contract is under review: retain the same direct Browse anchor
+when the actual palette cannot enhance, without automatically opening menus,
+adding destinations or changing normal supported primary-collapse behaviour.
+No source repair or test migration is approved yet. The phone writer and proposed
+local-vector compatibility contract remain separate; neither has a passing final
+composition. No UI primary selection or whole-programme approval follows.
+
+#### Retained early palette harness evidence
 
 The worker's broader **228 passed / 1 failed** is retained as an initial harness
 path-format incompatibility. An original linter test expects a basename for its
