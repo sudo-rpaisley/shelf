@@ -759,8 +759,8 @@ directory-close errors can lose descriptor ownership or escape enrichment. A
 separate inner-task cancellation case also needs physical-worker drainage proof.
 Passing gates do not waive these findings. A new corrective derivative is assigned;
 the original remains frozen and uncomposed. Earlier RED/error/timeout evidence
-remains in the complete ledger. No repaired-vector or final composed Account pass
-is claimed.
+remains in the complete ledger. Those passing held-candidate checks are not repair
+clearance or final composed Account qualification.
 
 Corrective candidate `5ef2a7ea` is now frozen clean, with worker **928 unit / five
 browser** passes. Parent capture verifies all 935 files' bytes/modes, all 452
@@ -768,13 +768,18 @@ original test files, and the three new test modules' complete earlier contents
 as exact byte prefixes. It changes only the two producer/router sources and
 append-only tests relative to the held candidate. The new boundary fails closed
 outside Linux because portable close-error descriptor semantics are ambiguous.
-Independent source/security re-review is running. Fresh parent browser checks
-pass **five / 19.59 s**, including the unchanged full SVG/Account journey, with
-exact inputs/guards and zero attempts/errors/skips; the 928-unit band is pending.
-Neither worker nor parent passes waive the source-review requirement.
+Independent source/security re-review returns bounded **SOURCE_REVIEW_CLEAR**:
+the encoding/close-ownership findings and physical inner-cancellation/shutdown
+concern are resolved within the finite scope. Fresh parent checks pass **928 unit /
+576.79 s** and **five browser / 19.59 s**, including the unchanged full SVG/Account
+journey, with exact inputs/guards and zero attempts/errors/skips. All earlier
+898/four identities/outcomes are retained; additions are 30 unit/one browser.
+This qualifies the bounded repair, not other platforms, full SVG compatibility,
+slow-filesystem deadlines or the final composition.
 
-Current phone/caption composition is frozen at `ced7fa30`; vector is not composed
-while held for source correction. All
+Current phone/caption composition is frozen at `ced7fa30`; corrected vector source
+is qualified separately and still requires full-range composition/regeneration
+and fresh combined gates. All
 original rejection/raster/phone tests remain enabled and unchanged. No UI primary
 selection or whole-programme approval follows.
 The fresh broader `ced7fa30` browser band completes **241 passed / four failed /
@@ -783,10 +788,18 @@ palette fallback outcomes change RED to GREEN; all 116 fallback-band and 28
 caption-band outcomes remain exact. All 63 added cases are accounted for. The
 four REDs are the uncomposed SVG original plus the three retained phone geometry
 checks, with exact inputs/guards and zero attempts/errors/skips. The broader unit
-band is still running on the frozen tree. The
+band passes **1729 / 1130.81 s**, preserving all 1704 previous composed identities
+and outcomes plus 25 additions. The
 separate original-navbar invocation passes **12 / 38.57 s**, with exact
 inputs/guards and zero attempts/errors/skips. Wider outcomes are not inferred
 from the bounded caption checks; known geometry/SVG failures remain enabled.
+
+The source-grounded mobile-presentation proposal is now frozen for independent
+requirements review only. It proposes an explicit Library-only wrapping-media
+mode, compact always-available controls and single-copy native help, preserving
+ordering, grid density, ME7 outer-card sizing and default shared components. No
+layout writer is authorized before that review; estimated pixel budgets are not
+runtime proof. Vector-renderer ownership must be sequenced, not edited concurrently.
 
 #### ME2-A protocol refinement — design ratified, no writer
 

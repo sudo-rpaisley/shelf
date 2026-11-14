@@ -163,11 +163,12 @@ repair, reaches original line 1003: the book heading is at y=2209 versus the
 unchanged y<900 requirement. Current `ced7fa30` has **25 browser passes / three
 retained geometry failures**; the wider browser gate gives **241 passes / four
 failures** (the same three geometry checks plus the uncomposed SVG original),
-with the separate original-navbar 12 passing. A bounded mobile-layout proposal is
-being examined, not yet authorized. Vector correction `5ef2a7ea` is frozen for
-independent re-review, reporting 928 unit/five browser passes; fresh parent browser
-five pass, while its unit gate is pending. No vector source clearance or composed
-pass is transferred. Both phone journeys still need final composition qualification.
+with the separate original-navbar 12 passing; its broader unit gate passes **1729**.
+A bounded mobile-layout proposal is under requirements review, not yet authorized.
+Vector correction `5ef2a7ea` now has bounded source clearance and fresh parent
+**928-unit / five-browser passes**. Its Linux-only close-semantics boundary remains
+explicit. No component pass transfers to composition; both phone journeys still
+need final combined qualification.
 Original tests remain unchanged and enabled; UI is still unselected.
 
 ME2-A's source-grounded finite protocol v2 is recorded, independently cleared for
