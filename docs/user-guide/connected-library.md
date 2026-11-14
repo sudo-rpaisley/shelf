@@ -5,10 +5,12 @@ It is not a released feature or an upstream design commitment. **Back up your
 database, covers and external key files before trying it.** See
 [Backup and portability](#backup-and-portability) below.
 
-Connected library adds **Library**, **Available here**, **Sources**, **Needs
-Attention** and **My Activity** alongside the existing catalogue. Browse remains
-the place for collection administration and bulk changes. Shelf is still a
-catalogue and front door to other services, not a media server or player.
+Use the primary **Browse** link for the mixed library, and its adjacent disclosure
+for family/format choices. **Manage → Catalogue management** (`/browse`) retains
+the original collection administration and bulk tools. Connected library also
+provides **Available here**, **Sources**, **Needs Attention** and **My Activity**.
+Shelf is still a catalogue and front door to other services, not a media server
+or player.
 
 ## Enable or hide the experiment
 
@@ -31,13 +33,27 @@ account-local, not a permissions boundary around the catalogue.
 
 ## Find editions in Library
 
-Open **Library** (`/library`). It searches the locally stored, live catalogue;
+When Library is available, primary **Browse** opens
+`/library?reset=1&view=items&sort=recent`: the complete mixed live catalogue as
+individual items, newest first. This resets the current Library view, not your
+saved-view records. If Library is disabled or hidden from navigation, primary
+Browse opens the original catalogue with newest-first sorting instead. Direct
+`/library` remains available when the feature is enabled, including its grouped
+format and saved-view controls.
+
+Library searches the locally stored, live catalogue;
 opening or filtering it does not query a remote service. Search covers titles,
 creators, ISBN/UPC/ASIN, narrators, local series, publishers, tags and supported
 stored external IDs, including validated source-snapshot IDs such as IMDb,
 TMDb, TVDb and MusicBrainz album/release IDs. Search words must all occur on
 the same item, though they can occur in different fields. Search is
 Unicode-aware and case-insensitive; it does not remove accents.
+
+Home's recent shelf shows up to eight items in one horizontally scrollable row;
+its terminal **View more** opens the complete mixed catalogue. Home, local Music
+and Library reuse artwork cards that contain rather than crop the image. Recent
+grouping is not yet configurable per account, and editing still opens the existing
+full-page form rather than a pop-out editor.
 
 ### Groups are equivalent formats, not adaptations
 
