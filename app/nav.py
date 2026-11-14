@@ -262,8 +262,9 @@ def media_navigation(
     The production resolver is imported only when an expansion is needed.
 
     A manually hidden Library tab cannot leave optional Library URLs behind.
-    Core Browse understands a single media_type_filter, not a family union:
-    its fallback offers exact formats, never a misleading broadened union.
+    Both Library and core Browse links use the parent's canonical CSV types
+    contract; mixed entry points omit it, including for unknown legacy data.
+    Acceptance of those filters/reset semantics belongs to the query consumer.
     Music/Periodicals retain their authorized overview links inside their
     branches. The original tabs still feed the unchanged account fragment.
     """
@@ -292,11 +293,9 @@ def media_navigation(
                 "reset": "1", "view": "items", "sort": "recent",
                 "types": ",".join(expanded),
             })
-        if len(expanded) == 1:
-            return "/browse?" + urlencode({
-                "sort": "newest", "media_type_filter": expanded[0],
-            })
-        return None
+        return "/browse?" + urlencode({
+            "sort": "newest", "types": ",".join(expanded),
+        })
 
     families = []
     represented = {"browse", "library"}

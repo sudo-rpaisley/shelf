@@ -144,7 +144,7 @@ def test_disabled_library_uses_a_nonempty_core_browse_query(db, nodes, intent_fo
         for fmt in family["formats"]:
             parts = urlsplit(fmt["path"])
             assert parts.path == "/browse"
-            assert parse_qs(parts.query) == {"sort": ["newest"], "media_type_filter": [fmt["key"]]}
+            assert parse_qs(parts.query) == {"sort": ["newest"], "types": [fmt["key"]]}
 
 
 def test_hidden_library_does_not_hide_browse_or_leak_its_optional_route(db, nodes, intent_for):
@@ -172,11 +172,11 @@ def test_selectors_expand_without_reusing_the_old_book_family(db, nodes, intent_
     assert _family(model, "comics")["media_types"] == ("comic", "manga")
 
 
-def test_core_fallback_never_silently_broadens_a_multiformat_family(db, nodes, intent_for):
+def test_core_fallback_preserves_the_exact_multiformat_union_in_types(db, nodes, intent_for):
     _feature(db, "connected_library", False)
     model = _model(ADMIN, nodes, intent_for)
-    assert _family(model, "books")["path"] is None
-    assert _family(model, "tv")["path"] == "/browse?sort=newest&media_type_filter=tv_series"
+    assert _family(model, "books")["path"] == "/browse?sort=newest&types=book%2Cebook"
+    assert _family(model, "tv")["path"] == "/browse?sort=newest&types=tv_series"
     assert _family(model, "music")["landing"]["path"] == "/music"
     assert _family(model, "periodicals")["landing"]["path"] == "/periodicals"
 
@@ -653,20 +653,23 @@ def test_real_registry_nodes_and_runtime_resolver_produce_exact_rendered_hrefs(d
         expected = presentation.filter_intent([family.selector])
         assert _family(model, family.key)["media_types"] == expected.media_types
         family_links = branch.find("a", **{"data-nav-family-link": family.key})
+        anchor, = family_links
         if "library" in visible:
-            anchor, = family_links
             assert parse_qs(urlsplit(anchor.attrs["href"]).query) == {
                 "reset": ["1"], "view": ["items"], "sort": ["recent"],
                 "types": [",".join(expected.media_types)],
             }
         else:
-            assert bool(family_links) == (len(expected.media_types) == 1)
+            assert urlsplit(anchor.attrs["href"]).path == "/browse"
+            assert parse_qs(urlsplit(anchor.attrs["href"]).query) == {
+                "sort": ["newest"], "types": [",".join(expected.media_types)],
+            }
         for fmt in family.formats:
             anchor, = branch.find("a", **{"data-nav-format": fmt.media_type})
             query = parse_qs(urlsplit(anchor.attrs["href"]).query)
             assert query == ({
                 "reset": ["1"], "view": ["items"], "sort": ["recent"], "types": [fmt.media_type],
-            } if "library" in visible else {"sort": ["newest"], "media_type_filter": [fmt.media_type]})
+            } if "library" in visible else {"sort": ["newest"], "types": [fmt.media_type]})
     # All mixed entry points remain unfiltered, rather than enumerating the
     # registry's fourteen types and accidentally excluding unknown legacy data.
     primary, = dom.find("a", **{"data-nav-primary": "browse"})
@@ -771,3 +774,23 @@ def test_format_expansion_must_match_the_canonical_format_not_another_filter(db,
 
     with pytest.raises(ValueError, match="its one media type"):
         _model(ADMIN, nodes, mismatched)
+
+
+@pytest.mark.parametrize("library_enabled", [True, False])
+def test_real_rendered_types_csv_uses_canonical_order_and_one_key_for_both_surfaces(db, library_enabled):
+    from app import media_presentation as presentation
+
+    _feature(db, "connected_library", library_enabled)
+    _, dom = _render(ADMIN, presentation.family_nodes(), presentation.filter_intent)
+    books, = dom.find("a", **{"data-nav-family-link": "books"})
+    cd, = dom.find("a", **{"data-nav-format": "cd"})
+    primary, = dom.find("a", **{"data-nav-primary": "browse"})
+    if library_enabled:
+        prefix = "/library?reset=1&view=items&sort=recent"
+    else:
+        prefix = "/browse?sort=newest"
+    assert primary.attrs["href"] == prefix
+    assert books.attrs["href"] == prefix + "&types=book%2Caudiobook%2Cebook"
+    assert cd.attrs["href"] == prefix + "&types=cd"
+    manager, = dom.find("a", **{"data-nav-management": "catalogue"})
+    assert manager.attrs["href"] == "/browse"
