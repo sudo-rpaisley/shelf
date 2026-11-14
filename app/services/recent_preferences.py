@@ -28,6 +28,8 @@ are retained, not the whitespace/escape spelling of a raw serialized document.
 New row keys must be OMITTED, not supplied by a client. Issuance is deterministic:
 ``recent:`` plus 32 lowercase SHA-256 hex digits over the public effective selector
 set and a collision counter. No account/item/source/name/activity enters the hash.
+Issuance tries at most len(reserved keys) + 1 counters (at most 24 here), then
+refuses rather than retrying indefinitely if digests keep colliding.
 An edited/reordered row retains its key only by membership in the trusted existing
 recent document. Keys are presentation IDs, NEVER permission or ownership tokens.
 
@@ -223,17 +225,16 @@ def _selectors(value) -> tuple[tuple[str, ...], tuple[str, ...]]:
     except (TypeError, ValueError) as exc:
         raise PreferenceValidationError("invalid_selectors") from exc
     selectors = () if not value or value == ["all"] else tuple(dict.fromkeys(value))
-    return selectors, expanded.media_types
+    return selectors, expanded
 
 
 def _issue_key(effective: tuple, reserved: set[str]) -> str:
-    counter = 0
-    while True:
+    for counter in range(len(reserved) + 1):
         public = json.dumps([effective, counter], separators=(",", ":")).encode("ascii")
         key = "recent:" + hashlib.sha256(public).hexdigest()[:32]
         if key not in reserved:
             return key
-        counter += 1
+    raise PreferenceValidationError("group_key_collision")
 
 
 def _recent(value, *, existing=None, saving=False) -> tuple[dict, tuple[RecentGroup, ...]]:

@@ -155,7 +155,7 @@ def test_union_uses_real_registry_canonical_order_and_deduplicates_within_one_ro
     document = saved(group("Print and records", selectors))
     loaded = prefs.normalize_preferences(document)
     row, = loaded.groups
-    assert row.media_types == media_presentation.expand_selectors(selectors).media_types
+    assert row.media_types == media_presentation.expand_selectors(selectors)
     assert row.media_types == tuple(t for t in config.MEDIA_TYPES if t in {
         "book", "audiobook", "ebook", "vinyl", "comic", "manga",
     })
@@ -189,7 +189,7 @@ def test_every_canonical_format_is_filtered_not_mixed_and_aliases_are_not_select
                                       "family:periodicals"])
 def test_all_presentation_families_use_the_published_registry(selector):
     row, = prefs.normalize_preferences(saved(group(selectors=[selector]))).groups
-    assert row.media_types == media_presentation.expand_selectors([selector]).media_types
+    assert row.media_types == media_presentation.expand_selectors([selector])
     assert row.media_types
 
 
@@ -257,6 +257,33 @@ def test_new_key_issuance_does_not_collide_with_an_existing_row_edited_to_other_
     assert old_key == old["key"]
     assert old_key != new_key
     assert prefs.normalize_preferences(merged).fallback_reason is None
+
+
+def test_repeated_digest_collisions_refuse_with_bounded_work_and_no_mutation(monkeypatch):
+    existing = saved(group(selectors=["family:books"]))
+    old = existing["recent"]["groups"][0]
+    changes = {"recent": recent("custom", [
+        {**old, "selectors": ["format:vinyl"]}, group("New books", ["family:books"]),
+    ])}
+    before_existing, before_changes = copy.deepcopy(existing), copy.deepcopy(changes)
+    calls = 0
+
+    class CollidingDigest:
+        def hexdigest(self):
+            return old["key"][7:] * 2
+
+    def colliding_digest(value):
+        nonlocal calls
+        calls += 1
+        assert calls <= 2, "Key issuance must not retry without a finite bound"
+        return CollidingDigest()
+
+    monkeypatch.setattr(prefs.hashlib, "sha256", colliding_digest)
+    with pytest.raises(prefs.PreferenceValidationError, match="group_key_collision"):
+        prefs.merge_preferences(existing, changes)
+    assert calls == 2
+    assert existing == before_existing
+    assert changes == before_changes
 
 
 @pytest.mark.parametrize("key", ["", "recent:1", "recent:" + "A" * 32,
