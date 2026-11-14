@@ -1,0 +1,24 @@
+        {% from "fragments/item_editor_common_fields.html" import field, general_fields, artwork_fields, identifier_fields, location_fields with context %}
+
+        {{ general_fields() }}
+        <div class="space-y-4">
+        {{ artwork_fields() }}
+
+        {% include "fragments/item_editor_sections/books.html" %}
+
+        {{ identifier_fields() }}
+
+        {{ location_fields() }}
+
+        <section id="edit-media" data-testid="edit-section-media" data-media-types="video_game audiobook" data-always-visible="{{ 'true' if item.platform or item.narrator or item.duration_mins is not none or item.asin else 'false' }}" class="bg-shelf-card rounded-xl border border-shelf-border p-6 space-y-4">
+            <div>
+                <h2 class="text-lg font-semibold">{{ _('Media Details') }}</h2>
+                <p class="text-sm text-shelf-muted mt-1">{{ _('Fields specific to the selected media type.') }}</p>
+            </div>
+
+            {% include "fragments/item_editor_sections/games.html" %}
+
+            {% include "fragments/item_editor_sections/audio.html" %}
+        </section>
+
+        </div>

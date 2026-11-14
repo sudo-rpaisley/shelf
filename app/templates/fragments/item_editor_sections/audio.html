@@ -1,0 +1,5 @@
+            <div data-media-types="audiobook" data-always-visible="{{ 'true' if item.narrator or item.duration_mins is not none or item.asin else 'false' }}" class="grid grid-cols-2 gap-4">
+                {{ field("narrator", _("Narrator"), item.narrator) }}
+                {{ field("duration_mins", _("Duration (min)"), item.duration_mins, type="number") }}
+                {{ field("asin", "ASIN", item.asin) }}
+            </div>

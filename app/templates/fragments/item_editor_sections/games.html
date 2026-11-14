@@ -1,0 +1,10 @@
+            <div data-media-types="video_game" data-always-visible="{{ 'true' if item.platform else 'false' }}">
+                <label for="platform" class="block text-sm font-medium text-shelf-muted mb-1">{{ _('Platform') }}</label>
+                <select id="platform" name="platform"
+                        class="w-full bg-shelf-bg border border-shelf-border rounded-lg px-3 py-2 text-shelf-text focus:ring-2 focus:ring-shelf-accent outline-hidden">
+                    <option value="">{{ _('None') }}</option>
+                    {% for key, label in game_platforms.items() %}
+                    <option value="{{ key }}" {% if item.platform == key %}selected{% endif %}>{{ label }}</option>
+                    {% endfor %}
+                </select>
+            </div>

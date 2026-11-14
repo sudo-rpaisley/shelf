@@ -1,0 +1,11 @@
+        <section id="edit-series" data-testid="edit-section-series" data-media-types="book audiobook ebook comic manga" data-always-visible="{{ 'true' if item.series_name or item.series_position is not none or item.page_count is not none else 'false' }}" class="bg-shelf-card rounded-xl border border-shelf-border p-6 space-y-4">
+            <div>
+                <h2 class="text-lg font-semibold">{{ _('Series') }}</h2>
+                <p class="text-sm text-shelf-muted mt-1">{{ _('Series membership, position and page count.') }}</p>
+            </div>
+            <div class="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                {{ field("series_name", _("Series"), item.series_name) }}
+                {{ field("series_position", _("Series #"), item.series_position, type="number", step="any") }}
+                {{ field("page_count", _("Pages"), item.page_count, type="number") }}
+            </div>
+        </section>
