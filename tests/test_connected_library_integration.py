@@ -7,6 +7,7 @@ import pytest
 from app import nav
 from app.services import item_merge, item_write
 from tests.conftest import _insert_item
+from tests.test_connected_layout import _Markup
 from tests.test_features_gate import off
 
 
@@ -29,7 +30,12 @@ def test_connected_pages_are_registered_and_reachable(admin_client, url):
     response = admin_client.get(url)
     assert response.status_code == 200
     assert 'data-nav-tab="library"' in response.text
-    assert 'data-testid="nav-activity-groups"' in response.text
+    markup = _Markup(response.text)
+    roots = [node for node in markup.find("nav") if "data-media-navigation" in node.attrs]
+    assert len(roots) == 1
+    assert markup.one("a", within=roots[0], **{"data-nav-primary": "browse"}).attrs["href"] == (
+        "/library?reset=1&view=items&sort=recent"
+    )
 
 
 @pytest.mark.parametrize("url", ["/library", "/sources", "/activity"])

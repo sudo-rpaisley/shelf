@@ -49,32 +49,22 @@ def test_non_admin_account_menus_do_not_offer_admin_settings(editor_client, view
 
 
 def test_settings_is_not_rendered_in_primary_nav(admin_client):
-    from html.parser import HTMLParser
+    from tests.test_connected_layout import _Markup
 
-    class NavLinks(HTMLParser):
-        def __init__(self, root_id):
-            super().__init__()
-            self.root_id, self.depth, self.links = root_id, 0, []
-
-        def handle_starttag(self, tag, attrs):
-            attrs = dict(attrs)
-            if tag == "div" and attrs.get("data-testid") == self.root_id:
-                self.depth = 1
-            elif self.depth and tag == "div":
-                self.depth += 1
-            if self.depth and tag == "a":
-                self.links.append(attrs)
-
-        def handle_endtag(self, tag):
-            if self.depth and tag == "div":
-                self.depth -= 1
-
-    html = admin_client.get("/browse").text
-    for root_id, key in (("nav-activity-groups", "data-nav-tab"), ("nav-menu-panel", "data-nav-menu-tab")):
-        nav = NavLinks(root_id)
-        nav.feed(html)
-        assert any(link.get(key) == "browse" for link in nav.links)
-        assert all(link.get(key) != "settings" and link.get("href") != "/settings" for link in nav.links)
+    markup = _Markup(admin_client.get("/browse").text)
+    roots = [node for node in markup.find("nav") if "data-media-navigation" in node.attrs]
+    assert len(roots) == 1
+    primary = markup.one("a", within=roots[0], **{"data-nav-primary": "browse"})
+    tree = markup.one(**{"data-testid": "nav-menu-panel"})
+    # Desktop and mobile now use the same native disclosure tree, not duplicate
+    # rows. Browse remains a separate ordinary anchor; Settings stays outside both.
+    assert primary not in markup.find("a", within=tree)
+    for link in (primary, *markup.find("a", within=tree)):
+        assert link.attrs.get("data-nav-tab") != "settings"
+        assert link.attrs.get("data-nav-menu-tab") != "settings"
+        assert link.attrs.get("href") != "/settings"
+    panel = markup.one(**{"data-testid": "account-menu-panel"})
+    assert markup.one("a", within=panel, **{"data-testid": "account-menu-settings"}).attrs["href"] == "/settings"
 
 
 def test_account_menu_controller_is_registered():

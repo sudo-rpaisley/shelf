@@ -890,7 +890,8 @@ def _template_response_with_user(request_or_self, *args, **kwargs):
         return _original_template_response(request_or_self, *args, **kwargs)
 
     # Find the context dict and inject user + the nav tabs that user can see
-    from app.nav import grouped_tabs, visible_tabs
+    from app.media_presentation import family_nodes
+    from app.nav import grouped_tabs, media_navigation, visible_tabs
     user = getattr(request.state, "user", None)
     trash_nag = _trash_nag(user)
     context = kwargs.get('context', None)
@@ -901,12 +902,14 @@ def _template_response_with_user(request_or_self, *args, **kwargs):
                 a.setdefault("user", user)
                 a.setdefault("nav_tabs", visible_tabs(user))
                 a.setdefault("nav_groups", grouped_tabs(a["nav_tabs"]))
+                a.setdefault("media_navigation", media_navigation(a["nav_tabs"], family_nodes()))
                 a.setdefault("trash_nag", trash_nag)
                 break
     else:
         context.setdefault("user", user)
         context.setdefault("nav_tabs", visible_tabs(user))
         context.setdefault("nav_groups", grouped_tabs(context["nav_tabs"]))
+        context.setdefault("media_navigation", media_navigation(context["nav_tabs"], family_nodes()))
         context.setdefault("trash_nag", trash_nag)
 
     return _original_template_response(request_or_self, *args, **kwargs)
