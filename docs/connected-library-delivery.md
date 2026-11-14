@@ -87,8 +87,11 @@ assets, registration and documentation remain coordinator-owned. These are
 assignments, not delivered features or inherited media/navbar test results.
 
 The initial cover control is deliberately 50–100% of today's size, with native
-keyboard input, non-drag buttons and reset. It does not close above-default
-enlargement, ME5/X5 account-owned persistence/CAS or cross-device privacy. The
+keyboard input, non-drag buttons and reset. Its reviewed, explicitly selected
+geometry retains fixed slots/columns and an 80px card floor: it shrinks cards,
+not shelf density. Integration must explain the limit and omit it for Library's
+non-card series thumbnails. It does not close above-default enlargement,
+ME5/X5 account-owned persistence/CAS or cross-device privacy. The
 palette derives only from rendered authorised navigation; locating uses exact
 live copy/item IDs, bounded saved-order neighbours and truthful missing/unknown
 states without feeding a partial list to Arrange's Save order. The locator lane
@@ -98,16 +101,21 @@ invisible badge. No schema or access-authority expansion is assigned.
 The isolated core's two-file `2ed54fb6` repair and independent nine-case H/M
 packet now have **bounded source** and **test-quality** clearance respectively,
 not overall core acceptance. Exact reviewed schema/H/M dependencies pass a fresh
-**120-case parent gate**. The additional three-case C1/D1 packet is independently
-reviewed and received; its full 513-case parent union remains in progress. Separate
-caller checks still have the same five failures; actual TEMP-shadow/guard,
-unchanged broader core, pinned-runtime and deletion acceptance remain open. See the
+**120-case parent gate**. The independently reviewed C1/D1 packet's full parent
+513-case union completes **463 passed / the same 50 failed**, preserving every
+original outcome and passing all 27 additions. Separate caller checks still have
+the same five failures; actual TEMP-shadow/guard, overall core, pinned-runtime
+and deletion acceptance remain open. See the
 [current bounded review](connected-library-verification.md#latest-bounded-core-review-2026-11-14).
 
 Clean UI baselines pass 993 affected unit and 19 original navbar browser tests.
-The first frozen palette component has fresh 229-unit/58-browser parent passes,
-but is **held for a confirmed unsupported-dialog fallback correction**, not
-selected or called complete. The unrelated original linter's temporary-path
+The corrected palette component has fresh **229-unit/59-browser parent passes**
+and bounded source clearance. Real shell wiring is frozen separately for review
+and wider checks; its new standalone harness was adapted after a genuine duplicate
+fixture RED, without changing any test bodies or assertions. It is not selected
+or called complete. A clean parent baseline also confirms **five original navbar
+failures**; a bounded presentation repair is active, not a test waiver. The
+unrelated original linter's temporary-path
 assumption is qualified without changing source/assertions; earlier setup errors
 and RED evidence remain retained. No original acceptance check is closed.
 
@@ -115,9 +123,13 @@ Next-wave architecture permits a narrowly selected **pure search-helper
 foundation**, with semantics-preserving catalogue delegation owned centrally;
 it is not indexed F1/RF3 or a schema/SQL-authority grant. Final-artwork recovery
 still needs distinct commit/incarnation/lifecycle design approval. Only an additive
-six-case crash-observation packet is assigned now, retaining the original Phase-B
-RED and TEMP's no-artwork authority. A single-item editor-dialog design is under
-requirements review, not yet an implementation assignment or full ME2 delivery.
+six-case crash-observation packet is frozen; its fresh parent **six passes** are
+boundary evidence only, retaining the original Phase-B RED and TEMP's no-artwork
+authority. Packet-quality review remains pending. The locator and pure-helper
+follow-ups have bounded source clearance but still need parent qualification and
+central wiring. Single-item editor-dialog requirements review requires changes
+to freeze limits, stored-state/actor checks, response ownership, unknown outcomes,
+cookie-refresh privacy and artwork boundaries before assigning writers.
 
 Independent architecture, requirements, privacy and recovery audits accompany
 implementation. Additional reviewers/testers are assigned to completed
@@ -166,9 +178,10 @@ partials and a media presentation registry extend the existing server-rendered
 framework, not a separate SPA. Permissions, validation, private activity,
 catalogue/copies/history, integrations, keys and original data must survive.
 
-**ME7 — cover-size slider** is a newly requested F2 backlog item, not an
-implemented control: provide live cover/card resizing, keyboard access and a
-default-size reset while preserving artwork proportions and responsive layouts.
+**ME7 — cover-size slider** remains an unfinished F2 backlog item: provide live
+cover/card resizing, keyboard access and a default-size reset while preserving
+artwork proportions and responsive layouts. The reviewed first-wave component
+and fixed-slot decision above are not yet primary producer integration.
 Persistence belongs with the existing account/device preference work. Previous
 media and navbar test results do not close this new requirement.
 

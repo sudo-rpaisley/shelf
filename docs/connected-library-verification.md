@@ -468,10 +468,13 @@ New test-only `dcf71c67` adds two C1 forward-only observations and one synthetic
 D1 observed-definition case, receiving independent **TEST_PACKET_REVIEW_CLEAR**.
 Its captured worker gates are **3 passed / 4.60 s** and **96 references passed /
 223.84 s**, not parent results. Exact receipt as `e1b18303` preserves source and
-all 510 existing composed cases; its fresh parent **513-case union is running**
-at this checkpoint, without an outcome claim. D1 is not real missing/changed
-TEMP-guard or ledger-ownership evidence. Actual T1/T3 construction remains
-unqualified without approved seams.
+all 510 existing composed cases. Its fresh parent **513-case union completes
+463 passed / 50 failed / 1586.60 s**. All original 486 identities and outcomes
+match frozen R6 exactly; all 27 additions pass. All 939 input hashes/modes and
+guards remain exact, with zero errors/skips or child attempts. The 50 enabled
+failures remain 28 K13, 17 D3 proof dependencies and five baseline failures, not
+waived regressions. D1 is not real missing/changed TEMP-guard or ledger-ownership
+evidence. Actual T1/T3 construction remains unqualified without approved seams.
 
 Separate fresh parent caller bands retain **4 passed / 5 failed** on `3954f20c`
 (23.02 s) and `e1b18303` (21.41 s), with exact identities/outcomes matched to the
@@ -491,10 +494,10 @@ Immutable captures and bounded reviews are under
 `.temp/swarm-reviews/core-primitive-provenance-2ed54fb/`,
 `.temp/swarm-reviews/core-upsert-hm-2491b66/` and
 `.temp/swarm-reviews/core-upsert-observations-dcf71c6/`. New parent receipts are
-under `.temp/implementation-wave-20261114/`, including `BASELINE_RECEIPTS.json` and
-`PARENT_CALLER9_RECEIPT.json`.
+under `.temp/implementation-wave-20261114/`, including `BASELINE_RECEIPTS.json`,
+`PARENT_CALLER9_RECEIPT.json` and `PARENT_FULL513_RECEIPT.json`.
 
-#### Continuation UI baseline and held palette candidate
+#### Continuation UI baselines and frozen feature candidates
 
 Before feature integration, clean `95ff5d63` passes **993 affected UI unit tests /
 605.17 s** and separately all **19 original navigation browser cases / 30.13 s**.
@@ -504,12 +507,57 @@ are pre-feature baselines, not cover-control/locator/palette acceptance.
 Frozen palette `de5c018b` adds only five component/test files, preserving every
 original file. Fresh parent gates pass **229 unit tests / 166.69 s** and **58
 browser cases / 73.36 s** (39 new component cases plus the 19 original navbar
-cases). Nevertheless independent review is **CHANGES_REQUIRED**: without native
-dialog styling, its closed body exposes inert controls. The author is adding an
-adversarial missing-API-and-styling regression and a bounded explicit CSS hiding
-fix; no primary selection or review transfer to a future candidate follows.
-New palette browser cases remain intercepted component shells, not authenticated
-palette/full-Browse-controller acceptance; parent HTTP composition is pending.
+cases). Independent review nevertheless required changes: without native dialog
+styling, its closed body exposed inert controls. Follow-up `3701f1ea` adds the
+controlled missing-API-and-styling RED→GREEN regression and explicit CSS hiding,
+receiving bounded **SOURCE_REVIEW_CLEAR**. Fresh parent checks on its exact-tree
+receipt pass **229 unit / 159.71 s** and **59 browser / 72.23 s**. These remain
+component-shell checks, not authenticated shared-wiring acceptance or actual
+unsupported-browser qualification.
+
+Parent live candidate `09d360cd` receives the exact reviewed production component
+and adds real shell wiring, shortcut discovery, Italian/Simplified Chinese strings,
+generated CSS/SW and documentation. Preliminary real-route checks pass **14 HTTP
+unit / 14.97 s**, **five authenticated browser / 12.05 s** and eight offline
+source/generated checks; the browser run preceded the translation update. A
+targeted frozen run then correctly found the standalone component harness adding
+a second palette after base wiring. Only that new fixture's setup was adapted to
+inject fragment/assets/help marker when absent, assert singleton wiring and retain
+`app.js` → host handlers → palette order. Its unchanged targeted case passes
+**1 / 2.50 s**; all 40 component identities, test bodies, decorators, assertions
+and the controlled-UA regression remain unchanged. Independent shared-wiring
+review and fresh wider frozen gates are pending; no primary selection follows.
+README's **10205 unit / 486 E2E** badges are collection counts, not pass totals.
+
+A separate clean-baseline parent run of the older original navbar file gives
+**7 passed / 5 failed / 89.14 s**, with exact inputs/guards and zero attempts.
+Store/Discover/Series visibility, narrow Browse collapse and direct mobile Stats
+navigation are genuine programme blockers. Series is under **Explore**, not Media;
+the older settings fixture legitimately hides unchecked Library. No test is
+rewritten or waived. An isolated presentation-only repair is assigned for a unique
+quick Store link, expanded in-flow collapsible Explore and narrow-menu primary
+collapse, preserving navigation policy, the exact original 234-unit band and
+all original 12 + 19 browser cases.
+
+ME7 component `b7daa1af` has bounded source clearance; fresh parent browser checks
+pass **37 / 56.42 s** (18 component plus 19 original navbar). Unit and actual
+producer wiring qualification remain pending. The selected first increment keeps
+grid columns and 10rem shelf slots fixed and sizes cards to
+`min(host width, max(80px, host width × requested scale))`, 50–100%, default 100%.
+This is floor-limited shrinking, not greater density or persistence. Integration
+must explain that limit accessibly and hide the control in Library series view,
+whose direct thumbnails do not resize. No whole-ME7/account preference closure.
+
+Locator follow-up `995b1d37` and pure search-helper follow-up `aad34891` each
+receive independent bounded **SOURCE_REVIEW_CLEAR**, resolving their respective
+confirmed defects with qualified unchanged-test RED→GREEN evidence. Locator
+preserves empty non-NULL SQLite position types rather than substituting zero;
+helpers casefold after compatibility decomposition without changing canonical or
+identifier semantics. Captured worker results are **368 unit / 39 focused browser**
+and **374 helper/reference passes**, respectively. Fresh parent checks are queued;
+their earlier reviews/passes are not transferred. Locator shared assets/i18n and
+reachable helper catalogue delegation are still absent. F1 whole-catalogue
+hydration, persistent indexing, RF3 and scale/RAM acceptance remain open.
 
 The worker's broader **228 passed / 1 failed** is retained as an initial harness
 path-format incompatibility. An original linter test expects a basename for its
