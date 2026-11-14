@@ -457,11 +457,29 @@ were not reached on RED. Test-quality clearance does not itself prove the earlie
 catalogue authentication prefix; that prefix was inspected separately in source.
 
 Exact reviewed e7 schema and H/M files are received as test-only `9111716e` /
-`3954f20c` atop R6 in the new isolated composition, preserving source and all 486
-existing cases. Two C1 forward-only observation cases and one synthetic D1
-observed-definition case are separately assigned; fresh parent composed execution
-remains pending. D1 is not real missing/changed TEMP-guard or ledger-ownership
-evidence. Actual T1/T3 construction remains unqualified without approved seams.
+`3954f20c` atop R6, preserving source and all 486 existing cases. A fresh parent
+gate on that exact composition passes **120 tests / 266.29 s**: 15 schema, nine
+H/M and 96 unchanged references. All 938 tracked input hashes/modes and both guards
+remain exact, with zero errors/skips or child-network attempts. Previously
+unreached H/M after-fix assertions now execute on the corrected source. This is
+bounded qualification, not the full core suite or primary integration.
+
+New test-only `dcf71c67` adds two C1 forward-only observations and one synthetic
+D1 observed-definition case, receiving independent **TEST_PACKET_REVIEW_CLEAR**.
+Its captured worker gates are **3 passed / 4.60 s** and **96 references passed /
+223.84 s**, not parent results. Exact receipt as `e1b18303` preserves source and
+all 510 existing composed cases; its fresh parent **513-case union is running**
+at this checkpoint, without an outcome claim. D1 is not real missing/changed
+TEMP-guard or ledger-ownership evidence. Actual T1/T3 construction remains
+unqualified without approved seams.
+
+Separate fresh parent caller bands retain **4 passed / 5 failed** on `3954f20c`
+(23.02 s) and `e1b18303` (21.41 s), with exact identities/outcomes matched to the
+frozen R6 caller receipt. Three fail at `DELETE users` through `api_tokens`, and
+two at the genuine datetime-function seal. Both runs preserve input hashes/modes,
+guards and zero child attempts. They do not install the earlier public exception
+code reporter: historical `23 / SQLITE_AUTH` metadata is not relabelled as a new
+measurement. Caller bands are separate from the 513-case core union.
 
 R6's captured **436 passed / 50 failed, 775.89 s**, and caller **4 passed / 5
 failed, 13.51 s**, are not new parent runs or overall acceptance. The unchanged
@@ -472,7 +490,39 @@ privacy/deletion, pinned-runtime, primary integration or activation is cleared.
 Immutable captures and bounded reviews are under
 `.temp/swarm-reviews/core-primitive-provenance-2ed54fb/`,
 `.temp/swarm-reviews/core-upsert-hm-2491b66/` and
-`.temp/implementation-wave-20261114/COMPLETED_AUDITS.md`.
+`.temp/swarm-reviews/core-upsert-observations-dcf71c6/`. New parent receipts are
+under `.temp/implementation-wave-20261114/`, including `BASELINE_RECEIPTS.json` and
+`PARENT_CALLER9_RECEIPT.json`.
+
+#### Continuation UI baseline and held palette candidate
+
+Before feature integration, clean `95ff5d63` passes **993 affected UI unit tests /
+605.17 s** and separately all **19 original navigation browser cases / 30.13 s**.
+All 898 input hashes/modes, guards and zero child attempts are verified; these
+are pre-feature baselines, not cover-control/locator/palette acceptance.
+
+Frozen palette `de5c018b` adds only five component/test files, preserving every
+original file. Fresh parent gates pass **229 unit tests / 166.69 s** and **58
+browser cases / 73.36 s** (39 new component cases plus the 19 original navbar
+cases). Nevertheless independent review is **CHANGES_REQUIRED**: without native
+dialog styling, its closed body exposes inert controls. The author is adding an
+adversarial missing-API-and-styling regression and a bounded explicit CSS hiding
+fix; no primary selection or review transfer to a future candidate follows.
+New palette browser cases remain intercepted component shells, not authenticated
+palette/full-Browse-controller acceptance; parent HTTP composition is pending.
+
+The worker's broader **228 passed / 1 failed** is retained as an initial harness
+path-format incompatibility. An original linter test expects a basename for its
+temporary fixture, while the initial coordinator placed it inside the tested
+repository root. Parent-only future temporary paths now live outside each tested
+worktree, still beneath authorised primary `.temp`; the unchanged clean-baseline
+linter file passes **23 tests / 13.58 s** there. No application/linter/assertion
+changes or waiver were made. A first parent setup attempt omitted those temporary
+parent directories and produced **23 / 229 / 58 setup errors**, executing no
+tests; all reports are retained separately. The corrected fresh runs above do
+not relabel those errors or the worker RED. Source/test evidence is under
+`.temp/swarm-reviews/command-palette-de5c018/`; runner v2/v3 disposition records are
+under `.temp/implementation-wave-20261114/`.
 
 #### Current isolated core review
 

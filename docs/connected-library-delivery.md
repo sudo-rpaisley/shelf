@@ -97,11 +97,27 @@ invisible badge. No schema or access-authority expansion is assigned.
 
 The isolated core's two-file `2ed54fb6` repair and independent nine-case H/M
 packet now have **bounded source** and **test-quality** clearance respectively,
-not overall core acceptance. Exact reviewed schema/H/M dependencies compose in
-a new test-only worktree; C1/D1 observations are separately assigned. Fresh parent
-runtime qualification, unchanged 50 core failures, caller deletion conflicts and
-actual TEMP-shadow/guard qualification remain open. See the
+not overall core acceptance. Exact reviewed schema/H/M dependencies pass a fresh
+**120-case parent gate**. The additional three-case C1/D1 packet is independently
+reviewed and received; its full 513-case parent union remains in progress. Separate
+caller checks still have the same five failures; actual TEMP-shadow/guard,
+unchanged broader core, pinned-runtime and deletion acceptance remain open. See the
 [current bounded review](connected-library-verification.md#latest-bounded-core-review-2026-11-14).
+
+Clean UI baselines pass 993 affected unit and 19 original navbar browser tests.
+The first frozen palette component has fresh 229-unit/58-browser parent passes,
+but is **held for a confirmed unsupported-dialog fallback correction**, not
+selected or called complete. The unrelated original linter's temporary-path
+assumption is qualified without changing source/assertions; earlier setup errors
+and RED evidence remain retained. No original acceptance check is closed.
+
+Next-wave architecture permits a narrowly selected **pure search-helper
+foundation**, with semantics-preserving catalogue delegation owned centrally;
+it is not indexed F1/RF3 or a schema/SQL-authority grant. Final-artwork recovery
+still needs distinct commit/incarnation/lifecycle design approval. Only an additive
+six-case crash-observation packet is assigned now, retaining the original Phase-B
+RED and TEMP's no-artwork authority. A single-item editor-dialog design is under
+requirements review, not yet an implementation assignment or full ME2 delivery.
 
 Independent architecture, requirements, privacy and recovery audits accompany
 implementation. Additional reviewers/testers are assigned to completed
