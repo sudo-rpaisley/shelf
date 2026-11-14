@@ -1,0 +1,85 @@
+{# Parent supplies media_navigation derived from the original nav_tabs. Keep
+   those tabs intact: the existing account fragment owns its own destinations.
+   Native details + anchors remain usable if the enhancement script is lost. #}
+{% macro chevron() -%}
+<svg class="media-navigation__chevron" aria-hidden="true" width="16" height="16" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="m6 9 6 6 6-6"/></svg>
+{%- endmacro %}
+{% macro tab_link(tab) -%}
+<a href="{{ tab.path }}" data-nav-tab="{{ tab.key }}" data-nav-menu-tab="{{ tab.key }}"
+   {% if request.url.path == tab.path %}aria-current="page"{% endif %}
+   class="media-navigation__link {% if request.url.path == tab.path %}bg-shelf-hover text-white{% else %}text-shelf-muted{% endif %}">{{ _(tab.label)|forceescape }}</a>
+{%- endmacro %}
+<nav data-media-navigation aria-label="{{ _('Primary navigation') }}" class="media-navigation bg-shelf-card border-b border-shelf-border sticky top-0 z-50">
+    <div class="app-shell">
+        <div class="media-navigation__bar">
+            <a href="/" class="text-lg font-bold text-shelf-accent2 tracking-tight media-navigation__brand">Shelf</a>
+            <div class="media-navigation__main">
+                {% if media_navigation.primary %}
+                <a href="{{ media_navigation.primary.path }}" data-nav-primary="browse" data-nav-tab="browse" data-nav-menu-tab="browse"
+                   {% if request.url.path == media_navigation.primary.path.split('?')[0] %}aria-current="page"{% endif %}
+                   class="media-navigation__link media-navigation__primary text-shelf-muted">{{ _(media_navigation.primary.label)|forceescape }}</a>
+                {% endif %}
+                <details data-nav-disclosure data-nav-shell open class="media-navigation__shell">
+                    <summary class="media-navigation__shell-toggle" data-testid="nav-menu-button">{{ _('Main menu') }} {{ chevron() }}</summary>
+                    <div class="media-navigation__tree" data-testid="nav-menu-panel">
+                        {% if media_navigation.primary %}
+                        <div class="media-navigation__top" data-nav-hover>
+                            <details data-nav-disclosure data-nav-browse>
+                                <summary class="media-navigation__browse-toggle" aria-label="{{ _('Browse media') }}"><span>{{ _('Media') }}</span>{{ chevron() }}</summary>
+                                <ul class="media-navigation__panel">
+                                    {% if media_navigation.all_media %}
+                                    <li>{{ tab_link(media_navigation.all_media) }}</li>
+                                    {% endif %}
+                                    {% for family in media_navigation.families %}
+                                    <li data-nav-family="{{ family.key }}" data-nav-hover class="media-navigation__family">
+                                        <details data-nav-disclosure>
+                                            <summary>{{ _(family.label)|forceescape }} {{ chevron() }}</summary>
+                                            <ul class="media-navigation__formats">
+                                                {% if family.landing %}
+                                                <li>{{ tab_link(family.landing) }}</li>
+                                                {% endif %}
+                                                {% if family.path %}
+                                                <li><a href="{{ family.path }}" data-nav-family-link="{{ family.key }}" class="media-navigation__link text-shelf-muted">{{ _('All items') }}</a></li>
+                                                {% endif %}
+                                                {% for format in family.formats %}
+                                                <li><a href="{{ format.path }}" data-nav-format="{{ format.key }}" class="media-navigation__link text-shelf-muted">{{ _(format.label)|forceescape }}</a></li>
+                                                {% endfor %}
+                                            </ul>
+                                        </details>
+                                    </li>
+                                    {% endfor %}
+                                </ul>
+                            </details>
+                        </div>
+                        {% endif %}
+                        {% for group in media_navigation.groups %}
+                        <div class="media-navigation__top" data-nav-hover>
+                            <details data-nav-disclosure data-nav-group="{{ group.key }}">
+                                <summary>{{ _(group.label)|forceescape }} {{ chevron() }}</summary>
+                                <ul class="media-navigation__panel">
+                                    {% for tab in group.tabs %}
+                                    <li>{{ tab_link(tab) }}</li>
+                                    {% endfor %}
+                                </ul>
+                            </details>
+                        </div>
+                        {% endfor %}
+                        {% if media_navigation.management %}
+                        <div class="media-navigation__top" data-nav-hover>
+                            <details data-nav-disclosure data-nav-group="manage">
+                                <summary>{{ _('Manage') }} {{ chevron() }}</summary>
+                                <ul class="media-navigation__panel">
+                                    <li><a href="{{ media_navigation.management.path }}" data-nav-management="catalogue" class="media-navigation__link text-shelf-muted">{{ _(media_navigation.management.label)|forceescape }}</a></li>
+                                </ul>
+                            </details>
+                        </div>
+                        {% endif %}
+                    </div>
+                </details>
+            </div>
+            {% if user %}
+            <div class="media-navigation__account">{% include "fragments/account_menu.html" %}</div>
+            {% endif %}
+        </div>
+    </div>
+</nav>

@@ -1,0 +1,123 @@
+/* Imported by the parent into input.css after English convergence. The existing
+   app-shell owns width and responsive gutters, including the 80px desktop cap. */
+.media-navigation__bar {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    align-items: center;
+    gap: 0.25rem 0.75rem;
+    min-block-size: 3.5rem;
+    padding-block: 0.375rem;
+}
+.media-navigation__brand { justify-self: start; }
+.media-navigation__account { grid-column: 2; grid-row: 1; min-inline-size: 0; max-inline-size: min(16rem, 40vw); }
+.media-navigation__account > div > button { max-inline-size: 100%; }
+.media-navigation__main {
+    grid-column: 1 / -1;
+    grid-row: 2;
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    align-items: start;
+    min-inline-size: 0;
+}
+.media-navigation__shell { min-inline-size: 0; }
+.media-navigation summary,
+.media-navigation__link {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.5rem;
+    min-block-size: 2.75rem;
+    padding: 0.5rem 0.75rem;
+    border-radius: 0.375rem;
+    color: var(--color-shelf-muted, #94a3b8);
+    font-size: 0.875rem;
+    font-weight: 500;
+    text-decoration: none;
+    overflow-wrap: anywhere;
+}
+.media-navigation summary { list-style: none; cursor: pointer; }
+.media-navigation summary::-webkit-details-marker { display: none; }
+.media-navigation summary:hover,
+.media-navigation__link:hover,
+.media-navigation__link[aria-current="page"] {
+    background: var(--color-shelf-hover, #242836);
+    color: var(--color-shelf-text, #e2e8f0);
+}
+.media-navigation summary:focus-visible,
+.media-navigation a:focus-visible,
+.media-navigation button:focus-visible {
+    outline: 2px solid var(--color-shelf-accent2, #818cf8);
+    outline-offset: 2px;
+}
+.media-navigation__chevron { flex: 0 0 1rem; transition: transform 120ms ease; }
+.media-navigation details[open] > summary > .media-navigation__chevron { transform: rotate(180deg); }
+.media-navigation__tree {
+    /* The summary sits beside the real Browse anchor. Its in-flow content
+       spans both equal grid columns, never a phone-width sideways flyout. */
+    inline-size: 200%;
+    margin-inline-start: -100%;
+    padding-block: 0.5rem;
+    max-block-size: calc(100dvh - 9rem);
+    overflow-y: auto;
+    overscroll-behavior: contain;
+}
+.media-navigation__panel,
+.media-navigation__formats {
+    position: static;
+    list-style: none;
+    margin: 0;
+    padding: 0.25rem;
+    max-inline-size: 100%;
+}
+.media-navigation__formats {
+    margin-inline-start: 0.75rem;
+    border-inline-start: 1px solid var(--color-shelf-border, #2d3148);
+}
+.media-navigation__top + .media-navigation__top { border-block-start: 1px solid var(--color-shelf-border, #2d3148); }
+@media (prefers-reduced-motion: reduce) {
+    .media-navigation__chevron { transition: none; }
+}
+@media (min-width: 64rem) {
+    .media-navigation__bar { grid-template-columns: auto minmax(0, 1fr) auto; gap: 1.5rem; }
+    .media-navigation__account { grid-column: 3; }
+    .media-navigation__main { grid-column: 2; grid-row: 1; display: flex; align-items: center; }
+    .media-navigation__primary { flex-shrink: 0; }
+    .media-navigation__shell { flex: 1; }
+    .media-navigation__shell > .media-navigation__shell-toggle { display: none; }
+    .media-navigation__tree { display: flex; align-items: center; inline-size: auto; margin: 0; padding: 0; max-block-size: none; overflow: visible; }
+    .media-navigation__top, .media-navigation__family { position: relative; }
+    .media-navigation__top + .media-navigation__top { border: 0; }
+    .media-navigation__top > details > summary { white-space: nowrap; }
+    .media-navigation__browse-toggle > span { position: absolute; inline-size: 1px; block-size: 1px; overflow: hidden; clip-path: inset(50%); }
+    .media-navigation__panel,
+    .media-navigation__formats {
+        position: absolute;
+        inset-block-start: 100%;
+        inset-inline-start: 0;
+        z-index: 1;
+        inline-size: 15rem;
+        max-inline-size: calc(100vw - 2 * var(--app-gutter));
+        padding: 0.375rem;
+        border: 1px solid var(--color-shelf-border, #2d3148);
+        border-radius: 0.5rem;
+        background: var(--color-shelf-card, #1a1d27);
+        box-shadow: 0 0.75rem 1.5rem rgb(0 0 0 / 25%);
+    }
+    .media-navigation__top:has([data-nav-group]) .media-navigation__panel { inset-inline-start: auto; inset-inline-end: 0; }
+    .media-navigation__formats {
+        inset-block-start: 0;
+        inset-inline-start: 100%;
+        inline-size: 18rem;
+        margin: 0;
+        max-block-size: calc(100dvh - 5rem);
+        overflow-y: auto;
+    }
+    .media-navigation__family > details > summary > .media-navigation__chevron { transform: rotate(-90deg); }
+    .media-navigation__family > details[open] > summary > .media-navigation__chevron { transform: rotate(0); }
+}
+/* Short desktop windows use the same in-flow branch pattern as phones rather
+   than clipping a nested flyout below the viewport. */
+@media (min-width: 64rem) and (max-height: 32rem) {
+    .media-navigation__panel { max-block-size: calc(100dvh - 5rem); overflow-y: auto; }
+    .media-navigation__formats { position: static; inline-size: auto; max-inline-size: 100%; border: 0; border-inline-start: 1px solid var(--color-shelf-border, #2d3148); box-shadow: none; margin-inline-start: 0.75rem; }
+}

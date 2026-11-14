@@ -14,9 +14,15 @@ routers already enforce and always wins over the visibility config.
 
 import json
 import logging
+from collections.abc import Callable, Mapping, Sequence
+from typing import TYPE_CHECKING
+from urllib.parse import urlencode
 
 from app.features import FEATURES, feature_enabled
 from app.i18n import N_
+
+if TYPE_CHECKING:
+    from app.media_presentation import FamilyNode, FilterIntent
 
 logger = logging.getLogger(__name__)
 
@@ -241,6 +247,99 @@ def grouped_tabs(tabs: list[dict]) -> list[dict]:
         if members:
             groups.append({"key": key, "label": label, "tabs": members})
     return groups
+
+
+def media_navigation(
+    tabs: Sequence[Mapping], family_nodes: Sequence["FamilyNode"], *,
+    intent_for: "Callable[[Sequence[str]], FilterIntent] | None" = None,
+) -> dict:
+    """Derive the media menu from an *already authorized* visible_tabs result.
+
+    This function does not read policy, settings, counts or catalogue data and
+    does not mutate its inputs. Family/format membership belongs exclusively
+    to media_presentation; nodes are passed in, not redeclared here. Tests may
+    supply an intent resolver or validated nodes with ``intent.media_types``.
+    The production resolver is imported only when an expansion is needed.
+
+    A manually hidden Library tab cannot leave optional Library URLs behind.
+    Core Browse understands a single media_type_filter, not a family union:
+    its fallback offers exact formats, never a misleading broadened union.
+    Music/Periodicals retain their authorized overview links inside their
+    branches. The original tabs still feed the unchanged account fragment.
+    """
+    by_key = {tab["key"]: tab for tab in tabs}
+    browse = by_key.get("browse")
+    library = by_key.get("library")
+    primary_path = ("/library?reset=1&view=items&sort=recent" if library
+                    else "/browse?sort=newest")
+
+    def media_types(node):
+        nonlocal intent_for
+        intent = getattr(node, "intent", None)
+        if intent is None:
+            if intent_for is None:
+                from app.media_presentation import filter_intent
+                intent_for = filter_intent
+            intent = intent_for((node.selector,))
+        expanded = tuple(intent.media_types)
+        if not expanded:
+            raise ValueError("A nonmixed navigation selector has an empty expansion")
+        return expanded
+
+    def filter_path(expanded):
+        if library:
+            return "/library?" + urlencode({
+                "reset": "1", "view": "items", "sort": "recent",
+                "types": ",".join(expanded),
+            })
+        if len(expanded) == 1:
+            return "/browse?" + urlencode({
+                "sort": "newest", "media_type_filter": expanded[0],
+            })
+        return None
+
+    families = []
+    represented = {"browse", "library"}
+    if browse:
+        for node in family_nodes:
+            origin = node.origin_tab or "browse"
+            if origin not in by_key:
+                continue
+            expanded = media_types(node)
+            formats = []
+            for fmt in node.formats:
+                format_types = media_types(fmt)
+                if format_types != (fmt.media_type,):
+                    raise ValueError("A navigation format must expand to its one media type")
+                formats.append({
+                    "key": fmt.media_type, "label": fmt.label,
+                    "path": filter_path(format_types), "media_types": format_types,
+                })
+            families.append({
+                "key": node.key, "label": node.label,
+                "path": filter_path(expanded), "media_types": expanded,
+                "landing": dict(by_key[origin]) if origin != "browse" else None,
+                "formats": formats,
+            })
+            represented.add(origin)
+
+    groups = []
+    for key, label in (("add", N_("Add / Scan")), ("explore", N_("Explore"))):
+        members = [dict(tab) for tab in tabs
+                   if not tab.get("menu") and tab["key"] not in represented
+                   and ("add" if tab.get("group") == "add" else "explore") == key]
+        if members:
+            groups.append({"key": key, "label": label, "tabs": members})
+
+    return {
+        "primary": {**browse, "path": primary_path} if browse else None,
+        "all_media": {**library, "label": N_("All media"), "path": primary_path}
+                     if browse and library else None,
+        "families": families,
+        "groups": groups,
+        "management": {**browse, "label": N_("Catalogue management")}
+                      if browse else None,
+    }
 
 
 # Where the item-detail "back" link goes when arriving from somewhere other
