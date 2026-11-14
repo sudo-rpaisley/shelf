@@ -12,6 +12,7 @@
         const browse = root.querySelector('details[data-nav-browse]');
         const primary = root.querySelector('[data-nav-primary="browse"]');
         const disclosures = Array.from(root.querySelectorAll('details[data-nav-disclosure]'));
+        const hoverOpened = new Set();
         const desktop = window.matchMedia('(min-width: 64rem)');
         const hover = window.matchMedia('(hover: hover) and (pointer: fine)');
         const summary = details => details.querySelector(':scope > summary');
@@ -27,6 +28,7 @@
             // branch never resurrects a forgotten sideways desktop flyout.
             for (const candidate of disclosures.slice().reverse()) {
                 if (details.contains(candidate) && !persistent(candidate)) {
+                    hoverOpened.delete(candidate);
                     candidate.open = false;
                     sync(candidate);
                 }
@@ -34,6 +36,15 @@
         }
 
         for (const details of disclosures) {
+            summary(details).addEventListener('click', function (event) {
+                // Pointer entry may already have opened this native details.
+                // Do not let that same first mouse click immediately close it.
+                // A second click and all keyboard activation remain native.
+                if (event.detail > 0 && desktop.matches && hoverOpened.has(details)) {
+                    hoverOpened.delete(details);
+                    event.preventDefault();
+                }
+            });
             details.addEventListener('toggle', function () {
                 if (persistent(details) && !details.open) details.open = true;
                 if (details.open) {
@@ -60,9 +71,13 @@
                 // while it contains focus. Hovering within that branch is fine.
                 const focusedPeer = disclosures.some(peer => peer.open && !persistent(peer)
                     && peer !== details && !peer.contains(details) && peer.contains(active));
-                if (!focusedPeer) details.open = true;
+                if (!focusedPeer && !details.open) {
+                    hoverOpened.add(details);
+                    details.open = true;
+                }
             });
             region.addEventListener('pointerleave', function (event) {
+                hoverOpened.delete(details);
                 if (event.pointerType === 'mouse' && desktop.matches
                     && !details.contains(document.activeElement)) close(details);
             });

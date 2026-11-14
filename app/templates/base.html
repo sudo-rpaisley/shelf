@@ -8,6 +8,11 @@
     <meta name="theme-color" content="#0f1117">
     <link rel="apple-touch-icon" href="/static/icons/icon-192.png">
     <link rel="stylesheet" href="/static/css/app.css">
+    {# Also load the shell's small stylesheet independently. An already active
+       Store service worker can still serve an older app.css during an upgrade;
+       this non-precached URL keeps the new navigation usable in that window.
+       The bundled copy remains available to the offline Store shell. #}
+    <link rel="stylesheet" href="/static/css/media-navigation.source.css">
     <script src="/static/vendor/htmx-2.0.4.min.js"></script>
     <!--
       Script order below is load-bearing, and `make check-alpine` enforces it.
