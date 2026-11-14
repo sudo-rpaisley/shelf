@@ -24,6 +24,7 @@
 
     <form method="get" action="/library" class="rounded-xl border border-shelf-border bg-shelf-card p-4 space-y-4" role="search" data-testid="library-filters">
         {% if saved_view %}<input type="hidden" name="saved_view" value="{{ saved_view.id }}">{% endif %}
+        <input type="hidden" name="types" value="{{ filters.types }}">
         <div>
             <label for="library-q" class="block text-sm font-medium mb-1">{{ _('Search your library') }}</label>
             <div class="flex gap-2">
@@ -32,7 +33,7 @@
             </div>
         </div>
         {% set active_filters = namespace(count=0) %}
-        {% for key, default in [('media_type', ''), ('family', ''), ('series', ''), ('source', ''), ('availability', ''), ('ownership', ''), ('wishlist', ''), ('view', 'groups'), ('sort', 'title'), ('page_size', '24')] %}
+        {% for key, default in [('media_type', ''), ('types', ''), ('family', ''), ('series', ''), ('source', ''), ('availability', ''), ('ownership', ''), ('wishlist', ''), ('view', 'groups'), ('sort', 'title'), ('page_size', '24')] %}
         {% if filters[key] != default %}{% set active_filters.count = active_filters.count + 1 %}{% endif %}
         {% endfor %}
         <details data-testid="library-filter-options">
@@ -103,7 +104,7 @@
             </div>
             <div class="flex flex-wrap items-center gap-4 mt-4">
                 <button type="submit" class="px-4 py-2 rounded-lg bg-shelf-accent text-white hover:bg-shelf-accent2">{{ _('Apply filters') }}</button>
-                <a href="/library" class="text-sm text-shelf-accent2 hover:underline">{{ _('Clear filters') }}</a>
+                <a href="/library?reset=1" class="text-sm text-shelf-accent2 hover:underline">{{ _('Clear filters') }}</a>
                 <span class="text-xs text-shelf-muted">{{ _('Ownership alone does not mean a physical copy is on a shelf.') }}</span>
             </div>
         </details>

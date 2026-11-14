@@ -25,7 +25,7 @@ import re
 from dataclasses import dataclass
 from typing import Callable, Mapping, Sequence
 
-from app import i18n
+from app import i18n, media_type_filters
 from app.i18n import N_
 from app.services import lists
 from urllib.parse import quote
@@ -50,6 +50,25 @@ _SQLITE_INT_MIN, _SQLITE_INT_MAX = -(2 ** 63), 2 ** 63 - 1
 
 #: A condition that matches no row, for a filter value that cannot address one.
 _NEVER: "tuple[str, list]" = ("1 = 0", [])
+_INVALID_TYPES_VALUE = "__invalid_types__"
+
+
+def _types(value):
+    try:
+        selected = media_type_filters.parse_types(value)
+    except ValueError:
+        return _NEVER
+    if not selected:
+        return None
+    return f"i.media_type IN ({', '.join('?' for _ in selected)})", list(selected)
+
+
+def _types_value(value):
+    """Canonical control/URL value, or an owned, nonempty invalid sentinel."""
+    try:
+        return ",".join(media_type_filters.parse_types(value))
+    except ValueError:
+        return _INVALID_TYPES_VALUE
 
 
 def _column(column: str, cast: Callable[[str], object] = str) -> ConditionBuilder:
@@ -170,8 +189,8 @@ class BrowseFilter:
     #: None for presentation-only filters (sort, view) that participate in the
     #: querystring and hx-include but never narrow the result set.
     condition: ConditionBuilder | None = None
-    #: Percent-encode the value in the load-more querystring (tag names are
-    #: free text and may contain spaces or '&').
+    #: Fully percent-encode the value, including slashes, in load-more URLs.
+    #: Other values retain URL-safe slashes but still encode query delimiters.
     quote_in_qs: bool = False
     #: Render a removable chip when active. False for `view`, which is a
     #: hidden control carrying the grid/list mode — real state, but not
@@ -207,6 +226,7 @@ class BrowseFilter:
 FILTERS: tuple[BrowseFilter, ...] = (
     BrowseFilter("q", prefix=N_("Search"), condition=_search),
     BrowseFilter("media_type_filter", prefix=N_("Type"), condition=_column("i.media_type")),
+    BrowseFilter("types", prefix=N_("Formats"), condition=_types, quote_in_qs=True),
     BrowseFilter("source_filter", prefix=N_("Source"), condition=_column("i.source")),
     BrowseFilter("location_filter", prefix=N_("Location"), condition=_location),
     BrowseFilter("sort", prefix=N_("Sort"), default="newest", clear_to="newest"),
@@ -275,7 +295,9 @@ def build_where(values: Mapping[str, str], exclude=None) -> "tuple[str, list]":
         if f.name in skip or f.condition is None:
             continue
         value = values.get(f.name, "")
-        if not f.is_active(value):
+        # Unlike legacy filters, even a falsey non-string types value is an
+        # invalid selection, never an instruction to show the whole collection.
+        if f.name != "types" and not f.is_active(value):
             continue
         built = f.condition(value)
         if built is None:
@@ -293,9 +315,15 @@ def values_from(query_params: Mapping[str, str]) -> dict:
 
     Missing keys become the filter's default, so callers can index the result
     without `.get()` and a new filter needs no route-signature change. Values
-    stay raw strings — parsing belongs to each filter's condition builder.
+    stay raw strings except new ``types``, whose canonical hidden control also
+    needs to survive subsequent requests. Only that field rejects duplicates;
+    legacy fields retain Starlette's established last-value behavior.
     """
-    return {f.name: query_params.get(f.name, f.default) or f.default for f in FILTERS}
+    values = {f.name: query_params.get(f.name, f.default) or f.default for f in FILTERS}
+    getlist = getattr(query_params, "getlist", None)
+    values["types"] = (_INVALID_TYPES_VALUE if callable(getlist) and len(getlist("types")) > 1
+                       else _types_value(query_params.get("types", "")))
+    return values
 
 
 def has_active_filters(values: Mapping[str, str]) -> bool:
@@ -305,7 +333,9 @@ def has_active_filters(values: Mapping[str, str]) -> bool:
     check omitted `language`, so a language-only filter offered no way out.
     """
     return any(
-        f.condition is not None and f.is_active(values.get(f.name, ""))
+        f.condition is not None and f.is_active(
+            _types_value(values.get(f.name, "")) if f.name == "types" else values.get(f.name, "")
+        )
         for f in FILTERS
     )
 
@@ -326,9 +356,12 @@ def querystring(values: Mapping[str, str], extra: Sequence[str] = ()) -> str:
     parts = []
     for f in FILTERS:
         value = values.get(f.name, "")
+        if f.name == "types":
+            value = _types_value(value)
         if not f.in_url or not f.is_active(value):
             continue
-        parts.append(f"{f.name}={quote(str(value)) if f.quote_in_qs else value}")
+        encoded = quote(str(value), safe="" if f.quote_in_qs else "/")
+        parts.append(f"{f.name}={encoded}")
     parts.extend(extra)
     return "&".join(parts)
 

@@ -343,6 +343,12 @@
            hx-get="/api/search" hx-trigger="change" hx-target="#item-grid"
            hx-include="{{ filter_includes('author_filter') }}">
 
+    {# Registry-owned format union from a media link. Like author_filter, the
+       hidden control issues its own request when its chip is cleared. #}
+    <input type="hidden" name="types" value="{{ (initial_filters or {}).get('types', '') }}"
+           hx-get="/api/search" hx-trigger="change" hx-target="#item-grid"
+           hx-include="{{ filter_includes('types') }}">
+
     <!-- Item Grid -->
     <div id="item-grid">
         {% include "fragments/item_grid.html" %}

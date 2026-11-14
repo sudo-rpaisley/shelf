@@ -20,7 +20,7 @@ from collections.abc import Mapping
 from fractions import Fraction
 from urllib.parse import urlencode
 
-from app import config, features
+from app import config, features, media_type_filters
 from app.i18n import N_
 from app.services import availability, format_groups
 from app.services.lists import WISHLISTED_SQL
@@ -28,7 +28,7 @@ from app.services.lists import WISHLISTED_SQL
 
 MAX_SAVED_VIEWS = 50
 DEFAULT_FILTERS = {
-    "q": "", "media_type": "", "family": "", "series": "",
+    "q": "", "media_type": "", "types": "", "family": "", "series": "",
     "ownership": "", "wishlist": "", "source": "", "availability": "",
     "view": "groups", "sort": "title", "page_size": "24",
 }
@@ -99,13 +99,15 @@ def _text(value, *, maximum=300) -> str:
 
 
 def normalize_filters(values: Mapping | None = None) -> dict[str, str]:
-    """Only known, bounded, scalar filters survive; invalid values reset defaults.
+    """Only known, bounded, scalar filters survive; invalid legacy values reset.
 
     No SQL, pagination, user IDs, redirect targets or saved-view IDs can be
     stored here. Empty values intentionally clear a saved view's filter.
+    Invalid new ``types`` selections raise rather than silently matching all.
     """
     values = values if isinstance(values, Mapping) else {}
     result = dict(DEFAULT_FILTERS)
+    result["types"] = ",".join(media_type_filters.parse_types(values.get("types", "")))
     for key in ("q", "series"):
         result[key] = _text(values.get(key, ""))
     result["series"] = format_groups.series_name_key(result["series"])
@@ -261,7 +263,9 @@ def _holdings_match(rows: list[dict], source: str, state: str) -> bool:
     return any(row["state"] == state for row in rows)
 
 
-def _matches(item, filters, tokens, external) -> bool:
+def _matches(item, filters, tokens, external, types) -> bool:
+    if types and item["media_type"] not in types:
+        return False
     if filters["media_type"] and item["media_type"] != filters["media_type"]:
         return False
     if filters["family"] and item["media_type"] not in FAMILIES[filters["family"]][1]:
@@ -297,6 +301,7 @@ def search_catalog(db, filters: Mapping | None = None, *, page: int = 1) -> dict
     names, or drills into ordered format groups when ``series`` is selected.
     """
     filters = normalize_filters(filters)
+    types = media_type_filters.parse_types(filters["types"])
     columns = ", ".join(f"i.{column}" for column in _ITEM_COLUMNS)
     items = {row["id"]: dict(row) for row in db.execute(
         f"SELECT {columns}, {WISHLISTED_SQL} AS wishlisted FROM items_live i"
@@ -322,7 +327,7 @@ def search_catalog(db, filters: Mapping | None = None, *, page: int = 1) -> dict
         item["holdings"] = holdings.get(item["id"], [])
         item["tags"] = tags[item["id"]]
         item["copy_count"] = sum(row["kind"] == "physical" for row in item["holdings"])
-        item["matches"] = _matches(item, filters, tokens, external[item["id"]])
+        item["matches"] = _matches(item, filters, tokens, external[item["id"]], types)
         if result_kind == "series" and not item["series_key"]:
             item["matches"] = False
         if item["series_key"]:

@@ -2,14 +2,15 @@
 
 Display mode is ``view=groups|items|series``. ``saved_view=<id>`` loads only the
 current account's saved filters, then explicitly present GET filters override
-them (including empty values). Pages are never saved. All routes are ordinary
+them (including empty values); ``reset=1`` drops inherited filters first.
+Pages are never saved. All routes are ordinary
 cookie-session routes: viewer first, connected_library feature second.
 """
 
-from fastapi import APIRouter, Depends, Request
+from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import RedirectResponse
 
-from app import config, i18n
+from app import config, i18n, media_type_filters
 from app.auth import require_role
 from app.database import get_db
 from app.features import require_feature
@@ -18,6 +19,7 @@ from app.services import library_catalog
 
 router = APIRouter()
 _NOTICE_COOKIE = "library_view_notice"
+_INVALID_TYPES_MESSAGE = i18n.N_("Invalid media formats.")
 _NOTICES = {
     "saved": i18n.N_("Personal view saved."),
     "deleted": i18n.N_("Personal view deleted."),
@@ -27,18 +29,31 @@ _NOTICES = {
 }
 
 
+def _invalid_types_error() -> HTTPException:
+    # Fixed text only: no selector/request content is reflected in any response.
+    return HTTPException(status_code=400, detail=i18n.gettext(_INVALID_TYPES_MESSAGE))
+
+
 def _read_context(request: Request, user: dict) -> dict:
     query = request.query_params
+    if len(query.getlist("types")) > 1:
+        raise _invalid_types_error()
     view_id = library_catalog.positive_int(query.get("saved_view"), 0, 2**63 - 1)
     with get_db() as db:
         # One read snapshot for matching flags, live graph and availability.
         db.execute("BEGIN")
-        saved = library_catalog.load_saved_view(db, user["id"], view_id) if view_id else None
-        filters = dict(saved["filters"]) if saved else {}
-        filters.update({key: query[key] for key in library_catalog.FILTER_KEYS if key in query})
-        context = library_catalog.search_catalog(
-            db, filters, page=library_catalog.positive_int(query.get("page")),
-        )
+        try:
+            saved = (library_catalog.load_saved_view(db, user["id"], view_id)
+                     if view_id and query.get("reset") != "1" else None)
+            filters = dict(saved["filters"]) if saved else {}
+            filters.update({key: query[key] for key in library_catalog.FILTER_KEYS if key in query})
+            context = library_catalog.search_catalog(
+                db, filters, page=library_catalog.positive_int(query.get("page")),
+            )
+        except ValueError as exc:
+            if str(exc) != media_type_filters.INVALID_TYPES:
+                raise
+            raise _invalid_types_error() from None
         context["saved_view"] = {"id": saved["id"], "name": saved["name"]} if saved else None
         context["saved_views"] = library_catalog.saved_views(db, user["id"])
     return context
@@ -154,10 +169,13 @@ async def save_library_view(
     if content_type not in {"application/x-www-form-urlencoded", "multipart/form-data"}:
         return _redirect(request, "invalid_form")
     form = await request.form()
+    if len(form.getlist("types")) > 1:
+        return _redirect(request, "invalid_form")
     # Unknown keys (including SQL/user_id) are ignored; files/objects fail the
-    # normalizer's scalar checks. Repeated fields use the form's last value.
+    # normalizer's scalar checks. Legacy repeated fields keep their last value.
     values = {key: form[key] for key in library_catalog.FILTER_KEYS if key in form}
     try:
+        values = library_catalog.normalize_filters(values)
         with get_db() as db:
             db.execute("BEGIN IMMEDIATE")
             library_catalog.save_view(db, user["id"], form.get("name"), values)
