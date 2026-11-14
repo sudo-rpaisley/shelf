@@ -146,15 +146,17 @@ def creator_label(media_type):
     return CREATOR_LABELS.get(media_type, DEFAULT_CREATOR_LABEL)
 
 
-# Media types whose artwork is square. Derived from MUSIC_MEDIA_TYPES, not
-# retyped, so a fifth music format cannot silently fall back to portrait —
-# the same rule CREATOR_LABELS applies above. Read it through cover_shape().
-SQUARE_COVER_MEDIA_TYPES = frozenset(MUSIC_MEDIA_TYPES)
-
-
 def cover_shape(media_type):
-    """"square" or "portrait": the box a cover of `media_type` is shown in."""
-    return "square" if media_type in SQUARE_COVER_MEDIA_TYPES else "portrait"
+    """Compatibility delegate for the registry's native artwork shape token."""
+    from app.media_presentation import artwork_spec
+
+    return artwork_spec(media_type).shape
+
+
+# Compatibility membership only; the presentation registry owns every decision.
+SQUARE_COVER_MEDIA_TYPES = frozenset(
+    media_type for media_type in MEDIA_TYPES if cover_shape(media_type) == "square"
+)
 
 
 # Browse's creator column header and author sort option. They follow the Type
