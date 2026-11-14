@@ -109,27 +109,55 @@ def _html_context(request: Request, context: dict) -> dict:
     }
 
 
+class _ArtworkWorker(asyncio.Task):
+    """One owned framework job whose cancellation waits for physical completion.
+
+    Shielding an await does not protect the inner Task from direct cancel() or
+    asyncio shutdown's cancel-all pass. Defer those requests here instead of
+    cancelling the framework's wait on its real thread. The owner propagates the
+    first request after retrieving this job's result/error. No task factory or
+    runtime policy is changed; this private task belongs only to this request.
+    """
+
+    def __init__(self, operation):
+        self.cancellation = None
+        super().__init__(operation)
+
+    def cancel(self, msg=None):
+        if self.done():
+            return False
+        if self.cancellation is None:
+            self.cancellation = asyncio.CancelledError(*(() if msg is None else (msg,)))
+        return True
+
+
 async def _prepared_html_context(request: Request, user: dict) -> dict:
     context = _read_context(request, user)  # The existing DB context has exited.
     cancellation = None
     # Own this one operation until its physical worker has closed its FDs.
-    # AnyIO shielding handles level cancellation; asyncio.shield plus the loop
-    # also handles repeated direct Task.cancel() without abandoning the worker.
+    # AnyIO shielding handles level cancellation. The owned task defers inner
+    # cancellation too; the shield/drain loop handles repeated owner cancels.
     with anyio.CancelScope(shield=True):
-        worker = asyncio.create_task(run_in_threadpool(library_artwork.prepare_library_artwork, context))
+        worker = _ArtworkWorker(run_in_threadpool(library_artwork.prepare_library_artwork, context))
         while True:
             try:
                 prepared = await asyncio.shield(worker)
                 break
             except asyncio.CancelledError as error:
-                if worker.cancelled():
-                    raise
                 if cancellation is None:
-                    cancellation = error
+                    cancellation = worker.cancellation or error
+                if worker.cancelled():
+                    # External cancel() cannot interrupt this task's physical
+                    # wait; here the operation itself has finished by raising.
+                    if cancellation is not error:
+                        raise cancellation from error
+                    raise
             except BaseException as error:
+                cancellation = cancellation or worker.cancellation
                 if cancellation is not None:
                     raise cancellation from error
                 raise
+    cancellation = cancellation or worker.cancellation
     if cancellation is not None:
         raise cancellation
     await anyio.lowlevel.checkpoint_if_cancelled()

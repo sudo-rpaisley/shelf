@@ -307,3 +307,164 @@ def test_preparation_preserves_input_and_has_no_sql_provider_or_permission_autho
     prepared = artwork.prepare_library_artwork(context)
     assert context == before and not calls
     assert prepared.source_for(7, 'covers/7.svg').captured_bytes == RECTANGLE
+
+
+@pytest.mark.parametrize('encoding', ['utf-16-le', 'utf-16-be'])
+@pytest.mark.parametrize('path', ['/library', '/api/library/search'])
+def test_repair_bomless_utf16_is_placeholder_in_real_html_with_ascii_positive(viewer_client, db, encoding, path):
+    encoded = RECTANGLE.decode('ascii').encode(encoding)
+    (config.COVERS_DIR / 'alternate.svg').write_bytes(encoded)
+    (config.COVERS_DIR / '7.svg').write_bytes(RECTANGLE)
+    bad_id = _insert_item(db, isbn=None, title='Alternate encoding', cover_path='covers/alternate.svg', media_type='vinyl')
+    good_id = _insert_item(db, isbn=None, title='ASCII original', cover_path='covers/7.svg', media_type='vinyl')
+    db.commit()
+    response = viewer_client.get(path, params={'view': 'items'})
+    assert response.status_code == 200
+    root = _PageHTML(response.text).root
+    bad = root.find(**{'data-library-member': str(bad_id)})[0]
+    good = root.find(**{'data-library-member': str(good_id)})[0]
+    assert not bad.find('img') and len(bad.find(cls='media-artwork__placeholder')) == 1
+    assert len(good.find('img')) == 1
+    assert base64.b64decode(good.find('img')[0].attrs['src'].split(',', 1)[1]) == RECTANGLE
+    prepared = response.context['prepared_library_artwork']
+    assert prepared.source_for(bad_id, 'covers/alternate.svg') is None
+    assert prepared.source_for(good_id, 'covers/7.svg').captured_bytes == RECTANGLE
+    assert (config.COVERS_DIR / 'alternate.svg').read_bytes() == encoded
+
+
+@pytest.mark.parametrize('stage', ['intermediate', 'root', 'file'])
+@pytest.mark.parametrize('path', ['/library', '/api/library/search'])
+def test_repair_close_errors_return_normal_html_placeholder_without_surviving_fds(viewer_client, db, monkeypatch, stage, path):
+    from tests.test_library_artwork_sources import _repair_close_failure_probe
+
+    item_id = _insert_item(db, isbn=None, title='Close fault', cover_path='covers/7.svg', media_type='vinyl')
+    db.commit()
+    (config.COVERS_DIR / '7.svg').write_bytes(RECTANGLE)
+    live, opened, injected, attempts, unrelated, fstat, cleanup = _repair_close_failure_probe(monkeypatch, stage)
+    try:
+        response = viewer_client.get(path)
+        assert response.status_code == 200
+        assert response.headers['cache-control'] == 'no-store'
+        assert injected and opened and not live
+        member = _PageHTML(response.text).root.find(**{'data-library-member': str(item_id)})[0]
+        assert not member.find('img') and len(member.find(cls='media-artwork__placeholder')) == 1
+        assert response.context['prepared_library_artwork'].source_for(item_id, 'covers/7.svg') is None
+    finally:
+        cleanup()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize('worker_error', [False, True])
+@pytest.mark.parametrize('cancellation_target', ['inner', 'blanket'])
+async def test_repair_inner_task_cancellation_cannot_outlive_physical_read(monkeypatch, worker_error, cancellation_target):
+    (config.COVERS_DIR / '7.svg').write_bytes(RECTANGLE)
+    context = _context([_row()])
+    loop = asyncio.get_running_loop()
+    started, release = asyncio.Event(), threading.Event()
+    finished, inner_tasks, blocked_once = [], [], []
+    live, opened, reads = _instrument(monkeypatch)
+    original_read = artwork.os.read
+    original_pool = library.run_in_threadpool
+    original_prepare = artwork.prepare_library_artwork
+    failure = RuntimeError('physical error after inner cancellation')
+
+    def controlled_read(descriptor, amount):
+        if not blocked_once:
+            blocked_once.append(True)
+            loop.call_soon_threadsafe(started.set)
+            assert release.wait(5), 'test controller must release the real blocked read'
+            if worker_error:
+                raise failure
+        return original_read(descriptor, amount)
+
+    def prepare(context):
+        try:
+            return original_prepare(context)
+        finally:
+            finished.append(True)
+
+    async def pool(function, context):
+        inner_tasks.append(asyncio.current_task())
+        return await original_pool(function, context)
+
+    monkeypatch.setattr(artwork.os, 'read', controlled_read)
+    monkeypatch.setattr(artwork, 'prepare_library_artwork', prepare)
+    monkeypatch.setattr(library, 'run_in_threadpool', pool)
+    monkeypatch.setattr(library, '_read_context', lambda request, user: context)
+    monkeypatch.setattr(library, '_html_context', lambda request, context: deepcopy(context))
+    owner = asyncio.create_task(library._prepared_html_context(None, {}))
+    premature = []
+    try:
+        await asyncio.wait_for(started.wait(), 5)
+        assert len(inner_tasks) == 1 and inner_tasks[0] is not owner and live
+        for number in range(3):
+            inner_tasks[0].cancel(f'inner cancel {number}')
+            if cancellation_target == 'blanket':
+                # Same cancel() operation used by event-loop shutdown, but do
+                # not cancel pytest's controller or unrelated fixture tasks.
+                owner.cancel(f'blanket cancel {number}')
+            for _ in range(5):
+                await asyncio.sleep(0)
+            premature.append((owner.done(), bool(finished), bool(live)))
+    finally:
+        release.set()
+        try:
+            await owner
+        except asyncio.CancelledError as error:
+            cancellation = error
+        # Always finish the physical test worker even against the broken
+        # implementation, so RED evidence cannot leak into another test.
+        for _ in range(1000):
+            if finished:
+                break
+            await asyncio.sleep(.001)
+    assert finished == [True] and not live
+    assert premature == [(False, False, True)] * 3, 'async completion abandoned the blocked physical read'
+    assert isinstance(cancellation, asyncio.CancelledError)
+    assert (cancellation.__cause__ is failure) is worker_error
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize('worker_error', [False, True])
+async def test_repair_cancellation_before_thread_dispatch_keeps_single_job_owned(monkeypatch, worker_error):
+    (config.COVERS_DIR / '7.svg').write_bytes(RECTANGLE)
+    context = _context([_row()])
+    entered, dispatch = asyncio.Event(), asyncio.Event()
+    inner_tasks, finished = [], []
+    live, opened, reads = _instrument(monkeypatch)
+    original_pool, original_prepare = library.run_in_threadpool, artwork.prepare_library_artwork
+    failure = RuntimeError('physical error after delayed dispatch')
+
+    def prepare(context):
+        try:
+            result = original_prepare(context)
+            if worker_error:
+                raise failure
+            return result
+        finally:
+            finished.append(True)
+
+    async def pool(function, context):
+        inner_tasks.append(asyncio.current_task())
+        entered.set()
+        await dispatch.wait()
+        return await original_pool(function, context)
+
+    monkeypatch.setattr(artwork, 'prepare_library_artwork', prepare)
+    monkeypatch.setattr(library, 'run_in_threadpool', pool)
+    monkeypatch.setattr(library, '_read_context', lambda request, user: context)
+    monkeypatch.setattr(library, '_html_context', lambda request, context: deepcopy(context))
+    owner = asyncio.create_task(library._prepared_html_context(None, {}))
+    try:
+        await asyncio.wait_for(entered.wait(), 5)
+        for _ in range(3):
+            inner_tasks[0].cancel()
+            owner.cancel()
+            await asyncio.sleep(0)
+            assert not owner.done() and not finished and not live and not opened
+    finally:
+        dispatch.set()
+    with pytest.raises(asyncio.CancelledError) as caught:
+        await owner
+    assert len(inner_tasks) == 1 and finished == [True] and not live and reads
+    assert (caught.value.__cause__ is failure) is worker_error

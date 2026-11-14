@@ -609,3 +609,112 @@ print("no import I/O")
     result = subprocess.run([sys.executable, '-c', program], capture_output=True, text=True)
     assert result.returncode == 0, result.stdout + result.stderr
     assert result.stdout.strip() == 'no import I/O'
+
+
+@pytest.mark.parametrize('encoding', ['utf-16-le', 'utf-16-be'])
+def test_repair_bomless_utf16_rectangle_cannot_issue_from_real_factory(encoding):
+    content = RECTANGLE.decode('ascii').encode(encoding)
+    assert content.isascii() and b'\0' in content
+    prepared, source = _prepare(content)
+    assert source is None and not prepared._sources
+    assert (config.COVERS_DIR / '7.svg').read_bytes() == content
+
+
+def _repair_close_failure_probe(monkeypatch, stage, *, reuse=False):
+    """Inject Linux close EIO *after* actually consuming the owned descriptor.
+
+    POSIX EINTR/FD-retention semantics are not inferred from this model. A
+    second variant reuses the consumed FD number, so indiscriminate retries
+    would close an unrelated file. All surviving test FDs are cleaned by caller.
+    """
+    real_open, real_close, real_fstat = os.open, os.close, os.fstat
+    live, opened, injected, attempts, unrelated = {}, [], [], [], []
+
+    def open_fd(path, flags, *args, **kwargs):
+        descriptor = real_open(path, flags, *args, **kwargs)
+        role = ('file' if path == '7.svg' else 'root' if path == config.COVERS_DIR.name
+                else 'intermediate')
+        live[descriptor] = role
+        opened.append((descriptor, role))
+        return descriptor
+
+    def close_fd(descriptor):
+        role = live.get(descriptor)
+        attempts.append((descriptor, role))
+        real_close(descriptor)
+        live.pop(descriptor, None)
+        if role == stage and not injected:
+            injected.append((descriptor, role))
+            if reuse:
+                replacement = real_open(config.COVERS_DIR / 'unrelated-file', os.O_RDONLY)
+                if replacement != descriptor:
+                    os.dup2(replacement, descriptor)
+                    real_close(replacement)
+                unrelated.append(descriptor)
+            raise OSError(errno.EIO, 'deterministic post-release close error')
+
+    monkeypatch.setattr(os, 'open', open_fd)
+    monkeypatch.setattr(os, 'close', close_fd)
+    monkeypatch.setattr(os, 'supports_dir_fd', os.supports_dir_fd | {open_fd})
+
+    def cleanup():
+        for descriptor in set(live) | set(unrelated):
+            try:
+                real_close(descriptor)
+            except OSError as error:
+                assert error.errno == errno.EBADF
+
+    return live, opened, injected, attempts, unrelated, real_fstat, cleanup
+
+
+@pytest.mark.parametrize('stage', ['intermediate', 'root', 'file'])
+@pytest.mark.parametrize('reuse', [False, True])
+def test_repair_close_errors_consume_each_owned_fd_once_and_fail_closed(monkeypatch, stage, reuse):
+    (config.COVERS_DIR / '7.svg').write_bytes(RECTANGLE)
+    (config.COVERS_DIR / 'unrelated-file').write_bytes(b'not artwork')
+    live, opened, injected, attempts, unrelated, fstat, cleanup = _repair_close_failure_probe(monkeypatch, stage, reuse=reuse)
+    try:
+        prepared = artwork.prepare_library_artwork(_context([_row()]))
+        assert injected and opened
+        assert not live, f'physically open artwork descriptors survive: {live}'
+        assert prepared.source_for(7, 'covers/7.svg') is None
+        failed_fd = injected[0][0]
+        # A failed close must not be blindly retried; the number may be reused.
+        assert attempts.count((failed_fd, stage)) == 1
+        if reuse:
+            assert len(unrelated) == 1 and fstat(unrelated[0]).st_size == len(b'not artwork')
+    finally:
+        cleanup()
+
+
+@pytest.mark.parametrize('platform', ['darwin', 'win32'])
+def test_repair_ambiguous_close_platforms_fail_closed_before_artwork_io(monkeypatch, platform):
+    (config.COVERS_DIR / '7.svg').write_bytes(RECTANGLE)
+    with monkeypatch.context() as isolated:
+        live, opened, reads = _instrument(isolated)
+        isolated.setattr(artwork.sys, 'platform', platform)
+        prepared = artwork.prepare_library_artwork(_context([_row()]))
+        assert not live and not opened and not reads
+    assert prepared.source_for(7, 'covers/7.svg') is None
+
+
+@pytest.mark.parametrize('stage', ['root', 'file'])
+def test_repair_cleanup_error_does_not_hide_unexpected_physical_read_failure(monkeypatch, stage):
+    (config.COVERS_DIR / '7.svg').write_bytes(RECTANGLE)
+    live, opened, injected, attempts, unrelated, fstat, cleanup = _repair_close_failure_probe(monkeypatch, stage)
+    failure = RuntimeError('original physical read failure')
+
+    def fail_read(descriptor, amount):
+        raise failure
+
+    monkeypatch.setattr(os, 'read', fail_read)
+    try:
+        with pytest.raises(RuntimeError) as caught:
+            artwork.prepare_library_artwork(_context([_row()]))
+        assert caught.value is failure
+        assert injected and not live
+        if stage == 'file':
+            assert isinstance(caught.value.__cause__, OSError)
+            assert caught.value.__cause__.errno == errno.EIO
+    finally:
+        cleanup()

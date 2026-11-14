@@ -13,6 +13,7 @@ from itertools import islice
 import os
 import re
 import stat
+import sys
 from types import MappingProxyType
 from xml.parsers import expat
 
@@ -124,6 +125,12 @@ def _rendered_rows(context):
 
 
 def _open_root():
+    # Linux close() consumes the descriptor even when reporting EIO/EINTR
+    # (EBADF means it was already invalid). Never retry a number that may now
+    # belong to another thread. Other POSIX close/EINTR semantics are ambiguous;
+    # without that capability this optional compatibility boundary does no I/O.
+    if sys.platform != "linux":
+        raise _Rejected()
     # Every required flag/capability is mandatory: never substitute a zero flag.
     required = ("O_DIRECTORY", "O_NOFOLLOW", "O_CLOEXEC", "O_NONBLOCK")
     if any(type(getattr(os, name, None)) is not int or not getattr(os, name) for name in required):
@@ -142,13 +149,22 @@ def _open_root():
     descriptor = os.open("/" if path.startswith("/") else ".", flags)
     try:
         for component in components:
-            child = os.open(component, flags, dir_fd=descriptor)
-            os.close(descriptor)
-            descriptor = child
+            parent = descriptor
+            descriptor = os.open(component, flags, dir_fd=parent)
+            # Own the child before the potentially failing parent close.
+            os.close(parent)
         return descriptor
-    except BaseException:
-        os.close(descriptor)
+    except BaseException as error:
+        _close_after_error(descriptor, error)
         raise
+
+
+def _close_after_error(descriptor, error):
+    """Consume this owned FD once without hiding the original worker failure."""
+    try:
+        os.close(descriptor)
+    except OSError as close_error:
+        raise error from close_error
 
 
 def _metadata(status):
@@ -181,13 +197,16 @@ def _capture(root, filename, budget):
         after = os.fstat(descriptor)
         if len(content) != before.st_size or _metadata(before) != _metadata(after):
             raise _Rejected()
-        return bytes(content)
-    finally:
-        os.close(descriptor)
+        captured = bytes(content)
+    except BaseException as error:
+        _close_after_error(descriptor, error)
+        raise
+    os.close(descriptor)
+    return captured
 
 
 def _validate_svg(content):
-    if not content or not content.isascii() or b"&" in content:
+    if not content or not content.isascii() or b"\0" in content or b"&" in content:
         raise _Rejected()
     parser = expat.ParserCreate(namespace_separator="|")
     depth = elements = namespaces = numbers = 0
@@ -332,7 +351,12 @@ def prepare_library_artwork(page_context) -> PreparedLibraryArtwork:
                 break
     finally:
         if root is not None:
-            os.close(root)
+            try:
+                os.close(root)
+            except OSError:
+                # Linux has consumed this FD, including on EIO/EINTR. Do not
+                # retry, and do not issue any source after a cleanup failure.
+                sources.clear()
     prepared = object.__new__(PreparedLibraryArtwork)
     object.__setattr__(prepared, "_issuer", issuer)
     object.__setattr__(prepared, "_sources", MappingProxyType(sources))

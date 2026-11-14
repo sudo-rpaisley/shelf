@@ -105,3 +105,33 @@ def test_real_validated_images_decode_exactly_once_with_native_shapes_under_exis
     assert 'prepared_library_artwork' not in api.json()
     (tmp_path / 'genuine-library-svg.json').write_text(json.dumps({'csp': csp, 'metrics': metrics, 'mutable_cover_requests': requested_covers}, indent=2))
     page.screenshot(path=str(tmp_path / 'genuine-library-svg.png'), full_page=True)
+
+
+def test_repair_bomless_utf16_sources_have_no_img_beside_genuine_ascii_cover(connected_library):
+    server, page = connected_library, connected_library['page']
+    with _db(server) as db:
+        good_id = _item(db, 'ASCII original', 'vinyl', cover_path='covers/7.svg')
+        (server['data_dir'] / 'covers' / '7.svg').write_bytes(RECTANGLE)
+        invalid = []
+        for encoding in ('utf-16-le', 'utf-16-be'):
+            name = encoding + '.svg'
+            content = RECTANGLE.decode('ascii').encode(encoding)
+            (server['data_dir'] / 'covers' / name).write_bytes(content)
+            invalid.append((_item(db, encoding, 'vinyl', cover_path='covers/' + name), name, content))
+    page.set_viewport_size({'width': 375, 'height': 568})
+    response = page.goto(f"{server['url']}/library?view=items")
+    assert response.status == 200
+    results = page.get_by_test_id('library-results')
+    expect(results.locator('img')).to_have_count(1)
+    good = results.locator(f'[data-library-member="{good_id}"] img')
+    good.scroll_into_view_if_needed()
+    expect(good).to_be_visible()
+    expect(good).to_have_js_property('complete', True)
+    expect(good).to_have_js_property('naturalWidth', 300)
+    expect(good).to_have_js_property('naturalHeight', 450)
+    assert base64.b64decode(good.get_attribute('src').split(',', 1)[1], validate=True) == RECTANGLE
+    for item_id, name, content in invalid:
+        member = results.locator(f'[data-library-member="{item_id}"]')
+        expect(member.locator('img')).to_have_count(0)
+        expect(member.locator('.media-artwork__placeholder')).to_have_count(1)
+        assert (server['data_dir'] / 'covers' / name).read_bytes() == content
