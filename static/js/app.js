@@ -244,7 +244,10 @@ document.addEventListener('keydown', function(e) {
     if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return;
     if (e.key === '/' ) { e.preventDefault(); var q = document.querySelector('[name="q"]'); if (q) q.focus(); }
     else if (e.key === 's') { window.location.href = '/scan'; }
-    else if (e.key === 'b') { window.location.href = '/browse'; }
+    else if (e.key === 'b') {
+        var browseLink = document.querySelector('[data-nav-primary="browse"]');
+        window.location.href = browseLink ? browseLink.getAttribute('href') : '/browse';
+    }
     else if (e.key === '?') { document.getElementById('shortcut-modal').classList.toggle('hidden'); }
 });
 
