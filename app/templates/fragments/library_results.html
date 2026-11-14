@@ -22,7 +22,7 @@
         <p class="text-xs {% if item.matches %}text-shelf-accent2{% else %}text-shelf-muted{% endif %}">{% if item.matches %}{{ _('Matches filters')|forceescape }}{% else %}{{ _('Other format — does not match filters')|forceescape }}{% endif %}</p>
         {% endif %}
     </div>
-    <div class="flex flex-wrap gap-2 text-xs">
+    <div class="flex flex-wrap gap-2 text-xs{% if _library_phone_wrap %} library-phone-badges{% endif %}">
         {% if item.owned %}<span class="rounded bg-shelf-hover px-2 py-1">{{ _('Owned')|forceescape }}</span>{% endif %}
         {% if item.wishlisted %}<span class="rounded bg-shelf-hover px-2 py-1">{{ _('Wishlist')|forceescape }}</span>{% endif %}
         {% if item.copy_count %}<span class="rounded bg-shelf-hover px-2 py-1">{{ ngettext('%(count)s physical copy', '%(count)s physical copies', item.copy_count, count=item.copy_count)|forceescape }}</span>{% endif %}
@@ -42,7 +42,7 @@
         </li>
         {% endfor %}
     </ul>
-    {% else %}<p class="text-xs text-shelf-muted">{{ _('No recorded holdings · availability unknown')|forceescape }}</p>{% endif %}
+    {% else %}<p class="text-xs text-shelf-muted{% if _library_phone_wrap %} library-phone-no-holdings{% endif %}">{{ _('No recorded holdings · availability unknown')|forceescape }}</p>{% endif %}
 </div>
 {% endmacro %}
 

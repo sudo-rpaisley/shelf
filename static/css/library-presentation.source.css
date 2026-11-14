@@ -12,10 +12,10 @@
     }
     [data-library-presentation="phone-wrap-v1"] .library-phone-heading {
         align-items: center;
-        gap: 0.25rem 0.5rem;
+        gap: 0.25rem;
     }
     [data-library-presentation="phone-wrap-v1"] .library-phone-heading > nav {
-        gap: 0.25rem 0.5rem;
+        gap: 0.25rem;
     }
     [data-library-presentation="phone-wrap-v1"] [data-library-presentation-tools="phone-wrap-v1"] .cover-size-control {
         gap: 0.25rem;
@@ -59,6 +59,15 @@
     }
     [data-library-presentation="phone-wrap-v1"] [data-library-member-presentation="phone-wrap-v1"] .media-card__title { margin-block-start: 0; }
     [data-library-presentation="phone-wrap-v1"] [data-library-member-presentation="phone-wrap-v1"] .library-phone-facts > span:not(:last-child) { margin-inline-end: 0.5rem; }
+    /* Facts, badges and the honest unknown-availability text retain DOM order
+       while sharing available lines. Inline-block badges contribute their full
+       padded height, so they cannot paint over adjacent text. */
+    [data-library-presentation="phone-wrap-v1"] [data-library-member-presentation="phone-wrap-v1"] .library-phone-badges,
+    [data-library-presentation="phone-wrap-v1"] [data-library-member-presentation="phone-wrap-v1"] .library-phone-no-holdings { display: inline; }
+    [data-library-presentation="phone-wrap-v1"] [data-library-member-presentation="phone-wrap-v1"] .library-phone-badges > span {
+        display: inline-block;
+        margin-inline-end: 0.25rem;
+    }
     [data-library-presentation="phone-wrap-v1"] [data-library-member-presentation="phone-wrap-v1"] > ul { clear: both; }
     [data-library-presentation="phone-wrap-v1"] [data-library-member-presentation="phone-wrap-v1"]:focus-within {
         outline: 2px solid var(--color-shelf-accent2, #818cf8);
