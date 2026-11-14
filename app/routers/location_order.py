@@ -1,10 +1,13 @@
 """Browse and arrange physical copies stored at one location."""
 
-from fastapi import APIRouter, Depends, Request
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from fastapi.responses import JSONResponse, RedirectResponse
 
 from app.auth import require_role
 from app.database import get_db
+from app import nav
+from app.config import MEDIA_TYPES
+from app.services import copy_locator
 from app.services import location_order as order_svc
 
 router = APIRouter()
@@ -94,3 +97,25 @@ async def auto_location_order(
         except ValueError as exc:
             return JSONResponse({"ok": False, "message": str(exc)}, status_code=400)
     return {"ok": True, "copy_ids": ids}
+
+
+@router.get("/item/{item_id}/copies/{copy_id}/locate")
+async def locate_physical_copy(
+    request: Request,
+    item_id: int,
+    copy_id: int,
+    at: int | None = Query(None, ge=0, le=copy_locator.MAX_LOCATION_ID),
+    from_: str = Query("", alias="from"),
+    _=Depends(require_role("viewer")),
+):
+    back = nav.back_target(from_)
+    with get_db() as db:
+        # A deferred read transaction gives all reads one snapshot, without a
+        # write lock, ordering repair, missing-clear or any other mutation.
+        db.execute("BEGIN")
+        context = copy_locator.locate_copy(db, item_id, copy_id, at=at)
+    if context is None:
+        raise HTTPException(status_code=404, detail="Copy not found")
+    return request.app.state.templates.TemplateResponse(
+        request, "copy_locator.html", {**context, "back": back, "media_types": MEDIA_TYPES},
+    )

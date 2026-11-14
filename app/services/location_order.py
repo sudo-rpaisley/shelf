@@ -7,6 +7,56 @@ import re
 from app.services import item_copies
 
 
+# Shared by the full Arrange reader and the bounded, read-only locator. The
+# leading flag keeps unknown positions last. Normalising NULL to 0 in the next
+# term does not change that order (all NULLs tie), but permits SQL row-value
+# comparisons without NULL making a comparison indeterminate.
+_DIRECT_COPY_ORDER = (
+    "CASE WHEN c.position_order IS NULL THEN 1 ELSE 0 END",
+    "COALESCE(c.position_order, 0)",
+    "i.title COLLATE NOCASE",
+    "c.copy_number",
+    "c.id",
+)
+_LOCATOR_FIELDS = (
+    "c.id AS copy_id, c.item_id, c.copy_number, c.copy_barcode, "
+    "c.location_id, c.position_order, c.missing_since, c.updated_at AS changed_at, "
+    "i.title, i.media_type"
+)
+NEIGHBOURS_EACH_SIDE = 3
+
+
+def copy_neighbours(db, target: dict) -> dict:
+    """At most three direct live copies on either side, in catalogue order.
+
+    ``target`` is the exact live copy read by copy_locator in the same read
+    transaction. These two fixed, parameterised location-scoped queries bound
+    parameters and row hydration, not SQLite's work: the shelf-local scan/sort
+    may still grow with shelf size. No optional media enrichment or IN list.
+    Never pass this subset to apply_copy_order, which requires the whole shelf.
+    """
+    if target["location_id"] is None:
+        return {"before": [], "after": []}
+    key = (
+        int(target["position_order"] is None), target["position_order"] or 0,
+        target["title"], target["copy_number"], target["copy_id"],
+    )
+    result = {}
+    for side, comparison, direction in (("before", "<", " DESC"), ("after", ">", " ASC")):
+        # All SQL fragments come from the finite definition above, never input.
+        order = ", ".join(term + direction for term in _DIRECT_COPY_ORDER)
+        rows = db.execute(
+            f"SELECT {_LOCATOR_FIELDS} FROM copies_live c "
+            "JOIN items_live i ON i.id = c.item_id "
+            f"WHERE c.location_id = ? AND ({', '.join(_DIRECT_COPY_ORDER)}) "
+            f"{comparison} (?, ?, ?, ?, ?) ORDER BY {order} LIMIT ?",
+            (target["location_id"], *key, NEIGHBOURS_EACH_SIDE),
+        ).fetchall()
+        result[side] = [dict(row) for row in rows]
+    result["before"].reverse()
+    return result
+
+
 def _table_exists(db, name: str) -> bool:
     return db.execute(
         "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ?", (name,)
@@ -57,8 +107,7 @@ def direct_copies(db, location_id: int) -> list[dict]:
         "i.media_type, i.cover_path, i.series_name, i.series_position, "
         "i.publish_year FROM copies_live c JOIN items_live i ON i.id = c.item_id "
         "WHERE c.location_id = ? "
-        "ORDER BY CASE WHEN c.position_order IS NULL THEN 1 ELSE 0 END, "
-        "c.position_order, i.title COLLATE NOCASE, c.copy_number, c.id",
+        f"ORDER BY {', '.join(_DIRECT_COPY_ORDER)}",
         (location_id,),
     ).fetchall()
     result = [dict(row) for row in rows]

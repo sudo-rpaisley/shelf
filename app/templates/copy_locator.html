@@ -1,0 +1,73 @@
+{% extends "base.html" %}
+{% block title %}{{ _('Find this copy') }} — {{ target.title }} — Shelf{% endblock %}
+{% macro copy_row(copy, selected=false) %}
+<li id="copy-{{ copy.copy_id }}" class="copy-locator__copy{% if selected %} copy-locator__selected{% endif %}"
+    data-locator-copy-id="{{ copy.copy_id }}"{% if selected %} data-copy-locator-target tabindex="-1" aria-labelledby="copy-{{ copy.copy_id }}-selection copy-{{ copy.copy_id }}-label"{% endif %}>
+    {% if selected %}<strong id="copy-{{ copy.copy_id }}-selection" class="copy-locator__selection">{{ _('Selected copy') }}</strong>{% endif %}
+    <h3 id="copy-{{ copy.copy_id }}-label">{{ copy.title }} — {{ _('Copy #%(n)s', n=copy.copy_number) }}</h3>
+    <dl class="copy-locator__facts">
+        <div><dt>{{ _('Copy ID') }}</dt><dd>{{ copy.copy_id }}</dd></div>
+        <div><dt>{{ _('Item ID') }}</dt><dd><a href="/item/{{ copy.item_id }}{% if back.key %}?from={{ back.key }}{% endif %}">{{ copy.item_id }}</a></dd></div>
+        <div><dt>{{ _('Type') }}</dt><dd>{{ _(media_types[copy.media_type]) if copy.media_type in media_types else copy.media_type }}</dd></div>
+        <div><dt>{{ _('Barcode') }}</dt><dd>{% if copy.copy_barcode %}<code>{{ copy.copy_barcode }}</code>{% else %}{{ _('No barcode recorded') }}{% endif %}</dd></div>
+        <div><dt>{{ _('Recorded position') }}</dt><dd>{% if copy.position_order is not none %}{{ copy.position_order }}{% else %}{{ _('No position recorded') }}{% endif %}</dd></div>
+    </dl>
+    {% if copy.missing_since %}<p class="copy-locator__warning">{{ _('Marked missing since %(date)s', date=copy.missing_since) }}</p>{% else %}<p class="copy-locator__note">{{ _('No missing mark recorded') }}</p>{% endif %}
+    {% if selected %}<p class="copy-locator__note">{{ _('Copy record updated: %(date)s', date=copy.changed_at) }}</p>{% endif %}
+</li>
+{% endmacro %}
+{% block content %}
+<div class="page-layout copy-locator" data-copy-locator>
+    <div class="copy-locator__links">
+        <a href="/item/{{ target.item_id }}{% if back.key %}?from={{ back.key }}{% endif %}#copy-locator-open-{{ target.copy_id }}" data-copy-locator-return>← {{ _('Back to item') }}</a>
+        <a href="{{ back.path }}">{{ _(back.label) }}</a>
+    </div>
+    <h1>{{ _('Find this copy') }}</h1>
+    <p>{{ _('This is the recorded catalogue location, not a physical sighting or confirmation that the copy is there.') }}</p>
+    <p><a href="#copy-{{ target.copy_id }}" data-copy-locator-jump>{{ _('Jump to selected copy') }}</a></p>
+
+    {% if location_changed %}
+    <p class="copy-locator__warning" data-copy-location-changed>{{ _('Location changed since this link was made. Showing the current record for the same copy.') }} {% if previously_unlocated %}{{ _('This link previously recorded no location.') }}{% else %}{{ _('The earlier location hint is out of date.') }}{% endif %}</p>
+    {% endif %}
+    <p class="copy-locator__note">{{ _('Current names and hierarchy are shown. An ID-only link cannot detect a rename, reparenting or a change to the recorded order.') }}</p>
+
+    <section aria-labelledby="copy-locator-location-heading">
+        <h2 id="copy-locator-location-heading">{{ _('Current recorded location') }}</h2>
+        {% if location %}
+        <p data-copy-current-location>{{ location.name }}</p>
+        <nav aria-label="{{ _('Location hierarchy') }}">
+            <ol class="copy-locator__ancestry">
+                {% for node in ancestors %}
+                <li><a href="/browse?location_filter={{ node.id }}">{{ node.label or node.name }}</a></li>
+                {% endfor %}
+                <li aria-current="location">{{ location.label or location.name }}</li>
+            </ol>
+        </nav>
+        <div class="copy-locator__links">
+            <a href="/browse?location_filter={{ location.id }}">{{ _('Browse this location') }}</a>
+            <a href="/locations/{{ location.id }}/arrange">{{ _('Open full location in Arrange') }}</a>
+        </div>
+        {% elif target.location_id is not none %}
+        <p data-copy-no-location>{{ _('The recorded location is unavailable. No other location has been substituted.') }}</p>
+        {% else %}
+        <p data-copy-no-location>{{ _('No location recorded for this copy.') }}</p>
+        {% endif %}
+        {% if ancestry_incomplete %}<p class="copy-locator__warning" data-copy-ancestry-incomplete>{{ _('Location hierarchy is incomplete (unavailable node, cycle or depth limit). Only the nodes read safely are shown.') }}</p>{% endif %}
+    </section>
+
+    <section aria-labelledby="copy-locator-window-heading">
+        <h2 id="copy-locator-window-heading">{{ _('Selected copy and catalogue neighbours') }}</h2>
+        <p>{{ _('Recorded positions are saved values, not a calculated physical rank. Neighbours follow catalogue order: known positions first, then title (SQLite NOCASE), copy number and copy ID; unknown positions come last. These are not sightings.') }}</p>
+        {% if window_limited %}
+        <p class="copy-locator__note">{{ _('At most three direct copies on each side are shown, not the full Arrange list. Finding this window may scan and sort the location; it is not constant-time for a large shelf.') }}</p>
+        {% else %}
+        <p class="copy-locator__note">{{ _('No location neighbourhood is available for this copy.') }}</p>
+        {% endif %}
+        <ul class="copy-locator__window" aria-label="{{ _('Catalogue order around the selected copy') }}">
+            {% for copy in before %}{{ copy_row(copy) }}{% endfor %}
+            {{ copy_row(target, true) }}
+            {% for copy in after %}{{ copy_row(copy) }}{% endfor %}
+        </ul>
+    </section>
+</div>
+{% endblock %}

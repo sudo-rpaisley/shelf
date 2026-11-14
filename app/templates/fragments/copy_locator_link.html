@@ -1,0 +1,4 @@
+{# Native navigation; copy is the exact row, not the item's compatibility seam.
+   back, when available, is already resolved by nav.back_target. HTMX fragment
+   renderers without it simply omit the origin. #}
+<a id="copy-locator-open-{{ copy.id }}" class="copy-locator-link text-shelf-accent hover:underline" href="/item/{{ item_id }}/copies/{{ copy.id }}/locate?at={{ copy.location_id or 0 }}{% if back is defined and back.key %}&amp;from={{ back.key }}{% endif %}#copy-{{ copy.id }}">{{ _('Find this copy') }}</a>
