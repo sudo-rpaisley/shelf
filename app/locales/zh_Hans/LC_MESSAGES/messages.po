@@ -2546,11 +2546,11 @@ msgstr "请核对差异"
 msgid "Preview details and artwork"
 msgstr "预览详情与封面"
 
-#: app/templates/music.html:117
+#: app/templates/music.html:118
 msgid "Your music"
 msgstr ""
 
-#: app/templates/music.html:118
+#: app/templates/music.html:119
 #, python-format
 msgid "%(count)s shown"
 msgstr ""
