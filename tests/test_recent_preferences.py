@@ -208,6 +208,37 @@ def test_invalid_nonempty_selections_are_refused_not_broadened(selectors):
     assert document == before
 
 
+@pytest.mark.parametrize("selectors", [
+    pytest.param(42, id="non-list-integer"),
+    pytest.param([42], id="non-string-integer"),
+    pytest.param(["format:unknown"], id="unknown-format"),
+    pytest.param(["family:unknown"], id="unknown-family"),
+    pytest.param(["family:book"], id="legacy-family"),
+    pytest.param(["all", "format:book"], id="all-with-format"),
+    pytest.param(["format:book"] * 33, id="over-32-selectors"),
+])
+def test_keyed_stored_invalid_selectors_fall_back_without_mutating_input(selectors):
+    document = saved(group("Stored row", ["format:vinyl"]), shelves=["recent"],
+                     future={"enabled": False})
+    valid = prefs.normalize_preferences(document)
+    assert valid.fallback_reason is None
+    row, = valid.groups
+    assert row.key == document["recent"]["groups"][0]["key"]
+    assert row.media_types == media_presentation.expand_selectors(["format:vinyl"])
+    assert valid.values == document
+
+    # Keep the real stored key and every other field valid: reach selector load
+    # validation, not the earlier missing_group_key refusal covered above.
+    document["recent"]["groups"][0]["selectors"] = selectors
+    before = copy.deepcopy(document)
+    loaded = prefs.normalize_preferences(document)
+    assert loaded.fallback_reason == "corrupt"
+    assert loaded.values == {**before, "recent": recent()}
+    assert loaded.groups == ()
+    assert loaded.recent_hidden is False
+    assert document == before
+
+
 @pytest.mark.parametrize("first, second", [
     (["family:music"], ["format:vinyl", "format:cassette", "format:cd", "format:digital_music"]),
     (["family:books", "family:comics"], ["format:book", "format:audiobook", "format:ebook",
