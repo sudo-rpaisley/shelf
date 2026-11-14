@@ -323,3 +323,55 @@ def test_real_touch_main_menu_and_native_explore_do_not_require_hover(browser):
         with page.expect_navigation():
             stats.tap()
         expect(page).to_have_url(ORIGIN + "/stats")
+
+
+# Phone follow-up controls are appended below the frozen390 definitions.
+@pytest.mark.parametrize("stale", [False, True, "published"], ids=["current", "stripped", "published"])
+def test_phone_ready_button_is_second_child_and_toggles_actual_details_natively(browser, stale):
+    with _shell(browser, width=375, stale=stale) as (page, requests):
+        shell = page.locator('[data-nav-shell]')
+        native = shell.locator(':scope > summary')
+        button = page.get_by_role("button", name="Main menu", exact=True)
+        tree = page.get_by_test_id("nav-menu-panel")
+        expect(shell).to_have_attribute("data-nav-shell-button", "ready")
+        expect(button).to_have_count(1)
+        expect(button).to_be_visible()
+        assert button.evaluate("e => e.tagName === 'BUTTON' && e.type === 'button' && e.parentElement.children[1] === e")
+        assert shell.evaluate("e => e.tagName === 'DETAILS' && e.firstElementChild.tagName === 'SUMMARY' && !e.open")
+        assert page.locator('[data-nav-primary="browse"]').evaluate("e => e.nextElementSibling === document.querySelector('[data-nav-shell]')")
+        assert native.get_attribute("role") is None
+        expect(native).to_be_hidden()
+        assert native.get_attribute("data-testid") is None
+        expect(page.get_by_test_id("nav-menu-button")).to_have_count(1)
+        expect(tree).to_be_hidden()
+        expect(button).to_have_attribute("aria-expanded", "false")
+        controlled = button.get_attribute("aria-controls")
+        assert controlled and tree.get_attribute("id") == controlled
+        assert page.locator('[id]').evaluate_all("(els, id) => els.filter(e => e.id === id).length", controlled) == 1
+        assert shell.evaluate("e => {const s=getComputedStyle(e, '::details-content'); return s.contentVisibility === 'visible' && s.display === 'contents'}")
+        before = list(requests)
+        button.focus()
+        page.keyboard.press("Enter")
+        assert shell.evaluate("e => e.open")
+        expect(button).to_have_attribute("aria-expanded", "true")
+        expect(tree).to_be_visible()
+        library = tree.get_by_role("link", name="Library", exact=True)
+        expect(library).to_be_visible()
+        expect(library).to_have_attribute("href", "/library?reset=1&view=items&sort=recent")
+        expect(page.get_by_role("link", name="All media", exact=True)).to_have_count(0)
+        expect(library.locator('..').locator('.media-navigation__description')).to_have_text("All media")
+        page.keyboard.press("Shift+Tab")
+        expect(page.locator('[data-nav-primary="browse"]')).to_be_focused()
+        page.keyboard.press("Tab")
+        expect(button).to_be_focused()
+        page.keyboard.press("Tab")
+        expect(page.locator('[data-nav-browse] > summary')).to_be_focused()
+        button.focus()
+        page.keyboard.press("Space")
+        assert not shell.evaluate("e => e.open")
+        expect(tree).to_be_hidden()
+        expect(button).to_have_attribute("aria-expanded", "false")
+        expect(button).to_be_visible()
+        expect(button).to_be_focused()
+        assert requests == before
+        _fits(page)
