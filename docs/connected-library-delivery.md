@@ -149,14 +149,22 @@ eleven offline/syntax checks. Its wider browser gate is **178 passed / four
 failed**, with the separate original-navbar 12 passing. Two retained phone
 failures remain, and two unsupported-dialog palette fallback failures are genuine
 composition regressions—not test waivers. The wider unit gate passes **1704**. The
-same navigation writer is implementing the reviewed genuine-button contract.
+phone writer has frozen the reviewed genuine-button direction at `3c2e85c0`.
 The palette fallback repair `9562f558` now has bounded source clearance and fresh
 **371-unit / 116-browser**, separately **12-original-navbar**, passes; the two
 original fallback failures pass unchanged without a forced-open menu or new link.
-Safe existing-local-vector compatibility has design-contract clearance and an
-isolated writer, not source/runtime acceptance. Both phone journeys still need
-final composition qualification. Original tests remain unchanged and enabled;
-UI is still unselected.
+Safe existing-local-vector compatibility is frozen at `a873fefd`, reporting 898
+unit/four browser passes, not yet parent source/runtime acceptance. Phone reports
+459 passes/two retained REDs: isolated Home375 overflow and the stable Library
+caption versus its legitimate two-option count. Both candidates are in independent
+source review and fresh parent gates; caption/count layout is under requirements
+review before editing. Both phone journeys still need final composition
+qualification. Original tests remain unchanged and enabled; UI is still unselected.
+
+ME2-A's source-grounded finite protocol v2 is now recorded and under independent
+requirements/privacy review. It remains a proposal: no editor writer, new issuer,
+schema or expanded isolated-core authority is assigned. Lost-response, cookie
+ownership, native fallback and non-atomic artwork boundaries remain explicit.
 
 Independent architecture, requirements, privacy and recovery audits accompany
 implementation. Additional reviewers/testers are assigned to completed

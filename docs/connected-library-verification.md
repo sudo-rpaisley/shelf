@@ -692,14 +692,52 @@ guards remain exact, zero attempts/errors/skips. Seven offline checks and four
 JS syntax checks also pass. Badges **10588 unit / 601 E2E** remain collection only.
 These are candidate-specific bands, not a replacement full-UI or pinned gate.
 
-Phone navigation and local-vector compatibility remain separate implementations,
-neither with a passing final composition. The vector contract has independent
-design clearance for a Library-only, bounded read/validate/captured-bytes source;
-it does not widen the raw SVG adapter, acquisition, API, CSP or filesystem write
-authority. A writer owns four source files and three new test modules, while all
-original rejection/raster/phone tests remain enabled and unchanged. No vector
-implementation or later Account-scroll pass is claimed yet. No UI primary
+Phone navigation and local-vector compatibility are now frozen separate candidates,
+neither with a passing final composition. Phone `3c2e85c0` reports **459 passed /
+two RED**, retaining all 234 original unit, 31 original browser, 63 prior additive
+and 103 ancillary cases. The original journey reaches line 984 but finds Home
+overflow **389px at 375px** in its tree, which lacks the cover correction. A
+retained later-leg probe reaches line 990: canonical Library navigation correctly
+selects two optional display choices, but the Summary includes their count while
+the original requires a stable bare caption. No href, default, count algorithm or
+assertion may change to disguise this. The caption/count presentation proposal
+is under independent requirements review, not implementation authorization.
+
+The parent clarifies replacement-readiness scope: preserve the existing desktop
+enhanced-and-open native Summary hiding required by original tests; new
+replacement-specific or narrow-opener hiding requires verified readiness. This
+does not authorize an unready narrow hide or a Summary role override. Immutable
+phone capture verifies all 900 files' bytes/modes, all 432 original test files and
+both existing regression modules as exact byte prefixes. Independent source
+review and fresh parent original/additive bands are running; worker passes do
+not transfer to parent or composition.
+
+Vector `a873fefd` reports **898 unit / four browser passes**, including the full
+unchanged original SVG/Account journey through line 962. Parent capture verifies
+all 935 files' bytes/modes, all 452 pre-existing test entries and exactly the seven
+authorized paths. Its bounded Library-only capture/validation and HTML issued
+source do not widen raw SVG acceptance, acquisition, API, CSP or filesystem write
+authority. Source/security review and fresh parent gates are running; no parent
+vector pass or final Account-scroll qualification is claimed yet. Earlier RED,
+error and timeout evidence remains in the complete worker ledger.
+
+A new derivative starts from reviewed `9562f558` plus current primary docs only;
+phone and vector source ranges are not composed pending source review. All
+original rejection/raster/phone tests remain enabled and unchanged. No UI primary
 selection or whole-programme approval follows.
+
+#### ME2-A protocol refinement — proposal only
+
+The read-only planner's finite v2 is now persisted alongside historical v1 and is
+under independent requirements/privacy review. It proposes paired explicit mode,
+canonical signed-64-bit IDs as strings, a streamed **10,747,904-byte** POST bound
+before CSRF/parsing, typed stored-state comparison, owned raw-fetch JSON bounded
+to 1 MiB and server suppression of optional JWT refresh for editor candidates.
+Correlation/digests are not authority, revisions, idempotency or save receipts.
+Lost POST acknowledgement remains **OUTCOME_UNKNOWN**. No immediate logout
+revocation, cancellation of dispatched writes or SQLite/filesystem atomicity is
+promised. Native editing and its original tests remain unchanged; no editor
+writer or additional SQL/kernel/issuer authority is assigned.
 
 #### Retained early palette harness evidence
 
