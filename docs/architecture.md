@@ -1624,6 +1624,12 @@ JavaScript or native dialog support leaves an explanatory native disclosure and
 the ordinary navigation intact. Its directly linked, non-precached stylesheet
 also supports an older Store-cached bundle; this adds no offline/private pages or
 new database, route or permission authority.
+If a present, complete palette lacks native `showModal`, its initializer marks the
+existing navbar `data-nav-palette-fallback="unavailable"`. One deliberate scoped
+CSS integration override keeps the same authorised primary Browse link visible,
+without changing disclosure state or adding an anchor. Absent/incomplete markup
+is not classified as unsupported dialog capability. Successful later enhancement
+clears the owned marker; ordinary supported narrow-menu collapse is unchanged.
 
 **Cover sizing is document-local, not a saved preference.** Home's recent shelf,
 Library's items/grouped-format cards and Music's local cards include the reviewed

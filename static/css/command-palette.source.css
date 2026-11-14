@@ -1,4 +1,4 @@
-/* Independently linkable; no generated bundle or protected shell rules needed.
+/* Independently linkable; no generated bundle needed.
    The launcher is in flow, not another fixed control beside the existing ?. */
 .command-palette {
     display: flex;
@@ -6,6 +6,11 @@
     padding-block: 0.5rem;
 }
 .command-palette [hidden] { display: none; }
+/* Deliberate shared-shell exception: unavailable palette capability preserves
+   the SAME direct Browse fallback without opening navigation. Match its closed
+   enhanced state and exceed the nav hide rule's specificity, not !important.
+   Explicit hidden/inert/accessibility constraints remain authoritative. */
+.media-navigation[data-nav-enhanced="true"][data-nav-menu-open="false"][data-nav-palette-fallback="unavailable"]:not([hidden]):not([inert]):not([aria-hidden="true"]) .media-navigation__primary:not([hidden]):not([inert]):not([aria-hidden="true"]) { display: flex; }
 .command-palette__fallback { max-inline-size: 36rem; }
 .command-palette__fallback summary { cursor: pointer; }
 .command-palette__launch,

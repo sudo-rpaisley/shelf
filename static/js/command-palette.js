@@ -107,6 +107,17 @@
             !event.altKey && !event.shiftKey;
     }
 
+    function navigationFallback(unavailable) {
+        document.querySelectorAll('[data-media-navigation]').forEach(function (nav) {
+            var attribute = 'data-nav-palette-fallback';
+            if (unavailable && nav.getAttribute(attribute) !== 'unavailable') {
+                nav.setAttribute(attribute, 'unavailable');
+            } else if (!unavailable && nav.getAttribute(attribute) === 'unavailable') {
+                nav.removeAttribute(attribute);
+            }
+        });
+    }
+
     function init() {
         var root = document.querySelector('[data-command-palette]');
         if (!root || root.getAttribute('data-command-palette-enhanced') === 'true') return;
@@ -117,7 +128,13 @@
         var status = root.querySelector('[data-command-palette-status]');
         var close = root.querySelector('[data-command-palette-close]');
         var fallback = root.querySelector('[data-command-palette-fallback]');
-        if (!dialog || typeof dialog.showModal !== 'function' || !launcher || !input || !results || !status || !close || !fallback) return;
+        if (!dialog || !launcher || !input || !results || !status || !close || !fallback) return;
+        if (typeof dialog.showModal !== 'function') {
+            // Keep the same direct Browse fallback as no-JS navigation. This
+            // marker changes only its display, never disclosure state or policy.
+            navigationFallback(true);
+            return;
+        }
         var composing = false, opener = null, entries = [], selected = -1, outsideDown = false;
 
         function choose(index, scroll) {
@@ -281,6 +298,7 @@
         fallback.hidden = true;
         launcher.hidden = false;
         root.setAttribute('data-command-palette-enhanced', 'true');
+        navigationFallback(false);
     }
 
     if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', init, {once: true});

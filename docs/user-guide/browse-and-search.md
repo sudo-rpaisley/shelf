@@ -19,6 +19,8 @@ fallback when Library is unavailable. The palette offers no edit, delete, sync o
 external-media launch commands, and no command history is saved. Destination
 pages retain their normal behaviour. Without JavaScript or native
 dialog support, use the normal navigation; the Commands disclosure explains this.
+If native dialog support is unavailable, the existing **Browse** link stays
+directly visible. Menus are not opened automatically.
 
 ## Views
 
