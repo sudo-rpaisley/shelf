@@ -692,44 +692,120 @@ guards remain exact, zero attempts/errors/skips. Seven offline checks and four
 JS syntax checks also pass. Badges **10588 unit / 601 E2E** remain collection only.
 These are candidate-specific bands, not a replacement full-UI or pinned gate.
 
-Phone navigation and local-vector compatibility are now frozen separate candidates,
-neither with a passing final composition. Phone `3c2e85c0` reports **459 passed /
-two RED**, retaining all 234 original unit, 31 original browser, 63 prior additive
+Phone navigation and local-vector compatibility remain separate candidates,
+neither with a passing final composition. Phone `3c2e85c0` receives bounded
+**SOURCE_REVIEW_CLEAR** and fresh parent **459 passed / two same RED**, retaining
+all 234 original unit, 31 original browser, 63 prior additive
 and 103 ancillary cases. The original journey reaches line 984 but finds Home
 overflow **389px at 375px** in its tree, which lacks the cover correction. A
 retained later-leg probe reaches line 990: canonical Library navigation correctly
 selects two optional display choices, but the Summary includes their count while
 the original requires a stable bare caption. No href, default, count algorithm or
-assertion may change to disguise this. The caption/count presentation proposal
-is under independent requirements review, not implementation authorization.
+assertion may change to disguise this. Fresh parent bands are **234 / 189.85 s**,
+separate original **12 / 37.57 s**, **19 / 28.38 s**, **137 unit / 101.40 s** and
+**57 browser passed / two RED / 90.90 s**. All 461 worker identities/outcomes are
+independently reproduced, with exact inputs/guards and zero attempts/errors/skips.
 
 The parent clarifies replacement-readiness scope: preserve the existing desktop
 enhanced-and-open native Summary hiding required by original tests; new
 replacement-specific or narrow-opener hiding requires verified readiness. This
 does not authorize an unready narrow hide or a Summary role override. Immutable
 phone capture verifies all 900 files' bytes/modes, all 432 original test files and
-both existing regression modules as exact byte prefixes. Independent source
-review and fresh parent original/additive bands are running; worker passes do
-not transfer to parent or composition.
+both existing regression modules as exact byte prefixes. Parent `1b1984cb`
+composes the full three-commit phone range with reviewed `9562f558`, then regenerates
+centrally. Its full original 375px journey passes Home line 984 and reaches the
+caption failure at 990; the later-leg probe retains the same caption failure
+**two failed / 19.58 s**. A pass at another width was not substituted.
 
-Vector `a873fefd` reports **898 unit / four browser passes**, including the full
+The caption/status contract receives independent implementation-contract clearance.
+Parent `aed1fce2` keeps the stable Summary and moves the same single translated
+count beside it, still inside Details, with a nonzero-only description reference.
+Versioned CSS exposes the real count while the complete optional body is closed;
+old HTML and unavailable CSS retain native collapse. Counts/defaults/hrefs/form
+values are unchanged. Source review returns bounded **SOURCE_REVIEW_CLEAR**;
+new nine plus unchanged 78 unit cases pass **87 / 50.42 s** before generation.
+
+The first browser band records **24 passed / three failed / one teardown error /
+83.29 s**: a new unsupported-CSS fixture wrongly expected one capability block,
+but navigation and caption legitimately have two. Test-only `ced7fa30` scopes the
+same strict one-hit check to the caption block, strengthens no-JS native submission
+proof, and adds a focused regression with the original threshold. No original
+assertion changes. Fresh frozen checks give **25 browser passed / three retained
+geometry failures / 57.25 s**, no errors/skips or guard/input changes. The test-only
+follow-up receives bounded **SOURCE_REVIEW_CLEAR** separately; its fresh frozen
+unit band passes **87 / 49.82 s** with exact inputs/guards and zero
+attempts/errors/skips. Eleven offline/syntax checks also pass. The no-JS proof
+checks closed, reclosed and submitted values; it does not separately compare
+FormData while open.
+
+The full original phone now passes caption, search width and results-position
+checks but fails line **1003**: book heading **y=2209.1875**, required **y<900**.
+The existing later-leg probe and new focused regression retain that same failure.
+Actual order remains correct recent order, video then book; portrait artwork is
+309×463.5px and results start at y=868. A read-only architecture pass is examining
+the whole mobile vertical budget, not approving sorting, density, artwork-shape,
+clipping, fake-title or threshold changes. Original later filter/Account/Sources/
+item-copy/shortcut assertions remain unqualified beyond this barrier.
+
+Vector `a873fefd` receives fresh parent **898 unit / 527.11 s** and **four browser /
+14.60 s** passes, reproducing all 902 worker identities/outcomes, including the full
 unchanged original SVG/Account journey through line 962. Parent capture verifies
 all 935 files' bytes/modes, all 452 pre-existing test entries and exactly the seven
 authorized paths. Its bounded Library-only capture/validation and HTML issued
 source do not widen raw SVG acceptance, acquisition, API, CSP or filesystem write
-authority. Source/security review and fresh parent gates are running; no parent
-vector pass or final Account-scroll qualification is claimed yet. Earlier RED,
-error and timeout evidence remains in the complete worker ledger.
+authority. Nevertheless independent source/security review returns
+**CHANGES_REQUIRED**: BOM-less UTF-16 can bypass the ASCII boundary, and expected
+directory-close errors can lose descriptor ownership or escape enrichment. A
+separate inner-task cancellation case also needs physical-worker drainage proof.
+Passing gates do not waive these findings. A new corrective derivative is assigned;
+the original remains frozen and uncomposed. Earlier RED/error/timeout evidence
+remains in the complete ledger. Those passing held-candidate checks are not repair
+clearance or final composed Account qualification.
 
-A new derivative starts from reviewed `9562f558` plus current primary docs only;
-phone and vector source ranges are not composed pending source review. All
+Corrective candidate `5ef2a7ea` is now frozen clean, with worker **928 unit / five
+browser** passes. Parent capture verifies all 935 files' bytes/modes, all 452
+original test files, and the three new test modules' complete earlier contents
+as exact byte prefixes. It changes only the two producer/router sources and
+append-only tests relative to the held candidate. The new boundary fails closed
+outside Linux because portable close-error descriptor semantics are ambiguous.
+Independent source/security re-review returns bounded **SOURCE_REVIEW_CLEAR**:
+the encoding/close-ownership findings and physical inner-cancellation/shutdown
+concern are resolved within the finite scope. Fresh parent checks pass **928 unit /
+576.79 s** and **five browser / 19.59 s**, including the unchanged full SVG/Account
+journey, with exact inputs/guards and zero attempts/errors/skips. All earlier
+898/four identities/outcomes are retained; additions are 30 unit/one browser.
+This qualifies the bounded repair, not other platforms, full SVG compatibility,
+slow-filesystem deadlines or the final composition.
+
+Current phone/caption composition is frozen at `ced7fa30`; corrected vector source
+is qualified separately and still requires full-range composition/regeneration
+and fresh combined gates. All
 original rejection/raster/phone tests remain enabled and unchanged. No UI primary
 selection or whole-programme approval follows.
+The fresh broader `ced7fa30` browser band completes **241 passed / four failed /
+571.56 s**, retaining all 182 previous `cfffa6dc` identities. Only the two known
+palette fallback outcomes change RED to GREEN; all 116 fallback-band and 28
+caption-band outcomes remain exact. All 63 added cases are accounted for. The
+four REDs are the uncomposed SVG original plus the three retained phone geometry
+checks, with exact inputs/guards and zero attempts/errors/skips. The broader unit
+band passes **1729 / 1130.81 s**, preserving all 1704 previous composed identities
+and outcomes plus 25 additions. The
+separate original-navbar invocation passes **12 / 38.57 s**, with exact
+inputs/guards and zero attempts/errors/skips. Wider outcomes are not inferred
+from the bounded caption checks; known geometry/SVG failures remain enabled.
 
-#### ME2-A protocol refinement — proposal only
+The source-grounded mobile-presentation proposal is now frozen for independent
+requirements review only. It proposes an explicit Library-only wrapping-media
+mode, compact always-available controls and single-copy native help, preserving
+ordering, grid density, ME7 outer-card sizing and default shared components. No
+layout writer is authorized before that review; estimated pixel budgets are not
+runtime proof. Vector-renderer ownership must be sequenced, not edited concurrently.
 
-The read-only planner's finite v2 is now persisted alongside historical v1 and is
-under independent requirements/privacy review. It proposes paired explicit mode,
+#### ME2-A protocol refinement — design ratified, no writer
+
+The read-only planner's finite v2 is persisted alongside historical v1, receives
+independent **IMPLEMENTATION_CONTRACT_REVIEW_CLEAR**, and is ratified for design
+only. It specifies paired explicit mode,
 canonical signed-64-bit IDs as strings, a streamed **10,747,904-byte** POST bound
 before CSRF/parsing, typed stored-state comparison, owned raw-fetch JSON bounded
 to 1 MiB and server suppression of optional JWT refresh for editor candidates.
@@ -737,7 +813,9 @@ Correlation/digests are not authority, revisions, idempotency or save receipts.
 Lost POST acknowledgement remains **OUTCOME_UNKNOWN**. No immediate logout
 revocation, cancellation of dispatched writes or SQLite/filesystem atomicity is
 promised. Native editing and its original tests remain unchanged; no editor
-writer or additional SQL/kernel/issuer authority is assigned.
+writer or additional SQL/kernel/issuer authority is assigned. Future implementation
+must recheck response ownership after asynchronous reads and explicitly render the
+finite mode controls rather than installing native camera/URL/Alpine markup unchanged.
 
 #### Retained early palette harness evidence
 
