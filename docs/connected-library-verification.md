@@ -732,8 +732,11 @@ same strict one-hit check to the caption block, strengthens no-JS native submiss
 proof, and adds a focused regression with the original threshold. No original
 assertion changes. Fresh frozen checks give **25 browser passed / three retained
 geometry failures / 57.25 s**, no errors/skips or guard/input changes. The test-only
-follow-up is independently re-reviewed separately; its fresh frozen unit band
-passes **87 / 49.82 s** with exact inputs/guards and zero attempts/errors/skips.
+follow-up receives bounded **SOURCE_REVIEW_CLEAR** separately; its fresh frozen
+unit band passes **87 / 49.82 s** with exact inputs/guards and zero
+attempts/errors/skips. Eleven offline/syntax checks also pass. The no-JS proof
+checks closed, reclosed and submitted values; it does not separately compare
+FormData while open.
 
 The full original phone now passes caption, search width and results-position
 checks but fails line **1003**: book heading **y=2209.1875**, required **y<900**.
@@ -763,6 +766,10 @@ Current phone/caption composition is frozen at `ced7fa30`; vector is not compose
 while held for source correction. All
 original rejection/raster/phone tests remain enabled and unchanged. No UI primary
 selection or whole-programme approval follows.
+Fresh broader unit/browser bands are running on exact `ced7fa30` trees. The
+separate original-navbar invocation passes **12 / 38.57 s**, with exact
+inputs/guards and zero attempts/errors/skips. Wider outcomes are not inferred
+from the bounded caption checks; known geometry/SVG failures remain enabled.
 
 #### ME2-A protocol refinement — design ratified, no writer
 
