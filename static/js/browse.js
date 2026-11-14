@@ -273,7 +273,15 @@ function browsePage() {
             var sortEl = document.querySelector('[name="sort"]');
             if (!sortEl || !sortEl.querySelector('option[value="' + saved + '"]')) return;
             this.setControlValue('sort', saved);
-            this.runSearch(new URLSearchParams({sort: saved}));
+            // Sort-only params would replace a narrowed first paint with all
+            // items. Read one current control per registry name (q has two
+            // synchronized inputs); runSearch owns the final view value.
+            var params = new URLSearchParams();
+            this.filterNames().forEach(function(name) {
+                var el = document.querySelector('[name="' + name + '"]');
+                if (el) params.set(name, el.value);
+            });
+            this.runSearch(params);
         },
 
         // Shared by restoreSort() and restoreFilters(). `view` is mandatory:
