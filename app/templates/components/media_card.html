@@ -1,5 +1,5 @@
 {# No Browse/Alpine state; links/cover_path are validated by the pure adapter. #}
-{% if card.title %}{% set card_title = card.title %}{% else %}{% set card_title = _('Untitled item')|forceescape %}{% endif %}
+{% if card.title.strip() %}{% set card_title = card.title %}{% else %}{% set card_title = _('Untitled item')|forceescape %}{% endif %}
 <article class="media-card" data-item-id="{{ card.id }}" data-media-type="{{ card.media_type }}">
     <a class="media-card__detail" href="{{ card.detail_href }}">
         {% include "components/media_artwork.html" %}

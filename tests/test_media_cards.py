@@ -487,3 +487,135 @@ def test_css_declares_native_containment_and_finite_ratios_not_browser_geometry(
     assert "object-fit:cover" not in re.sub(r"\s+", "", css)
     assert "scroll-behavior:smooth" not in re.sub(r"\s+", "", css)
     assert "overflow-wrap:anywhere;" in rule(".media-card__title")
+
+
+def _card_from_review_input(cards, item_id, title, direct, *, cover_path=None, edit_href=None):
+    if direct:
+        return cards.MediaCard(id=item_id, title=title, creator_text="", media_type="book",
+                               cover_path=cover_path, detail_href=f"/item/{item_id}", edit_href=edit_href)
+    return cards.build_media_card({"id": item_id, "title": title, "media_type": "book",
+                                   "cover_path": cover_path}, edit_href=edit_href)
+
+
+@pytest.mark.parametrize("direct", [False, True], ids=["mapping", "dto"])
+@pytest.mark.parametrize("restored", [False, True], ids=["inserted", "restored"])
+def test_review_itemid_from_real_insert_and_restore_normalizes_without_flag_leak(cards, db, direct, restored):
+    from app.services import item_write
+
+    db.execute("BEGIN IMMEDIATE")
+    item_id = item_write.insert_item(db, title="Title", isbn="9780000000118", media_type="book")
+    assert isinstance(item_id, item_write.ItemId) and not item_write.was_restored(item_id)
+    if restored:
+        assert item_write.trash_item(db, item_id)
+        again = item_write.insert_item(db, title="Provider title", isbn="9780000000118", media_type="book")
+        assert again == item_id
+        item_id = again
+    assert item_write.was_restored(item_id) is restored
+    title = db.execute("SELECT title FROM items_live WHERE id = ?", (item_id,)).fetchone()["title"]
+    assert title == "Title"
+
+    card = _card_from_review_input(cards, item_id, title, direct, edit_href=f"/item/{item_id}/edit")
+    assert type(card.id) is int and card.id == item_id
+    assert not hasattr(card.id, "restored") and not item_write.was_restored(card.id)
+    assert item_write.was_restored(item_id) is restored, "Adaptation must not mutate the original ItemId"
+    assert card.detail_href == f"/item/{int(item_id)}"
+    root = _render_card(card)
+    assert root.find("article")[0].attrs["data-item-id"] == str(int(item_id))
+    assert [link.attrs["href"] for link in root.find("a")] == [f"/item/{int(item_id)}", f"/item/{int(item_id)}/edit"]
+
+
+@pytest.mark.parametrize("direct", [False, True], ids=["mapping", "dto"])
+def test_review_plain_positive_integer_bounds_still_work(cards, direct):
+    for item_id in (1, 7, 2**63 - 1):
+        card = _card_from_review_input(cards, item_id, "Title", direct)
+        assert type(card.id) is int and card.id == item_id
+        assert card.detail_href == f"/item/{item_id}"
+
+
+@pytest.mark.parametrize("direct", [False, True], ids=["mapping", "dto"])
+def test_review_integer_subclass_support_does_not_widen_id_coercion(cards, direct):
+    conversions = []
+
+    class IntLike:
+        def __int__(self):
+            conversions.append("int")
+            return 7
+
+        def __index__(self):
+            conversions.append("index")
+            return 7
+
+    # c06's explicit canonical decimal-string branch stays unchanged. This must
+    # not become blanket int(value) coercion accepting arbitrary strings/objects.
+    for invalid in (True, False, 0, -1, 7.0, 7.5, None, "07", "7.0", "+7", " 7", "7\n", IntLike()):
+        with pytest.raises(ValueError, match="^id must be a positive integer$"):
+            _card_from_review_input(cards, invalid, "Title", direct)
+    assert conversions == []
+
+
+@pytest.mark.parametrize("title", ["   ", "\t\r\n", "\u00a0\u2003"], ids=["spaces", "tabs-newlines", "unicode-space"])
+@pytest.mark.parametrize("covered", [False, True], ids=["placeholder", "image"])
+@pytest.mark.parametrize("edited", [False, True], ids=["without-edit", "with-edit"])
+@pytest.mark.parametrize("newstyle", [False, True], ids=["raw-gnu", "newstyle-gnu"])
+def test_review_whitespace_title_has_one_escaped_localized_fallback(cards, tmp_path, title, covered, edited, newstyle):
+    percent = "100%%" if newstyle else "100%d"
+    fallback = f'Senza titolo <img src=x onerror="alert(1)"> {percent} & "titolo"'
+    edit = f'Modifica <b onclick="alert(2)">{percent}</b>'
+    expected_title = fallback.replace("%%", "%") if newstyle else fallback
+    expected_edit = edit.replace("%%", "%") if newstyle else edit
+    env, calls = _environment({"Untitled item": fallback, "Edit": edit}, newstyle=newstyle)
+    card = _card_from_review_input(cards, 7, title, False, cover_path="covers/7.jpg" if covered else None,
+                                   edit_href="/item/7/edit" if edited else None)
+    assert card.title == title, "Fallback selection must not change the stored/raw title"
+    html = env.get_template("components/media_card.html").render(card=card)
+    root = _HTML(html).root
+    assert root.find("h3")[0].text == expected_title
+    links = root.find("a")
+    assert len(links) == 1 + int(edited) and links[0].attrs["href"] == "/item/7"
+    assert links[0].text.strip() == expected_title
+    if edited:
+        assert links[1].attrs["href"] == "/item/7/edit"
+        assert links[1].text == f"{expected_edit} — {expected_title}"
+    assert calls.count("Untitled item") == 1 and calls.count("Edit") == int(edited)
+    assert title not in calls
+    assert len(root.find("img")) == int(covered)
+    if covered:
+        assert root.find("img")[0].attrs["alt"] == ""
+    else:
+        assert root.find(cls="media-artwork__placeholder")[0].attrs["aria-hidden"] == "true"
+    assert not root.find("b") and not root.find("script")
+    for node in root.find():
+        assert not any(name.startswith("on") for name in node.attrs)
+    (tmp_path / "whitespace-fallback.html").write_text(html)
+    (tmp_path / "whitespace-fallback-summary.json").write_text(json.dumps({
+        "proof": "Real Jinja/GNU unit markup, not browser accessible-name/layout proof",
+        "raw_title": title, "image": covered, "edit": edited, "newstyle": newstyle,
+        "fallback_gettext_calls": calls.count("Untitled item"), "rendered_title_text": root.find("h3")[0].text,
+        "links": [link.attrs["href"] for link in links],
+    }, indent=2) + "\n")
+
+
+@pytest.mark.parametrize("covered", [False, True], ids=["placeholder", "image"])
+@pytest.mark.parametrize("edited", [False, True], ids=["without-edit", "with-edit"])
+def test_review_nonblank_title_keeps_its_raw_whitespace_and_metadata(cards, covered, edited):
+    title = ' \tReal <title> 100%d & "metadata"\n '
+    env, calls = _environment({title: "WRONGLY TRANSLATED", "Untitled item": "Fallback"})
+    card = _card_from_review_input(cards, 7, title, False, cover_path="covers/7.jpg" if covered else None,
+                                   edit_href="/item/7/edit" if edited else None)
+    root = _render_card(card, env=env)
+    assert card.title == title and root.find("h3")[0].text == title
+    if edited:
+        assert root.find(cls="media-card__sr-only")[0].text == " — " + title
+    assert title not in calls and "Untitled item" not in calls and not root.find("title")
+
+
+@pytest.mark.parametrize("direct", [False, True], ids=["mapping", "dto"])
+def test_review_none_and_zero_title_contract_remains_unchanged(cards, direct):
+    with pytest.raises(ValueError, match="^title must be text$"):
+        _card_from_review_input(cards, 7, 0, direct)
+    card = _card_from_review_input(cards, 7, None, direct)
+    assert card.title == ""
+    env, calls = _environment({"Untitled item": "Senza titolo"})
+    root = _render_card(card, env=env)
+    assert root.find("a")[0].text.strip() == "Senza titolo"
+    assert calls.count("Untitled item") == 1
