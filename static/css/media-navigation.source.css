@@ -83,7 +83,9 @@
     .media-navigation__main { grid-column: 2; grid-row: 1; display: flex; align-items: center; }
     .media-navigation__primary { flex-shrink: 0; }
     .media-navigation__shell { flex: 1; }
-    .media-navigation__shell > .media-navigation__shell-toggle { display: none; }
+    /* Native closed state survives mobile -> desktop resizing without JS.
+       Hide its opener only after enhancement and while the shell is open. */
+    .media-navigation[data-nav-enhanced="true"] .media-navigation__shell[open] > .media-navigation__shell-toggle { display: none; }
     .media-navigation__tree { display: flex; align-items: center; inline-size: auto; margin: 0; padding: 0; max-block-size: none; overflow: visible; }
     .media-navigation__top, .media-navigation__family { position: relative; }
     .media-navigation__top + .media-navigation__top { border: 0; }

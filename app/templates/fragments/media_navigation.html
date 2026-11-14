@@ -9,7 +9,7 @@
    {% if request.url.path == tab.path %}aria-current="page"{% endif %}
    class="media-navigation__link {% if request.url.path == tab.path %}bg-shelf-hover text-white{% else %}text-shelf-muted{% endif %}">{{ _(tab.label)|forceescape }}</a>
 {%- endmacro %}
-<nav data-media-navigation aria-label="{{ _('Primary navigation') }}" class="media-navigation bg-shelf-card border-b border-shelf-border sticky top-0 z-50">
+<nav data-media-navigation aria-label="{{ _('Primary navigation')|forceescape }}" class="media-navigation bg-shelf-card border-b border-shelf-border sticky top-0 z-50">
     <div class="app-shell">
         <div class="media-navigation__bar">
             <a href="/" class="text-lg font-bold text-shelf-accent2 tracking-tight media-navigation__brand">Shelf</a>
@@ -20,12 +20,12 @@
                    class="media-navigation__link media-navigation__primary text-shelf-muted">{{ _(media_navigation.primary.label)|forceescape }}</a>
                 {% endif %}
                 <details data-nav-disclosure data-nav-shell open class="media-navigation__shell">
-                    <summary class="media-navigation__shell-toggle" data-testid="nav-menu-button">{{ _('Main menu') }} {{ chevron() }}</summary>
+                    <summary class="media-navigation__shell-toggle" data-testid="nav-menu-button">{{ _('Main menu')|forceescape }} {{ chevron() }}</summary>
                     <div class="media-navigation__tree" data-testid="nav-menu-panel">
                         {% if media_navigation.primary %}
                         <div class="media-navigation__top" data-nav-hover>
                             <details data-nav-disclosure data-nav-browse>
-                                <summary class="media-navigation__browse-toggle" aria-label="{{ _('Browse media') }}"><span>{{ _('Media') }}</span>{{ chevron() }}</summary>
+                                <summary class="media-navigation__browse-toggle" aria-label="{{ _('Browse media')|forceescape }}"><span>{{ _('Media')|forceescape }}</span>{{ chevron() }}</summary>
                                 <ul class="media-navigation__panel">
                                     {% if media_navigation.all_media %}
                                     <li>{{ tab_link(media_navigation.all_media) }}</li>
@@ -39,7 +39,7 @@
                                                 <li>{{ tab_link(family.landing) }}</li>
                                                 {% endif %}
                                                 {% if family.path %}
-                                                <li><a href="{{ family.path }}" data-nav-family-link="{{ family.key }}" class="media-navigation__link text-shelf-muted">{{ _('All items') }}</a></li>
+                                                <li><a href="{{ family.path }}" data-nav-family-link="{{ family.key }}" class="media-navigation__link text-shelf-muted">{{ _('All items')|forceescape }}</a></li>
                                                 {% endif %}
                                                 {% for format in family.formats %}
                                                 <li><a href="{{ format.path }}" data-nav-format="{{ format.key }}" class="media-navigation__link text-shelf-muted">{{ _(format.label)|forceescape }}</a></li>
@@ -67,7 +67,7 @@
                         {% if media_navigation.management %}
                         <div class="media-navigation__top" data-nav-hover>
                             <details data-nav-disclosure data-nav-group="manage">
-                                <summary>{{ _('Manage') }} {{ chevron() }}</summary>
+                                <summary>{{ _('Manage')|forceescape }} {{ chevron() }}</summary>
                                 <ul class="media-navigation__panel">
                                     <li><a href="{{ media_navigation.management.path }}" data-nav-management="catalogue" class="media-navigation__link text-shelf-muted">{{ _(media_navigation.management.label)|forceescape }}</a></li>
                                 </ul>

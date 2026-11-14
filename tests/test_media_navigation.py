@@ -283,13 +283,13 @@ class FragmentDOM(HTMLParser):
             current = current.parent
 
 
-def _render(user, nodes, intent_for, *, model=None, **extra):
+def _render(user, nodes, intent_for, *, model=None, nav_tabs=None, **extra):
     # Use the server's real Jinja globals/autoescape (G92), without pretending
     # this fragment has already replaced the parent's base navigation.
     import app.main as main
     from starlette.requests import Request
 
-    tabs = nav.visible_tabs(user)
+    tabs = nav.visible_tabs(user) if nav_tabs is None else nav_tabs
     request = Request({"type": "http", "path": "/stats", "headers": [], "query_string": b""})
     html = main.templates.env.get_template("fragments/media_navigation.html").render({
         "request": request, "user": user, "nav_tabs": tabs,
@@ -436,15 +436,12 @@ def test_server_render_escapes_ui_labels_and_never_translates_catalogue_text(db,
     assert seen.count(hostile) == 1
 
 
-def test_gnu_catalogue_markup_is_escaped_not_trusted(db, nodes, intent_for, monkeypatch):
+def _gnu_catalogue(translations):
     import gettext
     from io import BytesIO
     import struct
-    import app.i18n as i18n
 
-    # A real serialized GNU catalogue exercises gettext, not a lambda that
-    # silently returns Markup or bypasses server translation behavior.
-    translations = {"": "Content-Type: text/plain; charset=UTF-8\n", "Browse": '<svg onload="alert(1)">GNU</svg>'}
+    translations = {"": "Content-Type: text/plain; charset=UTF-8\n", **translations}
     pairs = [(key.encode(), value.encode()) for key, value in sorted(translations.items())]
     count = len(pairs)
     offset = 28 + 16 * count
@@ -461,7 +458,24 @@ def test_gnu_catalogue_markup_is_escaped_not_trusted(db, nodes, intent_for, monk
         value_offset += len(value) + 1
     data = struct.pack("<7I", 0x950412DE, 0, count, 28, 28 + 8 * count, 0, 0)
     data += struct.pack(f"<{4 * count}I", *key_table, *value_table) + originals + translated
-    catalogue = gettext.GNUTranslations(BytesIO(data))
+    class RecordingGNUTranslations(gettext.GNUTranslations):
+        def __init__(self, stream):
+            super().__init__(stream)
+            self.calls = []
+
+        def gettext(self, message):
+            self.calls.append(message)
+            return super().gettext(message)
+
+    return RecordingGNUTranslations(BytesIO(data))
+
+
+def test_gnu_catalogue_markup_is_escaped_not_trusted(db, nodes, intent_for, monkeypatch):
+    import app.i18n as i18n
+
+    # A real serialized GNU catalogue exercises gettext, not a lambda that
+    # silently returns Markup or bypasses server translation behavior.
+    catalogue = _gnu_catalogue({"Browse": '<svg onload="alert(1)">GNU</svg>'})
     monkeypatch.setattr(i18n, "_catalog", lambda domain, lang: catalogue)
     html, dom = _render(None, nodes, intent_for)
     primary, = dom.find("a", **{"data-nav-primary": "browse"})
@@ -470,7 +484,7 @@ def test_gnu_catalogue_markup_is_escaped_not_trusted(db, nodes, intent_for, monk
     assert "&lt;svg" in html
 
 
-NODE_LOGIC = r"""
+NODE_DOM_DOUBLE = r"""
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const vm = require('node:vm');
@@ -546,6 +560,10 @@ function activate(details, key) {
     details.open = !details.open; // the native default, deliberately not browser proof
     flush();
 }
+"""
+
+
+NODE_LOGIC = NODE_DOM_DOUBLE + r"""
 vm.runInNewContext(fs.readFileSync('static/js/media-navigation.js', 'utf8'), {document, window});
 flush();
 const root = document.querySelector('[data-media-navigation]');
@@ -557,6 +575,9 @@ const format = family.querySelector('[data-nav-format="book"]');
 const primary = root.querySelector('[data-nav-primary="browse"]');
 const add = root.querySelector('details[data-nav-group="add"]');
 assert.ok(shell.open, 'desktop shell is persistent');
+assert.equal(root.getAttribute('data-nav-enhanced'), 'true');
+shell.open = false; flush();
+assert.ok(shell.open, 'enhancement restores an open desktop shell before CSS may hide its opener');
 assert.equal(browse.open, false);
 const href = primary.getAttribute('href');
 assert.equal(emit(primary, 'click').defaultPrevented, false);
@@ -601,20 +622,28 @@ emit(summary(add), 'keydown', {key: 'Escape'}); flush();
 assert.equal(add.open, false); assert.equal(document.activeElement, summary(add));
 emit(summary(add), 'keydown', {key: 'Escape'}); flush();
 assert.equal(shell.open, false); assert.equal(document.activeElement, summary(shell));
+desktop = true;
+for (const change of queries) change(); flush();
+assert.ok(shell.open, 'enhanced mobile-close -> desktop resize reopens the shell');
+assert.equal(document.activeElement, summary(browse), 'resize returns focus to a visible desktop disclosure');
 console.log('Native navigation DOM-double logic passed; not browser/visual evidence.');
 """
 
 
 def test_native_script_pointer_keyboard_and_focus_logic_in_node_dom_double(db):
-    import subprocess
     from app import media_presentation as presentation
 
     _, dom = _render(ADMIN, presentation.family_nodes(), presentation.filter_intent)
+    _run_node_dom_double(NODE_LOGIC, dom)
+
+
+def _run_node_dom_double(program, dom):
+    import subprocess
 
     def serialize(element):
         return {"tag": element.tag, "attrs": element.attrs, "children": [serialize(child) for child in element.children]}
 
-    result = subprocess.run(["node", "-e", NODE_LOGIC], input=json.dumps(serialize(dom)), text=True, capture_output=True, timeout=20)
+    result = subprocess.run(["node", "-e", program], input=json.dumps(serialize(dom)), text=True, capture_output=True, timeout=20)
     assert result.returncode == 0, result.stdout + result.stderr
     assert "not browser/visual evidence" in result.stdout
 
@@ -794,3 +823,171 @@ def test_real_rendered_types_csv_uses_canonical_order_and_one_key_for_both_surfa
     assert cd.attrs["href"] == prefix + "&types=cd"
     manager, = dom.find("a", **{"data-nav-management": "catalogue"})
     assert manager.attrs["href"] == "/browse"
+
+
+@pytest.mark.parametrize("msgid", [
+    "Primary navigation", "Browse media", "Main menu", "Media", "All items", "Manage",
+])
+def test_review_gnu_static_navigation_labels_are_literal_in_the_real_server_environment(db, monkeypatch, msgid):
+    import app.i18n as i18n
+    import app.main as main
+    from app import media_presentation as presentation
+
+    hostile = '\" data-probe="yes"><nav-probe data-probe="yes">catalogue</nav-probe> & "quoted"'
+    format_text = '<format-probe data-probe="yes">Book</format-probe> & "format"'
+    catalogue = _gnu_catalogue({msgid: hostile, "Book": format_text})
+    monkeypatch.setattr(i18n, "_catalog", lambda domain, lang: catalogue)
+    # The application intentionally uses new-style gettext, which marks a
+    # catalogue result as Markup. Ordinary Jinja autoescape is not protection.
+    assert main.templates.env.newstyle_gettext is True
+    _, dom = _render(None, presentation.family_nodes(), presentation.filter_intent)
+    root, = dom.find("nav", **{"data-media-navigation": None})
+    browse, = dom.find("details", **{"data-nav-browse": None})
+    if msgid == "Primary navigation":
+        assert root.attrs["aria-label"] == hostile
+    elif msgid == "Browse media":
+        assert browse.children[0].attrs["aria-label"] == hostile
+    elif msgid == "Main menu":
+        trigger, = dom.find("summary", **{"data-testid": "nav-menu-button"})
+        assert trigger.text.strip() == hostile
+    elif msgid == "Media":
+        label, = browse.children[0].find("span")
+        assert label.text == hostile
+    elif msgid == "All items":
+        link, = dom.find("a", **{"data-nav-family-link": "books"})
+        assert link.text == hostile
+    else:
+        manage, = dom.find("details", **{"data-nav-group": "manage"})
+        assert manage.children[0].text.strip() == hostile
+    assert not dom.find("nav-probe")
+    assert not dom.find("format-probe")
+    assert not any("data-probe" in element.attrs for element in dom.walk())
+    book, = dom.find("a", **{"data-nav-format": "book"})
+    assert book.text == format_text
+    assert catalogue.calls.count("Book") == 1
+
+
+def _structural_selector_matches(element, selector):
+    """Small selector projection for the opener contract, NOT a CSS engine.
+
+    Only class/attribute selectors and child/descendant combinators are needed;
+    unsupported syntax fails instead of being silently treated as nonmatching.
+    This evaluates actual rendered ancestors in the reviewed open/closed states.
+    """
+    import re
+
+    tokens = selector.replace(">", " > ").split()
+
+    def simple(node, token):
+        assert re.fullmatch(r'(?:\.[\w-]+|\[[\w-]+(?:="[^"]*")?\])+', token), token
+        for part in re.findall(r'\.[\w-]+|\[[^\]]+\]', token):
+            if part.startswith("."):
+                if part[1:] not in node.attrs.get("class", "").split():
+                    return False
+            else:
+                name, separator, value = part[1:-1].partition("=")
+                if name not in node.attrs or (separator and node.attrs[name] != value.strip('"')):
+                    return False
+        return True
+
+    def match(node, remaining):
+        if node is None or not simple(node, remaining[-1]):
+            return False
+        if len(remaining) == 1:
+            return True
+        if remaining[-2] == ">":
+            return match(node.parent, remaining[:-2])
+        return any(match(ancestor, remaining[:-1]) for ancestor in _ancestors(node.parent))
+
+    return match(element, tokens)
+
+
+@pytest.mark.parametrize("enhanced,opened", [(False, False), (False, True), (True, False), (True, True)])
+def test_review_no_js_mobile_close_then_desktop_resize_retains_a_native_opener_structurally(db, enhanced, opened):
+    import re
+    from app import media_presentation as presentation
+
+    _, dom = _render(None, presentation.family_nodes(), presentation.filter_intent)
+    root, = dom.find("nav", **{"data-media-navigation": None})
+    shell, = dom.find("details", **{"data-nav-shell": None})
+    trigger = shell.children[0]
+    assert trigger.tag == "summary" and trigger.text.strip() == "Main menu"
+    assert "open" in shell.attrs  # real no-JS starting markup
+    if not opened:
+        shell.attrs.pop("open")  # native mobile close, retained through resize
+    if enhanced:
+        root.attrs["data-nav-enhanced"] = "true"
+    else:
+        assert "data-nav-enhanced" not in root.attrs
+    css = re.sub(r"/\*.*?\*/", "", Path("static/css/media-navigation.source.css").read_text(), flags=re.S)
+    desktop = css.split("@media (min-width: 64rem)", 1)[1]
+    hiding = [selector.strip() for selectors, declarations in re.findall(r"([^{}]+)\{([^{}]*)\}", desktop)
+              if re.search(r"(?:^|;)\s*display\s*:\s*none\s*(?:;|$)", declarations)
+              for selector in selectors.split(",") if "media-navigation__shell-toggle" in selector]
+    assert hiding, "positive control: the enhanced desktop opener has a hide rule"
+    hidden = any(_structural_selector_matches(trigger, selector) for selector in hiding)
+    assert hidden == (enhanced and opened), (
+        "A closed or unenhanced native shell must keep its opener at desktop widths; "
+        "this is a selector/markup contract, not browser resize evidence"
+    )
+
+
+def test_review_empty_authorized_context_derivation_and_render_do_not_invent_tabs_or_query(db, monkeypatch):
+    import app.main  # prepare the real template environment before forbidding queries
+    from app import database, media_presentation as presentation
+
+    nodes = presentation.family_nodes()
+
+    def forbidden(*args, **kwargs):
+        raise AssertionError("an explicit empty nav context must not re-query policy or data")
+
+    monkeypatch.setattr(database, "get_db", forbidden)
+    monkeypatch.setattr(nav, "visible_tabs", forbidden)
+    monkeypatch.setattr(nav, "_nav_settings", forbidden)
+    monkeypatch.setattr(nav, "feature_enabled", forbidden)
+    model = nav.media_navigation([], nodes)
+    assert model == {"primary": None, "all_media": None, "families": [], "groups": [], "management": None}
+    _, dom = _render(None, nodes, presentation.filter_intent, model=model, nav_tabs=[])
+    assert not any("data-nav-tab" in element.attrs for element in dom.walk())
+    assert not dom.find("a", **{"data-nav-primary": "browse"})
+    assert not dom.find("details", **{"data-nav-browse": None})
+    home, = dom.find("a")
+    assert home.attrs["href"] == "/"
+    shell, = dom.find("details", **{"data-nav-shell": None})
+    assert shell.children[0].text.strip() == "Main menu"
+
+
+NODE_EMPTY_CONTEXT_LOGIC = NODE_DOM_DOUBLE + r"""
+desktop = false;
+vm.runInNewContext(fs.readFileSync('static/js/media-navigation.js', 'utf8'), {document, window});
+flush();
+const root = document.querySelector('[data-media-navigation]');
+const shell = root.querySelector('details[data-nav-shell]');
+const home = root.querySelector('a[href="/"]');
+assert.equal(root.querySelector('[data-nav-primary="browse"]'), null);
+assert.equal(root.querySelector('details[data-nav-browse]'), null);
+assert.equal(shell.open, false);
+assert.equal(root.getAttribute('data-nav-enhanced'), 'true');
+for (const key of ['Enter', ' ']) {
+    activate(shell, key);
+    assert.ok(shell.open);
+    assert.equal(document.activeElement, summary(shell));
+    desktop = true;
+    assert.doesNotThrow(() => { for (const change of queries) change(); flush(); },
+        'focused empty shell must not call focus on a missing primary during resize');
+    assert.ok(shell.open);
+    assert.equal(document.activeElement, home, 'use the existing brand link, not an invented tab or hidden summary');
+    assert.equal(root.querySelector('[data-nav-primary="browse"]'), null);
+    desktop = false;
+    for (const change of queries) change(); flush();
+    assert.equal(shell.open, false);
+}
+console.log('Empty-context resize DOM-double logic passed; not browser/visual evidence.');
+"""
+
+
+def test_review_empty_context_focused_breakpoint_resize_in_node_dom_double(db):
+    from app import media_presentation as presentation
+
+    _, dom = _render(None, presentation.family_nodes(), presentation.filter_intent, nav_tabs=[])
+    _run_node_dom_double(NODE_EMPTY_CONTEXT_LOGIC, dom)

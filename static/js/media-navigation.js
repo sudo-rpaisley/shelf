@@ -94,8 +94,12 @@
             shell.open = desktop.matches;
             sync(shell);
             if (hadFocus) {
-                if (desktop.matches) (browse ? summary(browse) : primary).focus();
-                else summary(shell).focus();
+                // An explicit empty nav context has no Browse/primary link.
+                // Keep focus visible on the existing brand, without inventing tabs.
+                const target = desktop.matches
+                    ? (browse ? summary(browse) : primary || root.querySelector('a[href="/"]'))
+                    : summary(shell);
+                if (target) target.focus();
             }
         }
         desktop.addEventListener('change', layout);
