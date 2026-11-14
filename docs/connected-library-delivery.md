@@ -161,8 +161,13 @@ Phone `3c2e85c0` now has source clearance and fresh **459 passes / two same REDs
 Actual composition clears Home375 and, with the source-reviewed caption/status
 repair, reaches original line 1003: the book heading is at y=2209 versus the
 unchanged y<900 requirement. Current `ced7fa30` has **25 browser passes / three
-retained geometry failures**; a bounded mobile-layout proposal is being examined,
-not yet authorized. Both phone journeys still need final composition qualification.
+retained geometry failures**; the wider browser gate gives **241 passes / four
+failures** (the same three geometry checks plus the uncomposed SVG original),
+with the separate original-navbar 12 passing. A bounded mobile-layout proposal is
+being examined, not yet authorized. Vector correction `5ef2a7ea` is frozen for
+independent re-review, reporting 928 unit/five browser passes; fresh parent browser
+five pass, while its unit gate is pending. No vector source clearance or composed
+pass is transferred. Both phone journeys still need final composition qualification.
 Original tests remain unchanged and enabled; UI is still unselected.
 
 ME2-A's source-grounded finite protocol v2 is recorded, independently cleared for
