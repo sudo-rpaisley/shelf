@@ -436,7 +436,48 @@ budget was replaced.
 
 ### Core, recovery and R2 admission remain bounded
 
+#### Latest bounded core review (2026-11-14)
+
+Independent read-only review of frozen `2ed54fb6e15d41deae46b16fc43dd72db4d0db02`
+against `af07fd8e` returns **SOURCE_REVIEW_CLEAR for the two authorised findings
+only**. Exact primitive-type comparisons avoid value-class hash/equality hooks;
+lexical, success-only catalogue ownership and the complete actual TEMP definition
+are authenticated **before the first certification MAIN catalogue SELECT**.
+Genuine schema, IUD-guard, transaction, binding and installation fences remain.
+Only the two isolated access service files change; `app/database.py` is unchanged.
+The primary application does not contain these isolated service modules, and no
+core transplant or fourth authority file follows from this review.
+
+Independent nine-case H/M packet `2491b661` receives **TEST_PACKET_REVIEW_CLEAR**:
+productive prerequisites, four independently durable child-write witnesses,
+NOCASE synthetic protected-OLD delivery and truthful-output provenance controls
+are substantive. Captured pre-fix **6 failures / 3 passes, 12.51 s**, and **96
+reference passes, 210.05 s**, remain worker evidence; trailing after-fix assertions
+were not reached on RED. Test-quality clearance does not itself prove the earlier
+catalogue authentication prefix; that prefix was inspected separately in source.
+
+Exact reviewed e7 schema and H/M files are received as test-only `9111716e` /
+`3954f20c` atop R6 in the new isolated composition, preserving source and all 486
+existing cases. Two C1 forward-only observation cases and one synthetic D1
+observed-definition case are separately assigned; fresh parent composed execution
+remains pending. D1 is not real missing/changed TEMP-guard or ledger-ownership
+evidence. Actual T1/T3 construction remains unqualified without approved seams.
+
+R6's captured **436 passed / 50 failed, 775.89 s**, and caller **4 passed / 5
+failed, 13.51 s**, are not new parent runs or overall acceptance. The unchanged
+50 comprise 28 K13, 17 D3 proof-dependency and five baseline failures. Account
+deletion still reaches genuine `23 / SQLITE_AUTH` through `api_tokens`; two
+datetime-seal fixture conflicts also remain. No cascade grant, fixture weakening,
+privacy/deletion, pinned-runtime, primary integration or activation is cleared.
+Immutable captures and bounded reviews are under
+`.temp/swarm-reviews/core-primitive-provenance-2ed54fb/`,
+`.temp/swarm-reviews/core-upsert-hm-2491b66/` and
+`.temp/implementation-wave-20261114/COMPLETED_AUDITS.md`.
+
 #### Current isolated core review
+
+The following records retain earlier candidate-specific findings and executions;
+the bounded review above supersedes only its two identified source findings.
 
 Six-file source candidate `343c257` remains **CHANGES_REQUIRED**, with two
 confirmed HIGH findings: discarded callback returns can run `__del__` after
@@ -815,6 +856,18 @@ signal/escalation and orphan ownership do not establish universal reaping; accep
 kernel I/O can outlive deadlines. Inventoried handoff diffs are not a wholly
 clean-tree claim. Phase-B DB/incarnation/final-artwork work remains unapproved;
 overall phase-A/X3/F8, full-size RAM and pinned-runtime acceptance remain open.
+
+A fresh read-only diagnosis of the frozen `b5f6aad9` source confirms why this
+failure cannot be repaired by broadening TEMP recovery: final JPEG installation
+precedes COMMIT, its ownership is only in memory, and SIGKILL bypasses exception
+cleanup. Invoked TEMP recovery expressly has no final-artwork/database authority,
+with an existing positive control requiring artwork preservation. Separate
+Phase-B exact-file ownership, durable COMMIT evidence, restore/incarnation
+continuity and startup/current-core interfaces require design and review. Missing
+receipts or references alone cannot prove rollback. On the existing RED, later
+post-kill database/descriptor assertions are unreachable; live-cover digest
+preservation also needs stronger additive observation. No new runtime result or
+artwork-deletion permission is supplied by this diagnosis.
 
 Browser `36260af1` has bounded source clearance for all-status ownership, safe
 429 handling and falsy aborts; password receipts and current-core Store/PWA are

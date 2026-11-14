@@ -43,10 +43,12 @@ changing what an existing item means.
 
 ## Parallel work ownership
 
-Implementation agents use isolated `swarm/20261113-*` branches/worktrees.
+Implementation agents use isolated `swarm/20261113-*` and `swarm/20261114-*`
+branches/worktrees.
 The coordinator integrates their commits, resolves shared schema/registration
-changes, regenerates assets, runs combined gates and pushes `new-test`.
-Workers do not push or deploy independently. Worktrees are not production
+changes, regenerates assets and runs combined gates. The current continuation is
+**local-only**; a push needs separate operator authorisation. Workers do not push
+or deploy independently. Worktrees are not production
 data directories and must never be seeded from the operator's live catalogue.
 
 | Lane | Backlog responsibility | Evidence state, not completion |
@@ -75,6 +77,31 @@ data directories and must never be seeded from the operator's live catalogue.
 | Portability | Versioned music/account-data export/import and round trips | Bounded ownership and `b5f6aad9` calibration clear; full gates remain RED for phase-B artwork; X3 open |
 | Offline reference | Explicit bounded, account-isolated offline reference browsing | Bounded retirement source review clear; strict-browser/current-core composition pending |
 | Browser privacy | Account/library-scoped Store queues and navigation storage | Bounded error/abort source review clear; password/current-core Store/PWA open |
+
+### First continuation wave (2026-11-14)
+
+Independent architecture and additive acceptance audits partitioned three active
+implementation lanes: a **page-only ME7 cover-size control**, **RF2 command
+palette** and **RF11 exact-copy locator**. Shared shell wiring, styles/generated
+assets, registration and documentation remain coordinator-owned. These are
+assignments, not delivered features or inherited media/navbar test results.
+
+The initial cover control is deliberately 50–100% of today's size, with native
+keyboard input, non-drag buttons and reset. It does not close above-default
+enlargement, ME5/X5 account-owned persistence/CAS or cross-device privacy. The
+palette derives only from rendered authorised navigation; locating uses exact
+live copy/item IDs, bounded saved-order neighbours and truthful missing/unknown
+states without feeding a partial list to Arrange's Save order. The locator lane
+also owns an independently tested correction for a missing-only, unlocated copy's
+invisible badge. No schema or access-authority expansion is assigned.
+
+The isolated core's two-file `2ed54fb6` repair and independent nine-case H/M
+packet now have **bounded source** and **test-quality** clearance respectively,
+not overall core acceptance. Exact reviewed schema/H/M dependencies compose in
+a new test-only worktree; C1/D1 observations are separately assigned. Fresh parent
+runtime qualification, unchanged 50 core failures, caller deletion conflicts and
+actual TEMP-shadow/guard qualification remain open. See the
+[current bounded review](connected-library-verification.md#latest-bounded-core-review-2026-11-14).
 
 Independent architecture, requirements, privacy and recovery audits accompany
 implementation. Additional reviewers/testers are assigned to completed
