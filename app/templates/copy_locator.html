@@ -19,7 +19,7 @@
 {% block content %}
 <div class="page-layout copy-locator" data-copy-locator>
     <div class="copy-locator__links">
-        <a href="/item/{{ target.item_id }}{% if back.key %}?from={{ back.key }}{% endif %}#copy-locator-open-{{ target.copy_id }}" data-copy-locator-return>← {{ _('Back to item') }}</a>
+        <a href="/item/{{ target.item_id }}{% if back.key %}?from={{ back.key }}{% endif %}#copy-locator-open-{{ target.copy_id }}" data-copy-locator-return><span aria-hidden="true">← </span>{{ _('Back to item') }}</a>
         <a href="{{ back.path }}">{{ _(back.label) }}</a>
     </div>
     <h1>{{ _('Find this copy') }}</h1>

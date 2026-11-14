@@ -17,7 +17,8 @@
 .copy-locator__facts > div { min-inline-size: 0; max-inline-size: 100%; }
 .copy-locator dt, .copy-locator__note { color: var(--color-shelf-muted, #94a3b8); }
 .copy-locator__warning { border-inline-start: 3px solid currentColor; padding-inline-start: 0.75rem; }
-.copy-locator [id], .copy-locator-link { scroll-margin-block-start: var(--copy-locator-clearance, 18rem); }
+/* The unenhanced mobile Main menu is expanded; JS uses its measured height. */
+.copy-locator [id], .copy-locator-link { scroll-margin-block-start: var(--copy-locator-clearance, 24rem); }
 .copy-locator :focus-visible, .copy-locator__selected:focus, .copy-locator-link:focus-visible { outline: 2px solid var(--color-shelf-accent2, #818cf8); outline-offset: 4px; }
 /* No smooth scrolling/animation: reduced-motion and no-JS share the fallback. */
 @media (prefers-reduced-motion: reduce) {

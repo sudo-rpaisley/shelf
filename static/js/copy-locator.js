@@ -37,8 +37,12 @@
     }
 
     window.addEventListener('hashchange', focusAnchor);
-    // pageshow handles bfcache; a normal browser Back remains native history.
-    window.addEventListener('pageshow', focusAnchor);
+    // History restoration can apply the old scroll offset after pageshow
+    // (e.g. the user scrolled up to Back to item). Align on the next frame,
+    // after that native restoration, without rewriting or cancelling history.
+    window.addEventListener('pageshow', function () {
+        window.requestAnimationFrame(focusAnchor);
+    });
     window.addEventListener('resize', clearance);
     document.addEventListener('click', function (event) {
         if (event.defaultPrevented || event.button !== 0 || event.ctrlKey || event.metaKey || event.altKey || event.shiftKey) return;
