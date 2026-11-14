@@ -1,6 +1,7 @@
 @import "tailwindcss" source(none);
 @import "./media-navigation.source.css";
 @import "./media-cards.source.css";
+@import "./command-palette.source.css";
 @source "../../app/templates";
 @source "../js";
 @theme {

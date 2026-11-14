@@ -1609,6 +1609,22 @@ breakpoint and laptop/desktop widths, and optionally saves screenshots with
 `SHELF_LAYOUT_ARTIFACTS`. `test_responsive.py` retains its complementary
 interaction and breakpoint regressions.
 
+**The command palette is navigation, not an action interpreter.** The singleton
+`fragments/command_palette.html` sits outside the protected navbar and main page
+root. Its external script loads after `app.js`, without changing Alpine's load
+order, and discovers only marked anchors in the already-authorised rendered
+navigation. A finite same-origin path/query schema rejects API, logout, token,
+provider-action and arbitrary destinations; it does not create a second role or
+feature registry. Catalogue search derives from the rendered primary Browse href,
+preserves its approved parameters and adds at most 200 characters of encoded `q`.
+No request happens while typing, and no preference or command history is stored.
+The native dialog owns its keys before legacy document handlers, respects editable
+fields, IME and other modal surfaces, and restores focus when closed. Missing
+JavaScript or native dialog support leaves an explanatory native disclosure and
+the ordinary navigation intact. Its directly linked, non-precached stylesheet
+also supports an older Store-cached bundle; this adds no offline/private pages or
+new database, route or permission authority.
+
 **A click- or submit-triggered htmx control is guarded by default.** A
 delegated listener in `static/js/app.js` marks the control that issued a
 request `aria-busy` (a spinner in CSS) and disables it — a form's submitter,

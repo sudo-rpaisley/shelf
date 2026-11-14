@@ -1,7 +1,24 @@
 # Browse & search
 
-**Browse** is your catalog. It remembers your view, filters and sort between
-visits.
+The primary **Browse** link opens the mixed Library when that surface is enabled
+and visible. The catalogue-management Browse page retains its grid/list, filters,
+sorting and bulk tools described below; it remembers those choices between visits.
+See [Connected library](connected-library.md) for mixed-format Library views.
+
+## Commands
+
+Use **Commands** above the page, or **Ctrl+K** / **⌘K**, to find a destination from
+your available navigation or search the catalogue. Type up to 200 characters,
+use the arrow keys to choose, then Enter to follow the link. Escape closes the
+palette and returns focus. The shortcut leaves typing, composition and other open
+dialogs alone.
+
+Typing does not contact a provider or run a catalogue query. Searching follows
+the same mixed Browse destination as your navigation, with the core Browse
+fallback when Library is unavailable. The palette offers no edit, delete, sync or
+external-media launch commands, and no command history is saved. Destination
+pages retain their normal behaviour. Without JavaScript or native
+dialog support, use the normal navigation; the Commands disclosure explains this.
 
 ## Views
 

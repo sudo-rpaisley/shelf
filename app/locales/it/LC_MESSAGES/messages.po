@@ -3,7 +3,7 @@
 msgid ""
 msgstr ""
 "Report-Msgid-Bugs-To: andrea@bergamasco.me\n"
-"PO-Revision-Date: 2026-11-14 04:42+0000\n"
+"PO-Revision-Date: 2026-11-14 19:18+0000\n"
 "Last-Translator: Andrea Bergamasco\n"
 "Language: it\n"
 "Language-Team: Italian\n"
@@ -1676,63 +1676,67 @@ msgstr ""
 msgid "Audiobook metadata"
 msgstr ""
 
-#: app/templates/base.html:71
+#: app/templates/base.html:82
 msgid "Keyboard shortcuts (?)"
 msgstr "Scorciatoie da tastiera (?)"
 
-#: app/templates/base.html:77
+#: app/templates/base.html:88
 msgid "Keyboard Shortcuts"
 msgstr "Scorciatoie da tastiera"
 
-#: app/templates/base.html:78
+#: app/templates/base.html:89
 msgid "Close keyboard shortcuts"
 msgstr ""
 
-#: app/templates/base.html:84
+#: app/templates/base.html:95
 msgid "Global"
 msgstr "Globali"
 
-#: app/templates/base.html:86
+#: app/templates/base.html:97
 msgid "Focus search"
 msgstr "Vai alla ricerca"
 
-#: app/templates/base.html:87
+#: app/templates/base.html:98
 msgid "Go to Scan"
 msgstr "Vai a Scansiona"
 
-#: app/templates/base.html:88
+#: app/templates/base.html:99
 msgid "Go to Browse"
 msgstr "Vai a Sfoglia"
 
-#: app/templates/base.html:89
+#: app/templates/base.html:100
+msgid "Open command palette"
+msgstr "Apri la palette dei comandi"
+
+#: app/templates/base.html:101
 msgid "Show shortcuts"
 msgstr "Mostra scorciatoie"
 
-#: app/templates/base.html:93
+#: app/templates/base.html:105
 msgid "Browse Page"
 msgstr "Pagina Sfoglia"
 
-#: app/templates/base.html:95
+#: app/templates/base.html:107
 msgid "Toggle grid / list view"
 msgstr "Alterna griglia / elenco"
 
-#: app/templates/base.html:96
+#: app/templates/base.html:108
 msgid "Toggle select mode"
 msgstr "Attiva/disattiva selezione"
 
-#: app/templates/base.html:97
+#: app/templates/base.html:109
 msgid "Toggle filters (mobile)"
 msgstr "Mostra/nascondi filtri (mobile)"
 
-#: app/templates/base.html:98 app/templates/fragments/item_grid.html:61
+#: app/templates/base.html:110 app/templates/fragments/item_grid.html:61
 msgid "Clear all filters"
 msgstr "Azzera tutti i filtri"
 
-#: app/templates/base.html:99
+#: app/templates/base.html:111
 msgid "Exit select / blur search"
 msgstr "Esci dalla selezione / dalla ricerca"
 
-#: app/templates/base.html:104
+#: app/templates/base.html:116
 msgid "Shortcuts are disabled when typing in inputs"
 msgstr "Le scorciatoie sono disattivate mentre scrivi in un campo"
 
@@ -3689,6 +3693,7 @@ msgid "Also available as:"
 msgstr "Disponibile anche come:"
 
 #: app/templates/fragments/artwork_dialog.html:5
+#: app/templates/fragments/command_palette.html:18
 msgid "Close"
 msgstr "Chiudi"
 
@@ -3866,6 +3871,39 @@ msgstr "Nessun libro trovato per \"%(query)s\". Prova una ricerca diversa."
 #: app/templates/fragments/game_search_results.html:45
 msgid "Add it by hand"
 msgstr "Aggiungilo a mano"
+
+#: app/templates/fragments/command_palette.html:6
+#: app/templates/fragments/command_palette.html:10
+#: app/templates/fragments/command_palette.html:17
+#: app/templates/fragments/command_palette.html:28
+msgid "Commands"
+msgstr "Comandi"
+
+#: app/templates/fragments/command_palette.html:7
+msgid "Use the primary navigation above to browse destinations. Command search needs JavaScript and native dialog support."
+msgstr "Usa la navigazione principale in alto per raggiungere le pagine. La ricerca dei comandi richiede JavaScript e il supporto alle finestre di dialogo native."
+
+#: app/templates/fragments/command_palette.html:13
+#, python-brace-format
+msgid "Search catalogue for “{query}”"
+msgstr "Cerca «{query}» nel catalogo"
+
+#: app/templates/fragments/command_palette.html:14
+msgid "No commands match."
+msgstr "Nessun comando corrispondente."
+
+#: app/templates/fragments/command_palette.html:15
+#, python-brace-format
+msgid "{count} commands available."
+msgstr "Comandi disponibili: {count}."
+
+#: app/templates/fragments/command_palette.html:20
+msgid "Find a navigation destination or search the catalogue. Use arrow keys to choose, Enter to go, and Escape to close."
+msgstr "Trova una destinazione o cerca nel catalogo. Usa i tasti freccia per scegliere, Invio per aprire ed Esc per chiudere."
+
+#: app/templates/fragments/command_palette.html:21
+msgid "Find a command"
+msgstr "Trova un comando"
 
 #: app/templates/fragments/connection_suggestions.html:4
 msgid "Suggestions use exact identifiers or a whole title and subtitle with a shared named creator, only within compatible book formats or music releases. Check the evidence and both records before accepting each pair."
