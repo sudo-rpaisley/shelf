@@ -18,8 +18,8 @@ Node remain available, but fresh native-browser and pinned-runtime runs are
 **blocked**. REA tool-catalog discovery is not a browser launch or an executed
 session. This does not invalidate the historical **422-browser** result at
 `1767d0cb`; browser command examples below record historical invocations, not
-present executable availability. No installs or environment changes were made
-for this refresh.
+present executable availability. This documentation task performed no installs
+or environment changes.
 
 These results are **not pinned-CI verification** (the project CI uses Python
 3.12 and its pinned Playwright browser). Dependency manifests were not changed
@@ -179,18 +179,20 @@ provider-permission grant or live-server acceptance.
 
 ## Local follow-up candidates (documentation capture)
 
-Published main is `f3809d694e42f5648e73358ed2e41b5c9ccc6eab`, after test-only
-`89388e317689686b6e1023bc31492abbc0db544e`; its application/static/harness/
-dependency objects remain those of source integration
-`1cf3c0b6560dc2d0b5d7cd00ecd1a2008b5351d0`, whose parents are `fdd51186` and
-tested source `89205f44`. The earlier `2fb43756` / `717dfeb6` checkpoint is
-historical. Before this refresh, main WIP was only the parent's ME1–ME6/ST1 plan
-addition. The plan plus these two canonical records form a documentation-only
-delta requiring independent review before commit; the parent owns Git. Core/R9/
-portability/offline follow-ups remain separate and local, not promoted here.
-This is not a release. Evidence paths are ignored local copies, not CI artifacts.
-Parent-executed gates, independent reviews and worker reports are distinguished;
-no commands or tests were run by this documentation task.
+The bounded primary-source checkpoint is **`916a4dd6`**, including reviewed
+media foundations, cards, strict format filters, full-page editor extraction and
+proof, compatibility-test migrations, page adoption, shell/shortcut wiring and
+generated assets. The remote checkpoint before this increment was `b9c5fbec`.
+The earlier `f3809d6` / `89388e31` source checkpoint
+and its `1cf3c0b6` / `89205f44` evidence remain historical, not latest-source gates.
+
+This three-document snapshot records bounded source/evidence, not feature closure
+or a release. Core, host/Steam and portability candidates
+below remain isolated from the primary checkpoint. Evidence paths identify
+frozen local archives, not CI artifacts. Parent executions, independent reviews
+and worker reports are distinguished. The bounded parent gates use the approved
+compatible **Python 3.14.8** interpreter, not pinned Python 3.12. The fresh
+1935-case affected composition below is not the complete collected unit suite.
 
 ### Media-experience and Steam scope, not implementation acceptance
 
@@ -207,46 +209,115 @@ extend FastAPI/HTMX/Alpine CSP, not a SPA. Existing spacious layouts, the **80px
 control-width gate, permissions, catalogue/copies/history, integrations, keys and
 original data remain constraints, not waived acceptance criteria.
 
-Architecture planning uses frozen main `f3809d6`, reviewed R9 composition and
-unaccepted F2 `10560d5` for discovery only; no kernel/schema/main transplant is
-authorised. Core retains its exclusive six-file source reservation. Frozen Steam
-first slice `4d55c79e56cdf66ceec348f99151092d59a21c2e` adds exactly two adapter/test
-files. Its worker gate passed **224 Steam + 209 existing connector cases = 433**
-in **183.97 s**; raw logs/JUnit and source are under
-`.temp/swarm-reviews/steam-adapter-4d55c79/`. Independent source review is
-**CHANGES_REQUIRED**: the timeout can fire before unbounded exceptional cleanup,
-and a cleanup error can mask caller cancellation. Crossed timeout/hanging-cleanup
-and external-cancellation/cleanup-error reproducers plus bounded repair are active.
-Response-controlled transport logging remains a separate unverified concern.
-No parent adapter gate has executed. It remains unregistered, unpersisted and without UI,
-not user-ready. The operator selected **owned library,
-launch/store links and playtime**; reported playtime must remain separate source
-data, never overwrite personal status/progress/history, and needs account/source
-visibility review before exposure.
+The selected incremental contract uses the existing server-rendered framework,
+not the unaccepted F2 `10560d5` kernel/schema assumptions. At `916a4dd6`, Home,
+Music and Library consume the shared registry and card/artwork partials; Home
+uses the shared default-mixed recent shelf. The full-page item editor uses shared
+common/media-specific fields, **not a pop-out dialog**. Native multipart/CSRF proof
+simulates encoding and the existing token injection, not browser JavaScript execution.
 
-Scope evidence is `.temp/media-experience/REQUEST_AND_BOUNDARIES.md`.
-`STEAM_PUBLIC_DOCUMENTATION.md` there records read-only official documentation:
-HTTPS `x-webapi-key` is supported and owned-game enumeration depends on visibility.
-It is **not a live Steam API/account call**; no key, account or production data
-was accessed. Private/missing results cannot mean complete empty enumeration.
-Request construction, completeness, limits and optional playtime have bounded
-worker fixtures, not integrated privacy or live-provider acceptance. This new English UI extends
-R9 convergence. Central PO/MO/CSS/service-worker/badge generation stays deferred
-until English convergence; no historical gate accepts these refinements.
+The real shell derives its model from already-authorised tabs. Primary Browse
+targets `/library?reset=1&view=items&sort=recent`, or `/browse?sort=newest` when
+Library is unavailable; Manage → Catalogue management retains `/browse`.
+Family/format links use strict canonical `types` CSV filters. Server-route proof
+does not establish hover/touch/keyboard/focus/resize or no-JavaScript layout.
 
-The pure registry dependency is separately frozen at `e484ba21175ce51c954c2f65f3ec99916aef2e08`,
-with exactly registry/config-delegate/new-test changes. Worker evidence records
-**104 new passes / 48.98 s**, baseline **101 passes**, then **98 passes / 3 failures**
-in unchanged old shape-policy tests. Those failures conflict with the selected
-cassette/game/audiobook defaults, not pre-existing baseline defects. Bounded
-independent source review is clear; a fresh parent gate passed **104 cases /
-69.54 s**, with all **868** tracked hashes/modes and both guards unchanged and zero
-child attempts. Its evidence is under
-`.temp/swarm-reviews/media-registry-e484ba2/coordinator-evidence/`. Parent
-policy-test migration and consumer styling/adoption remain pending. Navigation,
-cards/shelves, editor field extraction, recent queries
-and pure preference work run in isolated parallel lanes; neither preference
-persistence nor an enhanced dialog is established by these first slices.
+#### Parent frozen media gates
+
+Each result is the latest `coordinator-evidence/result.json` in its named archive
+under `.temp/swarm-reviews/`. These are **separate bounded executions**, not an
+additive coverage total or a transferred composed pass.
+
+| Frozen archive | Parent result | Outcome and scope |
+|---|---|---|
+| `media-foundations-expanded-ea6c36f` | **772 passed**, 142.91 s | Expanded registry/query/pure-preference/navigation foundation union only |
+| `media-cards-fixed-73b13d1` | **262 passed**, 100.83 s | Shared components and corrected cases only |
+| `media-type-filters-fixed-6f3fc90` | **528 passed**, 144.89 s | Strict parser, affected routes and sort-restore regression only |
+| `media-editor-native-c88920c` | **115 passed**, 66.60 s | Full-page extraction and simulated populated multipart/form-CSRF proof |
+| `editor-test-compat-ffad4d3` | **124 passed**, 62.78 s | Three migrated legacy editor functions plus shared-editor/write cases |
+| `media-page-compat-870caaf` | **790 passed**, 214.35 s | Registered Home/Music/Library card adoption and bounded test migration |
+| `media-shell-389fed9` | **648 passed**, 127.46 s | Actual server context, links, filter consumers and shell wiring only |
+
+All seven exited 0 with zero JUnit failures/errors/skips, unchanged archived input
+hashes/modes and both guards, and zero child blocked attempts. Their source picks
+are reviewed at the primary checkpoint; their execution results do not transfer
+to the combined primary tree. The earlier registry `e484ba2` **104-pass / 69.54 s**
+parent gate and the separately recorded three old shape-policy failures remain
+historical; policy and compatibility migrations are now present, rather than still
+awaiting adoption.
+The core Browse timestamp-tie limitation is unchanged. Historical Tags counts,
+creator-label JSON and Music blocked-DNS failures remain attributed to their
+isolated `97dd90a`/`0f9f499` snapshots, not silently waived.
+
+The chosen contained artwork boxes are 1:1 for CD/vinyl/digital music/audiobook,
+5:8 for cassette, 3:4 for games and 2:3 otherwise. The bounded recent-query and
+pure recent-preference helpers do not establish account-owned persistence/CAS or
+the Library appearance UI. General Library search still hydrates the live
+catalogue before grouping/paging; these helpers do not close F1 performance.
+Shortcut `03198af5`, picked as `f574d67a`, reuses the rendered primary href and
+retains `/browse` only when no primary anchor exists. Its parent frozen gate was
+**352 passed / 1 stale-catalogue failure / 145.05 s**, including all 14 new cases;
+the catalogue failure was enabled and reproduced before the fix. Its Node event
+double/registered-route proof is not browser key dispatch or full app.js startup.
+
+#### Fresh complete media composition
+
+Frozen `916a4dd6402f0306155bb4d67091e686d9a6ad0c` has an exact source archive and
+manifest under `.temp/swarm-reviews/media-primary-916a4dd6/`.
+
+| Receipt | Actual outcome | Scope |
+|---|---|---|
+| Fresh affected composition | **1935 passed**, 415.19 s, exit 0 | All 1687 unique prior affected cases retained, plus 248 asset/shortcut/script controls; exact executed node set matches the fresh selection |
+| Three separately enabled prior-baseline controls | **3 passed**, 3.82 s, exit 0 | Tags count, intake creator JSON and Music wishlist add execute unmodified on this same candidate |
+| Generated outputs and offline checks | Passed; generation repeat-identical twice | Installed Tailwind 4.3.3, central PO/MO, generated SW `v060dfaa0` and collected-count badges; no install or live call |
+
+The affected run has zero failures/errors/skips. All **895** tracked input hashes
+and modes and both guards were verified unchanged afterward; inherited child
+attempts were zero. `coordinator-evidence/result.json`, `affected.xml`,
+`affected.log`, selection/command manifests and `baseline-result.json` retain the
+individual receipts. The separately enabled baseline tests and their two directly
+related templates are byte-identical to published `b9c5fbec`; their three passes
+are not fixes attributed to this media delta or broad R9 closure.
+
+Generation changes eight paths only. Existing same-key translations are unchanged;
+22 new message entries use English fallback, with two retired editor wordings.
+Badges record **10125 unit / 422 E2E collected**, not that those suites ran or passed.
+The formerly stale catalogue check passes in the composed run. CSS rule checks are
+structural, not computed-style/layout proof. This receipt grants no browser,
+pinned-runtime, live-provider, full-unit, F1-scale, preference-persistence/CAS,
+enhanced-dialog or original-185-check acceptance.
+
+#### Steam and host policy
+
+Steam remains **UNREGISTERED**, without account-private observation, pacing or
+actual Sources/store/launch integration acceptance. The operator's owned-library,
+links and reported-playtime requirement is unchanged; source playtime must not
+overwrite personal progress/history. Private/missing enumeration is not a
+complete empty library. Full database-backup fidelity and matching external keys
+remain requirements; no blanket Steam backup exclusion is approved.
+
+| Frozen archive | Parent result | Outcome and scope |
+|---|---|---|
+| `steam-first-close-333289b` | **RED: 454 passed / 1 failed**, 167.80 s | Bounded cleanup/cancellation source review clear; unchanged enabled forced-INFO credential-reflection counterexample remains |
+| `transport-logging-fixed-481bdab` | **384 passed**, 118.54 s | Reviewed combined host policy and explicit-negative-level correction only; isolated, not in primary |
+
+The latest result files are in each archive's `coordinator-evidence/`. Post-run
+inputs/modes and both guards match, with zero child blocked attempts. The host
+policy establishes WARNING floors before fetch, contains root DEBUG, clamps
+explicit negative levels, preserves exactly-NOTSET inheritance and stricter
+thresholds. It does **not** clear the standalone forced-INFO boundary. A coherent
+Steam dependency composition is required before host integration, not a whole
+candidate transplant or transferred gate.
+
+Protocol proof uses installed **HTTPX 0.28.1 / HTTPCore 1.0.9 / h11** over an
+in-memory backend, not TLS, a live Steam/account call or the actual Sources UI.
+The first adapter `4d55c79e` **433 worker passes / 183.97 s** and its adverse
+timeout/cleanup review remain historical; `333289b` supersedes that cleanup
+checkpoint, not its missing integration/privacy/provider gates. Public Steam
+documentation supports HTTPS header credentials and visibility limits; it is
+not live-account evidence. No productive registration or launch acceptance follows.
+The selected future launch path is generated `steam://rungameid/<uint32>` behind
+explicit confirmation/revalidation, not general custom-scheme acceptance.
 
 ### Integrated source gates and unchanged scale protocol
 
@@ -365,6 +436,43 @@ budget was replaced.
 
 ### Core, recovery and R2 admission remain bounded
 
+#### Current isolated core review
+
+Six-file source candidate `343c257` remains **CHANGES_REQUIRED**, with two
+confirmed HIGH findings: discarded callback returns can run `__del__` after
+suspension restores authority; and same-cursor COMMIT/END/outer RELEASE can
+finalize a pending window VM **after FINAL admission**, permitting unvalidated late
+publication, including after real revocation, and swallowed finalizer errors.
+Independent test packets substantiate these findings; they are not source repairs
+or clearance.
+
+| Frozen archive | Parent result | Outcome and scope |
+|---|---|---|
+| `core-execution-343c257` | **RED: 340 passed / 50 failed**, 656.51 s | Same 390 cases and exact worker failure IDs; 28 K13, 17 D3 proof dependencies and 5 reproduced baseline failures remain enabled |
+| `core-finalization-5a73348` | **RED: 35 passed / 9 failed**, 106.35 s | Reviewed 44-case packet; nine valid HIGH finalization failures, including actual revocation/publication and deliberate errors |
+| `core-invocation-a87ff2b` | **RED: 13 passed / 3 failed**, 46.65 s | Reviewed 16-case packet; two durable destructor-write witnesses plus valid `failed_check` disposal-timing RED, **not a third write** |
+| `core-execution-fixed-53e1fec` | **RED: 400 passed / 50 failed**, 731.21 s | All 60 additive controls pass unchanged; exact original 50 failure IDs remain; further source findings still require changes |
+
+All four have zero JUnit errors/skips. Latest `coordinator-evidence/result.json`
+records verify **932** source-gate inputs and **933** inputs for each additive
+packet, and **934** for `53e1fecd`, hashes/modes and both guards unchanged, with
+zero child blocked attempts.
+DENY-only/observe-only factory seams are approved **test seams**, not productive
+authority. `53e1fecd` corrects the original HIGH observer-return and pre-admission
+window-reset paths. Rereview remains **CHANGES_REQUIRED**: failed adapter results
+can survive normalization suspension, and traceback cleanup can clear unrelated
+caller frames/resources. Parent rejected the broader clearing effect; a bounded
+repair and independent lifetime controls are active. No core clearance or primary
+integration follows from its 60 passing controls.
+
+Ordinary-key/binding compatibility, whole-name/all-arity seals and physical-name
+alias restrictions still need explicit disposition. A read-only caller census also
+finds a real account-retirement OLD-value UPSERT conflict; no compatibility waiver
+or productive-port authority was granted. The one-serving-native/shared
+state and dual DENY-wins guards remain required; original K13/D3/baseline failures
+are not waived. Productive R2/startup, recovery and pinned-runtime acceptance
+remain open. The following earlier checkpoints retain their historical scope.
+
 - `a850b2a7` has **REVIEW_CLEAR** for callback reentry, standalone-autocommit
   write admission and byte-exact username ABA repairs. The coordinator reports
   **128 freshness/observer/dual-fence/cookie tests passed**. Its frozen source is
@@ -451,9 +559,10 @@ remain mandatory. No early K13 hiding is authorised; existing blind-write/
 rowcount visibility is retained, while public own/admin hash SELECT and K13
 DB/ENV closure remain dependencies, not fixed productive ports.
 
-One source writer is active on the six reserved files after the parent's exact
-test picks `dc5508d2` → `c0614612` on unchanged 6d application; frontend/Steam do
-not own those files. No frozen repaired source or passing repair gate exists.
+The original source writer followed exact test picks `dc5508d2` → `c0614612`
+on unchanged 6d application. The later frozen `343c257` and additive packets above
+supersede that implementation-WIP checkpoint, **not** the unresolved admission
+gates. Frontend/Steam do not own those six files; the active repair is not clearance.
 The parent's **22-check** Python 3.14 stdlib in-memory feasibility probe passed
 (`parent-feasibility-probe/result.json` under the same proposal archive), but is
 not application isolation/regression, Python 3.12/SQLite shipping compatibility
@@ -618,15 +727,18 @@ hashes/modes and both guards unchanged, zero child attempts and zero source-audi
 findings. Evidence is under
 `.temp/swarm-reviews/r9-count-fixtures-composed-582db82/`; the initial zero-test
 selection error is retained and excluded, not application evidence. This is a new
-bounded execution, not transferred 717 results. No whole-R9 acceptance or main
-promotion occurred.
+bounded execution, not transferred 717 results. That gate did not promote source
+or grant whole-R9 acceptance.
 
-Catalogues/assets remain stale; two independently cleared Italian/Simplified-
-Chinese TMDb drafts remain unapplied. Resolve English semantics, now including
-ME1–ME6/ST1, before fresh extraction/authorship/language review and central
-regeneration. The `2fa9ff54` / `7caf79c1` / `f89df61c` / `9a15c983` and 4718/798
-preservation checkpoints remain historical evidence, not translation or
-locale-journey completion.
+Those frozen R9 archives predate the current media composition. The coordinator
+now reports central extraction/update/compile/check exiting 0, with **22 new empty
+English-fallback msgids**, **two retired old neutral wordings**, and unchanged
+same-key translations. These outputs are now frozen in `916a4dd6`, with the
+generation/composed affected receipt above, but are not complete translations.
+The two reviewed TMDb drafts
+have no application receipt here. The `2fa9ff54` / `7caf79c1` / `f89df61c` /
+`9a15c983` and **4718/798** preservation checkpoints remain historical, not
+language or locale-journey completion; the 219-ID baseline ledger is unchanged.
 
 ### Portability and browser/offline dependencies
 
@@ -671,31 +783,38 @@ parent **62-pass / 28.60 s** gate is recorded above. Frozen worker history under
 and phase-B artwork failure were not closed by that completed-form repair. Two
 registered-app outer-final-send latch passes are **not I/O-drain proof**.
 
-After explicit local implementation approval, frozen
-`d6bdc2fbd3cfeae320b9e64377d83bc1b1236d40` adds private `portability_io.Owner`
-and local response/upload/parsed/completed-form adapters; `archive.py` is unchanged.
-This is a local submitted-I/O implementation, not a general task framework.
-Its contract requires ownership before queue/submission, drain of accepted work
-before disposal, preservation of the first primary outcome and observable late
-I/O errors. A stalled kernel call cannot be forcibly cancelled; retaining its
-lease is not bounded cancellation latency.
+Historical `d6bdc2f` adds private `portability_io.Owner` and local adapters, without
+changing `archive.py`. Its worker **88 focused passes / 52.91 s** and **304 passed /
+1 phase-B failure / 205.23 s** did not clear rejected-close/parser cleanup or
+accepted-helper/native-worker ownership gaps. The later bounded physical-ownership
+repair is now reviewed and parent-tested; it is no longer merely repair WIP.
 
-Source/manifest/handoff and worker logs are frozen under
-`.temp/swarm-reviews/portability-submitted-io-d6bdc2f/`. Worker results are
-**88 focused passes / 52.91 s** and **304 passed / 1 known phase-B artwork failure /
-205.23 s**. Independent source review is **CHANGES_REQUIRED**, finding two source
-ownership gaps: parser-error cleanup lacks native disposal fallback when close
-submission is rejected, and cancellation of an accepted helper task can finish
-the adapter before its native worker completes. Running-worker and close-drain
-deadline expiry are separate missing coverage, not additional established defects.
-The owner is reproducing/fixing these within the approved boundary; no corrected
-frozen candidate, **parent 88-case gate** or clearance is recorded. Earlier worker
-passes and the parent completed-form gate do not transfer to this candidate.
+| Frozen archive | Parent result | Outcome and scope |
+|---|---|---|
+| `portability-physical-io-a1b9d37` | **109 passed**, 54.19 s | Bounded two-gap ownership repair clear; includes all 37 matrix and two registered final-send cases, not phase-A/X3 acceptance |
+| `portability-rss-5be0fbc` | **RED: 332 passed / 2 failed**, 240.09 s | Bounded test-source review clear; new calibration cross-counter failure and unchanged precommit phase-B artwork failure remain |
+| `portability-rss-calibration-b5f6aad` | **31 image passes**, 23.72 s; full parallel **333 passed / 1 failed**, 239.18 s; full serial **333 passed / 1 failed**, 419.88 s | Reviewed calibration-only correction; both full runs remain RED solely for unchanged phase-B precommit artwork |
 
-Untracked `ACTUAL*.diff` handoff artifacts remain inventoried, not discarded;
-this is not a wholly clean-tree claim. Phase-B DB operational tables, incarnation
-and final-artwork reaping remain **unapproved**. No overall phase-A/X3/phase-B,
-pinned-runtime or new large-fixture RAM acceptance follows from these checkpoints.
+Latest `coordinator-evidence/result.json` records verify **836 / 837 / 837** respective
+tracked input hashes/modes, unchanged guards and zero child blocked attempts.
+The RSS run retains the 37 matrix/two final-send cases. Its **original PNG/raw
+128 MiB cap case passed**; the cap and raw measurement were not waived.
+After-free VmHWM was **79,032 KiB**, below the earlier VmRSS **and** VmHWM
+**79,236 KiB**; the same `getrusage` peak **79,032 KiB** persisted. These separate
+counter observations are not an atomic invariant; the exact kernel mechanism
+is unproven, and assertions after the failed comparison were not reached.
+
+The `b5f6aad9` correction replaces the unsupported cross-counter dominance assertion
+with the existing **60-MiB material-sensitivity floor** in both peak-report families,
+retaining same-`getrusage` peak nondecrease, real 64-MiB touch/free, raw readings,
+128-MiB limits, original PNG/raw criterion and genuine overbudget MemoryError.
+Previously unreached tail assertions execute; parent raw-data checks verify them.
+All 37 ownership and two final-send controls remain in both full gates. Earlier
+RED receipts are retained, not reclassified. No kernel mechanism is claimed. Constructor,
+signal/escalation and orphan ownership do not establish universal reaping; accepted
+kernel I/O can outlive deadlines. Inventoried handoff diffs are not a wholly
+clean-tree claim. Phase-B DB/incarnation/final-artwork work remains unapproved;
+overall phase-A/X3/F8, full-size RAM and pinned-runtime acceptance remain open.
 
 Browser `36260af1` has bounded source clearance for all-status ownership, safe
 429 handling and falsy aborts; password receipts and current-core Store/PWA are
@@ -716,13 +835,15 @@ independent gates remain pending. Earlier broader **87 passed / 1 failed** and
 or reclassified. Neither these domains nor other unclosed lanes inherit the
 source candidate's full-browser/scale results.
 
-All **185** original acceptance checks stay unchecked, household activation
-**OFF**, and Actions settings unchanged under **continue local only**. Pinned Python 3.12/Playwright
+All **F1–F8, R1–R10 and X1–X6** requirements remain in scope; all **185** original
+acceptance checks stay unchecked, household/graph activation **OFF**, and Actions
+settings unchanged under **continue local only**. Pinned Python 3.12/Playwright
 1.52/container and named live-server/IdP/provider/licence acceptance remain
 unverified. Direct Audible access is default-off; reference presence is not a
 licence. No deployment, production/Portainer, external-key or operator-data
-changes are part of these gates. No installs, network tests, Actions/Portainer or
-environment-setting changes occurred in this documentation refresh.
+changes are part of these gates. These three documentation updates do not change
+operator data, external keys, workflows or deployment configuration; referenced
+parent executions are attributed separately, not inferred from documentation.
 
 ## Desktop spacing follow-up
 

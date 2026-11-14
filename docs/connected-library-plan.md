@@ -1,7 +1,7 @@
 # Connected library experiment
 
 This work lives on the experimental `new-test` branch, starting at
-`100219d` (the current Shelf baseline plus the Related Media refresh fix).
+`100219d` (the then-current Shelf baseline plus the Related Media refresh fix).
 It is not a release announcement or an upstream design commitment.
 
 ## Goal
@@ -13,9 +13,10 @@ and administrative Browse usable throughout.
 
 ## Implementation areas
 
-The following code is present on this branch; “implemented” here does not mean
-released or universally compatible. The canonical setup/behaviour reference is the
-[connected-library user guide](user-guide/connected-library.md).
+The table records the original experiment's foundations and limits, not a current
+gap census. Later increments are recorded in the checkpoint below; “implemented”
+does not mean released or universally compatible. The canonical setup/behaviour
+reference is the [connected-library user guide](user-guide/connected-library.md).
 
 | Area | Implemented evidence | Limits |
 |---|---|---|
@@ -29,6 +30,33 @@ released or universally compatible. The canonical setup/behaviour reference is t
 | Cover decisions | `services/cover_sync_policy.py`, `routers/cover_sync_policy.py`, `routers/items_covers.py`, ABS/Komga/RomM cover paths, `templates/item_detail.html` | Deliberate removal and explicit Allow missing-cover sync again have a separate durable decision, not queue dismissal. Source-fill guards recheck before writing, manual choice remains possible, and the existing book-cover queue remains a separate path |
 | Music matching and artwork selection | `routers/music_matching.py`, `services/music_matching.py`, `services/music_review.py`, `services/shop_metadata.py`, `services/music_artwork.py`, `templates/fragments/artwork_dialog.html` | Identifier-first release search, selective signed review, public shop/release-link previews and an independent artwork chooser. Shop compatibility varies; Discogs stays optional pressing enrichment. Item detail uses the same chooser for other managed media |
 | Navigation, schema and feature gates | `app/nav.py`, `app/features.py`, `app/database.py`, `app/main.py` | Standard includes `connected_library`; migration 58 preserves minimal upgrades and saved choices, migration 59 adds personal-state event order. Feature off hides/refuses without data deletion; private HTML defaults to no-store, Store remains separate |
+
+### Bounded implementation checkpoint (2026-11-14)
+
+Frozen **`916a4dd6`** contains reviewed media foundations/cards, strict
+`types` filters, shared full-page editor fields and multipart proof, compatibility
+test migrations, Home/Music/Library page adoption, shell/shortcut wiring and
+regenerated assets. Primary
+Browse opens mixed individual items with reset/recent ordering; administrative
+Browse remains under Manage → Catalogue management. This is source integration,
+**not ME1–ME6 or full-UI acceptance**. The separate
+[frozen media gates](connected-library-verification.md#parent-frozen-media-gates)
+do not add up to, or transfer to, the separate fresh **1935-case / 415.19 s**
+composed affected pass. That pass is not a complete unit/browser/scale gate.
+
+The pop-out editor, account-owned recent preference persistence/CAS and appearance
+UI, browser interaction/layout and F1 scale acceptance remain open. **b** now
+uses the same rendered authorised primary Browse href. CSS/catalogue/cache/badge
+generation converged twice; the badges record **10125 unit / 422 E2E collected**,
+not passing-test receipts. The pre-increment remote checkpoint was `b9c5fbec`;
+publication of a reviewed increment does not authorise deployment.
+
+Steam/host logging, core admission and portability repairs remain isolated, with
+their bounded results and unresolved RED gates in the
+[verification checkpoint](connected-library-verification.md#local-follow-up-candidates-documentation-capture).
+All **185** original acceptance checks remain unchecked; **F1–F8, R1–R10 and
+X1–X6 remain in scope**. No programme, pinned-runtime, live-provider, household or
+deployment acceptance follows from this documentation snapshot.
 
 ## Remaining library frontend work
 
@@ -86,22 +114,24 @@ players, transcoding and DRM handling are not prerequisites.
 
 ### Roadmap additions and refinements
 
-These are the missing pieces not fully captured by the frontend list, or
-important expansions of it. Each remains **not implemented** unless its
-current foundation is explicitly described below.
+These retain the requirements and foundations identified when the backlog was
+consolidated, not a claim that every original gap is still absent from source.
+For example, the first integrated read API and reading-life additions have
+separately attributed gates in the delivery/verification records. No incremental
+implementation closes its remaining operational or programme acceptance by itself.
 
 | ID | Roadmap item to retain | Existing foundation and remaining work |
 |---|---|---|
-| R1 | Full versioned read API and published schema | `routers/api_v1.py` exposes the token/session-readable `/api/v1/stats` contract, not paginated item, loan, wishlist, series and upcoming-release APIs. Add those documented, stable read contracts under the same feature/role rules and any future visibility policy |
+| R1 | Full versioned read API and published schema | The original stats-only gap now has integrated typed/paginated item, loan, wishlist/list, series and upcoming reads plus `/api/v1/schema` in `routers/api_v1.py`. Retain the documented feature/role contracts; household and operational acceptance remain open |
 | R2 | Trusted proxy-header login, then OIDC SSO | The existing trusted-proxy setting handles client IP/scheme, not identity. Define safe account linking, role mapping, trusted identity-header handling and a local-admin recovery path. Full OIDC follows the account/access design; do not trust identity headers supplied by arbitrary clients |
 | R3 | Multi-household sharing and invitations | Extend F7 beyond private activity: distinct household/library access, invitations and sharing at chosen access levels, and private items/locations. Preserve the current catalogue as the initial household on upgrade. Retained legacy library/membership tables do not activate isolation |
 | R4 | Borrow requests and permission-scoped owner search | Existing checkout/check-in and borrower history are not an inter-household request/approval workflow. Add requests and their lending ledger plus "who owns this?" search limited to collections the requester may see. Depends on R3 |
 | R5 | Gift-buying wishlists with secret claims | Existing shared wishlists/public links do not reserve gifts secretly. Define recipient-safe claims, claim/release rules and concurrent-claim protection; prevent disclosure through pages, API responses, notifications and history. Depends on the access model, not just a hidden button |
-| R6 | First-class repeat sessions, journal and yearly goals | Personal ratings, Paused/Abandoned, notes, history and Up Next already exist in `services/personal_library.py`. Remaining work is account-local re-read/re-listen sessions with their own dates, a dedicated journal and annual goals with explicit counting rules. Preserve earlier cycles and the separate legacy shared reading log |
+| R6 | First-class repeat sessions, journal and yearly goals | `services/reading_life.py` now adds explicit account-local repeat sessions, journal and annual goals alongside `personal_library.py`. Preserve earlier cycles, counting rules and the separate legacy shared reading log; portability, household and operational acceptance remain open |
 | R7 | Audiobook metadata/artwork lookup by exact ASIN | Audible CSV import, validated ASIN storage/editing and local duplicate matching already exist. Add permitted, marketplace-aware metadata/cover lookup and review/backfill by ASIN, retaining narrator/duration/edition identity and manual overrides. Storing or searching an ASIN locally is not external enrichment; no audio or DRM handling is implied |
 | R8 | Author-follow release alerts | `services/release_radar.py` watches series, not followed authors. Add author identity/following, discovery outside existing series and deduplicated notifications/digests that respect owned/wishlisted items and provider corrections. The roadmap marks this as exploring; settle provider coverage before promising it |
 | R9 | Complete interface translation | Locale machinery and Italian/Simplified Chinese catalogs are present, but `SHELF_I18N` remains gated while feature pages, errors and JavaScript are completed. Audit untranslated surfaces, plural/placeholder handling, fallback and browser/account locale behaviour before treating the interface as fully translated |
-| R10 | Additional national metadata coverage | The registry in `services/national.py` already includes BnF, DNB, SBN, KB, OSZK, PORBASE and NeoDB routes. Choose additional countries/providers from actual collection gaps, then verify identifiers, language/encoding, coverage and rate limits; do not re-add the existing providers as new work |
+| R10 | Additional national metadata coverage | The original BnF/DNB/SBN/KB/OSZK/PORBASE/NeoDB registry now also includes BN Poland. Verify identifiers, language/encoding, coverage and rate limits against permitted real providers; do not count existing routes as new coverage or fixture passes as operational acceptance |
 
 R1 can follow the search/query foundation. R6/R7/R8 can be scoped independently
 of the media-server handoff work; per-user reading life does not need to wait
@@ -112,9 +142,10 @@ roadmap.
 ### Final practical refinements
 
 These refine the existing delivery areas, rather than introduce another set
-of projects. They remain **planned, not implemented** beyond the foundations
-described below. The first four belong in the relevant area's acceptance
-criteria; they do not change the F1/F2-first delivery order.
+of projects. Their completion boundaries remain requirements despite later
+bounded implementations. The first four belong in the relevant area's acceptance
+criteria; they do not change the F1/F2-first delivery order. The operator's later
+whole-backlog authorisation includes both rows originally labelled Optional later.
 
 | Priority | Attach to | Refinement and completion boundary |
 |---|---|---|
@@ -125,7 +156,8 @@ criteria; they do not change the F1/F2-first delivery order.
 | Optional later | F2 | **Cross-device preferences.** Extend existing account-owned saved views with useful shelf ordering, default views and selected display preferences where wanted. Browse currently stores view/column/sort choices in the browser; define account-versus-device precedence and shared-device privacy before moving any of those choices server-side. Do not duplicate saved views or blindly assign a shared browser's preferences to its next user |
 | Optional later | F2/F7/F8 | **Offline reference browsing beyond Store Mode.** Only if useful, add an explicit, bounded opt-in catalogue/artwork cache with visible last-sync time and clear unavailable actions. Design account isolation, expiry and logout/next-contact revocation cleanup first, and document that an offline device cannot observe an immediate remote permission change. Keep credentials and private activity out of a generic cache; preserve private-page no-store defaults unless a separate reviewed offline design replaces them. This does not imply offline media downloads or playback |
 
-Current evidence keeps these gaps distinct from existing safeguards:
+The following original backlog observations explain the gaps at consolidation;
+they are historical, not the current source-repair/portability/offline inventory:
 
 - `routers/items.py::merge_items` reparents children and deletes the losing
   item. `services/item_merge.py` preserves defined history/bindings, but does
@@ -146,18 +178,18 @@ Current evidence keeps these gaps distinct from existing safeguards:
   `static/sw.js` explicitly supports offline **Store Mode only**. Neither
   optional refinement is a prerequisite for the first everyday Library.
 
-With these boundaries recorded, focus on delivering and measuring F1/F2,
-then F3/F4. Add more scope only when real collection use exposes a specific
-gap; do not make every optional refinement a release prerequisite.
+The original F1/F2-first, then F3/F4 ordering remains useful. It does not remove
+any F/R/X requirement or the refinements included in the subsequent whole-backlog
+authorisation; additional scope still needs an explicit decision.
 
 ### Already covered: do not duplicate
 
 - Setup profiles, feature switches and grouped navigation are implemented
   (`app/features.py`, `app/nav.py`, the setup/settings/base templates).
-- API tokens and the dashboard stats document are implemented; **R1** is the
-  rest of the read API, not another token system.
+- API tokens, the dashboard stats document and the first paginated read API are
+  implemented; **R1** still needs its remaining acceptance, not another token system.
 - Personal ratings, paused/abandoned states, favourites, notes/history,
-  Continue and Up Next are implemented; **R6** extends them.
+  Continue and Up Next remain; **R6** adds the separately gated reading-life surface.
 - Saved views, local series/format grouping, physical copies, basic lending,
   shared wishlists and series release watching are implemented; the corresponding
   backlog items add richer browsing or new cross-account workflows.
@@ -184,21 +216,24 @@ gap; do not make every optional refinement a release prerequisite.
 
 ## Current persistence and recovery boundary
 
-`MIGRATION_TABLES` owns eight additive tables: `source_instances`,
+The original experiment added eight `MIGRATION_TABLES` tables: `source_instances`,
 `source_records`, `user_item_state`, `user_item_events`, `library_saved_views`,
 `connection_dismissals`, `item_metadata_provenance` and `cover_sync_blocks`.
 Migration 59 adds state-owned `last_event_id`, default 0 rather than an inference
-from history. The tables start empty rather than converting singleton sources
-or shared status. Full database backup retains
-them; covers and matching external encryption/signing keys must be preserved
-separately. Credentials are encrypted with the existing external key and are
-never rendered/exported as raw secrets.
+from history. Those tables start empty rather than converting singleton sources
+or shared status. Later source/API/reading-life increments do not reduce the
+full-backup fidelity requirement. A full database backup retains database rows,
+not covers or external encryption/signing keys; preserve matching assets and keys
+separately. Complete restore fidelity still needs its own acceptance evidence.
+Credentials remain encrypted with the existing external key and are never
+rendered/exported as raw secrets.
 
 The portable collection archive intentionally excludes all eight tables and
 therefore the new connection config, credentials, bindings, personal
 state/history (including ratings), saved views, connection dismissals, metadata
 provenance and cover-sync suppression/opt-in decisions.
-It is not a personal/source portability mechanism. Back up before experimenting;
+The isolated portability candidates are not primary-source or X3 acceptance and
+do not change that published exclusion contract. Back up before experimenting;
 disable Connected library in Settings → Features to hide it without deleting
 data. All imported catalogue entries remain visible to all Shelf users in the
 existing shared library.

@@ -35,7 +35,7 @@ data directories and must never be seeded from the operator's live catalogue.
 | Lane | Backlog responsibility | Evidence state, not completion |
 |---|---|---|
 | Search | F1 indexing, ranking, bounded grouping/paging and scale measurements | Candidate/fix review; synthetic 31,200-record measurements |
-| Front door | F2 shelves, creators, collections, preferences and navigation; ME1–ME6 | Registry dependency frozen; navigation/cards/editor/query/preference lanes parallel, not integrated |
+| Front door | F2 shelves, creators, collections, preferences and navigation; ME1–ME6 | Frozen `916a4dd6` media composition: 1935 affected passes; dialog/preferences/browser/scale gates open |
 | Source jobs | F3 scheduling, progress, retry/recovery and large-source boundaries | Streaming/lease integration and runtime verification open |
 | Handoff/progress | F4 preferred source and explicitly linked account progress | Next-batch integration; scheduled-pull acceptance open |
 | Media hierarchy | F5 works/editions/copies, music and source children | Atomic child hook prepared; production composition open |
@@ -43,18 +43,19 @@ data directories and must never be seeded from the operator's live catalogue.
 | Household access | F7/R3 ownership, invitations, visibility and legacy enforcement | Security fixes plus six legacy-port lanes; activation off |
 | Recovery | F8 restore preflight, integrity and synthetic recovery evidence | Candidate/fix review; maintenance and identity composition open |
 | Read API | R1 documented, typed, paginated read contracts | First integration pushed; household/operational gates open |
+| Core admission | Callback/write/finalization privacy and compatibility | Isolated `53e1fecd`: original HIGH paths corrected, two further ownership findings; CHANGES_REQUIRED |
 | Identity | R2 trusted proxy login and OIDC with local recovery | Actual-core write/startup admission blocked; live IdP acceptance open |
 | Borrowing | R4 authorised owner search, requests and lending ledger | Lifecycle/scan-race fixes; real household adapter open |
 | Gifts | R5 recipient-safe concurrent gift claims | Candidate/fix review; backup/history/household composition open |
 | Reading life | R6 repeat sessions, journal and annual goals | First integration pushed; portability/household gates open |
 | Audiobook enrichment | R7 exact-ASIN marketplace-aware review/backfill | Next-batch integration; provider-permission/coverage gate open |
-| Steam | ST1 owned library, launch/store links and reported playtime | Adapter-only 4d55 has 433 worker fixture passes; adverse cleanup review, bounded repair active; unregistered |
+| Steam | ST1 owned library, launch/store links and reported playtime | `333289b` standalone logging remains RED; isolated host-policy `481bdab` clear; Steam unregistered |
 | Author discovery | R8 account-local following and deduplicated releases | Alias/revocation fixes; scheduler/household composition open |
 | Translation | R9 existing surfaces and new English UI, including ME1–ME6/ST1 | Bounded source gates and complete baseline ledger; final composition/language/browser acceptance open |
 | National providers | R10 additional documented, permitted provider coverage | BN Poland first integration pushed; final operational gates open |
 | History/undo | General change history, supported rollback and merge snapshots | Integrity fixes and later-table registry composition open |
 | Source repair | Reviewed replacement/rebinding and non-destructive retirement | Known-schema integrated scale gate passed locally; broader authority gates open |
-| Portability | Versioned music/account-data export/import and round trips | Submitted-I/O d6 review CHANGES_REQUIRED; two ownership repairs active, phase A/X3/final-artwork/phase B open |
+| Portability | Versioned music/account-data export/import and round trips | Bounded ownership and `b5f6aad9` calibration clear; full gates remain RED for phase-B artwork; X3 open |
 | Offline reference | Explicit bounded, account-isolated offline reference browsing | Bounded retirement source review clear; strict-browser/current-core composition pending |
 | Browser privacy | Account/library-scoped Store queues and navigation storage | Bounded error/abort source review clear; password/current-core Store/PWA open |
 
@@ -107,26 +108,25 @@ catalogue/copies/history, integrations, keys and original data must survive.
 
 The operator explicitly selected **Steam library, launch/store links and
 playtime**. Reported playtime remains separate source data and must never
-overwrite personal status/progress/history. Architecture planning uses frozen
-main `f3809d6`, reviewed R9 composition and unaccepted F2 `10560d5` for discovery
-only; no kernel/schema/main transplant is authorised. Frozen Steam first slice
-`4d55c79e` adds exactly two adapter/test files; its worker gate passed **224 Steam
-cases and 209 existing connector cases = 433**, in **183.97 s**. Independent review
-is **CHANGES_REQUIRED**: crossed timeout/cleanup can hang, and cleanup errors can
-mask caller cancellation. Bounded reproduction/repair is active; response-controlled
-transport logging is a separate unverified concern. No parent adapter gate has run.
-It remains unregistered, unpersisted, without UI
-and not user-ready. Public Steam documentation, not a live account
-call, supports HTTPS `x-webapi-key` use and visibility limitations; no key,
-account or production data was accessed. Private/missing results must not be
-treated as complete empty libraries. New English UI extends R9 convergence.
-The pure media registry is separately frozen at `e484ba2`: bounded source review is
-clear and a fresh parent gate passed **104 cases / 69.54 s**, with **868** input
-hashes/modes and both guards verified afterward. Three unchanged old shape-policy
-assertions fail under the newly chosen cassette/game/audiobook defaults; parent
-policy-test migration and consumer styling remain pending. Six isolated media lanes cover registry, navigation,
-cards/shelves, editor partials, bounded recent queries and pure preferences;
-shared database/main/shell/generated integration remains serialized.
+overwrite personal status/progress/history. The selected incremental contract
+does not transplant the unaccepted F2 `10560d5` kernel/schema assumptions.
+Reviewed registry/cards/strict filters, shared full-page editor fields and proof,
+compatibility migrations, Home/Music/Library adoption, shell wiring and the primary
+Browse shortcut are integrated in **`916a4dd6`**, including generated assets.
+The editor is not yet the required dialog;
+pure recent-preference helpers are not account-owned persistence/CAS or settings UI.
+The seven separate [parent media gates](connected-library-verification.md#parent-frozen-media-gates)
+are supplemented by a fresh **1935-case / 415.19 s** composed affected gate, not
+summed or transferred. This is not browser interaction or full-UI acceptance.
+
+Steam remains **UNREGISTERED**, without account-private observation, pacing or
+actual Sources/store/launch acceptance. Its latest standalone gate is RED at the
+unchanged forced-INFO logging boundary; the reviewed host policy passes only its
+separate isolated contract. See [Steam and host policy](connected-library-verification.md#steam-and-host-policy).
+Public documentation and in-memory protocol proof are not TLS/live-account
+evidence. Private/missing enumeration is not complete empty enumeration. Preserve
+full database-backup fidelity and external keys; no blanket Steam exclusion is
+approved. New English UI remains part of R9 convergence.
 
 ## Audit findings promoted to release blockers
 
@@ -161,25 +161,25 @@ Pinned CI/container evidence must be recorded separately. No Docker publication
 workflow or production rollout is part of worker execution.
 
 Run focused tests per lane, then freeze the integrated implementation before
-full unit, browser, migration, privacy, recovery and scale gates. Central
-PO/MO/CSS/service-worker/badge regeneration remains deferred until English
-convergence, now including ME1–ME6/ST1; regenerate before final freezing. Push
-tested integration commits incrementally; do not mark the programme finished while
-acceptance criteria or operational blockers remain unresolved.
+full unit, browser, migration, privacy, recovery and scale gates. At `916a4dd6`,
+CSS/catalogue/service-worker/badge generation converged twice, offline checks
+passed and the composed affected gate passed. Generation does not establish
+translation completeness, computed layout or feature acceptance. Publication
+requires independent source/evidence and documentation review; do not mark the
+programme finished while acceptance criteria or operational blockers remain open.
 
 ### Current local checkpoints (documentation capture)
 
-Published main is `f3809d694e42f5648e73358ed2e41b5c9ccc6eab`, after test-only
-`89388e31`; its application remains source integration `1cf3c0b6`, after
-`fdd51186`, incorporating tested `89205f44`. The earlier `2fb43756` / `717dfeb6`
-push checkpoint is historical. The current plan/delivery/verification refresh
-is a three-document-only delta requiring independent review before commit;
-the parent owns Git. Core, R9, portability and offline follow-ups remain
-separate and local, not promoted by this refresh. Full evidence, boundaries and
-local artifact paths are in the
+The verified media source checkpoint is **`916a4dd6`**. The remote checkpoint
+before this increment was **`b9c5fbec`**. This is a bounded implementation/evidence
+record, not feature closure, programme acceptance or deployment. The fresh
+**1935-pass** affected composition and generated outputs have their own receipt;
+core, host/Steam and portability remain isolated from this media source.
+Detailed results and historical attribution are in the
 [verification record](connected-library-verification.md#local-follow-up-candidates-documentation-capture).
 
-- **Source:** frozen `1767d0cb` completed the unchanged 31,400-record-per-source
+- **Historical source:** the earlier `f3809d6` / `89388e31` checkpoint retained
+  source integration `1cf3c0b6`. Frozen `1767d0cb` completed the 31,400-record-per-source
   known-schema benchmark and **422 browsers**. Its full units were **RED: 9301
   passed, one stale-badge failure and four offline-fixture teardown errors**.
   Test/README-only `89205f44` repairs those fixtures and stamps collection at
@@ -194,29 +194,31 @@ local artifact paths are in the
   Test-only `89388e31` closes the music wishlist positive-membership coverage
   gap: **28 tests passed**, and a membership-suppression negative control fails
   at the new assertion while ownership/partition checks still hold.
-- **Core/recovery:** `a850b2a7` has bounded freshness source-review clearance and
-  a coordinator-reported **128-test** gate. SQLite composition `29ee407a` picks only
-  `d9051b88` as `4d1f` atop it; actual restore → cold restart → token-version-38
-  setup remains blocked by `identity_provider_epochs` startup admission. The
-  bounded e0 **328-test** pass and R6 `8c4d1aae` **126 passed / 3 failed** retain
-  their original scope. `42927e71`'s **107 failed / 10 passed** belongs to the
-  historical e0 component, not the actual façade. Exact original-test replay
-  `6d2906d2` on unchanged actual `29ee407a` is **RED: 92 failed / 25 passed**,
-  with no setup/API/guard errors. Independent read-review corroborates that RED
-  and its classification; production/API-compatibility readiness remains
-  **CHANGES_REQUIRED**. Test-only `c9190332` now has **TEST_PACKET_REVIEW_CLEAR**:
-  **37 intended failures / 22 passes** in 84.37 s, zero errors/skips; this is
-  not a repair. Independent **APPROVE_IMPLEMENTATION_DIRECTION** and explicit
-  local D1–D6/S1–S6 approval now authorise one source writer after exact test
-  picks `dc5508d2` → `c0614612` on unchanged 6d application. Closed inert Row
-  metadata, independently admitted READ/public-fetch reentry, once-adapted
-  bindings and atomic failed managed writes (including OR FAIL tightening) are
-  required. One serving native/shared state and both DENY-wins guards remain;
-  no early K13 hiding is authorised. Existing blind-write/rowcount visibility
-  remains; public own/admin hash SELECT and K13 DB/ENV closure remain dependencies.
-  The **22** in-memory stdlib feasibility checks passed on Python 3.14 only,
-  not the application/pinned/RAM gates. No frozen
-  repaired source or passing repair gate exists; UI/Steam do not own core files.
+- **Media:** `916a4dd6` passed **1935 affected cases / 415.19 s**, zero failures,
+  errors or skips; all **895** input hashes/modes and both guards match, with zero
+  child blocked attempts. It retains all 1687 unique prior affected cases and adds
+  248 asset/shortcut/script controls. **b** follows the rendered authorised Browse
+  href. Three separately enabled prior-baseline controls passed on the same
+  candidate; their historical Tags/creator-JSON/Music-DNS failures belong to other
+  snapshots, not a media fix or waiver. Dialog, account-owned preferences, browser,
+  pinned-runtime and scale acceptance remain open; this is not a full-unit pass.
+- **Core/recovery:** isolated `343c257` is **CHANGES_REQUIRED**: discarded callback
+  return destructors run outside suspension, and pending same-cursor window
+  finalization after FINAL admission permits late publication despite revocation
+  and swallowed errors. Parent **340 passed / 50 failed / 656.51 s** reproduces the
+  same 390-case failure IDs. Reviewed finalization and invocation packets separately
+  report **35 passed / 9 valid HIGH failures / 106.35 s** and **13 passed / 3 failed /
+  46.65 s**; the latter has two durable-write witnesses, not three. Original
+  **28 K13 + 17 D3 proof dependencies + 5 baseline failures** remain enabled.
+  Later `53e1fecd` passed all 60 additive controls in a parent **400 passed / 50
+  failed / 731.21 s** run. The original HIGH paths are corrected, but source
+  rereview is **CHANGES_REQUIRED** for retained failed adapter results and clearing
+  unrelated caller traceback frames. Repair and key/binding/seal/alias decisions
+  remain open; the census also identifies a real retirement-workflow conflict.
+  DENY-only/observe-only test seams grant no productive authority. Historical
+  freshness/e0/replay/feasibility gates retain their original scope. Actual F8
+  cold-start `identity_provider_epochs` admission remains blocked. See the
+  [core record](connected-library-verification.md#current-isolated-core-review).
 - **R2:** `d799a29e` versus `caf76382` adds a contract and reproducers, not a
   productive private writer/startup implementation. Its combined gate remains
   **5 failed / 6 passed**; **11** separate positive/denial controls pass. A real
@@ -229,53 +231,27 @@ local artifact paths are in the
   conflict and NULL-fallback decisions remain pending; Q7–Q9 are unapproved.
   Actual 6d lacks browser/grant prerequisites; no DDL/kernel/main transplant or
   productive identity/startup approval follows from the separate core approval.
-- **R9:** the historical `b049de8a` **771-test** checkpoint remains bounded.
-  Reviewed settings chain `19f7fa94` passes **18 strengthened cases**; reviewed
-  scan/settings composition `f52884aa` passes a new parent **946-test union**,
-  not reused worker results. The frozen `b049de8a` baseline ledger is now complete:
-  **219/219 exact IDs, 186 source-closed / 33 open / 0 unfinalized**. Its independent
-  mechanical gate passed **3017 assertions**, not final-source/language acceptance.
-  Accepted aggregate-label, total-plural/neutral-missing, Arrange page-label and
-  exact technical `encryption.key` decisions are separate overlays; baseline
-  counts/reasons stay unchanged. Parent frozen gates separately passed live-only
-  unlink/watch retention (**222**), whole duplicate-pair messages (**25**), creator
-  counts (**55**), returned archive-plan totals (**43**), exact filename audit
-  (**108**) and neutral-missing controls (**67**). Reviewed composition `6c74b97d`
-  plus six-path test migration `b9b650bf` passed **717** before the later picks;
-  none is a whole latest-composition/current-core/household/browser pass. See the
-  [parent gate table](connected-library-verification.md#parent-frozen-follow-up-gates)
-  for times, input binding and exclusions. Later local picks reach test-only
-  `0f9f499d`, then independently cleared two-test fixture migration `582db82d`.
-  Its parent **42 module passes / 16.91 s** have verified **824** post-run tracked
-  hashes/modes and unchanged guard; these synthetic JS controls are not routed/GNU
-  evidence. The freshly frozen `582db82d` affected union passed **1190 cases /
-  225.15 s**, with **824** inputs/modes, both guards and zero child attempts
-  verified afterward; its source audit has zero findings. This is a new bounded
-  execution, not transferred 717 results or whole-R9 acceptance. No main promotion.
-  Rename policy and hidden-count disclosure are unchanged; native creator-canvas
-  nontruncation is unverified. The **160 stale catalogue diagnostics** are not
-  unfinalized ledger IDs. Catalogues/assets remain stale; two reviewed TMDb
-  drafts are unapplied. GNU sentinel tests and historical 4718/798 preservation
-  are not fluency or language completion. New UI strings join English convergence
-  before regeneration.
-- **Portability:** phase-A `93cc16d1` remains historical. Frozen disposal
-  follow-up `6d0f4407` reports **53 passed**, **271 passed / 5 failed**, **412**
-  and **429** worker passes. Rereview supports the bounded disposal/inventory/
-  corruption-fixture repairs; its completed-form failure is historical.
-  Follow-up `55eeeac` has bounded source clearance and a separate parent
-  **62-pass / 28.60 s** gate; worker history remains **62 passes / 33.28 s**,
-  **280 passed / 5 failed** and **412** focused passes. After explicit approval,
-  frozen `d6bdc2f` implements private `portability_io.Owner` and local adapters;
-  `archive.py` is unchanged. Independent source review is **CHANGES_REQUIRED**:
-  parser-error cleanup can leak a disk owner when close submission is rejected,
-  and cancellation of an accepted helper task can abandon its native worker.
-  Running-worker and close-drain deadline cases are separate coverage gaps. The
-  bounded repair is active, with no frozen correction or clearance. Worker reports
-  are **88 passed / 52.91 s** and **304 passed / 1 known phase-B artwork failure**,
-  not a parent 88-case gate or independent closure of the four raw-I/O defects.
-  Inventoried untracked `ACTUAL*.diff` artifacts remain; no wholly clean-tree,
-  phase-A/X3/pinned/RAM pass is claimed. Phase-B operational DB tables/incarnation/
-  final-artwork reaping remain unapproved.
+- **R9:** the frozen `b049de8a` baseline ledger remains **219/219 exact IDs,
+  186 source-closed / 33 open / 0 unfinalized**. Its **3017** mechanical assertions
+  and the later `582db82d` **1190-case / 225.15 s** affected union are bounded,
+  not latest-media/language/browser acceptance. Earlier gates remain attributed
+  in the [parent table](connected-library-verification.md#parent-frozen-follow-up-gates).
+  Central committed i18n generation reports 22 new empty English-fallback msgids,
+  two retired old neutral wordings and unchanged same-key translations; exit 0
+  does not mean all translations complete. Historical **4718/798** preservation
+  and GNU sentinel checks are not fluency. Rename/hidden-count policy is unchanged;
+  native creator-canvas nontruncation and whole-R9 acceptance remain unverified.
+- **Portability:** isolated `a1b9d37` has bounded physical-ownership source
+  clearance and a parent **109-pass / 54.19 s** gate, superseding the two-gap d6
+  repair-WIP statement. RSS `5be0fbc` is **RED: 332 passed / 2 failed / 240.09 s**:
+  a new calibration cross-counter assumption and unchanged precommit phase-B
+  artwork. The original PNG/raw **128 MiB** cap case passed, without waiver.
+  Separate `/proc` observations and retained `getrusage` peak do not prove the
+  kernel mechanism or full-size RAM acceptance. Reviewed calibration-only
+  `b5f6aad9` then passed **31 image cases / 23.72 s**; fresh full parallel and
+  serial gates each remain **333 passed / 1 unchanged phase-B failure**, in
+  **239.18 / 419.88 s** respectively. No universal constructor/signal/
+  orphan ownership, overall phase-A/X3/F8/pinned pass or phase-B approval follows.
 - **Browser/offline:** `36260af1` has bounded source clearance for all-status
   ownership, safe 429 handling and falsy aborts, excluding password receipts and
   current-core Store/PWA acceptance. Offline `e8ae0890` after `1f5ad79` is bounded
@@ -285,15 +261,17 @@ local artifact paths are in the
   password-receipt independent gates remain pending; prior broader RED results
   are not reclassified. Source gates do not close these lanes.
 
-All **185** original acceptance checks remain unchecked and household activation
-stays **OFF**. Actions settings are unchanged under the operator's **continue local
+All **F1–F8, R1–R10 and X1–X6** requirements remain in scope. All **185** original
+acceptance checks remain unchecked and household/graph activation stays **OFF**.
+Actions settings are unchanged under the operator's **continue local
 only** decision.
 Pinned Python 3.12/Playwright 1.52/container, named live-server/IdP/provider and
 licence acceptance remain unverified. Direct Audible access stays default-off;
 a configured reference is not a licence. No deployment, production/Portainer,
 key or operator-data change is authorised or evidenced by these local gates.
-No installs, network tests, Actions or environment-setting changes occurred in
-this refresh.
+These three documentation updates do not change operator data, external keys,
+workflows or deployment configuration. Referenced parent executions are attributed
+separately; no install, live-provider test or deployment is implied.
 
 ### Starting-point evidence
 
@@ -378,5 +356,6 @@ identities**, including the subsequently repaired TMDb case. The remaining
 count at that checkpoint is historical, not today's open-audit count. Current
 scan/library/settings semantic and residual repairs are tracked above.
 Retirement is not semantic closure; new source messages and later merged feature
-strings require fresh extraction, language review and integrated gates. None of
-these catalogues is pushed or enabled by default. **R9 remains incomplete.**
+strings require fresh extraction, language review and integrated gates. These
+historical catalogue gates do not establish publication or default activation of
+the current generated outputs. **R9 remains incomplete.**
