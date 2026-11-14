@@ -11,6 +11,7 @@ from tests.e2e.test_responsive import _COLLAPSE
 
 
 pytestmark = pytest.mark.e2e
+_SHAPES = {"book": "portrait", "cd": "square", "cassette": "cassette", "video_game": "game"}
 
 
 @pytest.mark.parametrize("width,columns", ((320, 1), (768, 2), (1366, 3)))
@@ -45,6 +46,8 @@ def test_actual_library_grid_and_artwork_retain_geometry_at_fifty_percent_before
     for media_type in ("book", "cd", "cassette", "video_game"):
         for covered in (False, True):
             artwork = page.locator(f'.media-card[data-item-id="{ids[media_type, covered]}"] .media-artwork')
+            assert artwork.get_attribute("data-media-type") == media_type
+            assert artwork.get_attribute("data-cover-shape") == _SHAPES[media_type]
             box = artwork.bounding_box()
             assert abs(box["width"] / box["height"] - _RATIOS[artwork.get_attribute("data-cover-shape")]) < .01
             if covered:
