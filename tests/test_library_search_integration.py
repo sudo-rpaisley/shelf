@@ -8,6 +8,11 @@ from app.services import library_catalog, library_search
 from tests.conftest import _insert_item
 
 
+def test_catalogue_retains_its_existing_identifier_allowlist_as_the_shared_frozen_binding():
+    assert library_catalog._IDENTIFIER_KEYS is library_search._IDENTIFIER_KEYS
+    assert type(library_catalog._IDENTIFIER_KEYS) is frozenset
+
+
 @pytest.mark.parametrize("value,expected", (
     (None, ""), (0, "0"), (False, "false"), ("  A  ", "  a  "),
     ("CAFE\u0301 Straße", "café strasse"), ("\u1d2c", "\u1d2c"),

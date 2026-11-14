@@ -72,6 +72,8 @@ _ITEM_COLUMNS = (
     "series_position", "owned", "created_at", "abs_id", "hardcover_book_id",
     "hardcover_edition_id", "hardcover_user_book_id",
 )
+# Preserve the established binding while keeping one immutable key registry.
+_IDENTIFIER_KEYS = library_search._IDENTIFIER_KEYS
 
 
 def positive_int(value, default: int = 1, maximum: int = 1_000_000) -> int:
