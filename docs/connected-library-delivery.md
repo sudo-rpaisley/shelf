@@ -167,8 +167,11 @@ with the separate original-navbar 12 passing; its broader unit gate passes **172
 A bounded mobile-layout proposal is under requirements review, not yet authorized.
 Vector correction `5ef2a7ea` now has bounded source clearance and fresh parent
 **928-unit / five-browser passes**. Its Linux-only close-semantics boundary remains
-explicit. No component pass transfers to composition; both phone journeys still
-need final combined qualification.
+explicit. The full vector range is now composed with phone/caption at `d11b37d4`:
+five vector browser checks, including the full original SVG/Account journey, pass
+on that actual tree. Three card-position failures remain unchanged. Broader
+combined gates and the mobile-layout contract review remain open; no component
+pass is transferred or UI selected.
 Original tests remain unchanged and enabled; UI is still unselected.
 
 ME2-A's source-grounded finite protocol v2 is recorded, independently cleared for
