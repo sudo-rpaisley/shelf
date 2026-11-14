@@ -117,6 +117,7 @@
             <h2 class="text-lg font-semibold">{{ _('Your music')|forceescape }}</h2>
             <span class="text-sm text-shelf-muted">{{ _('%(count)s shown', count=items|length)|forceescape }}</span>
         </div>
+        {% with cover_size_description_id='music-cover-size-description' %}{% include "fragments/cover_size_panel.html" %}{% endwith %}
         {% if items %}
         <div class="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-6">
             {% for item in items %}

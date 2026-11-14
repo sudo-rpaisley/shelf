@@ -1,0 +1,6 @@
+{# Parent-owned producer wrapper. The reviewed component remains unchanged. #}
+<div role="group" aria-label="{{ _('Cover size')|forceescape }}"
+     aria-describedby="{{ cover_size_description_id }}" data-cover-size-panel>
+    {% include "fragments/cover_size_control.html" %}
+    <p id="{{ cover_size_description_id }}" class="text-xs text-shelf-muted mt-2 mb-4">{{ _('Percentages request a card size, not more cards per row. Small cards stop shrinking to keep text readable.')|forceescape }}</p>
+</div>

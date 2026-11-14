@@ -16,6 +16,10 @@
         {% endif %}
     </header>
 
+    {% if filters.view != 'series' %}
+    {% with cover_size_description_id='library-cover-size-description' %}{% include "fragments/cover_size_panel.html" %}{% endwith %}
+    {% endif %}
+
     {% if notice %}<p role="status" class="rounded-lg border border-shelf-border bg-shelf-card p-3 text-sm">{{ _(notice) }}</p>{% endif %}
 
     <nav aria-label="{{ _('Library presets') }}" class="flex flex-wrap gap-2">

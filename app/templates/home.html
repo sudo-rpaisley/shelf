@@ -132,6 +132,7 @@
         view_more_href='/library?reset=1&view=items&sort=recent' if library_eligible else '/browse?sort=newest',
         empty_label='No items yet.') %}
     <div data-testid="home-recent-items">
+        {% with cover_size_description_id='home-cover-size-description' %}{% include "fragments/cover_size_panel.html" %}{% endwith %}
         {% include "fragments/media_shelf.html" %}
         <p class="text-xs text-shelf-muted mt-2">{{ _('The latest items to enter your catalogue.')|forceescape }}</p>
         {% if not recent_items and user and user.role in ('admin', 'editor') %}

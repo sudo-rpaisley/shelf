@@ -1625,6 +1625,22 @@ the ordinary navigation intact. Its directly linked, non-precached stylesheet
 also supports an older Store-cached bundle; this adds no offline/private pages or
 new database, route or permission authority.
 
+**Cover sizing is document-local, not a saved preference.** Home's recent shelf,
+Library's items/grouped-format cards and Music's local cards include the reviewed
+native range/buttons through a small producer wrapper. The wrapper explains the
+fixed rows/columns and readable floor; it is outside search/save forms and inside
+the existing page root. Requested scale is 50–100%, default 100%, applied once as
+`min(host width, max(80px, host width × scale))`; shelf slots remain 10rem and grid
+columns do not change. Artwork ratios, contain behaviour, fonts and metadata are
+unchanged. Library series uses direct thumbnails and deliberately has no control.
+External idempotent JS uses delegated input/click and HTMX/OOB listeners; inserted
+cards inherit the document scale. No requests, storage, cookies, URL parameters
+or account writes implement sizing; full navigation/reload resets to 100%.
+Without JS the labelled controls are disabled with an explanation. Direct CSS
+also handles older Store-cached bundles without extending Store precaching.
+Density changes, enlargement above the original size and account-owned
+persistence/CAS are separate unfinished work.
+
 **A click- or submit-triggered htmx control is guarded by default.** A
 delegated listener in `static/js/app.js` marks the control that issued a
 request `aria-busy` (a spinner in CSS) and disables it — a form's submitter,

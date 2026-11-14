@@ -16,6 +16,7 @@
     {# New controls must also work while an active Store worker supplies an
        older app.css. This stylesheet does not add private/offline pages. #}
     <link rel="stylesheet" href="/static/css/command-palette.source.css">
+    <link rel="stylesheet" href="/static/css/cover-size.source.css">
     <script src="/static/vendor/htmx-2.0.4.min.js"></script>
     <!--
       Script order below is load-bearing, and `make check-alpine` enforces it.
@@ -123,5 +124,6 @@
     <script type="application/json" id="i18n-catalog">{{ js_catalog() | tojson }}</script>
     <script src="/static/js/app.js"></script>
     <script src="/static/js/command-palette.js"></script>
+    <script src="/static/js/cover-size.js"></script>
 </body>
 </html>

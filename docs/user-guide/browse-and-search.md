@@ -22,6 +22,17 @@ dialog support, use the normal navigation; the Commands disclosure explains this
 
 ## Views
 
+On Home, Library's item/group views and Music's local collection, **Cover size**
+shrinks cards on the current page. Use the native slider, **Smaller**, **Larger**
+or **Reset**. The default is 100%; the smallest requested size is 50%. Rows and
+columns stay fixed, and a readable minimum can stop small cards shrinking before
+the requested percentage. This does not fit more cards into a row or change
+artwork proportions. Library's series thumbnails are not controlled.
+
+The choice is not saved: navigation or reload restores the default. No account
+preference or browser storage is written. JavaScript is needed to change it;
+without JavaScript the original card sizes remain usable.
+
 - **Grid** — cover tiles, best on phones and for "what do I have?"
 - **List** — a table with a **Columns** picker (see below).
 

@@ -2,6 +2,7 @@
 @import "./media-navigation.source.css";
 @import "./media-cards.source.css";
 @import "./command-palette.source.css";
+@import "./cover-size.source.css";
 @source "../../app/templates";
 @source "../js";
 @theme {
