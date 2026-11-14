@@ -153,17 +153,21 @@ phone writer has frozen the reviewed genuine-button direction at `3c2e85c0`.
 The palette fallback repair `9562f558` now has bounded source clearance and fresh
 **371-unit / 116-browser**, separately **12-original-navbar**, passes; the two
 original fallback failures pass unchanged without a forced-open menu or new link.
-Safe existing-local-vector compatibility is frozen at `a873fefd`, reporting 898
-unit/four browser passes, not yet parent source/runtime acceptance. Phone reports
-459 passes/two retained REDs: isolated Home375 overflow and the stable Library
-caption versus its legitimate two-option count. Both candidates are in independent
-source review and fresh parent gates; caption/count layout is under requirements
-review before editing. Both phone journeys still need final composition
-qualification. Original tests remain unchanged and enabled; UI is still unselected.
+Safe existing-local-vector compatibility `a873fefd` reproduces **898 unit / four
+browser** passes in fresh parent gates, but is **held for two source-review
+defects** (encoding boundary and descriptor-close ownership) plus cancellation
+proof. A corrective derivative is assigned; green tests are not a waiver.
+Phone `3c2e85c0` now has source clearance and fresh **459 passes / two same REDs**.
+Actual composition clears Home375 and, with the source-reviewed caption/status
+repair, reaches original line 1003: the book heading is at y=2209 versus the
+unchanged y<900 requirement. Current `ced7fa30` has **25 browser passes / three
+retained geometry failures**; a bounded mobile-layout proposal is being examined,
+not yet authorized. Both phone journeys still need final composition qualification.
+Original tests remain unchanged and enabled; UI is still unselected.
 
-ME2-A's source-grounded finite protocol v2 is now recorded and under independent
-requirements/privacy review. It remains a proposal: no editor writer, new issuer,
-schema or expanded isolated-core authority is assigned. Lost-response, cookie
+ME2-A's source-grounded finite protocol v2 is recorded, independently cleared for
+design and ratified. No editor writer, new issuer, schema or expanded isolated-core
+authority is assigned. Lost-response, cookie
 ownership, native fallback and non-atomic artwork boundaries remain explicit.
 
 Independent architecture, requirements, privacy and recovery audits accompany
