@@ -468,3 +468,76 @@ async def test_repair_cancellation_before_thread_dispatch_keeps_single_job_owned
         await owner
     assert len(inner_tasks) == 1 and finished == [True] and not live and reads
     assert (caught.value.__cause__ is failure) is worker_error
+
+
+@pytest.mark.parametrize('worker_error', [False, True])
+def test_repair_actual_asyncio_run_shutdown_drains_read_and_owns_worker_error(monkeypatch, worker_error):
+    (config.COVERS_DIR / '7.svg').write_bytes(RECTANGLE)
+    context = _context([_row()])
+    release, shutdown_started, loop_finished = threading.Event(), threading.Event(), threading.Event()
+    physically_finished, owner_finished = threading.Event(), threading.Event()
+    loops, started_signals, cancellations, shutdown_errors, runner_errors = [], [], [], [], []
+    live, opened, reads = _instrument(monkeypatch)
+    original_read, original_prepare = artwork.os.read, artwork.prepare_library_artwork
+    failure = RuntimeError('physical error during actual asyncio shutdown')
+
+    def controlled_read(descriptor, amount):
+        loops[0].call_soon_threadsafe(started_signals[0].set)
+        assert release.wait(5), 'controller must release the actual shutdown read'
+        if worker_error:
+            raise failure
+        return original_read(descriptor, amount)
+
+    def prepare(context):
+        try:
+            return original_prepare(context)
+        finally:
+            physically_finished.set()
+
+    async def request():
+        try:
+            await library._prepared_html_context(None, {})
+        except asyncio.CancelledError as error:
+            cancellations.append(error)
+            raise
+        finally:
+            owner_finished.set()
+
+    async def main():
+        loop = asyncio.get_running_loop()
+        loop.set_exception_handler(lambda loop, event: shutdown_errors.append(event))
+        loops.append(loop)
+        started = asyncio.Event()
+        started_signals.append(started)
+        asyncio.create_task(request())
+        await asyncio.wait_for(started.wait(), 5)
+        # Returning invokes asyncio.run's real cancel-all/gather shutdown; the
+        # pytest controller is on a separate thread and is not in that loop.
+        shutdown_started.set()
+
+    def run():
+        try:
+            asyncio.run(main())
+        except BaseException as error:
+            runner_errors.append(error)
+        finally:
+            loop_finished.set()
+
+    monkeypatch.setattr(artwork.os, 'read', controlled_read)
+    monkeypatch.setattr(artwork, 'prepare_library_artwork', prepare)
+    monkeypatch.setattr(library, '_read_context', lambda request, user: context)
+    monkeypatch.setattr(library, '_html_context', lambda request, context: deepcopy(context))
+    runner = threading.Thread(target=run)
+    runner.start()
+    try:
+        assert shutdown_started.wait(5)
+        assert live and opened and not physically_finished.is_set()
+        assert not loop_finished.wait(.03) and not owner_finished.is_set()
+    finally:
+        release.set()
+        runner.join(5)
+    assert not runner.is_alive() and loop_finished.is_set() and not runner_errors
+    assert physically_finished.is_set() and owner_finished.is_set() and not live
+    assert len(cancellations) == 1
+    assert (cancellations[0].__cause__ is failure) is worker_error
+    assert not shutdown_errors, 'owned worker errors must not also become unhandled shutdown exceptions'

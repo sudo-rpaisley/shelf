@@ -121,7 +121,17 @@ class _ArtworkWorker(asyncio.Task):
 
     def __init__(self, operation):
         self.cancellation = None
-        super().__init__(operation)
+        super().__init__(self._outcome(operation))
+
+    @staticmethod
+    async def _outcome(operation):
+        # The owner must retrieve and propagate every failure. Keeping it as an
+        # explicit outcome also prevents cancel-all shutdown from independently
+        # reporting the same, already-owned worker error as "unhandled".
+        try:
+            return await operation, None
+        except BaseException as error:
+            return None, error
 
     def cancel(self, msg=None):
         if self.done():
@@ -141,7 +151,7 @@ async def _prepared_html_context(request: Request, user: dict) -> dict:
         worker = _ArtworkWorker(run_in_threadpool(library_artwork.prepare_library_artwork, context))
         while True:
             try:
-                prepared = await asyncio.shield(worker)
+                prepared, worker_error = await asyncio.shield(worker)
                 break
             except asyncio.CancelledError as error:
                 if cancellation is None:
@@ -158,9 +168,16 @@ async def _prepared_html_context(request: Request, user: dict) -> dict:
                     raise cancellation from error
                 raise
     cancellation = cancellation or worker.cancellation
+    try:
+        await anyio.lowlevel.checkpoint_if_cancelled()
+    except asyncio.CancelledError as error:
+        cancellation = cancellation or error
+    if worker_error is not None:
+        if cancellation is not None:
+            raise cancellation from worker_error
+        raise worker_error
     if cancellation is not None:
         raise cancellation
-    await anyio.lowlevel.checkpoint_if_cancelled()
     return {**_html_context(request, context), "prepared_library_artwork": prepared}
 
 
