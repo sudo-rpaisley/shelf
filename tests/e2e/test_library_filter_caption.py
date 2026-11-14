@@ -12,6 +12,7 @@ import pytest
 from playwright.sync_api import expect
 
 from tests.e2e.conftest import assert_page_clean, attach_page_guard
+from tests.e2e.test_connected_library import connected_library
 
 
 pytestmark = pytest.mark.e2e
@@ -108,9 +109,12 @@ def test_new_html_with_old_or_unavailable_enhancement_css_keeps_native_disclosur
             data = (ROOT / "tests/fixtures/navigation/67461926-app.css").read_bytes()
         else:
             data = (ROOT / "static/css/app.css").read_bytes()
-            condition = b"selector(details::details-content)"
+            condition = (b"@supports selector(details::details-content) and (content-visibility:visible) "
+                         b"and (display:contents){details[data-library-filter-layout=caption-status-v1]")
             assert data.count(condition) == 1
-            data = data.replace(condition, b"selector(details::shelf-unsupported-details-content)")
+            data = data.replace(condition, condition.replace(
+                b"selector(details::details-content)", b"selector(details::shelf-unsupported-details-content)",
+            ))
         route.fulfill(status=200, content_type="text/css", body=data)
 
     page.route("**/static/css/app.css", stylesheet)
@@ -179,12 +183,57 @@ def test_no_js_native_keyboard_keeps_real_status_and_form_values(browser, authed
     try:
         page.goto(live_server["url"] + CANONICAL, wait_until="load")
         details, summary, body, badge = _parts(page, 2)
+        before = _values(page.get_by_test_id("library-filters"))
         summary.press("Enter")
         expect(details).to_have_attribute("open", "")
         expect(body.locator("select").first).to_be_visible()
         expect(badge).to_be_visible()
         summary.press("Space")
         expect(body).to_be_hidden()
+        assert _values(page.get_by_test_id("library-filters")) == before
+        with page.expect_navigation():
+            page.get_by_test_id("library-filters").get_by_role("button", name="Search", exact=True).click()
+        _parts(page, 2)
+        assert _values(page.get_by_test_id("library-filters")) == before
         assert_page_clean(page)
     finally:
         context.close()
+
+
+def test_real_phone_card_order_and_artwork_keep_the_retained_first_screen_threshold(connected_library, browser):
+    """Focused diagnostic retains the original first-card threshold, not a waiver."""
+    import json
+
+    from tests.e2e.conftest import ADMIN_PASSWORD, ADMIN_USERNAME
+    from tests.e2e.test_connected_library import _browser_page, _copy, _db, _item, _login
+
+    server = connected_library
+    location_name = ("Home / Upstairs landing / Reading room window shelf / Tall archive cabinet / "
+                     "Upper compartment / Box of illustrated journeys")
+    with _db(server) as db:
+        location = db.execute("INSERT INTO locations (name) VALUES (?)", (location_name,)).lastrowid
+        book = _item(db, "An Atlas of Quiet Places and Long Autumn Journeys", location_id=location)
+        _copy(db, book, location)
+        _item(db, "Evening Journeys Through the Northern Islands", "digital_video", authors="Robin Clearwater", duration_mins=142)
+    with _browser_page(browser, viewport={"width": 375, "height": 812}) as page:
+        _login(page, server, ADMIN_USERNAME, ADMIN_PASSWORD)
+        page.goto(server["url"] + CANONICAL, wait_until="load")
+        expect(page.get_by_test_id("library-results")).to_be_visible()
+        page.evaluate("window.scrollTo(0,0)")
+        metrics = page.evaluate("""() => {
+            const box = node => node ? (() => {const b=node.getBoundingClientRect();
+                return {x:b.x,y:b.y,width:b.width,height:b.height};})() : null;
+            return {
+                blocks:Array.from(document.querySelector('[data-testid="library-page"]').children).map(node =>
+                    ({tag:node.tagName,testid:node.getAttribute('data-testid'),box:box(node)})),
+                cards:Array.from(document.querySelectorAll('[data-library-member]')).map(node => ({
+                    id:node.getAttribute('data-library-member'),box:box(node),
+                    heading:box(node.querySelector('h3')),artwork:box(node.querySelector('.media-artwork')),
+                    shape:node.querySelector('.media-artwork').getAttribute('data-cover-shape'),
+                    title:node.querySelector('h3').textContent
+                })), scroll:document.documentElement.scrollWidth,width:document.documentElement.clientWidth
+            };
+        }""")
+        print(json.dumps(metrics, indent=2))
+        heading = page.locator(f'[data-library-member="{book}"] h3')
+        assert heading.bounding_box()["y"] < 900, json.dumps(metrics, indent=2)
