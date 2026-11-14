@@ -1,9 +1,9 @@
 """Native-browser RF2 component/shell tests, NOT parent integrated acceptance.
 
 Real base/nav/account templates, authorized visible_tabs/media_navigation, and
-shipped scripts/styles are rendered into a local intercepted shell. The owned
-fragment/assets are injected by this harness because only the parent may wire
-shared files. No HTTP authentication/production/provider claim is made here.
+shipped scripts/styles are rendered into a local intercepted shell. The harness
+injects component wiring only when absent from the base, preserving standalone
+and composed use. No HTTP authentication/production/provider claim is made here.
 """
 
 import json
@@ -43,7 +43,6 @@ document.getElementById('host-alert').addEventListener('click', function() { ale
 HOST_TEMPLATE = """
 {% extends "base.html" %}
 {% block head %}
-<link rel="stylesheet" href="/static/css/command-palette.source.css">
 <script src="/static/js/browse.js"></script>
 {% endblock %}
 {% block content %}
@@ -67,6 +66,7 @@ def _render(role, path, *, empty=False):
     from app.media_presentation import family_nodes
     from app.nav import media_navigation, visible_tabs
     from starlette.requests import Request
+    from tests.test_connected_layout import _Markup
 
     user = {"id": 1, "username": "component", "display_name": "Component", "role": role} if role else None
     tabs = [] if empty else visible_tabs(user)
@@ -74,15 +74,30 @@ def _render(role, path, *, empty=False):
                "media_navigation": media_navigation(tabs, family_nodes()),
                "request": Request({"type": "http", "path": path, "headers": [], "query_string": b""})}
     html = templates.env.from_string(HOST_TEMPLATE).render(context)
-    fragment = templates.env.get_template("fragments/command_palette.html").render(context)
-    assert html.count("    <!-- Content -->") == 1
-    html = html.replace("    <!-- Content -->", fragment + "    <!-- Content -->")
-    html = html.replace('<script src="/static/js/app.js"></script>',
-                        '<script src="/static/js/app.js"></script>'
-                        '<script src="/__rf2/host.js"></script>'
-                        '<script src="/static/js/command-palette.js"></script>')
-    # The parent owns this stable marker on the real existing help button.
-    html = html.replace('title="Keyboard shortcuts (?)"', 'data-shortcut-help title="Keyboard shortcuts (?)"')
+    rendered = _Markup(html)
+    if not any("data-command-palette" in node.attrs for node in rendered.elements):
+        fragment = templates.env.get_template("fragments/command_palette.html").render(context)
+        assert html.count("    <!-- Content -->") == 1
+        html = html.replace("    <!-- Content -->", fragment + "    <!-- Content -->")
+    if not rendered.find("link", href="/static/css/command-palette.source.css"):
+        html = html.replace("</head>", '<link rel="stylesheet" href="/static/css/command-palette.source.css"></head>')
+    # Keep real app handlers, then test host handlers, then palette capture setup.
+    after_app = '<script src="/static/js/app.js"></script><script src="/__rf2/host.js"></script>'
+    if not rendered.find("script", src="/static/js/command-palette.js"):
+        after_app += '<script src="/static/js/command-palette.js"></script>'
+    html = html.replace('<script src="/static/js/app.js"></script>', after_app)
+    if not any("data-shortcut-help" in node.attrs for node in rendered.elements):
+        html = html.replace('title="Keyboard shortcuts (?)"', 'data-shortcut-help title="Keyboard shortcuts (?)"')
+
+    composed = _Markup(html)
+    assert sum("data-command-palette" in node.attrs for node in composed.elements) == 1
+    assert sum("data-command-palette-dialog" in node.attrs for node in composed.elements) == 1
+    assert sum("data-shortcut-help" in node.attrs for node in composed.elements) == 1
+    composed.one("link", href="/static/css/command-palette.source.css")
+    app = composed.one("script", src="/static/js/app.js")
+    host = composed.one("script", src="/__rf2/host.js")
+    palette = composed.one("script", src="/static/js/command-palette.js")
+    assert app.position < host.position < palette.position
     return html
 
 
