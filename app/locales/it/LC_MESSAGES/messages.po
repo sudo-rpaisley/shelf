@@ -3,7 +3,7 @@
 msgid ""
 msgstr ""
 "Report-Msgid-Bugs-To: andrea@bergamasco.me\n"
-"PO-Revision-Date: 2026-11-14 20:02+0000\n"
+"PO-Revision-Date: 2026-11-14 20:53+0000\n"
 "Last-Translator: Andrea Bergamasco\n"
 "Language: it\n"
 "Language-Team: Italian\n"
@@ -24,6 +24,7 @@ msgid "Author"
 msgstr "Autore"
 
 #: app/browse_columns.py:64 app/browse_filters.py:228
+#: app/templates/copy_locator.html:11
 msgid "Type"
 msgstr "Tipo"
 
@@ -1265,19 +1266,19 @@ msgstr "Tutti"
 msgid "Wishlist"
 msgstr "Lista desideri"
 
-#: app/services/library_catalog.py:193
+#: app/services/library_catalog.py:190
 msgid "Physical copies"
 msgstr ""
 
-#: app/services/library_catalog.py:194
+#: app/services/library_catalog.py:191
 msgid "Audiobookshelf"
 msgstr ""
 
-#: app/services/library_catalog.py:194
+#: app/services/library_catalog.py:191
 msgid "Komga"
 msgstr ""
 
-#: app/services/library_catalog.py:194
+#: app/services/library_catalog.py:191
 msgid "RomM"
 msgstr ""
 
@@ -1676,67 +1677,67 @@ msgstr ""
 msgid "Audiobook metadata"
 msgstr ""
 
-#: app/templates/base.html:83
+#: app/templates/base.html:84
 msgid "Keyboard shortcuts (?)"
 msgstr "Scorciatoie da tastiera (?)"
 
-#: app/templates/base.html:89
+#: app/templates/base.html:90
 msgid "Keyboard Shortcuts"
 msgstr "Scorciatoie da tastiera"
 
-#: app/templates/base.html:90
+#: app/templates/base.html:91
 msgid "Close keyboard shortcuts"
 msgstr ""
 
-#: app/templates/base.html:96
+#: app/templates/base.html:97
 msgid "Global"
 msgstr "Globali"
 
-#: app/templates/base.html:98
+#: app/templates/base.html:99
 msgid "Focus search"
 msgstr "Vai alla ricerca"
 
-#: app/templates/base.html:99
+#: app/templates/base.html:100
 msgid "Go to Scan"
 msgstr "Vai a Scansiona"
 
-#: app/templates/base.html:100
+#: app/templates/base.html:101
 msgid "Go to Browse"
 msgstr "Vai a Sfoglia"
 
-#: app/templates/base.html:101
+#: app/templates/base.html:102
 msgid "Open command palette"
 msgstr "Apri la palette dei comandi"
 
-#: app/templates/base.html:102
+#: app/templates/base.html:103
 msgid "Show shortcuts"
 msgstr "Mostra scorciatoie"
 
-#: app/templates/base.html:106
+#: app/templates/base.html:107
 msgid "Browse Page"
 msgstr "Pagina Sfoglia"
 
-#: app/templates/base.html:108
+#: app/templates/base.html:109
 msgid "Toggle grid / list view"
 msgstr "Alterna griglia / elenco"
 
-#: app/templates/base.html:109
+#: app/templates/base.html:110
 msgid "Toggle select mode"
 msgstr "Attiva/disattiva selezione"
 
-#: app/templates/base.html:110
+#: app/templates/base.html:111
 msgid "Toggle filters (mobile)"
 msgstr "Mostra/nascondi filtri (mobile)"
 
-#: app/templates/base.html:111 app/templates/fragments/item_grid.html:61
+#: app/templates/base.html:112 app/templates/fragments/item_grid.html:61
 msgid "Clear all filters"
 msgstr "Azzera tutti i filtri"
 
-#: app/templates/base.html:112
+#: app/templates/base.html:113
 msgid "Exit select / blur search"
 msgstr "Esci dalla selezione / dalla ricerca"
 
-#: app/templates/base.html:117
+#: app/templates/base.html:118
 msgid "Shortcuts are disabled when typing in inputs"
 msgstr "Le scorciatoie sono disattivate mentre scrivi in un campo"
 
@@ -1855,9 +1856,9 @@ msgstr "Tutte le posizioni"
 
 #: app/templates/browse.html:221
 #: app/templates/fragments/filter_counts_oob.html:39
-#: app/templates/fragments/item_copies.html:90
-#: app/templates/fragments/item_copies.html:95
-#: app/templates/fragments/item_copies.html:108
+#: app/templates/fragments/item_copies.html:93
+#: app/templates/fragments/item_copies.html:99
+#: app/templates/fragments/item_copies.html:115
 #: app/templates/fragments/item_copy_edit.html:40
 msgid "No location"
 msgstr "Nessuna posizione"
@@ -1927,6 +1928,141 @@ msgstr "Anno (dal meno recente)"
 #: app/templates/browse.html:330
 msgid "Clear all"
 msgstr "Azzera tutto"
+
+#: app/templates/copy_locator.html:2 app/templates/copy_locator.html:25
+#: app/templates/fragments/copy_locator_link.html:4
+msgid "Find this copy"
+msgstr "Trova questa copia"
+
+#: app/templates/copy_locator.html:6
+msgid "Selected copy"
+msgstr "Copia selezionata"
+
+#: app/templates/copy_locator.html:7
+#: app/templates/fragments/item_copy_edit.html:31
+#, python-format
+msgid "Copy #%(n)s"
+msgstr "Copia n. %(n)s"
+
+#: app/templates/copy_locator.html:9
+msgid "Copy ID"
+msgstr "ID copia"
+
+#: app/templates/copy_locator.html:10
+msgid "Item ID"
+msgstr "ID elemento"
+
+#: app/templates/copy_locator.html:12
+#: app/templates/fragments/music_matching.html:2
+#: app/templates/fragments/music_matching.html:16
+#: app/templates/fragments/music_matching.html:48 app/templates/music.html:4
+#: app/templates/music.html:74
+msgid "Barcode"
+msgstr "Codice a barre"
+
+#: app/templates/copy_locator.html:12
+msgid "No barcode recorded"
+msgstr "Nessun codice a barre registrato"
+
+#: app/templates/copy_locator.html:13
+msgid "Recorded position"
+msgstr "Posizione registrata"
+
+#: app/templates/copy_locator.html:13
+msgid "No position recorded"
+msgstr "Nessuna posizione registrata"
+
+#: app/templates/copy_locator.html:15
+#, python-format
+msgid "Marked missing since %(date)s"
+msgstr "Segnata come mancante dal %(date)s"
+
+#: app/templates/copy_locator.html:15
+msgid "No missing mark recorded"
+msgstr "Nessuna segnalazione di copia mancante"
+
+#: app/templates/copy_locator.html:16
+#, python-format
+msgid "Copy record updated: %(date)s"
+msgstr "Record della copia aggiornato: %(date)s"
+
+#: app/templates/copy_locator.html:22 app/templates/item_edit.html:9
+#: app/templates/reading_life_item.html:10
+#: app/templates/reading_life_session.html:10
+msgid "Back to item"
+msgstr "Torna all'elemento"
+
+#: app/templates/copy_locator.html:26
+msgid "This is the recorded catalogue location, not a physical sighting or confirmation that the copy is there."
+msgstr "Questa è la collocazione registrata nel catalogo, non un avvistamento fisico o una conferma che la copia sia lì."
+
+#: app/templates/copy_locator.html:27
+msgid "Jump to selected copy"
+msgstr "Vai alla copia selezionata"
+
+#: app/templates/copy_locator.html:30
+msgid "Location changed since this link was made. Showing the current record for the same copy."
+msgstr "La collocazione è cambiata dalla creazione del collegamento. Viene mostrato il record attuale della stessa copia."
+
+#: app/templates/copy_locator.html:30
+msgid "This link previously recorded no location."
+msgstr "Questo collegamento in precedenza non registrava alcuna collocazione."
+
+#: app/templates/copy_locator.html:30
+msgid "The earlier location hint is out of date."
+msgstr "L'indicazione precedente della collocazione non è più aggiornata."
+
+#: app/templates/copy_locator.html:32
+msgid "Current names and hierarchy are shown. An ID-only link cannot detect a rename, reparenting or a change to the recorded order."
+msgstr "Sono mostrati i nomi e la gerarchia attuali. Un collegamento con il solo ID non può rilevare una rinomina, un cambio di gerarchia o dell'ordine registrato."
+
+#: app/templates/copy_locator.html:35
+msgid "Current recorded location"
+msgstr "Collocazione attualmente registrata"
+
+#: app/templates/copy_locator.html:38
+msgid "Location hierarchy"
+msgstr "Gerarchia delle collocazioni"
+
+#: app/templates/copy_locator.html:47
+msgid "Browse this location"
+msgstr "Sfoglia questa collocazione"
+
+#: app/templates/copy_locator.html:48
+msgid "Open full location in Arrange"
+msgstr "Apri la collocazione completa in Riordina"
+
+#: app/templates/copy_locator.html:51
+msgid "The recorded location is unavailable. No other location has been substituted."
+msgstr "La collocazione registrata non è disponibile. Non è stata sostituita con un'altra."
+
+#: app/templates/copy_locator.html:53
+msgid "No location recorded for this copy."
+msgstr "Nessuna collocazione registrata per questa copia."
+
+#: app/templates/copy_locator.html:55
+msgid "Location hierarchy is incomplete (unavailable node, cycle or depth limit). Only the nodes read safely are shown."
+msgstr "La gerarchia delle collocazioni è incompleta (nodo non disponibile, ciclo o limite di profondità). Sono mostrati solo i nodi letti in sicurezza."
+
+#: app/templates/copy_locator.html:59
+msgid "Selected copy and catalogue neighbours"
+msgstr "Copia selezionata e copie vicine nel catalogo"
+
+#: app/templates/copy_locator.html:60
+msgid "Recorded positions are saved values, not a calculated physical rank. Neighbours follow catalogue order: known positions first, then title (SQLite NOCASE), copy number and copy ID; unknown positions come last. These are not sightings."
+msgstr "Le posizioni registrate sono valori salvati, non una posizione fisica calcolata. Le copie vicine seguono l'ordine del catalogo: prima le posizioni note, poi titolo (SQLite NOCASE), numero e ID della copia; le posizioni sconosciute vengono per ultime. Non sono avvistamenti."
+
+#: app/templates/copy_locator.html:62
+msgid "At most three direct copies on each side are shown, not the full Arrange list. Finding this window may scan and sort the location; it is not constant-time for a large shelf."
+msgstr "Sono mostrate al massimo tre copie dirette per lato, non l'elenco completo di Riordina. Trovare questa finestra può richiedere la scansione e l'ordinamento della collocazione; il tempo non è costante per uno scaffale grande."
+
+#: app/templates/copy_locator.html:64
+msgid "No location neighbourhood is available for this copy."
+msgstr "Per questa copia non sono disponibili copie vicine nella collocazione."
+
+#: app/templates/copy_locator.html:66
+msgid "Catalogue order around the selected copy"
+msgstr "Ordine del catalogo attorno alla copia selezionata"
 
 #: app/templates/home.html:8
 msgid "Open Library to find every format and source, or Browse to organise catalogue records."
@@ -2194,9 +2330,9 @@ msgid "out"
 msgstr "in prestito"
 
 #: app/templates/components/media_card.html:16
-#: app/templates/fragments/item_copies.html:87
-#: app/templates/fragments/item_copies.html:90
-#: app/templates/fragments/item_copies.html:95
+#: app/templates/fragments/item_copies.html:89
+#: app/templates/fragments/item_copies.html:93
+#: app/templates/fragments/item_copies.html:99
 #: app/templates/item_detail.html:321
 msgid "Edit"
 msgstr "Modifica"
@@ -2232,11 +2368,6 @@ msgstr "ID integrazioni"
 #, python-format
 msgid "Edit %(title)s"
 msgstr "Modifica %(title)s"
-
-#: app/templates/item_edit.html:9 app/templates/reading_life_item.html:10
-#: app/templates/reading_life_session.html:10
-msgid "Back to item"
-msgstr "Torna all'elemento"
 
 #: app/templates/item_edit.html:13 app/templates/needs_attention.html:70
 msgid "Edit item"
@@ -2504,13 +2635,6 @@ msgstr "Nome utente"
 #: app/templates/setup.html:40 app/templates/source_detail.html:39
 msgid "Password"
 msgstr "Password"
-
-#: app/templates/fragments/music_matching.html:2
-#: app/templates/fragments/music_matching.html:16
-#: app/templates/fragments/music_matching.html:48 app/templates/music.html:4
-#: app/templates/music.html:74
-msgid "Barcode"
-msgstr "Codice a barre"
 
 #: app/templates/fragments/music_matching.html:2
 #: app/templates/fragments/music_matching.html:16
@@ -4174,46 +4298,41 @@ msgstr "Nuovo"
 msgid "Open in RomM"
 msgstr "Apri in RomM"
 
-#: app/templates/fragments/item_copies.html:74
+#: app/templates/fragments/item_copies.html:75
 #, python-format
 msgid "missing since %(date)s"
 msgstr "mancante dal %(date)s"
 
-#: app/templates/fragments/item_copies.html:74
+#: app/templates/fragments/item_copies.html:75
 msgid "Found"
 msgstr "Ritrovato"
 
-#: app/templates/fragments/item_copies.html:84
-#: app/templates/fragments/item_copies.html:87
+#: app/templates/fragments/item_copies.html:86
+#: app/templates/fragments/item_copies.html:89
 msgid "Location:"
 msgstr "Posizione:"
 
-#: app/templates/fragments/item_copies.html:87
-#: app/templates/fragments/item_copies.html:95
+#: app/templates/fragments/item_copies.html:89
+#: app/templates/fragments/item_copies.html:99
 #, python-format
 msgid "position %(n)s"
 msgstr "posizione %(n)s"
 
-#: app/templates/fragments/item_copies.html:92
+#: app/templates/fragments/item_copies.html:96
 msgid "Copies"
 msgstr "Copie"
 
-#: app/templates/fragments/item_copies.html:100
+#: app/templates/fragments/item_copies.html:107
 msgid "Print labels for this item"
 msgstr "Stampa etichette per questo elemento"
 
-#: app/templates/fragments/item_copies.html:106
+#: app/templates/fragments/item_copies.html:113
 msgid "Location for the new copy"
 msgstr "Posizione della nuova copia"
 
-#: app/templates/fragments/item_copies.html:114
+#: app/templates/fragments/item_copies.html:121
 msgid "+ Add copy"
 msgstr "+ Aggiungi copia"
-
-#: app/templates/fragments/item_copy_edit.html:31
-#, python-format
-msgid "Copy #%(n)s"
-msgstr "Copia n. %(n)s"
 
 #: app/templates/fragments/item_copy_edit.html:31
 msgid "primary"
@@ -4577,19 +4696,23 @@ msgstr ""
 msgid "Main menu"
 msgstr "Menu principale"
 
-#: app/templates/fragments/media_navigation.html:28
+#: app/templates/fragments/media_navigation.html:26
+msgid "No navigation available."
+msgstr "Nessuna navigazione disponibile."
+
+#: app/templates/fragments/media_navigation.html:31
 msgid "Browse media"
 msgstr ""
 
-#: app/templates/fragments/media_navigation.html:28
+#: app/templates/fragments/media_navigation.html:31
 msgid "Media"
 msgstr ""
 
-#: app/templates/fragments/media_navigation.html:42
+#: app/templates/fragments/media_navigation.html:45
 msgid "All items"
 msgstr ""
 
-#: app/templates/fragments/media_navigation.html:70
+#: app/templates/fragments/media_navigation.html:96
 msgid "Manage"
 msgstr ""
 

@@ -1632,7 +1632,9 @@ fixed rows/columns and readable floor; it is outside search/save forms and insid
 the existing page root. Requested scale is 50–100%, default 100%, applied once as
 `min(host width, max(80px, host width × scale))`; shelf slots remain 10rem and grid
 columns do not change. Artwork ratios, contain behaviour, fonts and metadata are
-unchanged. Library series uses direct thumbnails and deliberately has no control.
+unchanged. Every Library `view=series` page deliberately has no control: the
+series index uses direct thumbnails, while a selected-series drilldown uses
+grouped shared cards but keeps this same view-level boundary.
 External idempotent JS uses delegated input/click and HTMX/OOB listeners; inserted
 cards inherit the document scale. No requests, storage, cookies, URL parameters
 or account writes implement sizing; full navigation/reload resets to 100%.
@@ -1640,6 +1642,21 @@ Without JS the labelled controls are disabled with an explanation. Direct CSS
 also handles older Store-cached bundles without extending Store precaching.
 Density changes, enlargement above the original size and account-owned
 persistence/CAS are separate unfinished work.
+
+**Exact-copy locating is a read-only catalogue view.** The registered viewer GET
+`/item/{item_id}/copies/{copy_id}/locate` resolves that exact live pair, current
+parent-ID ancestry and at most three saved-order neighbours on each side.
+Missing/unknown/changed hints never substitute another copy or establish a sighting.
+An old location ID cannot detect historical renames, reparenting or order changes.
+The neighbourhood shares Arrange's ordering but is not a complete Arrange payload;
+it must never be submitted as one. Query parameters and hydration are bounded,
+but SQLite may scan/sort the location. This is not constant-time shelf access.
+Native item/return/jump links remain usable without JavaScript. The globally
+registered idempotent script measures sticky navigation clearance and focuses only
+approved copy anchors on navigation, jump and Back; it adds no requests, keyboard
+interception, storage or writes. Direct non-precached CSS supports older Store
+bundles without adding private routes or assets to offline precaching. The existing
+read-only service/route authority is unchanged by this shared-asset registration.
 
 **A click- or submit-triggered htmx control is guarded by default.** A
 delegated listener in `static/js/app.js` marks the control that issued a

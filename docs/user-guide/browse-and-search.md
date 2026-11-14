@@ -33,6 +33,14 @@ The choice is not saved: navigation or reload restores the default. No account
 preference or browser storage is written. JavaScript is needed to change it;
 without JavaScript the original card sizes remain usable.
 
+On an item's physical-copy list, **Find this copy** opens the exact copy's saved
+location and a small window of catalogue neighbours. **Selected copy** identifies
+the target. This is recorded information, not confirmation that the copy is still
+there. Unknown position or location stays unknown; an old link shows the current
+record and warns when its location hint has changed. Use **Open full location in
+Arrange** for the complete shelf—this limited window is not an editable order.
+Native links and return anchors also work without JavaScript.
+
 - **Grid** — cover tiles, best on phones and for "what do I have?"
 - **List** — a table with a **Columns** picker (see below).
 

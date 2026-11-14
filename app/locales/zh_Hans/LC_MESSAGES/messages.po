@@ -6,7 +6,7 @@
 msgid ""
 msgstr ""
 "Report-Msgid-Bugs-To: EMAIL@ADDRESS\n"
-"PO-Revision-Date: 2026-11-14 20:02+0000\n"
+"PO-Revision-Date: 2026-11-14 20:53+0000\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language: zh_Hans\n"
 "Language-Team: zh_Hans <LL@li.org>\n"
@@ -27,6 +27,7 @@ msgid "Author"
 msgstr "作者"
 
 #: app/browse_columns.py:64 app/browse_filters.py:228
+#: app/templates/copy_locator.html:11
 msgid "Type"
 msgstr "类型"
 
@@ -1268,19 +1269,19 @@ msgstr "全部"
 msgid "Wishlist"
 msgstr "心愿单"
 
-#: app/services/library_catalog.py:193
+#: app/services/library_catalog.py:190
 msgid "Physical copies"
 msgstr ""
 
-#: app/services/library_catalog.py:194
+#: app/services/library_catalog.py:191
 msgid "Audiobookshelf"
 msgstr ""
 
-#: app/services/library_catalog.py:194
+#: app/services/library_catalog.py:191
 msgid "Komga"
 msgstr ""
 
-#: app/services/library_catalog.py:194
+#: app/services/library_catalog.py:191
 msgid "RomM"
 msgstr ""
 
@@ -1679,67 +1680,67 @@ msgstr ""
 msgid "Audiobook metadata"
 msgstr ""
 
-#: app/templates/base.html:83
+#: app/templates/base.html:84
 msgid "Keyboard shortcuts (?)"
 msgstr "键盘快捷键 (?)"
 
-#: app/templates/base.html:89
+#: app/templates/base.html:90
 msgid "Keyboard Shortcuts"
 msgstr "键盘快捷键"
 
-#: app/templates/base.html:90
+#: app/templates/base.html:91
 msgid "Close keyboard shortcuts"
 msgstr ""
 
-#: app/templates/base.html:96
+#: app/templates/base.html:97
 msgid "Global"
 msgstr "全局"
 
-#: app/templates/base.html:98
+#: app/templates/base.html:99
 msgid "Focus search"
 msgstr "定位到搜索框"
 
-#: app/templates/base.html:99
+#: app/templates/base.html:100
 msgid "Go to Scan"
 msgstr "前往扫码"
 
-#: app/templates/base.html:100
+#: app/templates/base.html:101
 msgid "Go to Browse"
 msgstr "前往浏览"
 
-#: app/templates/base.html:101
+#: app/templates/base.html:102
 msgid "Open command palette"
 msgstr "打开命令面板"
 
-#: app/templates/base.html:102
+#: app/templates/base.html:103
 msgid "Show shortcuts"
 msgstr "显示快捷键"
 
-#: app/templates/base.html:106
+#: app/templates/base.html:107
 msgid "Browse Page"
 msgstr "浏览页"
 
-#: app/templates/base.html:108
+#: app/templates/base.html:109
 msgid "Toggle grid / list view"
 msgstr "切换网格 / 列表视图"
 
-#: app/templates/base.html:109
+#: app/templates/base.html:110
 msgid "Toggle select mode"
 msgstr "开关选择模式"
 
-#: app/templates/base.html:110
+#: app/templates/base.html:111
 msgid "Toggle filters (mobile)"
 msgstr "显示/隐藏筛选（移动端）"
 
-#: app/templates/base.html:111 app/templates/fragments/item_grid.html:61
+#: app/templates/base.html:112 app/templates/fragments/item_grid.html:61
 msgid "Clear all filters"
 msgstr "清除全部筛选"
 
-#: app/templates/base.html:112
+#: app/templates/base.html:113
 msgid "Exit select / blur search"
 msgstr "退出选择 / 离开搜索框"
 
-#: app/templates/base.html:117
+#: app/templates/base.html:118
 msgid "Shortcuts are disabled when typing in inputs"
 msgstr "在输入框中打字时快捷键不生效"
 
@@ -1858,9 +1859,9 @@ msgstr "全部位置"
 
 #: app/templates/browse.html:221
 #: app/templates/fragments/filter_counts_oob.html:39
-#: app/templates/fragments/item_copies.html:90
-#: app/templates/fragments/item_copies.html:95
-#: app/templates/fragments/item_copies.html:108
+#: app/templates/fragments/item_copies.html:93
+#: app/templates/fragments/item_copies.html:99
+#: app/templates/fragments/item_copies.html:115
 #: app/templates/fragments/item_copy_edit.html:40
 msgid "No location"
 msgstr ""
@@ -1930,6 +1931,141 @@ msgstr "年份（从旧到新）"
 #: app/templates/browse.html:330
 msgid "Clear all"
 msgstr "全部清除"
+
+#: app/templates/copy_locator.html:2 app/templates/copy_locator.html:25
+#: app/templates/fragments/copy_locator_link.html:4
+msgid "Find this copy"
+msgstr "查找此副本"
+
+#: app/templates/copy_locator.html:6
+msgid "Selected copy"
+msgstr "选中的副本"
+
+#: app/templates/copy_locator.html:7
+#: app/templates/fragments/item_copy_edit.html:31
+#, python-format
+msgid "Copy #%(n)s"
+msgstr "副本 #%(n)s"
+
+#: app/templates/copy_locator.html:9
+msgid "Copy ID"
+msgstr "副本 ID"
+
+#: app/templates/copy_locator.html:10
+msgid "Item ID"
+msgstr "条目 ID"
+
+#: app/templates/copy_locator.html:12
+#: app/templates/fragments/music_matching.html:2
+#: app/templates/fragments/music_matching.html:16
+#: app/templates/fragments/music_matching.html:48 app/templates/music.html:4
+#: app/templates/music.html:74
+msgid "Barcode"
+msgstr "条形码"
+
+#: app/templates/copy_locator.html:12
+msgid "No barcode recorded"
+msgstr "未记录条形码"
+
+#: app/templates/copy_locator.html:13
+msgid "Recorded position"
+msgstr "已记录的位置"
+
+#: app/templates/copy_locator.html:13
+msgid "No position recorded"
+msgstr "未记录位置"
+
+#: app/templates/copy_locator.html:15
+#, python-format
+msgid "Marked missing since %(date)s"
+msgstr "自 %(date)s 起标记为遗失"
+
+#: app/templates/copy_locator.html:15
+msgid "No missing mark recorded"
+msgstr "未记录遗失标记"
+
+#: app/templates/copy_locator.html:16
+#, python-format
+msgid "Copy record updated: %(date)s"
+msgstr "副本记录更新时间：%(date)s"
+
+#: app/templates/copy_locator.html:22 app/templates/item_edit.html:9
+#: app/templates/reading_life_item.html:10
+#: app/templates/reading_life_session.html:10
+msgid "Back to item"
+msgstr "返回条目"
+
+#: app/templates/copy_locator.html:26
+msgid "This is the recorded catalogue location, not a physical sighting or confirmation that the copy is there."
+msgstr "这是目录中记录的存放地点，并非实际目击记录，也不代表已确认该副本仍在那里。"
+
+#: app/templates/copy_locator.html:27
+msgid "Jump to selected copy"
+msgstr "跳转到选中的副本"
+
+#: app/templates/copy_locator.html:30
+msgid "Location changed since this link was made. Showing the current record for the same copy."
+msgstr "自创建此链接以来，存放地点已发生变化。当前显示的是同一副本的最新记录。"
+
+#: app/templates/copy_locator.html:30
+msgid "This link previously recorded no location."
+msgstr "此链接之前未记录存放地点。"
+
+#: app/templates/copy_locator.html:30
+msgid "The earlier location hint is out of date."
+msgstr "之前的存放地点提示已过时。"
+
+#: app/templates/copy_locator.html:32
+msgid "Current names and hierarchy are shown. An ID-only link cannot detect a rename, reparenting or a change to the recorded order."
+msgstr "这里显示当前名称和层级。仅包含 ID 的链接无法检测重命名、上级层级调整或记录顺序的变化。"
+
+#: app/templates/copy_locator.html:35
+msgid "Current recorded location"
+msgstr "当前记录的存放地点"
+
+#: app/templates/copy_locator.html:38
+msgid "Location hierarchy"
+msgstr "存放地点层级"
+
+#: app/templates/copy_locator.html:47
+msgid "Browse this location"
+msgstr "浏览此存放地点"
+
+#: app/templates/copy_locator.html:48
+msgid "Open full location in Arrange"
+msgstr "在排序页面打开完整存放地点"
+
+#: app/templates/copy_locator.html:51
+msgid "The recorded location is unavailable. No other location has been substituted."
+msgstr "记录的存放地点不可用，未将其替换为其他地点。"
+
+#: app/templates/copy_locator.html:53
+msgid "No location recorded for this copy."
+msgstr "未记录此副本的存放地点。"
+
+#: app/templates/copy_locator.html:55
+msgid "Location hierarchy is incomplete (unavailable node, cycle or depth limit). Only the nodes read safely are shown."
+msgstr "存放地点层级不完整（节点不可用、存在循环或达到深度限制）。仅显示安全读取的节点。"
+
+#: app/templates/copy_locator.html:59
+msgid "Selected copy and catalogue neighbours"
+msgstr "选中的副本及目录中的相邻副本"
+
+#: app/templates/copy_locator.html:60
+msgid "Recorded positions are saved values, not a calculated physical rank. Neighbours follow catalogue order: known positions first, then title (SQLite NOCASE), copy number and copy ID; unknown positions come last. These are not sightings."
+msgstr "记录的位置是已保存的值，并非计算出的实际摆放名次。相邻副本按目录顺序排列：先按已知位置，再按标题（SQLite NOCASE）、副本编号和副本 ID；未知位置排在最后。这些不是目击记录。"
+
+#: app/templates/copy_locator.html:62
+msgid "At most three direct copies on each side are shown, not the full Arrange list. Finding this window may scan and sort the location; it is not constant-time for a large shelf."
+msgstr "每侧最多显示三个直接相邻副本，并非完整排序列表。查找此窗口可能需要扫描并排序该存放地点；对于大型书架，处理时间并非常数。"
+
+#: app/templates/copy_locator.html:64
+msgid "No location neighbourhood is available for this copy."
+msgstr "此副本没有可用的同地点相邻副本信息。"
+
+#: app/templates/copy_locator.html:66
+msgid "Catalogue order around the selected copy"
+msgstr "选中副本周围的目录顺序"
 
 #: app/templates/home.html:8
 msgid "Open Library to find every format and source, or Browse to organise catalogue records."
@@ -2197,9 +2333,9 @@ msgid "out"
 msgstr ""
 
 #: app/templates/components/media_card.html:16
-#: app/templates/fragments/item_copies.html:87
-#: app/templates/fragments/item_copies.html:90
-#: app/templates/fragments/item_copies.html:95
+#: app/templates/fragments/item_copies.html:89
+#: app/templates/fragments/item_copies.html:93
+#: app/templates/fragments/item_copies.html:99
 #: app/templates/item_detail.html:321
 msgid "Edit"
 msgstr ""
@@ -2234,11 +2370,6 @@ msgstr ""
 #: app/templates/item_edit.html:2
 #, python-format
 msgid "Edit %(title)s"
-msgstr ""
-
-#: app/templates/item_edit.html:9 app/templates/reading_life_item.html:10
-#: app/templates/reading_life_session.html:10
-msgid "Back to item"
 msgstr ""
 
 #: app/templates/item_edit.html:13 app/templates/needs_attention.html:70
@@ -2506,13 +2637,6 @@ msgstr "用户名"
 #: app/templates/setup.html:40 app/templates/source_detail.html:39
 msgid "Password"
 msgstr "密码"
-
-#: app/templates/fragments/music_matching.html:2
-#: app/templates/fragments/music_matching.html:16
-#: app/templates/fragments/music_matching.html:48 app/templates/music.html:4
-#: app/templates/music.html:74
-msgid "Barcode"
-msgstr "条形码"
 
 #: app/templates/fragments/music_matching.html:2
 #: app/templates/fragments/music_matching.html:16
@@ -4175,45 +4299,40 @@ msgstr "新"
 msgid "Open in RomM"
 msgstr "在 RomM 中打开"
 
-#: app/templates/fragments/item_copies.html:74
+#: app/templates/fragments/item_copies.html:75
 #, python-format
 msgid "missing since %(date)s"
 msgstr ""
 
-#: app/templates/fragments/item_copies.html:74
+#: app/templates/fragments/item_copies.html:75
 msgid "Found"
 msgstr ""
 
-#: app/templates/fragments/item_copies.html:84
-#: app/templates/fragments/item_copies.html:87
+#: app/templates/fragments/item_copies.html:86
+#: app/templates/fragments/item_copies.html:89
 msgid "Location:"
 msgstr ""
 
-#: app/templates/fragments/item_copies.html:87
-#: app/templates/fragments/item_copies.html:95
+#: app/templates/fragments/item_copies.html:89
+#: app/templates/fragments/item_copies.html:99
 #, python-format
 msgid "position %(n)s"
 msgstr ""
 
-#: app/templates/fragments/item_copies.html:92
+#: app/templates/fragments/item_copies.html:96
 msgid "Copies"
 msgstr ""
 
-#: app/templates/fragments/item_copies.html:100
+#: app/templates/fragments/item_copies.html:107
 msgid "Print labels for this item"
 msgstr ""
 
-#: app/templates/fragments/item_copies.html:106
+#: app/templates/fragments/item_copies.html:113
 msgid "Location for the new copy"
 msgstr ""
 
-#: app/templates/fragments/item_copies.html:114
+#: app/templates/fragments/item_copies.html:121
 msgid "+ Add copy"
-msgstr ""
-
-#: app/templates/fragments/item_copy_edit.html:31
-#, python-format
-msgid "Copy #%(n)s"
 msgstr ""
 
 #: app/templates/fragments/item_copy_edit.html:31
@@ -4575,19 +4694,23 @@ msgstr ""
 msgid "Main menu"
 msgstr "主菜单"
 
-#: app/templates/fragments/media_navigation.html:28
+#: app/templates/fragments/media_navigation.html:26
+msgid "No navigation available."
+msgstr "没有可用的导航。"
+
+#: app/templates/fragments/media_navigation.html:31
 msgid "Browse media"
 msgstr ""
 
-#: app/templates/fragments/media_navigation.html:28
+#: app/templates/fragments/media_navigation.html:31
 msgid "Media"
 msgstr ""
 
-#: app/templates/fragments/media_navigation.html:42
+#: app/templates/fragments/media_navigation.html:45
 msgid "All items"
 msgstr ""
 
-#: app/templates/fragments/media_navigation.html:70
+#: app/templates/fragments/media_navigation.html:96
 msgid "Manage"
 msgstr ""
 

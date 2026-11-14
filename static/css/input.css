@@ -3,6 +3,7 @@
 @import "./media-cards.source.css";
 @import "./command-palette.source.css";
 @import "./cover-size.source.css";
+@import "./copy-locator.source.css";
 @source "../../app/templates";
 @source "../js";
 @theme {
