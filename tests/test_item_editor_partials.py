@@ -381,3 +381,344 @@ def test_missing_and_trashed_items_do_not_render_an_editor(editor_client, db):
         assert response.status_code == 307 and response.headers["location"] == "/browse"
         assert not EditorDOM(response.text).root.all("form", id="item-edit-form")
     assert _snapshot(db) == before
+
+
+# Coverage-only follow-up: the original 65 cases above remain unchanged. These
+# cases additionally submit ordered multipart controls without the fixture CSRF
+# header, against populated domains. Encoding and csrf.js injection are simulated;
+# no browser or execution of that JavaScript is claimed.
+NATIVE_DOMAIN_TABLES = (*DOMAIN_TABLES, "reading_log", "user_item_state", "user_item_events")
+
+
+@dataclass(frozen=True)
+class NativeControl:
+    name: str
+    value: str | bytes
+    filename: str | None = None
+
+
+def _native_successful_controls(dom):
+    """Document-order controls, including the browser's unselected file part."""
+    controls = []
+    for node in dom.form.all():
+        attrs = node.attrs
+        name = attrs.get("name")
+        if not name or "disabled" in attrs:
+            continue
+        if node.tag == "input":
+            kind = attrs.get("type", "text")
+            if kind in {"submit", "button", "reset"}:
+                continue
+            if kind in {"checkbox", "radio"} and "checked" not in attrs:
+                continue
+            if kind == "file":
+                controls.append(NativeControl(name, b"", filename=""))
+            else:
+                controls.append(NativeControl(name, attrs.get("value", "")))
+        elif node.tag == "textarea":
+            controls.append(NativeControl(name, node.text))
+        elif node.tag == "select":
+            options = node.all("option")
+            selected = [option for option in options if "selected" in option.attrs]
+            for option in selected or options[:1]:
+                controls.append(NativeControl(name, option.attrs.get("value", option.text)))
+    return controls
+
+
+def _native_multipart(controls):
+    """Encode a list, never a mapping: duplicate names retain their wire order."""
+    import re
+
+    boundary = "shelf-native-editor-control-boundary"
+    body = bytearray()
+    for control in controls:
+        assert re.fullmatch(r"[a-z_]+", control.name)
+        body.extend(f'--{boundary}\r\nContent-Disposition: form-data; name="{control.name}"'.encode())
+        if control.filename is not None:
+            assert control.filename == "" and control.value == b""
+            body.extend(b'; filename=""\r\nContent-Type: application/octet-stream')
+        body.extend(b"\r\n\r\n")
+        # Native form submission canonicalizes text line endings to CRLF.
+        value = control.value
+        if isinstance(value, str):
+            value = re.sub(r"\r\n|\r|\n", "\r\n", value).encode("utf-8")
+        body.extend(value)
+        body.extend(b"\r\n")
+    body.extend(f"--{boundary}--\r\n".encode())
+    return bytes(body), f"multipart/form-data; boundary={boundary}"
+
+
+def _native_domain_snapshot(db):
+    present = {row[0] for row in db.execute("SELECT name FROM sqlite_master WHERE type = 'table'")}
+    assert set(NATIVE_DOMAIN_TABLES) <= present
+    snapshot = {}
+    for table in NATIVE_DOMAIN_TABLES:
+        columns = db.execute(f'PRAGMA table_info("{table}")').fetchall()
+        key_columns = [row["name"] for row in sorted(columns, key=lambda row: row["pk"]) if row["pk"]]
+        assert key_columns
+        # The existing author index replaces identical composite-key rows on
+        # save. SQLite rowid insertion order is not their persisted identity or
+        # author display order (position is). Preserve every SELECT * value and
+        # row count, comparing in the actual schema's primary-key order.
+        order = ", ".join(f'"{name}"' for name in key_columns)
+        snapshot[table] = [dict(row) for row in db.execute(f'SELECT * FROM "{table}" ORDER BY {order}')]
+    return snapshot
+
+
+def _native_cover_snapshot():
+    from hashlib import sha256
+
+    from app import config
+
+    return {
+        path.relative_to(config.COVERS_DIR).as_posix(): sha256(path.read_bytes()).hexdigest()
+        for path in sorted(config.COVERS_DIR.rglob("*")) if path.is_file()
+    }
+
+
+@pytest.fixture
+def native_populated_editor(editor_client, editor_user, viewer_user, db):
+    """Consistent scratch catalogue/copy seams plus real account/history rows."""
+    from PIL import Image
+
+    from app import config
+    from app.services import (
+        author_index, item_copies, item_write, locations, media_groups,
+        music_catalog, periodical_records, personal_library, tags,
+    )
+
+    db.execute("BEGIN IMMEDIATE")
+    home = locations.create_location(db, "Home <b> & %")
+    primary_location = locations.create_location(db, "Primary shelf", parent_id=home)
+    secondary_location = locations.create_location(db, "Other shelf", parent_id=home)
+    ids = {}
+    primary_copies = {}
+    # Raw insertion through the sanctioned fixture is deliberate ONLY for the
+    # legacy-invalid identifiers. Their compatibility exemption is the subject
+    # of the native save; derived authors/copies are seeded through their funnels.
+    for key, media_type, isbn, upc in (
+        ("book", "book", "9780441172710", "1234567890120"),
+        ("audiobook", "audiobook", "B00EXAMPLE", "1234567890129"),
+    ):
+        ids[key] = _insert_item(
+            db, title=f"Native {key} " + RAW, isbn=isbn, isbn10="legacy10",
+            upc=upc, media_type=media_type, authors="Native author " + RAW,
+            subtitle=None if key == "book" else "Audio subtitle " + RAW,
+            publisher="Native publisher " + RAW, publish_year=0,
+            page_count=0 if key == "book" else None,
+            series_name="Native series " + RAW, series_position=0 if key == "book" else 2.5,
+            narrator="Narrator " + RAW if key == "audiobook" else None,
+            duration_mins=0 if key == "audiobook" else None,
+            asin="B0D1234567" if key == "audiobook" else None,
+            language="tlh", reading_status=None, date_started="2025-01-02",
+            date_finished=None, description="Description\r\n" + RAW,
+            notes="Catalogue notes\r\n" + RAW, manual_value=0,
+            location_id=primary_location, owned=1,
+            cover_path=f"covers/native-{key}.png", cover_edition_isbn="9780547928227",
+            cover_edition_language="it", updated_at="2001-01-01 00:00:00",
+        )
+        author_index.reindex_item(db, ids[key], "Native author " + RAW)
+        # Primary/default copy shape and location exactly match the catalogue
+        # seam before any POST. No missing primary is left for Save to invent.
+        primary_copies[key] = item_copies.insert_copy(db, {
+            "item_id": ids[key], "copy_number": 1, "is_primary": 1,
+            "location_id": primary_location, "position_order": 7,
+            "condition": "Good", "notes": "Primary copy " + RAW,
+            "acquired_date": "2020-01-02", "acquisition_source": "Fixture shop",
+            "acquisition_price": 0, "provenance": "Primary provenance " + RAW,
+            "copy_barcode": f"native-{key}-primary", "updated_at": "2001-01-01 00:00:00",
+        })
+        secondary = item_copies.add_copy(db, ids[key], {
+            "location_id": secondary_location, "position_order": 23,
+            "condition": "New", "notes": "Additional copy " + RAW,
+            "acquired_date": "2021-03-04", "acquisition_source": "Fixture gift",
+            "acquisition_price": 12.5, "provenance": "Secondary provenance " + RAW,
+            "copy_barcode": f"native-{key}-secondary",
+        })
+        copies = item_copies.copies_for_item(db, ids[key])
+        assert [(row["id"], row["copy_number"], row["is_primary"], row["location_id"]) for row in copies] == [
+            (primary_copies[key], 1, 1, primary_location), (secondary, 2, 0, secondary_location),
+        ]
+        tags.attach_tags(db, ids[key], ["Signed <b> & %", f"Native {key}"])
+        Image.new("RGB", (4, 6), color=(40, 80, 120)).save(config.COVERS_DIR / f"native-{key}.png")
+
+    for key, wishlisted in (("wishlist", True), ("neither", False)):
+        ids[key] = item_write.insert_item(
+            db, title=f"Native {key} " + RAW, authors="Unowned author " + RAW,
+            media_type="book", owned=0, wishlisted=wishlisted,
+            reading_status="reading", date_started="2025-03-04", date_finished=None,
+            notes="Unowned notes\r\n" + RAW, updated_at="2001-01-01 00:00:00",
+        )
+        tags.attach_tags(db, ids[key], ["Signed <b> & %"])
+        assert item_copies.copies_for_item(db, ids[key]) == []
+
+    music_id = item_write.insert_item(db, title="Native release " + RAW, authors="Artist", media_type="vinyl")
+    music_catalog.save_release(db, music_id, {
+        "title": "Native release " + RAW, "artist_credit": "Artist",
+        "musicbrainz_release_id": "11111111-1111-1111-1111-111111111111",
+        "musicbrainz_release_group_id": "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa",
+        "catalog_number": "CAT-1", "label": "Label " + RAW, "country": "GB",
+        "media": [{"position": 1, "format": "12\" Vinyl", "tracks": [
+            {"position": 1, "number": "A1", "title": "Track " + RAW, "duration_ms": 0},
+        ]}],
+    })
+    music_catalog.add_identifier(db, music_id, "matrix_runout", "MATRIX-1", "Side A")
+    periodical_id = item_write.insert_item(db, title="Native issue " + RAW, media_type="magazine")
+    publication_id = periodical_records.upsert_publication(db, title="Native publication " + RAW, issn="01617370")
+    periodical_records.link_issue(db, item_id=periodical_id, publication_id=publication_id,
+                                  issue_number="1", volume="2", issue_date="2025-01-01")
+    assert media_groups.link_items(db, ids["book"], ids["audiobook"], link_type="format")
+    assert media_groups.link_items(db, ids["book"], music_id, link_type="related")
+    assert media_groups.link_items(db, ids["book"], periodical_id, link_type="related")
+
+    for item_id in ids.values():
+        for user in (editor_user, viewer_user):
+            for status, progress in (("in_progress", "0"), ("finished", "100")):
+                state = personal_library.save(db, user["id"], item_id, personal_library.parse_form({
+                    "status": status, "progress": progress, "rating": "4", "favourite": "1",
+                    "on_list": "1", "notes": f"{user['username']} personal " + RAW,
+                }))
+                assert state is not None and state["last_event_id"] > 0
+    db.commit()
+
+    # Populate legacy/shared reading history through the actual status route.
+    # No provider identity is attached, so this schedules no provider push.
+    for key in ("book", "audiobook"):
+        for _ in range(2):
+            response = editor_client.post(f"/api/items/{ids[key]}/reading-status", data={"status": "read"})
+            assert response.status_code == 200
+        item = db.execute("SELECT * FROM items_live WHERE id = ?", (ids[key],)).fetchone()
+        copy = db.execute("SELECT * FROM copies_live WHERE id = ?", (primary_copies[key],)).fetchone()
+        assert item["location_id"] == copy["location_id"] == primary_location
+        assert copy["updated_at"] == "2001-01-01 00:00:00"
+    snapshot = _native_domain_snapshot(db)
+    assert all(snapshot.values()), "every domain included in this follow-up must actually contain rows"
+    assert len(snapshot["reading_log"]) == 4
+    assert len(snapshot["user_item_state"]) == 8 and len(snapshot["user_item_events"]) == 16
+    assert len(_native_cover_snapshot()) == 2
+    return {"ids": ids, "primary_copies": primary_copies}
+
+
+def _native_post_without_header(client, dom, token_mode, record_property):
+    from email import policy
+    from email.parser import BytesParser
+    from hashlib import sha256
+    from http.cookies import SimpleCookie
+    import json
+
+    controls = _native_successful_controls(dom)
+    assert not any(control.name == "_csrf" for control in controls), "GET still relies on csrf.js injection"
+    assert [control for control in controls if control.filename is not None] == [NativeControl("cover", b"", "")]
+    assert not any(control.name in {"name", "user_id", "last_event_id"} for control in controls)
+    cookie_token = client.cookies.get("csrf_token")
+    assert cookie_token
+    client.headers.pop("X-CSRF-Token")
+    assert "X-CSRF-Token" not in client.headers
+    # This is explicitly simulated csrf.js injection, NOT JavaScript execution.
+    if token_mode != "missing":
+        controls.append(NativeControl("_csrf", cookie_token if token_mode == "matching" else cookie_token + "-wrong"))
+    body, content_type = _native_multipart(controls)
+    response = client.post(dom.form.attrs["action"], content=body,
+                           headers={"Content-Type": content_type}, follow_redirects=False)
+    request = response.request
+    assert "X-CSRF-Token" not in request.headers and "HX-Request" not in request.headers
+    assert request.content == body and request.headers["content-type"] == content_type
+    cookies = SimpleCookie()
+    cookies.load(request.headers["cookie"])
+    assert cookies["csrf_token"].value == cookie_token
+    wire = BytesParser(policy=policy.default).parsebytes(
+        f"Content-Type: {content_type}\r\nMIME-Version: 1.0\r\n\r\n".encode() + request.content,
+    )
+    parts = list(wire.iter_parts())
+    assert [part.get_param("name", header="content-disposition") for part in parts] == [control.name for control in controls]
+    for part, control in zip(parts, controls, strict=True):
+        assert part.get_filename() == control.filename
+        expected = control.value if isinstance(control.value, bytes) else control.value.encode("utf-8")
+        assert part.get_payload(decode=True) == expected
+    submitted_tokens = [part.get_payload(decode=True).decode() for part in parts
+                        if part.get_param("name", header="content-disposition") == "_csrf"]
+    assert submitted_tokens == ([] if token_mode == "missing" else [cookie_token if token_mode == "matching" else cookie_token + "-wrong"])
+    ordered_boxes = [(control.name, control.value) for control in controls if control.name in {"owned", "wishlisted"}]
+    record_property("native_wire", json.dumps({
+        "body_sha256": sha256(body).hexdigest(), "token_mode": token_mode,
+        "header_csrf_present": False, "ordered_boxes": ordered_boxes,
+        "part_names": [control.name for control in controls], "empty_filename_cover": True,
+    }))
+    return response, controls
+
+
+@pytest.mark.parametrize("target", ("book", "audiobook", "wishlist", "neither"))
+def test_native_multipart_no_change_preserves_populated_domains(
+    editor_client, db, native_populated_editor, target, record_property,
+):
+    from copy import deepcopy
+    import json
+
+    item_id = native_populated_editor["ids"][target]
+    before = _native_domain_snapshot(db)
+    covers_before = _native_cover_snapshot()
+    _, dom = _get(editor_client, item_id, "?from=series")
+    _assert_field_contract(dom, item_id)
+    controls = _native_successful_controls(dom)
+    expected_boxes = (
+        [("owned", "0"), ("owned", "1"), ("wishlisted", "0")] if target in {"book", "audiobook"}
+        else [("owned", "0"), ("wishlisted", "0"), ("wishlisted", "1")] if target == "wishlist"
+        else [("owned", "0"), ("wishlisted", "0")]
+    )
+    assert [(control.name, control.value) for control in controls if control.name in {"owned", "wishlisted"}] == expected_boxes
+    item_before = next(row for row in before["items"] if row["id"] == item_id)
+    for name in ("isbn", "upc", "series_name", "narrator", "duration_mins", "date_started", "date_finished", "subtitle"):
+        values = [control.value for control in controls if control.name == name]
+        assert values == ["" if item_before[name] is None else str(item_before[name])]
+    if target in {"book", "audiobook"}:
+        assert dom.form.one("p", **{"data-testid": "isbn-stored-invalid"})
+        assert dom.form.one("p", **{"data-testid": "upc-stored-invalid"})
+        assert [control.value for control in controls if control.name == "manual_value"] == ["0.0"]
+    assert _native_domain_snapshot(db) == before and _native_cover_snapshot() == covers_before
+    clock_before = db.execute("SELECT datetime('now')").fetchone()[0]
+    response, _ = _native_post_without_header(editor_client, dom, "matching", record_property)
+    clock_after = db.execute("SELECT datetime('now')").fetchone()[0]
+    assert response.status_code == 303 and response.headers["location"] == f"/item/{item_id}?from=series"
+    after = _native_domain_snapshot(db)
+    # Account for ONLY the known native writer stamps on this item and its
+    # existing primary copy. Every other timestamp, field, row and history/event
+    # record is compared in full; additional copies are never exempted.
+    expected = deepcopy(before)
+    stamps = []
+    stamp_targets = [("items", item_id)]
+    if target in native_populated_editor["primary_copies"]:
+        stamp_targets.append(("item_copies", native_populated_editor["primary_copies"][target]))
+    for table, row_id in stamp_targets:
+        prior = next(row for row in expected[table] if row["id"] == row_id)
+        current = next(row for row in after[table] if row["id"] == row_id)
+        assert clock_before <= current["updated_at"] <= clock_after
+        stamps.append({"table": table, "id": row_id, "before": prior["updated_at"], "after": current["updated_at"]})
+        if table == "item_copies" or target in {"wishlist", "neither"}:
+            assert prior["updated_at"] == "2001-01-01 00:00:00" and current["updated_at"] != prior["updated_at"]
+        prior["updated_at"] = current["updated_at"]
+    assert after == expected
+    assert _native_cover_snapshot() == covers_before
+    record_property("known_native_stamps", json.dumps(stamps))
+    record_property("domain_before", json.dumps(before, ensure_ascii=False))
+    record_property("domain_after", json.dumps(after, ensure_ascii=False))
+    record_property("cover_hashes_before_and_after", json.dumps(covers_before))
+
+
+@pytest.mark.parametrize("target", ("book", "audiobook", "wishlist", "neither"))
+@pytest.mark.parametrize("token_mode", ("missing", "bad"))
+def test_native_multipart_form_csrf_refuses_without_any_domain_write(
+    editor_client, db, native_populated_editor, target, token_mode, record_property,
+):
+    import json
+
+    item_id = native_populated_editor["ids"][target]
+    before = _native_domain_snapshot(db)
+    covers_before = _native_cover_snapshot()
+    _, dom = _get(editor_client, item_id)
+    assert _native_domain_snapshot(db) == before
+    response, _ = _native_post_without_header(editor_client, dom, token_mode, record_property)
+    assert response.status_code == 403 and response.text == "CSRF validation failed"
+    assert _native_domain_snapshot(db) == before
+    assert _native_cover_snapshot() == covers_before
+    record_property("domain_before_and_after", json.dumps(before, ensure_ascii=False))
+    record_property("cover_hashes_before_and_after", json.dumps(covers_before))
