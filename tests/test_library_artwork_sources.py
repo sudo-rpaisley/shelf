@@ -53,7 +53,9 @@ def _instrument(monkeypatch):
         return descriptor
 
     def close_fd(descriptor):
-        live.remove(descriptor)
+        # asyncio can close a pidfd it obtained without os.open. Only our
+        # instrumented opens belong to this ledger; still perform every close.
+        live.discard(descriptor)
         return real_close(descriptor)
 
     def read_fd(descriptor, amount):
@@ -466,3 +468,144 @@ def test_lookup_is_pure_after_file_and_input_mapping_changes(monkeypatch):
     assert source.captured_bytes == RECTANGLE
     assert not prepared.source_for(8, None)
     assert not live and not opened and not reads
+
+
+def test_frozen_limits_and_remaining_decimal_paint_and_vertex_boundaries():
+    assert (artwork._MAX_ROWS, artwork._MAX_ATTEMPTS, artwork._MAX_FILE_BYTES,
+            artwork._MAX_READ_BYTES, artwork._MAX_URI_CHARS, artwork._MAX_ELEMENTS,
+            artwork._MAX_DEPTH, artwork._MAX_ATTRIBUTES, artwork._MAX_ATTRIBUTE_CHARS,
+            artwork._MAX_NUMBERS, artwork._MAX_VERTICES, artwork._MAX_COMPONENTS) == (
+                128, 32, 65536, 262144, 393216, 128, 2, 16, 4096, 4096, 128, 64)
+    assert _prepare(_svg(width=b'000000000000000000000001'))[1] is not None  # 24 chars
+    assert _prepare(_svg(width=b'0000000000000000000000001'))[1] is None
+    assert _prepare(_svg(b'<polyline points="0 0 1 1"/>'))[1] is not None
+    assert _prepare(_svg(b'<polygon points="0 0 1 1"/>'))[1] is None
+    assert _prepare(_svg(b'<polygon points="0 0 1 1 0 1"/>'))[1] is not None
+    for cap, join in (('butt', 'miter'), ('round', 'round'), ('square', 'bevel')):
+        content = _svg(b'<line stroke="#abc" fill="none" opacity="0" fill-opacity="1" stroke-opacity=".000001" stroke-width="0" '
+                       + f'stroke-linecap="{cap}" stroke-linejoin="{join}"'.encode() + b'/>')
+        assert _prepare(content)[1] is not None
+    for color in (b'#abcd', b'#12345678', b'#GGG', b' none ', b'url(https://example.invalid/x)', b'context-fill'):
+        assert _prepare(_svg(b'<circle r="1" fill="' + color + b'"/>'))[1] is None
+
+
+@pytest.mark.parametrize('capability', ['O_DIRECTORY', 'O_NOFOLLOW', 'O_CLOEXEC', 'O_NONBLOCK',
+                                      'supports_dir_fd', 'read', 'fstat'])
+def test_zero_or_missing_required_platform_capabilities_never_substitute_unsafe_flags(monkeypatch, capability):
+    (config.COVERS_DIR / '7.svg').write_bytes(RECTANGLE)
+    live, opened, reads = _instrument(monkeypatch)
+    if capability == 'supports_dir_fd':
+        monkeypatch.delattr(os, capability)
+    else:
+        monkeypatch.setattr(os, capability, 0)
+    assert artwork.prepare_library_artwork(_context([_row()])).source_for(7, 'covers/7.svg') is None
+    assert not live and not opened and not reads
+
+
+def test_root_component_descriptor_survives_path_replacement_without_symlink_follow(monkeypatch):
+    (config.COVERS_DIR / '7.svg').write_bytes(RECTANGLE)
+    root_path = config.COVERS_DIR
+    old_path = root_path.with_name('pinned-old-covers')
+    live, opened, reads = _instrument(monkeypatch)
+    original_open = os.open
+    replaced = []
+
+    def replace_root(path, flags, *args, **kwargs):
+        descriptor = original_open(path, flags, *args, **kwargs)
+        if path == root_path.name and kwargs.get('dir_fd') is not None and not replaced:
+            replaced.append(True)
+            root_path.rename(old_path)
+            root_path.symlink_to(old_path, target_is_directory=True)
+        return descriptor
+
+    monkeypatch.setattr(os, 'open', replace_root)
+    monkeypatch.setattr(os, 'supports_dir_fd', os.supports_dir_fd | {replace_root})
+    source = artwork.prepare_library_artwork(_context([_row()])).source_for(7, 'covers/7.svg')
+    assert replaced and not live and source is not None
+    assert source.captured_bytes == RECTANGLE
+
+
+def test_change_after_eof_is_rejected_and_short_reads_require_actual_eof(monkeypatch):
+    path = config.COVERS_DIR / '7.svg'
+    path.write_bytes(RECTANGLE)
+    live, opened, reads = _instrument(monkeypatch)
+    original_read = os.read
+    seen_eof = []
+
+    def read_and_change(descriptor, amount):
+        data = original_read(descriptor, min(amount, 7))
+        if not data:
+            seen_eof.append(True)
+            path.write_bytes(b'X' * len(RECTANGLE))
+        return data
+
+    monkeypatch.setattr(os, 'read', read_and_change)
+    assert artwork.prepare_library_artwork(_context([_row()])).source_for(7, 'covers/7.svg') is None
+    assert seen_eof == [True] and not live
+    assert b''.join(data for _, _, data in reads) == RECTANGLE
+
+
+def test_overflow_probe_bytes_are_charged_to_aggregate_budget(monkeypatch):
+    path = config.COVERS_DIR / '7.svg'
+    path.write_bytes(RECTANGLE + b' ' * (65536 - len(RECTANGLE)))
+    live, opened, reads = _instrument(monkeypatch)
+    original_read = os.read
+    changed = []
+
+    def grow(descriptor, amount):
+        if not changed:
+            changed.append(True)
+            with path.open('ab') as stream:
+                stream.write(b' ')
+        return original_read(descriptor, amount)
+
+    monkeypatch.setattr(os, 'read', grow)
+    budget = [262144]
+    root = artwork._open_root()
+    try:
+        with pytest.raises(artwork._Rejected):
+            artwork._capture(root, '7.svg', budget)
+    finally:
+        os.close(root)
+    assert sum(len(data) for _, _, data in reads) == 65537
+    assert budget == [262144 - 65537] and not live
+
+
+def test_forged_subclass_source_and_group_ids_never_call_custom_equality(monkeypatch):
+    prepared, source = _prepare()
+
+    class Lookalike(artwork.ValidatedLocalSvg):
+        def __getattribute__(self, name):
+            raise AssertionError('subclass must be rejected before attribute access')
+
+    fake = object.__new__(Lookalike)
+    object.__setattr__(prepared, '_sources', MappingProxyType({(7, 'covers/7.svg'): fake}))
+    assert prepared.source_for(7, 'covers/7.svg') is None
+    rows = [_row(_Int(7)), _row(_Hostile())]
+    context = {'result_kind': 'groups', 'groups': [{'representative': _row(8, None), 'members': rows}]}
+    live, opened, reads = _instrument(monkeypatch)
+    assert not artwork.prepare_library_artwork(context)._sources
+    assert not live and not opened and not reads
+
+
+def test_fresh_import_performs_no_artwork_sql_permission_or_application_boot_io():
+    import subprocess
+    import sys
+
+    program = '''
+import builtins, importlib, os, sqlite3, sys
+from pathlib import Path
+from app import config
+calls = []
+def forbidden(*args, **kwargs):
+    calls.append(True)
+    raise AssertionError("import performed I/O")
+builtins.open = Path.open = Path.stat = os.open = sqlite3.connect = forbidden
+module = importlib.import_module("app.services.library_artwork")
+assert not calls
+assert not {"app.main", "app.database", "app.features", "app.auth"}.intersection(sys.modules)
+print("no import I/O")
+'''
+    result = subprocess.run([sys.executable, '-c', program], capture_output=True, text=True)
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert result.stdout.strip() == 'no import I/O'

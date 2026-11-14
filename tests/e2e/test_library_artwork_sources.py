@@ -45,7 +45,11 @@ def test_real_validated_images_decode_exactly_once_with_native_shapes_under_exis
     assert response.status == 200 and response.headers['cache-control'] == 'no-store'
     csp = response.headers['content-security-policy']
     assert "img-src 'self' data: blob: https:" in csp
-    assert 'unsafe-inline' not in csp and 'unsafe-eval' not in csp
+    # Pin the existing complete policy, including its existing style-only
+    # allowance. This increment neither relaxes it nor invents a stricter one.
+    assert csp == ("default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; "
+                   "img-src 'self' data: blob: https:; connect-src 'self'; font-src 'self' data:; "
+                   "base-uri 'self'; form-action 'self'; frame-ancestors 'none';")
     results = page.get_by_test_id('library-results')
     expect(results.locator('img')).to_have_count(4)
     metrics = []

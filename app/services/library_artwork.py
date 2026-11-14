@@ -128,7 +128,9 @@ def _open_root():
     required = ("O_DIRECTORY", "O_NOFOLLOW", "O_CLOEXEC", "O_NONBLOCK")
     if any(type(getattr(os, name, None)) is not int or not getattr(os, name) for name in required):
         raise _Rejected()
-    if os.open not in os.supports_dir_fd:
+    if any(not callable(getattr(os, name, None)) for name in ("open", "read", "fstat", "close")):
+        raise _Rejected()
+    if os.open not in getattr(os, "supports_dir_fd", ()):
         raise _Rejected()
     path = os.fspath(config.COVERS_DIR)  # configuration is resolved only at call time
     if type(path) is not str or "\0" in path:
