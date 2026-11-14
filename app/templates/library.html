@@ -40,8 +40,10 @@
         {% for key, default in [('media_type', ''), ('types', ''), ('family', ''), ('series', ''), ('source', ''), ('availability', ''), ('ownership', ''), ('wishlist', ''), ('view', 'groups'), ('sort', 'title'), ('page_size', '24')] %}
         {% if filters[key] != default %}{% set active_filters.count = active_filters.count + 1 %}{% endif %}
         {% endfor %}
-        <details data-testid="library-filter-options">
-            <summary class="cursor-pointer text-sm font-medium">{{ _('Filters and display') }}{% if active_filters.count %} <span class="text-xs text-shelf-muted" data-testid="library-active-filter-count" data-count="{{ active_filters.count }}">· {{ ngettext('%(count)s active option', '%(count)s active options', active_filters.count, count=active_filters.count) }}</span>{% endif %}</summary>
+        <details data-testid="library-filter-options" data-library-filter-layout="caption-status-v1">
+            <summary class="cursor-pointer text-sm font-medium"{% if active_filters.count %} aria-describedby="library-filter-active-count"{% endif %}>{{ _('Filters and display') }}</summary>
+            {% if active_filters.count %}<span class="text-xs text-shelf-muted" data-testid="library-active-filter-count" data-count="{{ active_filters.count }}" id="library-filter-active-count">· {{ ngettext('%(count)s active option', '%(count)s active options', active_filters.count, count=active_filters.count) }}</span>{% endif %}
+            <div class="library-filter-options__body">
             <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 mt-4">
             <label class="text-sm" for="library-media-type">{{ _('Format') }}
                 <select id="library-media-type" name="media_type" class="block w-full mt-1 bg-shelf-bg border border-shelf-border rounded-lg px-3 py-2">
@@ -110,6 +112,7 @@
                 <button type="submit" class="px-4 py-2 rounded-lg bg-shelf-accent text-white hover:bg-shelf-accent2">{{ _('Apply filters') }}</button>
                 <a href="/library?reset=1" class="text-sm text-shelf-accent2 hover:underline">{{ _('Clear filters') }}</a>
                 <span class="text-xs text-shelf-muted">{{ _('Ownership alone does not mean a physical copy is on a shelf.') }}</span>
+            </div>
             </div>
         </details>
     </form>

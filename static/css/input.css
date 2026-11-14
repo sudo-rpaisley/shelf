@@ -47,6 +47,32 @@ body { background-color: #0f1117; color: #e2e8f0; }
    breathing room. Do not retype breakpoint-specific gutters in templates. */
 .shell-bleed { margin-inline: calc(0px - var(--app-gutter)); padding-inline: var(--app-gutter); }
 .page-layout { width: 100%; min-width: 0; }
+/* Stable native caption + one real status, only on the versioned markup whose
+   complete optional form body is wrapped. Old HTML must keep native collapse.
+   Unsupported/old CSS also retains native disclosure, with status readable open. */
+@supports selector(details::details-content) and (content-visibility: visible) and (display: contents) {
+    details[data-library-filter-layout="caption-status-v1"] {
+        display: flex;
+        flex-wrap: wrap;
+        align-items: baseline;
+        gap: 0.5rem;
+    }
+    details[data-library-filter-layout="caption-status-v1"]::details-content {
+        content-visibility: visible;
+        display: contents;
+    }
+    details[data-library-filter-layout="caption-status-v1"] > summary,
+    details[data-library-filter-layout="caption-status-v1"] > [data-testid="library-active-filter-count"] {
+        min-inline-size: 0;
+        max-inline-size: 100%;
+        overflow-wrap: anywhere;
+    }
+    details[data-library-filter-layout="caption-status-v1"] > .library-filter-options__body {
+        flex: 1 0 100%;
+        min-inline-size: 0;
+    }
+    details[data-library-filter-layout="caption-status-v1"]:not([open]) > .library-filter-options__body { display: none; }
+}
 .artwork-dialog { width: min(72rem, calc(100% - 2rem)); max-width: calc(100% - 2rem); max-height: calc(100dvh - 2rem); margin: auto; padding: 0; }
 .artwork-dialog::backdrop { background: rgb(0 0 0 / 75%); }
 .workspace-layout, .edit-layout { display: grid; grid-template-columns: minmax(0, 1fr); gap: 1.5rem; align-items: start; }
