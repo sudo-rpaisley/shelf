@@ -1,0 +1,70 @@
+/* Load after the existing card rules. Keep their grid columns and 10rem shelf
+   slots unchanged: only the card width is scaled, once. The 80px text/control
+   floor is capped by available host space. Artwork inherits the card width;
+   registry ratios, contain, metadata and font sizes remain the original rules. */
+.media-card {
+    width: max(80px, calc(100% * var(--media-cover-scale, 1)));
+    max-width: 100%;
+}
+
+/* Existing absolutely positioned sr-only card/View-more text otherwise uses
+   BODY as its containing block and can escape the shelf's horizontal scroller.
+   Establish a local block without changing slot dimensions or scroll behavior. */
+.media-shelf__slot { position: relative; }
+
+.cover-size-control {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.75rem;
+    min-width: 0;
+    max-width: 100%;
+    font-size: 0.875rem;
+}
+
+.cover-size-control__range, .cover-size-control__choices {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.5rem;
+    min-width: 0;
+    max-width: 100%;
+}
+
+.cover-size-control input {
+    width: 10rem;
+    min-width: 80px;
+    max-width: 100%;
+    min-height: 2.5rem;
+    accent-color: var(--color-shelf-accent2, #818cf8);
+}
+
+.cover-size-control__output {
+    min-width: 4ch;
+    font-variant-numeric: tabular-nums;
+}
+
+.cover-size-control button {
+    min-width: 80px;
+    min-height: 2.5rem;
+    padding: 0.375rem 0.75rem;
+    border: 1px solid var(--color-shelf-border, #374151);
+    border-radius: 0.5rem;
+    background: var(--color-shelf-card, #1a1d27);
+    color: inherit;
+    font: inherit;
+}
+
+.cover-size-control button:enabled { cursor: pointer; }
+.cover-size-control :disabled { opacity: 0.55; }
+
+.cover-size-control input:focus-visible, .cover-size-control button:focus-visible {
+    outline: 2px solid var(--color-shelf-accent2, #818cf8);
+    outline-offset: 2px;
+}
+
+.cover-size-control__note {
+    flex-basis: 100%;
+    margin: 0;
+    color: var(--color-shelf-muted, #9ca3af);
+}

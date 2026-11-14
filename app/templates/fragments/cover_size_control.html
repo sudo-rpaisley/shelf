@@ -1,0 +1,18 @@
+{# Include inside a page's existing content root, outside filter/save forms.
+   Implicit native labels work without IDs; enhancement assigns collision-free
+   input/description IDs to each instance, including HTMX/OOB replacements.
+   This is live document state, not an account or browser preference. #}
+<div class="cover-size-control" data-cover-size-control>
+    <label class="cover-size-control__range">
+        <span>{{ _('Cover size')|forceescape }}</span>
+        <input type="range" min="50" max="100" step="10" value="100" disabled data-cover-size-input>
+    </label>
+    <output class="cover-size-control__output" aria-live="off" data-cover-size-output>100%</output>
+    <div class="cover-size-control__choices">
+        <button type="button" disabled data-cover-size-action="smaller">{{ _('Smaller')|forceescape }}</button>
+        <button type="button" disabled data-cover-size-action="larger">{{ _('Larger')|forceescape }}</button>
+        <button type="button" disabled data-cover-size-action="reset">{{ _('Reset')|forceescape }}</button>
+    </div>
+    <p class="cover-size-control__note">{{ _('This page only; not saved.')|forceescape }}</p>
+    <noscript><p class="cover-size-control__note">{{ _('Enable JavaScript to change cover size.')|forceescape }}</p></noscript>
+</div>
