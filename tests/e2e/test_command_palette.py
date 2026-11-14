@@ -107,7 +107,7 @@ def _configure(db, case):
 
 @contextmanager
 def _shell(browser, *, width=1280, height=900, role="admin", empty=False,
-           javascript=True, native=True, touch=False):
+           javascript=True, native=True, touch=False, native_less_ua=False):
     requests, external = [], []
     context = browser.new_context(
         viewport={"width": width, "height": height}, java_script_enabled=javascript,
@@ -129,7 +129,12 @@ def _shell(browser, *, width=1280, height=900, role="admin", empty=False,
         if parts.path.startswith("/static/"):
             path = (ROOT / parts.path.lstrip("/")).resolve()
             assert path.is_relative_to(ROOT / "static") and path.is_file(), parts.path
-            return route.fulfill(status=200, content_type=mimetypes.guess_type(path)[0], body=path.read_bytes())
+            body = path.read_bytes()
+            if native_less_ua and parts.path == "/static/css/command-palette.source.css":
+                # Controlled absent-UA-styling model, not an old-browser claim:
+                # an ordinary dialog displays as a block before component rules.
+                body = b"dialog { display: block; }\n" + body
+            return route.fulfill(status=200, content_type=mimetypes.guess_type(path)[0], body=body)
         return route.fulfill(status=200, content_type="text/html", body=_render(role, parts.path, empty=empty),
                              headers={"Content-Security-Policy": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self'; object-src 'none'; base-uri 'self'"})
 
@@ -572,6 +577,36 @@ def test_native_fallback_keeps_navigation_usable_without_js_or_dialog_support(br
         page.wait_for_url(ORIGIN + "/library?reset=1&view=items&sort=recent")
         assert any(request["path"] == "/library" for request in requests)
         _fits(page)
+
+
+def test_native_less_ua_model_hides_unbound_dialog_and_keeps_native_navigation(browser):
+    """Model both missing API and UA hiding, not actual old-browser compatibility."""
+    with _shell(browser, width=375, native=False, native_less_ua=True) as (page, requests):
+        assert page.evaluate("typeof HTMLDialogElement.prototype.showModal") == "undefined"
+        # Positive control: the low-specificity default really replaces native
+        # closed-dialog hiding, independently of the palette's class rules.
+        ordinary_dialog = page.locator("#host-native")
+        expect(ordinary_dialog).not_to_have_attribute("open")
+        assert ordinary_dialog.evaluate("e => getComputedStyle(e).display") == "block"
+        expect(ordinary_dialog).to_be_visible()
+        expect(page.locator("[data-command-palette]")).not_to_have_attribute("data-command-palette-enhanced")
+        expect(page.locator("[data-command-palette-dialog]")).to_be_hidden()
+        expect(page.locator("[data-command-palette-query]")).to_be_hidden()
+        expect(page.locator("[data-command-palette-close]")).to_be_hidden()
+        expect(page.locator("#command-palette-hint")).to_be_hidden()
+        expect(page.locator("[data-command-palette-launcher]")).to_be_hidden()
+        fallback = page.locator("[data-command-palette-fallback]")
+        expect(fallback).to_be_visible()
+        fallback.locator("summary").click()
+        expect(fallback.locator("p")).to_be_visible()
+        expect(fallback.locator("p")).to_contain_text("Use the primary navigation above")
+        browse = page.locator('[data-nav-primary="browse"]')
+        href = browse.get_attribute("href")
+        expect(browse).to_be_visible()
+        browse.click()
+        page.wait_for_url(ORIGIN + href)
+        assert any(request["method"] == "GET" and request["url"] == ORIGIN + href for request in requests)
+        expect(page.locator("[data-command-palette-dialog]")).to_be_hidden()
 
 
 @pytest.mark.parametrize("width", [320, 375, 640, 768, 1024, 1280, 1366, 1920])

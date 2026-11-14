@@ -22,6 +22,7 @@
     overflow-wrap: anywhere;
 }
 .command-palette__dialog {
+    display: none;
     box-sizing: border-box;
     inline-size: min(36rem, calc(100vw - 2rem));
     max-inline-size: calc(100vw - 2rem);
