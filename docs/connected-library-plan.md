@@ -197,7 +197,7 @@ connections, production access, push or deployment. None of the following is
 implemented or accepted by this research. Existing F/R/X requirements, ME7 and
 their safety blockers remain intact.
 
-The source comparison used **`f637f475`**, including the feature registry,
+The initial source comparison used **`f637f475`**, including the feature registry,
 schema, services, routes, templates and browser assets, alongside the official
 public documentation linked below, accessed **2026-11-14**. **Extend** means a
 missing subcapability of an existing feature; **Gap** means no implementation
@@ -211,6 +211,12 @@ F1/F2 work, **P2** after the relevant foundations, **P3** optional/later. They d
 not outrank unresolved safety/recovery gates or authorise a new implementation
 lane. Reuse the existing server-rendered architecture and account/device
 preference design; do not create another saved-view, alert or import platform.
+
+The operator's follow-up “anything else?” prompted a second source pass against
+**`36fc4423`**. It adds RF11–RF13 and sharpens RF8/ME2 below, rather than
+rediscovering existing locations, scanning, missing/found tracking or CSV reports.
+The same research/list-only authority applies; no further connector support,
+implementation or operational acceptance is implied.
 
 #### Functional and visual candidates
 
@@ -226,6 +232,32 @@ preference design; do not create another saved-view, alert or import platform.
 | RF8 · P2 · F8/R1/X3 · Extend | **Standards-based metadata/list exchange:** select useful codecs such as RIS/BibTeX/CSL JSON, then separately assess CBL lists and NFO metadata. Publish supported fields and loss/exclusion reports; preview identity matches, preserve manual edits and safely parse bounded data without executing templates, external XML entities or imported actions. Keep personal watched/progress data opt-in. Assess formats individually, not a promise to deliver every codec or a replacement for full backup | [CSV](../app/routers/items_csv.py), [portable ZIP/JSON](../app/services/archive.py), [typed API schemas](../app/api_v1_schemas.py) and [internal JSON-LD extraction](../app/services/shop_metadata.py) already exist. Missing user-facing codecs extend them. References: [Zotero formats](https://www.zotero.org/support/dev/data_formats), [Komga CBL matching](https://komga.org/docs/guides/readlists/#import-read-lists-from-comicrack), [Jellyfin NFO](https://jellyfin.org/docs/general/server/metadata/nfo) |
 | RF9 · P3 · F2/F6/X5 · Gap | **Optional spoiler/advisory presentation:** separate content advisories and spoiler-marked descriptions/episode details with explicit reveal and account preferences. Reuse typed metadata where appropriate; keep private notes private. Define behaviour in search previews, assistive announcements, shares and exports. This is a presentation choice, not parental controls or a substitute for server-side access restrictions | [Descriptions/catalogue notes](../app/templates/fragments/item_editor_common_fields.html) and [private notes](../app/templates/fragments/personal_library.html) exist; dedicated advisory/spoiler flags and reveal controls were not found. This is a source-derived candidate, not a claim of missing notes |
 | RF10 · P3 · F2/F1 · Gap | **Local “pick for me” discovery:** an optional random pick or transparent suggestions within the authorised, filtered catalogue, for example owned/unread items or a chosen list. Explain selection, offer another choice and leave status/history unchanged. Keep work bounded and personal taste local; no cloud AI, mandatory recommender service, automatic media launch or cross-account activity profiling | [Discover](../app/templates/discover.html) is an existing search surface; [Continue/Up Next](../app/services/personal_library.py) follows explicit personal state, not local recommendation ranking. No local random-pick route/control was found. [calibre's Library menu](https://manual.calibre-ebook.com/gui.html#library) includes a random-book action |
+| RF11 · P2 · F2/F5/X4 · Extend | **Find this exact physical copy:** open its existing room/bookcase/shelf path and highlight its saved position with nearby items, including a keyboard/text alternative. Choose the copy explicitly where several exist; an unknown position, missing mark or changed location must be explained, not presented as a verified physical sighting. Reuse native ordering, preserve return context and keep queries bounded and permission-scoped | [Hierarchical locations](../app/services/locations.py), [copy ordering](../app/services/location_order.py) and [Arrange](../app/templates/location_order.html) already exist. [Item copy links](../app/templates/fragments/item_copies.html) currently open location-filtered Browse and show position as text; a targeted locator/highlight flow was not found in those views or [their script](../static/js/location-order.js). This is a source-derived UX extension, not a new floor-plan/location engine |
+| RF12 · P2 · F5/F8/X1/X3 · Extend | **Sale, donation and disposal history:** record when and why a particular copy left the collection, with optional price/evidence, without purging its identity, acquisition record or personal reading history. Define possession/availability/counts, active-loan conflicts, correction/undo and backup/export behaviour before implementation. Keep recipient/financial details permission-scoped; source refresh must not silently reacquire a disposed copy. This is a collection ledger, not a sales/payment service | [Copy management](../app/services/item_copies.py) currently removes copies through reversible Trash; [copy fields](../app/templates/fragments/item_copy_edit.html) cover condition/acquisition/provenance, while audits already track missing/found. No dedicated disposal-event ledger was found in the checked schema/routes/services. [Collections Trust disposal information](https://collectionstrust.org.uk/resource/disposal-information/) illustrates date/method/reason/price linked to an object; it is a recordkeeping reference, not a requirement for museum procedures or a compliance claim |
+| RF13 · P3 · F5/F6/F8 · Gap | **Boxed-set and accessory completeness:** a per-copy checklist for expected discs, booklets, manuals, slipcases or inserts, recording present/missing/unknown and optionally linking RF6 evidence. Distinguish edition expectations from the contents of each owned copy; connect any lending/return review without replacing its existing ledger. Missing parts must not delete a catalogue item, create duplicate ownership counts or merge unrelated titles. Include child-state preservation in X1/X3/F8 | Existing [series completeness](../app/routers/series.py), physical copies and `music_media`/`music_tracks` in [the schema](../app/database.py) are not physical contents checklists for individual copies. No such model/control was found in checked copy/schema/editor surfaces. [Snipe-IT's versioned component/accessory concepts](https://snipe-it.readme.io/v8.3.6/docs/overview) are a modelling comparison only, not a promised integration or a reason to turn Shelf into an enterprise asset system |
+
+#### Second-pass refinements to existing candidates
+
+- **RF8/F8 — reusable CSV mappings and an import review workbench:** preserve
+  the existing [known-format detection/normalisers](../app/services/reading_imports.py),
+  duplicate safeguards and [row errors/dropped-column reports](../app/routers/items_csv.py).
+  Add user-defined named column mappings, sample-row review and a before-apply
+  summary of proposed adds/updates/skips/restores/Trash changes. Make unmapped
+  values visible, offer a protected full row-result report and a reviewed retry
+  of failed rows without duplicating successful changes. Revalidate mappings,
+  permissions and stale item state at apply; no executable transformations or
+  silent weakening of current import rules. Existing archive staging is not a
+  CSV preview/profile system. [Libib field alignment](https://support.libib.com/libib/website/add-items.html#field-alignment)
+  demonstrates the mapping/preview interaction, not Shelf compatibility or a
+  reason to copy Libib's overwrite/identifier policies.
+- **ME2/F2/X4 — efficient edit/review sessions:** add Previous/Next and explicit
+  Save and next within a bounded, authorised result/selection, preserving filters,
+  page/scroll and return focus. Warn before abandoning unsaved input; handle stale
+  or inaccessible items without silently applying a draft to a different item.
+  Extend the requested common editor, not another editing surface. The current
+  [full-page editor](../app/templates/item_edit.html) is a fallback, not this
+  sequential workflow; [calibre's metadata editor](https://manual.calibre-ebook.com/metadata.html#editing-the-metadata-of-many-books-at-a-time)
+  documents Previous/Next as a useful comparison.
 
 #### Integration feasibility candidates
 
@@ -324,6 +356,10 @@ Browse and administrative/bulk Browse are not replaced or weakened by this list.
   alerts and series release radar are existing optional capabilities recorded in
   [the feature registry](../app/features.py). RF6/RF7 add attachments and account
   notification state, not those systems.
+- Hierarchical locations, physical shelf positions, [scan-based copy moves](../app/routers/items_scan_modes.py)
+  and [missing/found audit tracking](../app/services/audits.py) already exist.
+  RF11 adds a targeted locator experience; RF12 adds disposal events, not another
+  location, inventory, missing-item or Trash implementation.
 
 ### Acceptance rules for future work
 

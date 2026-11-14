@@ -139,7 +139,7 @@ approved. New English UI remains part of R9 convergence.
 ## Research intake (2026-11-14)
 
 The [canonical research additions](connected-library-plan.md#research-additions-2026-11-14)
-record **ten functional/visual candidates (RF1–RF10)** and **four integration
+record **thirteen functional/visual candidates (RF1–RF13)** and **four integration
 feasibility candidates (RI1–RI4)** following the operator's request to research
 and add useful gaps to the list. **No implementation, provider/app registration,
 account connection, production access, push or deployment is authorised by this
@@ -152,6 +152,11 @@ assessed integration feasibility on 2026-11-14. These are not tests or live-prov
 receipts; experimental work elsewhere was not certified by this survey. The plan
 holds the detailed source links, references, boundaries and uncertainties.
 
+The follow-up source pass against `36fc4423` adds RF11–RF13 and sharpens RF8/ME2
+after checking existing copy/location/import/editor behaviour and further public
+Libib, Collections Trust and versioned Snipe-IT documentation. This is additional
+research-only intake, not implementation or a new operational/test receipt.
+
 | Intake group | Extend existing ownership if selected | Dependency / current state |
 |---|---|---|
 | RF1 appearance/card metadata; RF2 command palette | F2/ME6 with X4/X5; coordinate RF1 with ME7 | Theme/display controls and palette proposed, not implemented; existing cards, Browse columns, shortcuts and cover-slider backlog retained. Reuse account/device preference rules |
@@ -159,8 +164,11 @@ holds the detailed source links, references, boundaries and uncertainties.
 | RF4 ordered mixed-media plans | F2/F6, then F7/R3 for collaboration | Existing My List, private progress and public collection/wishlist links are not missing. Curated ordering/collection UX is proposed; sharing cannot bypass access-design gates |
 | RF5 typed custom fields; RF6 receipt/evidence files | F5/F6 with F7/F8/X3 | New field-definition and attachment subcapabilities require permissions, central migration design, safe storage/parsing, retention and backup/export contracts. Copy condition/acquisition/provenance already exist |
 | RF7 inbox and notification preferences | F2/F3/R8 with F7 privacy | Reuse current ntfy/webhook sender and reminder/price/release features; durable account inbox/read state and preferences are proposed, not a second alert engine |
-| RF8 standard metadata/list codecs | F8/R1/X3 | Extend CSV import/export, staged archive imports and typed read-contract foundations; choose formats from actual samples, document loss/exclusions and test safe matching/round trips. Not every researched format is promised |
+| RF8 standard metadata/list codecs and CSV mapping/review | F8/R1/X3 | Extend CSV import/export, staged archive imports and typed read-contract foundations; add reusable column profiles and pre-apply/result review without claiming existing CSV staging or missing row-error reporting. Choose formats from actual samples, document loss/exclusions and test safe matching/round trips. Not every researched format is promised |
 | RF9 spoiler/advisory controls; RF10 local pick/suggestions | Optional later F2/F6/X5 and bounded F1 queries | Source-derived gaps, not missing notes or Up Next. No parental-access claims, cloud AI, shared taste profiling or automatic launch |
+| RF11 exact-copy shelf locator | F2/F5/X4 | Reuse hierarchical locations, copy positions and Arrange; add targeted highlighting/neighbour context with a text alternative. A saved location is not proof the copy is still there; handle unknown, moved and missing copies honestly |
+| RF12 sale/donation/disposal ledger | F5/F8/X1/X3 | Separate historical copy disposition from Trash, missing/found and personal reading history. Ownership/count/availability/loan conflicts, private details, correction and complete recovery need explicit design before implementation |
+| RF13 boxed-set/accessory checklist | Optional later F5/F6/F8 with RF6/X1/X3 | Per-copy physical contents are not series completeness or music track/disc metadata. Define expected/present/missing/unknown parts and preserve child state without duplicate ownership counts or automatic item merging |
 | RI1 Plex; RI2 Navidrome/OpenSubsonic | Source jobs/handoff/media hierarchy: F3/F4/F5 | Documented API surfaces warrant feasibility work only. Confirm operator use, named versions/auth, permissions, identity, safe credential transport, complete enumeration and credential-free handoff before selecting an adapter |
 | RI3 Trakt own-data import/observation | F4/F5/X3 with account/privacy design | Prefer a sufficient user export; API/app access, OAuth/token rotation, endpoint eligibility, consent and retention remain unqualified. No scrobbling or automatic personal-progress/history overwrite |
 | RI4 Playnite export intake | Existing game imports, ST1/F3/F4/X3 | Exporter/schema/version/sample and GUID handoff need validation. Direct GOG account enumeration is BLOCKED for lack of an established official public interface; no cookie/private-API/database-scraping substitute |
@@ -171,6 +179,11 @@ edition comparison strengthens **F5/F6**; clearer bulk scope/outcomes strengthen
 existing shared UI acceptance rather than opening a parallel redesign. KOReader
 metadata is parked as an F4/RF8 format/identity investigation, not working Kobo or
 device sync. These distinctions avoid duplicate projects.
+
+Previous/Next and Save and next refine **ME2/F2/X4** for a bounded editing
+session; they do not replace native editor fallback or its unsaved/stale-input
+protections. The follow-up does not add another location system, scanner,
+missing/found tracker, series checker or import engine.
 
 If a candidate is selected later, define its acceptance and access/backup/privacy
 dependencies before assigning implementation. Preserve native fallbacks, the
