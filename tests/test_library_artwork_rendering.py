@@ -11,7 +11,7 @@ import pytest
 
 from app import config, features, media_presentation
 from app.routers import library
-from app.services import library_artwork as artwork, library_catalog, media_cards
+from app.services import library_artwork as artwork, media_cards
 from tests.conftest import _insert_item
 from tests.test_library_artwork_sources import RECTANGLE, _context, _instrument, _row, _svg
 from tests.test_media_cards import _environment, _HTML
@@ -208,7 +208,7 @@ async def test_repeated_task_cancellation_drains_real_worker_fds_and_preserves_w
     loop = asyncio.get_running_loop()
     started, release = asyncio.Event(), threading.Event()
     live, opened, reads = _instrument(monkeypatch)
-    original_read = os_read = artwork.os.read
+    original_read = artwork.os.read
     failure = RuntimeError('deterministic physical worker failure')
 
     def controlled_read(descriptor, amount):

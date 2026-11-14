@@ -134,7 +134,8 @@ class _Text(str):
     __hash__, __eq__, __str__ = _Hostile.__hash__, _Hostile.__eq__, _Hostile.__str__
 
 
-@pytest.mark.parametrize('item_id', [0, -1, 2**63, True, False, '7', 7.0, None, _Hostile(), _Int(7)])
+@pytest.mark.parametrize('item_id', [0, -1, 2**63, True, False, '7', 7.0, None, _Hostile(), _Int(7)],
+                         ids=lambda value: type(value).__name__)
 def test_exact_positive_bounded_id_before_hash_equality_conversion(monkeypatch, item_id):
     prepared, _ = _prepare()
     live, opened, reads = _instrument(monkeypatch)
@@ -147,7 +148,8 @@ def test_exact_positive_bounded_id_before_hash_equality_conversion(monkeypatch, 
     '/covers/7.svg', '../7.svg', 'covers/../7.svg', 'covers/x/7.svg', 'covers\\7.svg',
     'https://example.invalid/7.svg', '//example.invalid/7.svg', 'data:image/svg+xml;base64,AAAA',
     'covers/%2f7.svg', 'covers/%252f7.svg', 'covers/7.svg?x', 'covers/7.svg#x', ' covers/7.svg',
-    'covers/7.svg\n', 'covers/é.svg', 'covers/' + 'x' * 129 + '.svg', 'covers/7.png'])
+    'covers/7.svg\n', 'covers/é.svg', 'covers/' + 'x' * 129 + '.svg', 'covers/7.png'],
+                         ids=lambda value: type(value).__name__)
 def test_reference_rejection_does_zero_artwork_io(monkeypatch, raw):
     prepared, _ = _prepare()
     live, opened, reads = _instrument(monkeypatch)
