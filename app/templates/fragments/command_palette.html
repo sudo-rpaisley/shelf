@@ -1,0 +1,30 @@
+{# Include once, outside the navigation and main. No destination registry or
+   catalogue data belongs here: the enhancement reads authorized rendered links.
+   Without JS/native-dialog support the disclosure explains the native fallback. #}
+<div class="command-palette app-shell no-print" data-command-palette>
+    <details class="command-palette__fallback" data-command-palette-fallback>
+        <summary>{{ _('Commands')|forceescape }}</summary>
+        <p>{{ _('Use the primary navigation above to browse destinations. Command search needs JavaScript and native dialog support.')|forceescape }}</p>
+    </details>
+    <button type="button" class="command-palette__launch" data-command-palette-launcher
+            aria-haspopup="dialog" aria-controls="command-palette-dialog" aria-expanded="false" hidden>{{ _('Commands')|forceescape }}</button>
+    <dialog id="command-palette-dialog" class="command-palette__dialog" data-command-palette-dialog
+            aria-labelledby="command-palette-title" aria-describedby="command-palette-hint"
+            data-search-label="{{ _('Search catalogue for “{query}”')|forceescape }}"
+            data-empty-label="{{ _('No commands match.')|forceescape }}"
+            data-count-label="{{ _('{count} commands available.')|forceescape }}">
+        <div class="command-palette__header">
+            <h2 id="command-palette-title">{{ _('Commands')|forceescape }}</h2>
+            <button type="button" class="command-palette__close" data-command-palette-close>{{ _('Close')|forceescape }}</button>
+        </div>
+        <p id="command-palette-hint">{{ _('Find a navigation destination or search the catalogue. Use arrow keys to choose, Enter to go, and Escape to close.')|forceescape }}</p>
+        <label for="command-palette-query">{{ _('Find a command')|forceescape }}</label>
+        <input id="command-palette-query" class="command-palette__query" data-command-palette-query
+               type="text" maxlength="200" autocomplete="off" spellcheck="false" autofocus
+               role="combobox" aria-autocomplete="list" aria-expanded="false"
+               aria-controls="command-palette-results">
+        <p class="command-palette__status" data-command-palette-status role="status" aria-live="polite" aria-atomic="true"></p>
+        <ul id="command-palette-results" class="command-palette__results" data-command-palette-results
+            role="listbox" aria-label="{{ _('Commands')|forceescape }}"></ul>
+    </dialog>
+</div>
