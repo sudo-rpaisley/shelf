@@ -1,6 +1,7 @@
 from pathlib import Path
 
 from app.services import upc
+from tests.test_item_editor_partials import EditorDOM
 
 
 UPC_A = "078073003501"
@@ -74,14 +75,34 @@ def test_upc_error_banners_are_rendered_by_item_edit_template():
     assert 'error == "upc_conflict"' in template
 
 
-def test_upc_camera_is_scan_only_and_reuses_shared_engine():
-    template = Path("app/templates/item_edit.html").read_text()
+def test_upc_camera_is_scan_only_and_reuses_shared_engine(_isolated_db, editor_client, db):
+    item_id = _item(db, upc_value=EAN_13)
+    db.commit()
+    response = editor_client.get(f"/item/{item_id}/edit", follow_redirects=False)
+    assert response.status_code == 200
+    dom = EditorDOM(response.text)
     source = Path("static/js/item_edit.js").read_text()
-    assert "data-upc-editor" in template
-    assert 'x-data="upcCamera"' in template
-    assert 'field("upc", _("UPC / EAN"), item.upc' in template
-    assert 'id="edit-upc-camera-reader"' in template
-    assert 'id="edit-upc-zxing-video"' in template
+    camera = dom.form.one("div", **{"x-data": "upcCamera"})
+    assert "data-upc-editor" in camera.attrs
+    control = camera.one("input", id="upc", name="upc")
+    assert control.attrs["type"] == "text"
+    assert control.attrs["placeholder"] == "UPC-A or EAN-13"
+    assert control.attrs["value"] == EAN_13
+    assert camera.one("label", **{"for": "upc"}).text.strip() == "UPC / EAN"
+    for action in ("startCamera()", "stopCamera()"):
+        assert camera.one("button", **{"@click": action}).attrs["type"] == "button"
+    overlay = camera.one("div", **{"x-show": "cameraActive"})
+    assert overlay.attrs["style"] == "display:none"
+    assert overlay.one("div", id="edit-upc-camera-reader").attrs["x-show"] == "!isZxingFallback"
+    video = overlay.one("video", id="edit-upc-zxing-video")
+    assert video.parent.attrs["x-show"] == "isZxingFallback"
+    assert {"autoplay", "muted", "playsinline"} <= video.attrs.keys()
+    for src in (
+        "/static/vendor/html5-qrcode-2.3.8.min.js",
+        "/static/vendor/zxing-browser-0.1.5.min.js",
+        "/static/js/scanner-engine.js", "/static/js/item_edit.js",
+    ):
+        assert dom.root.one("script", src=src)
     assert "window.createBarcodeScanner" in source
     assert "edit-upc-camera-reader" in source
     assert "input.value = canonical" in source
