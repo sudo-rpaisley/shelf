@@ -62,7 +62,10 @@ def test_snapshot_wrapper_keeps_its_ordered_fresh_list_and_delegates_once(monkey
 def test_real_catalogue_uses_only_canonical_and_named_snapshot_helpers_not_index_foundations(db, viewer_client, monkeypatch):
     wanted = _insert_item(db, title="Café source", isbn=None, media_type="book")
     _insert_item(db, title="Cafe other", isbn=None, media_type="book")
-    source = db.execute("INSERT INTO source_instances (name, provider) VALUES ('Synthetic', 'opds')").lastrowid
+    source = db.execute(
+        "INSERT INTO source_instances (name, provider, base_url) "
+        "VALUES ('Synthetic', 'opds', 'https://books.example.test')",
+    ).lastrowid
     payload = json.dumps({"provider_ids": {"Tmdb": "7654321"}, "credentials": "never-search-this"})
     db.execute(
         "INSERT INTO source_records (source_id, item_id, external_id, title, media_type, metadata_json) "
