@@ -112,23 +112,19 @@
     <div class="mb-6">{% include "fragments/music_matching.html" %}</div>
     {% endif %}
 
-    <section>
+    <section data-testid="music-local-items">
         <div class="flex items-center justify-between gap-4 mb-3">
-            <h2 class="text-lg font-semibold">Your music</h2>
-            <span class="text-sm text-shelf-muted">{{ items|length }} shown</span>
+            <h2 class="text-lg font-semibold">{{ _('Your music')|forceescape }}</h2>
+            <span class="text-sm text-shelf-muted">{{ _('%(count)s shown', count=items|length)|forceescape }}</span>
         </div>
         {% if items %}
-        <div class="space-y-2">
+        <div class="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-6">
             {% for item in items %}
-            <a href="/music/item/{{ item.id }}" class="block bg-shelf-card border border-shelf-border rounded-lg px-4 py-3 hover:bg-shelf-hover">
-                <div class="flex items-center justify-between gap-4">
-                    <div class="min-w-0">
-                        <p class="font-medium">{{ item.title }}</p>
-                        <p class="text-xs text-shelf-muted mt-1">{% if item.authors %}{{ item.authors }} · {% endif %}{{ music_media_types.get(item.media_type, item.media_type) }}{% if item.release_date %} · {{ item.release_date }}{% elif item.publish_year %} · {{ item.publish_year }}{% endif %}{% if item.catalog_number %} · {{ item.catalog_number }}{% endif %}</p>
-                    </div>
-                    <span class="text-sm text-shelf-muted">View</span>
-                </div>
-            </a>
+            <div class="min-w-0 space-y-2">
+                {% set card = build_media_card(item, detail_href='/music/item/' ~ item.id) %}
+                {% include "components/media_card.html" %}
+                <p class="text-xs text-shelf-muted break-words">{{ [item.release_date or item.publish_year, item.catalog_number, item.format_summary]|select|join(' · ') }}</p>
+            </div>
             {% endfor %}
         </div>
         {% else %}

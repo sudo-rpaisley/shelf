@@ -120,44 +120,23 @@
         </section>
     </div>
 
-    <section>
-        <div class="flex items-center justify-between gap-4 mb-4">
-            <div>
-                <h2 class="text-lg font-semibold">Recently added</h2>
-                <p class="text-xs text-shelf-muted mt-1">The latest items to enter your catalogue.</p>
-            </div>
-            <a href="/browse?sort=newest" class="text-sm text-shelf-accent2 hover:text-shelf-accent">See more</a>
-        </div>
-
-        {% if recent_items %}
-        <div class="cover-grid" data-testid="home-recent-items">
-            {% for item in recent_items %}
-            <a href="/item/{{ item.id }}" class="group relative">
-                <div class="cover-card bg-shelf-card rounded-lg overflow-hidden border border-shelf-border group-hover:border-shelf-accent/50 transition-colors shadow-lg" data-cover-shape="{{ cover_shape(item.media_type) }}">
-                    {% if item.wishlisted %}
-                    <div class="absolute top-2 right-2 z-10 px-1.5 py-0.5 rounded-sm text-[10px] font-medium bg-shelf-warning/90 text-black shadow-sm">Wishlist</div>
-                    {% endif %}
-                    {% if item.cover_path %}
-                    <img src="/{{ item.cover_path }}" alt="{{ item.title }}" loading="lazy">
-                    {% else %}
-                    <div class="w-full h-full flex flex-col items-center justify-center p-4 text-center bg-linear-to-br from-shelf-card to-shelf-hover">
-                        <p class="text-shelf-text text-sm font-medium leading-tight mb-1">{{ item.title[:60] }}</p>
-                        {% if item.authors %}<p class="text-shelf-muted text-xs">{{ item.authors[:40] }}</p>{% endif %}
-                    </div>
-                    {% endif %}
-                </div>
-                <div class="mt-2">
-                    <p class="text-sm font-medium truncate">{{ item.title }}</p>
-                    <p class="text-xs text-shelf-muted truncate">{% if item.authors %}{{ item.authors }} · {% endif %}{{ media_type_labels.get(item.media_type, item.media_type) }}</p>
-                </div>
-            </a>
-            {% endfor %}
-        </div>
-        {% else %}
-        <div class="bg-shelf-card border border-shelf-border rounded-lg p-5 text-sm text-shelf-muted">
-            No items yet. {% if user and user.role in ('admin', 'editor') %}<a href="/scan" class="text-shelf-accent2 hover:text-shelf-accent">Start scanning</a>.{% endif %}
-        </div>
+    {# Default mixed preview only: reuse the route's bounded eight rows/count.
+       No account shelf preferences or extra catalogue reads are implied. #}
+    {% set recent = namespace(cards=[]) %}
+    {% for item in recent_items %}
+        {% set recent.cards = recent.cards + [build_media_card(item, badges=(_('Wishlist'),) if item.wishlisted else ())] %}
+    {% endfor %}
+    {% set library_eligible = feature_on('connected_library') and nav_tabs|selectattr('key', 'equalto', 'library')|list %}
+    {% set shelf = MediaShelf(key='recent', title=_('Recently added'), items=recent.cards,
+        selector=(), has_more=total_count > recent_items|length,
+        view_more_href='/library?reset=1&view=items&sort=recent' if library_eligible else '/browse?sort=newest',
+        empty_label='No items yet.') %}
+    <div data-testid="home-recent-items">
+        {% include "fragments/media_shelf.html" %}
+        <p class="text-xs text-shelf-muted mt-2">{{ _('The latest items to enter your catalogue.')|forceescape }}</p>
+        {% if not recent_items and user and user.role in ('admin', 'editor') %}
+        <p class="text-sm mt-2"><a href="/scan" class="text-shelf-accent2 hover:text-shelf-accent">{{ _('Start scanning')|forceescape }}</a></p>
         {% endif %}
-    </section>
+    </div>
 </div>
 {% endblock %}

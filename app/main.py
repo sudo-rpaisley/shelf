@@ -838,6 +838,10 @@ templates.env.globals["source_label"] = source_label
 # Each cover's box shape per media type — declared once in app/config.py, and
 # carried as data-cover-shape so one CSS rule squares every music cover.
 templates.env.globals["cover_shape"] = cover_shape
+# Pure presentation adapters only; callers retain all data and permission policy.
+from app.services.media_cards import MediaShelf, build_media_card
+templates.env.globals["build_media_card"] = build_media_card
+templates.env.globals["MediaShelf"] = MediaShelf
 # Browse's creator column and author sort option follow the Type filter.
 templates.env.globals["browse_creator_label"] = browse_creator_label
 # Browse's hx-include lists are derived, not written — see app/browse_filters.py.
