@@ -229,24 +229,43 @@ class TestHomeRecent:
     _RIBBON = 'text-black shadow-sm">Wishlist</div>'
 
     def test_recent_grid_badge_present_for_member(self, admin_client, db):
-        _insert_item(db, title="Home Wishlist Item", isbn="9780000000051", owned=0,
-                     wishlisted=True)
+        from tests.test_media_page_cards import _HTML
+
+        item_id = _insert_item(db, title="Home Wishlist Item", isbn="9780000000051", owned=0,
+                               wishlisted=True)
+        assert lists.is_member(db, lists.WISHLIST, item_id)
         db.commit()
 
-        html = admin_client.get("/").text
+        response = admin_client.get("/")
+        assert response.status_code == 200
+        html = response.text
         assert "Home Wishlist Item" in html
-        assert self._RIBBON in html
+        recent = _HTML(html).root.find(**{"data-testid": "home-recent-items"})
+        assert len(recent) == 1
+        cards = recent[0].find("article", cls="media-card", **{"data-item-id": str(item_id)})
+        assert len(cards) == 1
+        assert [badge.text for badge in cards[0].find(cls="media-card__badge")] == ["Wishlist"]
 
     def test_recent_grid_badge_absent_for_bare_row(self, admin_client, db):
-        db.execute(
+        from tests.test_media_page_cards import _HTML
+
+        item_id = db.execute(
             "INSERT INTO items (title, media_type, owned, source) "
             "VALUES ('Home Bare Item', 'book', 0, 'test')"
-        )
+        ).lastrowid
+        assert db.execute("SELECT owned FROM items_live WHERE id = ?", (item_id,)).fetchone()["owned"] == 0
+        assert not lists.is_member(db, lists.WISHLIST, item_id)
         db.commit()
 
-        html = admin_client.get("/").text
+        response = admin_client.get("/")
+        assert response.status_code == 200
+        html = response.text
         assert "Home Bare Item" in html
-        assert self._RIBBON not in html
+        recent = _HTML(html).root.find(**{"data-testid": "home-recent-items"})
+        assert len(recent) == 1
+        cards = recent[0].find("article", cls="media-card", **{"data-item-id": str(item_id)})
+        assert len(cards) == 1
+        assert [badge.text for badge in cards[0].find(cls="media-card__badge")] == []
 
 
 class TestSeriesPage:
