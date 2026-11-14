@@ -41,6 +41,7 @@
    only for the enhanced narrow closed state, never in the no-JS fallback. */
 .media-navigation[data-nav-enhanced="true"][data-nav-menu-open="false"] .media-navigation__primary { display: none; }
 .media-navigation summary,
+.media-navigation__shell-button,
 .media-navigation__link {
     display: flex;
     align-items: center;
@@ -58,6 +59,7 @@
     overflow-wrap: anywhere;
 }
 .media-navigation summary { list-style: none; cursor: pointer; }
+.media-navigation__shell-button { inline-size: 100%; border: 0; background: transparent; text-align: start; cursor: pointer; }
 .media-navigation summary::marker { content: ""; }
 .media-navigation summary::-webkit-details-marker { display: none; }
 /* An older cached app.css clips this label. Deleting its source rule is not
@@ -70,6 +72,8 @@
     clip-path: none;
 }
 .media-navigation summary:hover,
+.media-navigation__shell-button:hover,
+.media-navigation__shell-button[aria-expanded="true"],
 .media-navigation__link:hover,
 .media-navigation details[open] > summary {
     background: var(--color-shelf-hover, #242836);
@@ -88,6 +92,15 @@
 }
 .media-navigation__chevron { flex: 0 0 1rem; transition: transform 120ms ease; }
 .media-navigation details[open] > summary > .media-navigation__chevron { transform: rotate(180deg); }
+.media-navigation__shell-button[aria-expanded="true"] > .media-navigation__chevron { transform: rotate(180deg); }
+/* Only the outer shell opts in. "checking" permits a transactional, rendered
+   closed-state probe; its native summary is not hidden until verified "ready".
+   Nested details retain their native content-visibility/collapse behavior. */
+@supports selector(details::details-content) and (content-visibility: visible) and (display: contents) {
+    .media-navigation__shell[data-nav-shell-button]::details-content { content-visibility: visible; display: contents; }
+    .media-navigation__shell[data-nav-shell-button]:not([open]) > .media-navigation__tree { display: none; }
+    .media-navigation__shell[data-nav-shell-button="ready"] > summary { display: none; }
+}
 .media-navigation__tree {
     /* The summary sits beside the real Browse anchor. Its in-flow content
        spans both equal grid columns, never a phone-width sideways flyout. */
@@ -113,6 +126,7 @@
 .media-navigation__top + .media-navigation__top { border-block-start: 1px solid var(--color-shelf-border, #2d3148); }
 .media-navigation__activity { display: flex; flex-wrap: wrap; align-items: start; gap: 0.125rem; max-inline-size: 100%; }
 .media-navigation__empty { padding: 0.625rem 0.875rem; color: var(--color-shelf-muted, #94a3b8); }
+.media-navigation__description { display: block; padding: 0 0.875rem 0.375rem; color: var(--color-shelf-muted, #94a3b8); font-size: 0.75rem; line-height: 1.5; }
 /* Unlike the ordinary menus, Explore is deliberately expanded IN FLOW. These
    explicit resets also undo the actual previously published dropdown rules. */
 .media-navigation .media-navigation__top.media-navigation__quick .media-navigation__panel {
@@ -145,10 +159,11 @@
     /* Native closed state survives mobile -> desktop resizing without JS.
        Hide its opener only after enhancement and while the shell is open. */
     .media-navigation[data-nav-enhanced="true"] .media-navigation__shell[open] > .media-navigation__shell-toggle { display: none; }
+    .media-navigation[data-nav-enhanced="true"] .media-navigation__shell[open] > .media-navigation__shell-button { display: none; }
     .media-navigation__tree { display: flex; flex-wrap: wrap; align-items: center; gap: 0.125rem; inline-size: auto; margin: 0; padding: 0; max-block-size: none; overflow: visible; }
     .media-navigation__top, .media-navigation__family { position: relative; flex-shrink: 0; }
     .media-navigation__activity { align-items: center; flex-shrink: 0; }
-    .media-navigation summary, .media-navigation__link { gap: 0.25rem; padding-inline: 0.5rem; }
+    .media-navigation summary, .media-navigation__shell-button, .media-navigation__link { gap: 0.25rem; padding-inline: 0.5rem; }
     .media-navigation__quick { flex-shrink: 1; min-inline-size: 0; max-inline-size: 100%; }
     /* Native details exposes its summary and content as the two grid cells;
        the links remain in flow and wrap when text is enlarged. */
