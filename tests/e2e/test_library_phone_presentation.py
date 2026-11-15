@@ -375,20 +375,61 @@ def test_all_native_formats_images_unknowns_and_placeholders_keep_one_outer_curv
 
 
 def _focus_decorations(member):
-    decorations = """node => [node,node.querySelector('.media-card'),node.querySelector('.media-card__detail'),node.parentElement]
-        .map(n=>{const s=getComputedStyle(n),r=n.getBoundingClientRect();return {outline:s.outlineStyle,width:parseFloat(s.outlineWidth),
-            color:s.outlineColor,shadow:s.boxShadow,border:s.borderTopStyle,borderWidth:parseFloat(s.borderTopWidth),
-            borderColor:s.borderTopColor,left:r.left,top:r.top,right:r.right,bottom:r.bottom};})"""
-    return member.evaluate(decorations)
+    return member.evaluate(r"""node => {
+        // Let this browser resolve computed CSS colors (including non-RGB color
+        // spaces) and alpha. No string spelling is evidence that a cue paints.
+        const canvas=document.createElement('canvas');canvas.width=canvas.height=1;
+        const context=canvas.getContext('2d');
+        const rgba=color=>{context.clearRect(0,0,1,1);context.fillStyle='transparent';
+            context.fillStyle=color;context.fillRect(0,0,1,1);return [...context.getImageData(0,0,1,1).data];};
+        const shadow=value=>{
+            // Deliberately finite CSSOM grammar: ONE centered, unblurred outset
+            // ring. Inset, offset, blur, multiple/unknown shadow forms fail closed.
+            const m=value.match(/^([a-z-]+\([^()]*\)) (-?[\d.]+)px (-?[\d.]+)px (-?[\d.]+)px (-?[\d.]+)px$/i);
+            return m ? {color:rgba(m[1]),x:Number(m[2]),y:Number(m[3]),blur:Number(m[4]),spread:Number(m[5])} : null;
+        };
+        return [node,node.querySelector('.media-card'),node.querySelector('.media-card__detail'),node.parentElement]
+            .map(n=>{
+                const s=getComputedStyle(n),r=n.getBoundingClientRect();let opacity=1,visible=true,unclipped=true;
+                for(let a=n;a;a=a.parentElement){const c=getComputedStyle(a);opacity*=Number(c.opacity);
+                    visible=visible && c.visibility==='visible' && c.display!=='none';
+                    unclipped=unclipped && c.overflowX==='visible' && c.overflowY==='visible' &&
+                        c.clipPath==='none' && c.maskImage==='none' && c.filter==='none';}
+                return {left:r.left,top:r.top,right:r.right,bottom:r.bottom,opacity,visible,unclipped,
+                    outline:{style:s.outlineStyle,width:parseFloat(s.outlineWidth),offset:parseFloat(s.outlineOffset),color:rgba(s.outlineColor)},
+                    shadow:shadow(s.boxShadow),shadowText:s.boxShadow,
+                    borders:['Top','Right','Bottom','Left'].map(side=>({style:s['border'+side+'Style'],
+                        width:parseFloat(s['border'+side+'Width']),color:rgba(s['border'+side+'Color'])}))};
+            });
+    }""")
 
 
 def _enclosing_focus(before, after, member):
+    """Conservative finite paint cues, not a general CSS/contrast or AT engine.
+
+    Admit only unclipped solid outlines outside the box, four solid border sides,
+    or one hard centered outset ring. The SAME visible cue must change on focus;
+    a changed transparent shadow cannot turn a static border/outline into focus.
+    """
     enclosing = []
     for old, new in zip(before, after, strict=True):
-        painted = ((new["outline"] not in {"none", "hidden"} and new["width"] > 0 and new["color"] != "rgba(0, 0, 0, 0)")
-                   or new["shadow"] != "none" or (new["border"] not in {"none", "hidden"} and new["borderWidth"] > 0))
-        changed = any(new[key] != old[key] for key in ("outline", "width", "color", "shadow", "border", "borderWidth", "borderColor"))
-        if painted and changed and new["left"] <= member["left"] + 1 and new["right"] >= member["right"] - 1 and new["top"] <= member["top"] + 1 and new["bottom"] >= member["bottom"] - 1:
+        if not (new["visible"] and new["unclipped"] and new["opacity"] > 0):
+            continue
+        if not (new["right"] > new["left"] and new["bottom"] > new["top"] and
+                new["left"] <= member["left"] + 1 and new["right"] >= member["right"] - 1 and
+                new["top"] <= member["top"] + 1 and new["bottom"] >= member["bottom"] - 1):
+            continue
+        outline, shadow = new["outline"], new["shadow"]
+        paints = {
+            "outline": (outline["style"] == "solid" and outline["width"] >= 1 and
+                        outline["offset"] >= 0 and outline["color"][3] > 0),
+            "borders": all(side["style"] == "solid" and side["width"] >= 1 and side["color"][3] > 0
+                           for side in new["borders"]),
+            "shadow": (shadow is not None and shadow["x"] == shadow["y"] == shadow["blur"] == 0 and
+                       shadow["spread"] >= 1 and shadow["color"][3] > 0),
+        }
+        if any(painted and (new[cue] != old[cue] or new["opacity"] != old["opacity"] or
+                           new["visible"] != old["visible"]) for cue, painted in paints.items()):
             enclosing.append(new)
     return enclosing
 
@@ -426,6 +467,24 @@ def test_actual_title_and_artwork_hit_the_one_native_link_with_enclosing_keyboar
     expect(page.get_by_role("heading", level=1)).to_have_text(VIDEO)
 
 
+def _suppress_fixture_focus_cues(page, member):
+    # Suppress ALL real anchor/member/ancestor cues, including pseudo-elements;
+    # an otherwise valid source outline must not rescue a bad fixture shadow.
+    page.add_style_tag(content="""*, *::before, *::after {
+        outline: none !important; box-shadow: none !important; border-color: transparent !important;
+        outline-offset: 0 !important; border-radius: 0 !important;
+    }""")
+    residual = member.evaluate("""node => {
+        const nodes=new Set([node,...node.querySelectorAll('*')]);
+        for(let n=node.parentElement;n;n=n.parentElement)nodes.add(n);
+        return [...nodes].flatMap(n=>[null,'::before','::after'].map(p=>getComputedStyle(n,p)))
+            .filter(s=>s.outlineStyle!=='none' || s.outlineOffset!=='0px' || s.borderRadius!=='0px' || s.boxShadow!=='none' ||
+                ['Top','Right','Bottom','Left'].some(side=>s['border'+side+'Color']!=='rgba(0, 0, 0, 0)'))
+            .map(s=>({outline:s.outline,shadow:s.boxShadow,border:s.borderColor}));
+    }""")
+    assert residual == [], residual
+
+
 @pytest.mark.parametrize("decoration", (
     "transparent-outset-shadow", "transparent-outline", "transparent-border", "top-border-only",
     "zero-outset-shadow", "inset-shadow", "offset-outset-shadow", "non-enclosing-outline",
@@ -436,20 +495,7 @@ def test_focus_oracle_rejects_nonpainting_or_non_enclosing_fixture(phone_library
     page = _open(phone_library)
     video = page.locator(f'[data-library-member="{phone_library["video"]}"]')
     link = video.locator(".media-card__detail")
-    # Suppress ALL real anchor/member/ancestor cues, including pseudo-elements;
-    # an otherwise valid source outline must not rescue a bad fixture shadow.
-    page.add_style_tag(content="""*, *::before, *::after {
-        outline: none !important; box-shadow: none !important; border-color: transparent !important;
-    }""")
-    residual = video.evaluate("""node => {
-        const nodes=new Set([node,...node.querySelectorAll('*')]);
-        for(let n=node.parentElement;n;n=n.parentElement)nodes.add(n);
-        return [...nodes].flatMap(n=>[null,'::before','::after'].map(p=>getComputedStyle(n,p)))
-            .filter(s=>s.outlineStyle!=='none' || s.boxShadow!=='none' ||
-                ['Top','Right','Bottom','Left'].some(side=>s['border'+side+'Color']!=='rgba(0, 0, 0, 0)'))
-            .map(s=>({outline:s.outline,shadow:s.boxShadow,border:s.borderColor}));
-    }""")
-    assert residual == [], residual
+    _suppress_fixture_focus_cues(page, video)
     selector = f'[data-library-member="{phone_library["video"]}"]'
     declarations = {
         "transparent-outset-shadow": "box-shadow: 0 0 0 2px transparent !important;",
@@ -477,6 +523,31 @@ def test_focus_oracle_rejects_nonpainting_or_non_enclosing_fixture(phone_library
     print(json.dumps(evidence, indent=2))
     (tmp_path / "focus-oracle-fixture.json").write_text(json.dumps(evidence, indent=2))
     assert enclosing == [], evidence
+    assert_page_clean(page)
+
+
+@pytest.mark.parametrize("cue,css", (
+    ("outset-shadow", "box-shadow: 0 0 0 2px oklch(85% .2 100 / .75) !important;"),
+    ("four-sided-border", "border: 2px solid rgb(250 220 80 / 75%) !important;"),
+))
+def test_focus_oracle_admits_finite_visible_changed_fixture_cues(phone_library, cue, css, tmp_path):
+    """Positive oracle fixtures, separate from the two unmodified real-link cases."""
+    page = _open(phone_library)
+    video = page.locator(f'[data-library-member="{phone_library["video"]}"]')
+    _suppress_fixture_focus_cues(page, video)
+    selector = f'[data-library-member="{phone_library["video"]}"]'
+    page.add_style_tag(content=selector + ":focus-within {" + css + "}")
+    before = _focus_decorations(video)
+    page.keyboard.press("Tab")
+    video.locator(".media-card__detail").focus()
+    expect(video.locator(".media-card__detail")).to_be_focused()
+    after = _focus_decorations(video)
+    member = video.evaluate("node => {const r=node.getBoundingClientRect();return {left:r.left,top:r.top,right:r.right,bottom:r.bottom};}")
+    enclosing = _enclosing_focus(before, after, member)
+    assert len(enclosing) == 1, {"before": before, "after": after}
+    colors = [after[0]["shadow"]["color"]] if cue == "outset-shadow" else [side["color"] for side in after[0]["borders"]]
+    assert all(0 < color[3] < 255 for color in colors), colors
+    (tmp_path / "focus-oracle-positive.json").write_text(json.dumps({"cue": cue, "before": before, "after": after}, indent=2))
     assert_page_clean(page)
 
 
