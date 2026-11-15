@@ -878,10 +878,18 @@ four unchanged complete phone journeys / 33.65 s**. The repaired unit rerun give
 **34 passed / one failed / 137.29 s**, with unchanged inputs/guards and zero
 attempts/errors/skips. The production delta receives bounded **SOURCE_REVIEW_CLEAR**
 at `2b5b596f`; standalone-series boundary coverage remains specifically requested.
-The remaining notice selector and mixed-font painted-order failures are under
-independent test review, not waived or treated as reasons to change global palette
-markup or fonts. A test-only corrective writer is adding focus-oracle negative
-controls and standalone-series preservation proof; its results remain pending.
+Independent follow-up review confirms that both remaining failures are test-oracle
+defects: notice enumeration includes palette-owned status outside Library, and
+equal rectangle tops are not a valid same-line criterion for different font sizes.
+It also finds a previously unreached document-wide heading ambiguity. Required
+corrections retain exact Library notice/text/ownership checks and every semantic
+metadata fragment in logical order, with negative controls for missing/duplicate/
+misowned notices and real visual reversals. No global palette or font change is
+justified. The test-only writer is also adding focus-visibility negatives and
+standalone-series preservation proof. All 60 case IDs and historical RED evidence
+remain preserved; newly reached assertions still need fresh qualification.
+Eleven offline/syntax checks pass on frozen `2b5b596f`, with all 942 inputs and
+guards unchanged and zero recorded attempts. Corrected-test results remain pending.
 
 All original tests remain unchanged and enabled. Fresh final source/test reviews,
 full union gates and separate original-navbar checks remain required before any
