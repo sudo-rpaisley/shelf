@@ -83,7 +83,7 @@
         {% for item in items %}<article class="rounded-xl bg-shelf-card border border-shelf-border p-4">{{ item_card(item) }}</article>{% endfor %}
     </div>
     {% elif result_kind == 'series' and series_results %}
-    <p class="text-xs text-shelf-muted">{{ _('Series are grouped by their local names, preserving punctuation and scripts. No remote series lookup is needed.')|forceescape }}</p>
+    {% if not _library_explanations_hosted %}<p class="text-xs text-shelf-muted">{{ _('Series are grouped by their local names, preserving punctuation and scripts. No remote series lookup is needed.')|forceescape }}</p>{% endif %}
     <div class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
         {% for series in series_results %}
         <article class="rounded-xl bg-shelf-card border border-shelf-border p-4" data-library-series="{{ series.key }}">

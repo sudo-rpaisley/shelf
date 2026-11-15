@@ -101,7 +101,7 @@ msgstr "ISBN/UPC"
 msgid "Tags"
 msgstr "Tag"
 
-#: app/browse_filters.py:227 app/templates/library.html:55
+#: app/browse_filters.py:227 app/templates/library.html:56
 msgid "Search"
 msgstr "Ricerca"
 
@@ -115,7 +115,7 @@ msgstr ""
 msgid "Source"
 msgstr "Origine"
 
-#: app/browse_filters.py:232 app/templates/library.html:118
+#: app/browse_filters.py:232 app/templates/library.html:119
 msgid "Sort"
 msgstr "Ordinamento"
 
@@ -283,7 +283,7 @@ msgstr "Periodici"
 
 #: app/nav.py:40 app/nav.py:61 app/nav.py:63 app/nav.py:65 app/nav.py:67
 #: app/nav.py:69 app/nav.py:71 app/nav.py:73 app/nav.py:243
-#: app/templates/library.html:4 app/templates/library.html:21
+#: app/templates/library.html:4 app/templates/library.html:22
 msgid "Library"
 msgstr "Biblioteca"
 
@@ -315,7 +315,7 @@ msgstr "Scopri"
 msgid "Stats"
 msgstr "Statistiche"
 
-#: app/nav.py:54 app/templates/home.html:13 app/templates/library.html:26
+#: app/nav.py:54 app/templates/home.html:13 app/templates/library.html:27
 msgid "My Activity"
 msgstr ""
 
@@ -334,7 +334,7 @@ msgid "Source progress"
 msgstr ""
 
 #: app/nav.py:60 app/templates/fragments/unsupported_title_search.html:6
-#: app/templates/home.html:93 app/templates/library.html:25
+#: app/templates/home.html:93 app/templates/library.html:26
 msgid "Sources"
 msgstr ""
 
@@ -342,7 +342,7 @@ msgstr ""
 msgid "Source repair"
 msgstr ""
 
-#: app/nav.py:64 app/templates/home.html:98 app/templates/library.html:27
+#: app/nav.py:64 app/templates/home.html:98 app/templates/library.html:28
 msgid "Needs Attention"
 msgstr ""
 
@@ -382,7 +382,7 @@ msgstr ""
 msgid "Explore"
 msgstr ""
 
-#: app/nav.py:335 app/templates/library.html:75
+#: app/nav.py:335 app/templates/library.html:76
 msgid "All media"
 msgstr ""
 
@@ -671,7 +671,7 @@ msgstr ""
 msgid "Individual items"
 msgstr ""
 
-#: app/routers/library.py:98 app/templates/library.html:79
+#: app/routers/library.py:98 app/templates/library.html:80
 msgid "Local series"
 msgstr ""
 
@@ -1262,7 +1262,7 @@ msgstr "Tutti"
 #: app/templates/fragments/item_card.html:7
 #: app/templates/fragments/item_row.html:51
 #: app/templates/fragments/library_results.html:27 app/templates/home.html:127
-#: app/templates/item_detail.html:66 app/templates/library.html:106
+#: app/templates/item_detail.html:66 app/templates/library.html:107
 msgid "Wishlist"
 msgstr "Lista desideri"
 
@@ -1866,7 +1866,7 @@ msgstr "Nessuna posizione"
 #: app/templates/browse.html:235
 #: app/templates/fragments/filter_counts_oob.html:27
 #: app/templates/fragments/library_results.html:26
-#: app/templates/library.html:101
+#: app/templates/library.html:102
 msgid "Owned"
 msgstr "Posseduti"
 
@@ -2341,7 +2341,7 @@ msgstr "Modifica"
 msgid "Add another like this"
 msgstr "Aggiungine un altro simile"
 
-#: app/templates/item_detail.html:330 app/templates/library.html:158
+#: app/templates/item_detail.html:330 app/templates/library.html:159
 msgid "Delete"
 msgstr "Elimina"
 
@@ -2490,33 +2490,38 @@ msgstr ""
 msgid "Groups use explicit format links only. Every live edition is shown, including editions that do not match your filters."
 msgstr ""
 
-#: app/templates/library.html:24
+#: app/templates/fragments/library_results.html:86
+#: app/templates/library.html:14
+msgid "Series are grouped by their local names, preserving punctuation and scripts. No remote series lookup is needed."
+msgstr ""
+
+#: app/templates/library.html:25
 msgid "Connected library"
 msgstr ""
 
 #: app/templates/fragments/cover_size_control.html:7
 #: app/templates/fragments/cover_size_panel.html:2
-#: app/templates/library.html:33
+#: app/templates/library.html:34
 msgid "Cover size"
 msgstr "Dimensione delle copertine"
 
-#: app/templates/library.html:44
+#: app/templates/library.html:45
 msgid "Library presets"
 msgstr ""
 
-#: app/templates/library.html:52
+#: app/templates/library.html:53
 msgid "Search your library"
 msgstr ""
 
-#: app/templates/library.html:54
+#: app/templates/library.html:55
 msgid "Title, creator, ISBN, UPC, ASIN, narrator, series, publisher, tag or external ID"
 msgstr ""
 
-#: app/templates/library.html:63
+#: app/templates/library.html:64
 msgid "Filters and display"
 msgstr ""
 
-#: app/templates/library.html:64
+#: app/templates/library.html:65
 #, python-format
 msgid "%(count)s active option"
 msgid_plural "%(count)s active options"
@@ -2528,117 +2533,117 @@ msgstr[1] ""
 #: app/templates/fragments/music_matching.html:70
 #: app/templates/fragments/music_matching.html:124
 #: app/templates/fragments/related_media_search.html:15
-#: app/templates/library.html:67 app/templates/music.html:4
+#: app/templates/library.html:68 app/templates/music.html:4
 #: app/templates/music.html:35
 msgid "Format"
 msgstr "Formato"
 
-#: app/templates/library.html:69
+#: app/templates/library.html:70
 msgid "All formats"
 msgstr ""
 
-#: app/templates/library.html:73
+#: app/templates/library.html:74
 msgid "Media family"
 msgstr ""
 
-#: app/templates/library.html:81
+#: app/templates/library.html:82
 msgid "All series"
 msgstr ""
 
-#: app/templates/library.html:86
+#: app/templates/library.html:87
 msgid "Holding source"
 msgstr ""
 
-#: app/templates/library.html:88
+#: app/templates/library.html:89
 msgid "All sources"
 msgstr ""
 
-#: app/templates/library.html:89
+#: app/templates/library.html:90
 msgid "disabled; cached"
 msgstr ""
 
-#: app/templates/library.html:90
+#: app/templates/library.html:91
 msgid "Selected source is unavailable"
 msgstr ""
 
-#: app/templates/library.html:93
+#: app/templates/library.html:94
 msgid "Availability"
 msgstr ""
 
-#: app/templates/library.html:98
+#: app/templates/library.html:99
 msgid "Catalogue ownership"
 msgstr ""
 
-#: app/templates/library.html:100
+#: app/templates/library.html:101
 msgid "Any ownership"
 msgstr ""
 
-#: app/templates/library.html:102
+#: app/templates/library.html:103
 msgid "Not owned"
 msgstr ""
 
-#: app/templates/library.html:103
+#: app/templates/library.html:104
 msgid "Neither owned nor wishlisted"
 msgstr ""
 
-#: app/templates/library.html:108
+#: app/templates/library.html:109
 msgid "Any wishlist state"
 msgstr ""
 
-#: app/templates/library.html:109
+#: app/templates/library.html:110
 msgid "On wishlist"
 msgstr ""
 
-#: app/templates/library.html:110
+#: app/templates/library.html:111
 msgid "Not on wishlist"
 msgstr ""
 
-#: app/templates/library.html:113
+#: app/templates/library.html:114
 msgid "View"
 msgstr ""
 
-#: app/templates/library.html:123
+#: app/templates/library.html:124
 msgid "Results per page"
 msgstr ""
 
-#: app/templates/library.html:131
+#: app/templates/library.html:132
 msgid "Apply filters"
 msgstr ""
 
-#: app/templates/library.html:132
+#: app/templates/library.html:133
 msgid "Clear filters"
 msgstr ""
 
-#: app/templates/library.html:133
+#: app/templates/library.html:134
 msgid "Ownership alone does not mean a physical copy is on a shelf."
 msgstr ""
 
-#: app/templates/library.html:140
+#: app/templates/library.html:141
 msgid "Personal saved views"
 msgstr ""
 
-#: app/templates/library.html:142
+#: app/templates/library.html:143
 msgid "Saved views belong to your account. Saving an existing name replaces its filters."
 msgstr ""
 
-#: app/templates/library.html:146
+#: app/templates/library.html:147
 msgid "View name"
 msgstr ""
 
-#: app/templates/library.html:149
+#: app/templates/library.html:150
 msgid "Save current view"
 msgstr ""
 
-#: app/templates/library.html:158
+#: app/templates/library.html:159
 #, python-format
 msgid "Delete saved view: %(name)s"
 msgstr ""
 
-#: app/templates/library.html:163
+#: app/templates/library.html:164
 msgid "No personal views saved yet."
 msgstr ""
 
-#: app/templates/library.html:164
+#: app/templates/library.html:165
 #, python-format
 msgid "Up to %(count)s saved views per account."
 msgstr ""
@@ -4615,10 +4620,6 @@ msgstr ""
 #: app/templates/fragments/library_results.html:72
 #, python-format
 msgid "%(formats)s live editions · %(matches)s matching — show other formats"
-msgstr ""
-
-#: app/templates/fragments/library_results.html:86
-msgid "Series are grouped by their local names, preserving punctuation and scripts. No remote series lookup is needed."
 msgstr ""
 
 #: app/templates/fragments/library_results.html:97

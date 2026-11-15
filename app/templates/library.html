@@ -11,6 +11,7 @@
         {% if filters.view != 'series' %}<p id="library-cover-size-description">{{ _('Percentages request a card size, not more cards per row. Small cards stop shrinking to keep text readable.')|forceescape }}</p>{% endif %}
         <p>{{ _('Availability uses local copies and cached source records, not a live connection check. All filters must match the same item; source and availability must match the same holding.')|forceescape }}</p>
         {% if result_kind == 'groups' and groups %}<p>{{ _('Groups use explicit format links only. Every live edition is shown, including editions that do not match your filters.')|forceescape }}</p>{% endif %}
+        {% if result_kind == 'series' and series_results %}<p>{{ _('Series are grouped by their local names, preserving punctuation and scripts. No remote series lookup is needed.')|forceescape }}</p>{% endif %}
     </div>
 </details>
 {%- endmacro %}
