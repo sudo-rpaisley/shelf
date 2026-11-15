@@ -20,9 +20,10 @@ authorised implementation work.
 
 **Subsequent operator instruction (2026-11-15):** push committed progress to
 `origin/new-test` as work proceeds. This supersedes the earlier local-only/no-push
-restriction, not the review or acceptance gates. The attempted push is currently
-blocked by missing GitHub authentication; the last confirmed remote remains
-`67461926`. No tag, Docker publication, deployment, Portainer change, provider
+restriction, not the review or acceptance gates. Repository-local Git configuration
+now reuses the existing GitHub CLI login; the first successful push advanced
+`new-test` from `67461926` to `6ea540f6`. No tag, Docker publication, deployment,
+Portainer change, provider
 account access or household/graph activation is authorised.
 
 Use coherent local commits, with independent review and relevant frozen-candidate
@@ -54,8 +55,8 @@ Implementation agents use isolated `swarm/20261113-*` and `swarm/20261114-*`
 branches/worktrees.
 The coordinator integrates their commits, resolves shared schema/registration
 changes, regenerates assets and runs combined gates. The current continuation is
-coordinator-owned; incremental pushes to `origin/new-test` are now authorised,
-but authentication is blocked. Workers do not push or deploy independently.
+coordinator-owned; incremental pushes to `origin/new-test` are authorised and
+authentication is working. Workers do not push or deploy independently.
 Worktrees are not production
 data directories and must never be seeded from the operator's live catalogue.
 
@@ -218,12 +219,13 @@ corrections; no global palette/font manipulation or original-test weakening was
 used. All 435 pre-integration primary test files, 459 D11 test files and the original
 185 unchecked acceptance entries remain exact. Historical failures remain recorded.
 
-This is bounded local source selection, **not whole-programme, ME1–ME7, AT, pinned
-runtime or provider acceptance**. Collection badges **10891 unit / 701 E2E** do not
+This is bounded source selection and experimental-branch publication, **not
+whole-programme, ME1–ME7, AT, pinned runtime or provider acceptance**.
+Collection badges **10891 unit / 701 E2E** do not
 claim full-suite passes. Core's same 50 REDs, artwork-recovery precommit RED,
 F1/RF3 indexing and scale, account-owned preferences/CAS, complete editing and
-operational gates remain open. Publication is still authentication-blocked at the
-last confirmed remote `67461926`; nothing was deployed or image-published.
+operational gates remain open. The qualified code is published through the
+confirmed `6ea540f6` push to `new-test`; nothing was deployed or image-published.
 
 ME2-A's source-grounded finite protocol v2 is recorded, independently cleared for
 design and ratified. No editor writer, new issuer, schema or expanded isolated-core

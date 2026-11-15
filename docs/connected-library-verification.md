@@ -954,10 +954,14 @@ all 10891/701 tests, AT or operational acceptance. Core's same 50 failures,
 artwork-recovery precommit failure, F1/RF3 scale/indexing, account CAS/preferences,
 editor and provider/IdP gates remain open. No programme completion is claimed.
 
-Incremental Git pushes to `origin/new-test` are now operator-authorised, but the
-actual attempt failed for missing GitHub authentication. Last confirmed remote:
-`67461926`. Local selection does not imply publication, deployment, a tag or Docker
-publication. Later documentation-only commits do not change the selected application
+Incremental Git pushes to `origin/new-test` are operator-authorised. Initial attempts
+failed because this repository did not use the existing GitHub CLI credential
+helper. Reusing that login through repository-local configuration restored access;
+the first successful push and remote-SHA check confirmed `67461926` → `6ea540f6`.
+The branch now tracks `origin/new-test`; no token was copied into the repository.
+This is Git publication, not deployment, a tag or Docker publication. Remote CI
+acceptance is not inferred from a push. Later documentation-only commits do not
+change the selected application
 commit or inherit a claim that tests ran on those documentation revisions.
 
 #### ME2-A protocol refinement — design ratified, no writer
