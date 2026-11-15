@@ -58,6 +58,23 @@ All **185** original acceptance checks remain unchecked; **F1–F8, R1–R10 and
 X1–X6 remain in scope**. No programme, pinned-runtime, live-provider, household or
 deployment acceptance follows from this documentation snapshot.
 
+### Qualified local UI selection (2026-11-15)
+
+Application `56d4a434` is now selected locally after bounded source/test reviews,
+fresh **2115 unit / 300 browser passes**, a separate **12 original-navbar passes**,
+eleven offline checks and independent final drift verification. It integrates
+commands, document-local cover sizing, exact-copy locating, native phone navigation,
+stable filter caption/status, bounded existing-local SVG compatibility and the
+explicit Library-only wrapping presentation. Both original phone journeys pass
+unchanged; all 60 presentation case IDs remain, with 30 additional oracle controls.
+
+All original **185** acceptance entries remain unchecked and byte-identical.
+Badges **10891 unit / 701 E2E** count collection, not full-suite passes. Account-owned
+preferences/CAS, complete editing, F1/RF3 persistent indexing/scale, core/recovery,
+AT, pinned runtime and provider/IdP acceptance remain open. This bounded selection
+does not complete ME1–ME7 or the programme. The last confirmed remote remains
+`67461926`; the authorised incremental push is authentication-blocked.
+
 ## Remaining library frontend work
 
 Consolidated on **2026-11-13** from the operator's full-library-frontend goals
@@ -82,11 +99,13 @@ limits; the research-only wording below records the earlier intake's authority,
 not a cancellation of this subsequent instruction. Feasibility research does not
 become working provider support by authorisation alone.
 
-Work remains local and proceeds in bounded, reviewed increments. Preserve all
+Work proceeds in bounded, reviewed increments. On 2026-11-15 the operator expressly
+authorised incremental Git pushes to `origin/new-test`; authentication is currently
+blocked. This supersedes the earlier no-push restriction only. Preserve all
 original acceptance tests and existing data/integrations/keys; keep shared-file
 integration and schema changes coordinated. This instruction does not authorise
 production access, provider-account connections/registration, household/graph
-activation, pushes, deployment or weakening database authority. Existing narrowly
+activation, tag/image publication, deployment or weakening database authority. Existing narrowly
 scoped core-repair contracts remain in force until separately revised.
 
 ### Operator media-experience refinements (2026-11-14)

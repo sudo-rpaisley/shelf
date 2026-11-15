@@ -891,10 +891,74 @@ remain preserved; newly reached assertions still need fresh qualification.
 Eleven offline/syntax checks pass on frozen `2b5b596f`, with all 942 inputs and
 guards unchanged and zero recorded attempts. Corrected-test results remain pending.
 
-All original tests remain unchanged and enabled. Fresh final source/test reviews,
-full union gates and separate original-navbar checks remain required before any
-UI primary selection.
-These local-font results do not close AT, pinned runtime or whole-programme gates.
+At that checkpoint, final source/test review and exact-candidate union gates were
+still required. The following checkpoint records their completion without erasing
+the earlier REDs or treating them as production defects when the oracle was wrong.
+
+#### Qualified and locally selected UI composition (2026-11-15)
+
+Corrective test range `977e0b2d` → `609bdc94` → `5a096d17` changes only the two new
+presentation modules. Independent **TEST_REVIEW_CLEAR** confirms the three P2
+oracle corrections and latent heading fix: notice ownership is scoped to Library
+while preserving palette accessibility status; only changed visible enclosing
+focus paint qualifies; every semantic metadata fragment participates in logical
+painted order, including wrapped series. Positive and negative controls exercise
+the actual helpers. All 60 D152 IDs remain enabled, plus 30 additional controls.
+Finite focus checking is not general CSS, contrast, occlusion or AT qualification.
+
+Final candidate **`56d4a434d86f1e54e3347017ce8a8a90b8a1c81c`**, tree
+`4857423b7021901592406b760693c4ad2d62b3ef`, composes the full corrected test range
+with source-cleared `2b5b596f` and current documentation. All application/static
+bytes match reviewed `2b`; both amended modules match reviewed `5a`. Central
+generation changes only the final README counts; CSS/SW/catalogues remain exact,
+with SW `va2d58145`. Badges **10891 unit / 701 E2E** are collection counts only.
+
+| Fresh exact-candidate gate | Result | Time |
+|---|---|---|
+| Full affected unit union | **2115 passed** | 1137.87 s |
+| Full affected browser union | **300 passed** | 785.71 s |
+| Original navbar, invoked separately | **12 passed** | 38.57 s |
+| Complete new unit module, separate run | **39 passed** | 27.54 s |
+| Complete new browser module, separate run | **51 passed** | 212.39 s |
+| Offline/syntax checks | **11 passed** | Recorded per command |
+
+JUnit identities exactly preserve the complete **2076 + 39** unit and **249 + 51**
+browser unions, not just their counts. The only previous D11 browser outcome
+changes are the three retained geometry failures becoming passes. The new modules
+are included in the wider unions; their separate runs are not additional cases.
+Original main-phone assertions through **1053**, SVG/Account through **962**, later
+leg and focused geometry are unchanged and pass. Every run retains all 942 inputs
+and both guards, with zero recorded external attempts, failures, errors or skips.
+
+Independent verification audited all 942 files in working copies/snapshot/archive,
+2650 completed-evidence files, the exact 63-path primary diff, raw commands/JUnit
+and review receipts. Its initial **BLOCKED** result concerned only a step limit
+before the last drift check. The subsequent read-only recheck completed **exit 0 /
+0.412 s** with empty diffs/untracked manifests and unchanged fingerprints, yielding
+**VERIFIED/READY_FOR_LOCAL_COORDINATOR_INTEGRATION**. No tests were rerun by that
+audit. The coordinator then fast-forwarded primary to the **exact qualified commit**;
+all 942 selected files/modes match the tested snapshot.
+
+All **435** pre-integration primary test files and **459** D11 files remain exact;
+the primary test delta is 26 additions. The original **185 unchecked / zero checked**
+acceptance entries retain SHA-256
+`22c09ed31970c42d3df07e995ce31435152354a4fbf87b32c58b06eeb9057bc7`.
+Protected core/model/search files are unchanged, isolated access modules remain
+absent/inactive, and `_IDENTIFIER_KEYS` remains delegated. Earlier prototype,
+missing-mode, source-counterexample, oracle and interim-fixture REDs remain retained.
+
+Evidence is frozen under `.temp/swarm-reviews/library-phone-final-56d4a43/`, with
+attributable receipts under `.temp/implementation-wave-20261114/`. These are local
+compatible Python 3.14.8/SQLite 3.53.4/native Chromium results—not pinned Python 3.12,
+all 10891/701 tests, AT or operational acceptance. Core's same 50 failures,
+artwork-recovery precommit failure, F1/RF3 scale/indexing, account CAS/preferences,
+editor and provider/IdP gates remain open. No programme completion is claimed.
+
+Incremental Git pushes to `origin/new-test` are now operator-authorised, but the
+actual attempt failed for missing GitHub authentication. Last confirmed remote:
+`67461926`. Local selection does not imply publication, deployment, a tag or Docker
+publication. Later documentation-only commits do not change the selected application
+commit or inherit a claim that tests ran on those documentation revisions.
 
 #### ME2-A protocol refinement — design ratified, no writer
 

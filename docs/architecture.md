@@ -1609,6 +1609,15 @@ breakpoint and laptop/desktop widths, and optionally saves screenshots with
 `SHELF_LAYOUT_ARTIFACTS`. `test_responsive.py` retains its complementary
 interaction and breakpoint regressions.
 
+**Phone navigation keeps the native disclosure as its state.** The first child
+remains a native Summary without a replacement role. Progressive enhancement may
+insert a genuine second-child button inside that same Details; it toggles actual
+`details.open`, not a parallel menu state. New replacement-specific Summary hiding
+requires verified loaded-style/button readiness; failures retain the native opener.
+The existing desktop enhanced-and-open Summary rule remains distinct. The same
+authorised All-media anchor is presented as **Library**, with a noninteractive
+**All media** description and unchanged reset/items/recent destination.
+
 **The command palette is navigation, not an action interpreter.** The singleton
 `fragments/command_palette.html` sits outside the protected navbar and main page
 root. Its external script loads after `app.js`, without changing Alpine's load
@@ -1648,6 +1657,51 @@ Without JS the labelled controls are disabled with an explanation. Direct CSS
 also handles older Store-cached bundles without extending Store precaching.
 Density changes, enlargement above the original size and account-owned
 persistence/CAS are separate unfinished work.
+
+**Full Library pages explicitly opt into `phone-wrap-v1`.** The page and each
+member carry exact version markers; every card-formatting override requires both.
+Below 48rem, the real shared card becomes a block inside a contained wrapping
+member. Its immediate parent and ME7 width calculation stay unchanged. Artwork is
+30% of the already-sized card, capped at 6rem, with native ratios and contain;
+scale is not applied again. Titles, metadata, holdings, actions and recent order
+remain real, complete and in DOM order. Default shared cards and unversioned
+standalone HTML search fragments keep their original full-width artwork.
+
+The native **About this Library** disclosure hosts the applicable introductory,
+geometry, cached-availability, grouping and series explanations once. Live controls
+are beside, not inside, Help; the single geometry paragraph remains inside its
+labelled cover panel. Every `view=series`, including drilldowns, omits that panel
+and geometry advice. Only exact mode plus literal-True explanation ownership
+suppresses corresponding partial copies. Counts, notices, empty states and per-item
+availability stay outside Help. Search wraps before its input falls below 80px;
+no font reduction, ordering change or saved preference implements this layout.
+The Library-only stylesheet is both bundled and linked through the page head for
+older cached bundles, without extending Store precaching.
+
+**Filter caption and status have separate ownership.** The native Summary remains
+exactly **Filters and display**. One real translated option-count badge is inside
+the same Details but outside Summary, with a description reference only when the
+count is nonzero. Capability-scoped, versioned CSS exposes that status while hiding
+only the complete optional-controls body when closed. Old markup cannot match;
+unsupported styling retains native disclosure with the status readable when open.
+No JavaScript menu state, fabricated count or filter/default change is involved.
+
+**Existing local SVG compatibility is Library-HTML-only.**
+`services/library_artwork.py` validates a finite ASCII SVG grammar and issues
+request-local sources bound to the exact item ID/reference and captured bytes.
+The HTML producer prepares these only after its database context closes; no later
+mutable path fetch supplies the rendered image. Capture is bounded by 128 rendered
+rows, 32 attempts, 65,536 bytes per file, 262,144 total read bytes and 393,216 URI
+characters across render occurrences. Grammar/structure limits and descriptor-safe
+regular-file checks fail closed; unsupported files keep the existing placeholder.
+
+This capture boundary is native-Linux-only because cleanup relies on Linux's
+descriptor-consumption semantics. Cancellation, including inner-task shutdown,
+drains the physical worker before returning its result/error or cancellation.
+Metadata checks detect observed change, not an atomic filesystem snapshot or a
+slow-filesystem deadline. The raw card adapter's SVG rejection, raster markup,
+registry, JSON API, CSP, acquisition and original files remain unchanged. This is
+not an SVG sanitizer, new artwork acquisition path or portable SVG renderer.
 
 **Exact-copy locating is a read-only catalogue view.** The registered viewer GET
 `/item/{item_id}/copies/{copy_id}/locate` resolves that exact live pair, current

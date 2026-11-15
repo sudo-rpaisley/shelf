@@ -55,6 +55,16 @@ and Library reuse artwork cards that contain rather than crop the image. Recent
 grouping is not yet configurable per account, and editing still opens the existing
 full-page form rather than a pop-out editor.
 
+On phones, Library artwork sits beside naturally wrapping titles and metadata;
+the complete holdings and actions remain available and images keep their proportions.
+Open **About this Library** for catalogue, cover-size, cached-availability and
+grouping/series explanations. Search, presets and live controls stay outside Help.
+
+**Cover size** shrinks cards on the current page from 100% towards 50%, without
+adding columns or changing artwork proportions. Reload or navigation resets it;
+it is not an account preference. **Local series** has no cover-size controls or
+geometry guidance, including after opening a series' grouped-format drilldown.
+
 ### Groups are equivalent formats, not adaptations
 
 **Grouped formats** stacks editions connected by `format` links, including
@@ -76,6 +86,12 @@ independent: an imported digital holding need not be owned or wishlisted.
 An item's original import `source` is not evidence that it still has a holding.
 Search and quick presets stay visible when this disclosure is closed; closing
 it does not clear its selected filters. View, sort and page size are there too.
+
+The caption stays **Filters and display**; its separate active-option count includes
+nondefault display choices as well as filters. It is not a matching-item count.
+The normal individual-items/newest-first destination therefore has two active
+options. Supported styling shows the badge while closed; with older styling,
+open the disclosure to read it. Closing it never disables or clears those values.
 
 Two rules matter when combining filters:
 

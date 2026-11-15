@@ -18,10 +18,17 @@ feasibility gates. Earlier research-only passages remain historical attribution;
 they are not provider compatibility evidence or a prohibition on this newly
 authorised implementation work.
 
+**Subsequent operator instruction (2026-11-15):** push committed progress to
+`origin/new-test` as work proceeds. This supersedes the earlier local-only/no-push
+restriction, not the review or acceptance gates. The attempted push is currently
+blocked by missing GitHub authentication; the last confirmed remote remains
+`67461926`. No tag, Docker publication, deployment, Portainer change, provider
+account access or household/graph activation is authorised.
+
 Use coherent local commits, with independent review and relevant frozen-candidate
 checks before coordinator integration. Preserve original tests, data, keys and
 existing workflows. No production/provider-account access, app registration,
-household/graph activation, push, deployment or expansion of narrowly approved
+household/graph activation, deployment or expansion of narrowly approved
 core SQL authority follows from the continuation request. Blocked operational
 gates remain explicitly open rather than being marked complete.
 
@@ -47,14 +54,15 @@ Implementation agents use isolated `swarm/20261113-*` and `swarm/20261114-*`
 branches/worktrees.
 The coordinator integrates their commits, resolves shared schema/registration
 changes, regenerates assets and runs combined gates. The current continuation is
-**local-only**; a push needs separate operator authorisation. Workers do not push
-or deploy independently. Worktrees are not production
+coordinator-owned; incremental pushes to `origin/new-test` are now authorised,
+but authentication is blocked. Workers do not push or deploy independently.
+Worktrees are not production
 data directories and must never be seeded from the operator's live catalogue.
 
 | Lane | Backlog responsibility | Evidence state, not completion |
 |---|---|---|
-| Search | F1 indexing, ranking, bounded grouping/paging and scale measurements | Candidate/fix review; synthetic 31,200-record measurements |
-| Front door | F2 shelves, creators, collections, preferences, navigation and cover-size slider; ME1–ME7 | Frozen `916a4dd6` media composition: 1935 affected passes; dialog/preferences/browser/scale gates open; ME7 slider not yet implemented |
+| Search | F1 indexing, ranking, bounded grouping/paging and scale measurements | Pure search foundation selected; catalogue hydration, persistent indexing, ranking and bounded SQL/RAM acceptance remain open |
+| Front door | F2 shelves, creators, collections, preferences, navigation and cover-size slider; ME1–ME7 | Local `56d4a434` selection: 2115 unit / 300 browser / separate 12 navbar passes; page-only sizing, commands, locator and phone layout integrated; editor/account preferences/AT/pinned/scale gates remain open |
 | Source jobs | F3 scheduling, progress, retry/recovery and large-source boundaries | Streaming/lease integration and runtime verification open |
 | Handoff/progress | F4 preferred source and explicitly linked account progress | Next-batch integration; scheduled-pull acceptance open |
 | Media hierarchy | F5 works/editions/copies, music and source children | Atomic child hook prepared; production composition open |
@@ -79,6 +87,10 @@ data directories and must never be seeded from the operator's live catalogue.
 | Browser privacy | Account/library-scoped Store queues and navigation storage | Bounded error/abort source review clear; password/current-core Store/PWA open |
 
 ### First continuation wave (2026-11-14)
+
+The following records preserve earlier candidate-specific results. The
+2026-11-15 selection below supersedes their pending UI-selection labels, not
+their historical RED evidence or unrelated acceptance limits.
 
 Independent architecture and additive acceptance audits partitioned three active
 implementation lanes: a **page-only ME7 cover-size control**, **RF2 command
@@ -128,7 +140,7 @@ assumption is qualified without changing source/assertions; earlier setup errors
 and RED evidence remain retained. No original acceptance check is closed.
 
 The narrowly selected **pure search-helper foundation and reachable catalogue
-delegation** are now on primary at `0d448bcd`, after independent source review,
+delegation** entered primary at `0d448bcd`, after independent source review,
 **533 final passes** and seven offline checks. All original tests/acceptance bytes
 remain unchanged. This is not indexed F1/RF3 or a schema/SQL-authority grant;
 whole-catalogue hydration persists. Final-artwork recovery
@@ -187,6 +199,31 @@ Independent test review also requires rejecting transparent focus decorations in
 its oracle. Remaining oracle questions, reviews and final wider gates stay open.
 Original tests are unchanged; this is not overall acceptance or UI primary selection.
 Original tests remain unchanged and enabled; UI is still unselected.
+
+### Selected UI increment (2026-11-15)
+
+Primary now selects application **`56d4a434d86f1e54e3347017ce8a8a90b8a1c81c`**, by
+fast-forward to the exact independently verified tree. It composes the full
+reviewed palette, page-only sizing, exact-copy locator, native phone navigation,
+caption/status, validated local-vector and Library wrapping-presentation ranges.
+Fresh checks on that tree pass **2115 unit / 1137.87 s**, **300 browser / 785.71 s**,
+the separately invoked **12 original-navbar checks / 38.57 s**, and eleven
+offline/syntax checks. The complete original phone journeys and all three retained
+geometry regressions pass unchanged.
+
+The corrected presentation modules preserve all 60 original case IDs and add 30
+oracle/boundary controls: **39 unit / 51 browser cases**. Independent test review
+clears the owner-scoped notice/heading, visible-focus and all-fragment painted-order
+corrections; no global palette/font manipulation or original-test weakening was
+used. All 435 pre-integration primary test files, 459 D11 test files and the original
+185 unchecked acceptance entries remain exact. Historical failures remain recorded.
+
+This is bounded local source selection, **not whole-programme, ME1–ME7, AT, pinned
+runtime or provider acceptance**. Collection badges **10891 unit / 701 E2E** do not
+claim full-suite passes. Core's same 50 REDs, artwork-recovery precommit RED,
+F1/RF3 indexing and scale, account-owned preferences/CAS, complete editing and
+operational gates remain open. Publication is still authentication-blocked at the
+last confirmed remote `67461926`; nothing was deployed or image-published.
 
 ME2-A's source-grounded finite protocol v2 is recorded, independently cleared for
 design and ratified. No editor writer, new issuer, schema or expanded isolated-core

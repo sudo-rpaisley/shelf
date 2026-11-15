@@ -29,11 +29,17 @@ shrinks cards on the current page. Use the native slider, **Smaller**, **Larger*
 or **Reset**. The default is 100%; the smallest requested size is 50%. Rows and
 columns stay fixed, and a readable minimum can stop small cards shrinking before
 the requested percentage. This does not fit more cards into a row or change
-artwork proportions. Library's series thumbnails are not controlled.
+artwork proportions. Every Library **Local series** view, including a series
+drilldown, omits these controls.
 
 The choice is not saved: navigation or reload restores the default. No account
 preference or browser storage is written. JavaScript is needed to change it;
 without JavaScript the original card sizes remain usable.
+
+On phones, Library cards wrap their complete metadata beside proportional artwork.
+**About this Library** holds explanations without hiding search, presets or live
+controls. **Filters and display** keeps its stable caption and a separate count of
+active filter/display options; that count is not the number of matching items.
 
 On an item's physical-copy list, **Find this copy** opens the exact copy's saved
 location and a small window of catalogue neighbours. **Selected copy** identifies
