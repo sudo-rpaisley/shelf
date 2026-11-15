@@ -33,7 +33,7 @@
        rows only if the grid has five columns at lg and the last tile spans
        the gap at the narrower widths. #}
     {% set lending_tile = feature_on('lending') %}
-    <div class="grid grid-cols-2 sm:grid-cols-3 {{ 'lg:grid-cols-6' if lending_tile else 'lg:grid-cols-5' }} gap-4 mb-8" data-testid="home-summary">
+    <div class="grid grid-cols-2 sm:grid-cols-3 {{ 'lg:grid-cols-6' if lending_tile else 'lg:grid-cols-5' }} gap-4 mb-8" data-testid="home-summary" data-home-summary="reflow-v1" data-home-summary-wide="{{ '6' if lending_tile else '5' }}">
         <a href="/browse" class="bg-shelf-card border border-shelf-border rounded-lg p-5 hover:bg-shelf-hover transition-colors">
             <p class="text-shelf-muted text-sm">Catalogue</p>
             <p class="text-3xl font-bold">{{ total_count }}</p>
@@ -76,7 +76,7 @@
             <div class="space-y-3" data-testid="home-media-types">
                 {% for row in media_types %}
                 <a href="/browse?media_type_filter={{ row.media_type }}" class="block">
-                    <div class="flex justify-between text-sm mb-1">
+                    <div class="flex justify-between text-sm mb-1" data-home-mix-row="reflow-v1">
                         <span>{{ media_type_labels.get(row.media_type, row.media_type) }}</span>
                         <span class="text-shelf-muted">{{ row.item_count }}</span>
                     </div>

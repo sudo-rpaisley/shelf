@@ -9,6 +9,7 @@ from playwright.sync_api import expect
 
 from tests.e2e.conftest import assert_page_clean, attach_page_guard, insert_item
 from tests.e2e.test_connected_library import connected_library
+from tests.e2e.test_features import _open_features_tab
 from tests.e2e.test_cover_size_integration import _domain_snapshot
 from tests.e2e.test_responsive import _COLLAPSE
 
@@ -557,3 +558,63 @@ def test_touch_and_reduced_motion_keep_native_details_and_nonanimated_paging(aut
         assert_page_clean(page)
     finally:
         context.close()
+
+
+@pytest.mark.parametrize("kind", ("four-digit-counts", "long-unknown-format"))
+@pytest.mark.parametrize("lending", (True, False), ids=("lending-on", "lending-off"))
+def test_home_data_boundaries_keep_summary_text_readable_without_page_overflow(
+    connected_library, request, kind, lending, tmp_path,
+):
+    server, page = connected_library, connected_library["page"]
+    if not lending:
+        _open_features_tab(page, server["url"])
+        page.get_by_test_id("feature-toggle-lending").click()
+        expect(page.locator('[data-testid="feature-row-lending"] [data-feature-state="off"]')).to_be_visible()
+    _seed(server, "data-boundary", request)
+    unknown = "unknown" + "x" * 160
+    with sqlite3.connect(server["data_dir"] / "shelf.db") as db:
+        if kind == "four-digit-counts":
+            db.executemany("INSERT INTO items (title, media_type, owned, source) VALUES (?, 'book', 1, 'test')",
+                           ((f"Large owned collection {number}",) for number in range(1600)))
+            total, missing, types = 1636, 1600, 6
+        else:
+            db.execute("INSERT INTO items (title, media_type, owned, source) VALUES ('Unknown format', ?, 1, 'test')", (unknown,))
+            total, missing, types = 37, 1, 7
+    page.goto(server["url"] + "/", wait_until="load")
+    expected = [str(total), str(total), "0", *(["0"] if lending else []), str(missing), str(types)]
+    summary = page.get_by_test_id("home-summary")
+    counter_selector = ":scope > a > p:last-child, :scope > div > p:last-child"
+    hrefs = summary.locator("a").evaluate_all("nodes=>nodes.map(n=>n.getAttribute('href'))")
+    for text_size in (16, 32):
+        page.evaluate("size => document.documentElement.style.fontSize=size+'px'", text_size)
+        for width in (320, 375, 640, 768, 1024, 1280, 1366, 1920):
+            page.set_viewport_size({"width": width, "height": 1000})
+            expect(summary.locator(counter_selector)).to_have_text(expected)
+            assert summary.locator("a").evaluate_all("nodes=>nodes.map(n=>n.getAttribute('href'))") == hrefs
+            assert summary.locator('[data-testid="home-lent-out"]').count() == int(lending)
+            assert page.evaluate("document.documentElement.scrollWidth <= document.documentElement.clientWidth"), (kind, lending, text_size, width)
+            counters = summary.locator(counter_selector).evaluate_all("""nodes=>nodes.map(n=>{
+                const range=document.createRange();range.selectNodeContents(n);
+                const r=range.getBoundingClientRect(),tile=n.parentElement.getBoundingClientRect();
+                return {left:r.left,right:r.right,top:r.top,bottom:r.bottom,tileLeft:tile.left,tileRight:tile.right,
+                    tileTop:tile.top,tileBottom:tile.bottom,lines:range.getClientRects().length,font:parseFloat(getComputedStyle(n).fontSize)};
+            })""")
+            for counter in counters:
+                assert counter["font"] == pytest.approx(text_size * 1.875)
+                assert counter["lines"] == 1
+                assert counter["left"] >= counter["tileLeft"] and counter["right"] <= counter["tileRight"], counter
+                assert counter["top"] >= counter["tileTop"] and counter["bottom"] <= counter["tileBottom"], counter
+            if text_size == 16:
+                columns = summary.evaluate("n=>getComputedStyle(n).gridTemplateColumns.split(' ').length")
+                assert columns == (2 if width < 640 else 3 if width < 1024 else 6 if lending else 5)
+            if kind == "long-unknown-format":
+                row = page.locator('a[href="/browse?media_type_filter=' + unknown + '"]')
+                expect(row.locator("span").first).to_have_text(unknown)
+                expect(row.locator("span").last).to_have_text("1")
+                assert row.locator("span").first.evaluate("n=>n.scrollWidth<=n.clientWidth && n.scrollHeight<=n.clientHeight")
+                label_box, count_box = row.locator("span").first.bounding_box(), row.locator("span").last.bounding_box()
+                assert label_box["x"] + label_box["width"] <= count_box["x"]
+            if text_size == 32 and width == 375:
+                page.evaluate("window.scrollTo(0,0)")
+                page.screenshot(path=str(tmp_path / f"home-data-{kind}-lending-{lending}-375-200.png"), full_page=True)
+    assert_page_clean(page)

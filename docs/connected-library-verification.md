@@ -1072,8 +1072,8 @@ passed **18 unit / 11.89s** and **27 browser / 80.31s**. Source follow-up accept
 the application fix, but required proof that retained-wrapper tests really replace
 the old track. Marked-track removal plus canceled-swap negative controls now pass
 **two cases / 9.23s**. Independent final source/test follow-up returns
-**REVIEW_CLEAR**. Fresh clean frozen wider gates remain pending; no earlier
-density pass transfers.
+**REVIEW_CLEAR**. The first fresh frozen wider gates subsequently exposed the
+composed-data overflow recorded below; no earlier density pass transfers.
 
 Corrected 375/1366/1920 screenshots were inspected for concise captions and centered
 contained artwork. An initial 375px, 50%-density, 200%-text element capture had a
@@ -1089,6 +1089,29 @@ Home terminal test's up-to24 inventory assertion; its geometry, keyboard, link a
 order assertions remain. Collection badges **10931 / 755** are not passing-suite totals.
 No deployment, programme completion, pinned-runtime or live-provider acceptance is
 implied.
+
+Candidate `8a2f2891` remains **unselected / unpublished**: fresh **2188 unit /
+1079.95s** and separate **12 navbar / 35.58s** passed, but the composed browser
+band gave **352 passes / two failures / 847.06s**. All prior 327 browser case
+identities/outcomes passed; the two new enlarged-text checks found whole-Home
+overflow with accumulated catalogue counts. All 950 inputs/modes and guards stayed
+exact, with zero recorded attempts. Those passes do not qualify a later correction.
+
+Independent diagnosis and actual-Home probes identify four-digit summary counters
+escaping fixed phone tracks: 1600 extra owned rows produce 381px document width at
+a 375px viewport / 200% text. A long unknown format independently reaches 2611px.
+Original server teardown removes its session DB, so these are fresh synthetic
+reproductions, not a saved composed-server snapshot. Four isolated regressions
+reproduce both defects with Lending on/off, keeping both exposed assertions intact.
+The finite Home-only correction reflows complete summary tiles at a rem floor,
+retains normal 2/3/5-or-6 columns/fonts/numeric strings and prevents a two-track span
+when only one fits. Collection-mix labels wrap without hiding text or counts.
+Text-range bounds and eight-width / 200%-text checks now pass in **31 browser /
+99.86s**; separate affected units pass **202 / 97.07s**, including unchanged original
+Home feature-off/grid assertions. Independent v5 source/test review returns
+**REVIEW_CLEAR**. Corrected collection badges are **10931 / 759**. Fresh complete
+exact corrected-candidate gates remain required; no earlier pass transfers. No
+query/service/core or recent-card sizing change is involved.
 
 #### ME2-A protocol refinement — design ratified, no writer
 

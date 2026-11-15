@@ -1692,6 +1692,13 @@ Disconnected observed roots are released. Direct Home-only CSS also supports an
 older cached bundle; neither new asset extends Store precaching. No account
 preference, route, source access or database write implements this refinement.
 
+Home's parent summary also explicitly opts into `reflow-v1`: normal two/three/
+five-or-six column targets remain, but a rem floor lets enlarged counter text use
+fewer whole tiles without splitting numbers or reducing fonts. Its lending-off
+last tile stops spanning two tracks when only one fits. This Home-only geometry
+is separate from media-preview styling. Collection-mix labels wrap independently
+of their counts, including unknown stored type names; values and links are unchanged.
+
 **Full Library pages explicitly opt into `phone-wrap-v1`.** The page and each
 member carry exact version markers; every card-formatting override requires both.
 Below 48rem, the real shared card becomes a block inside a contained wrapping

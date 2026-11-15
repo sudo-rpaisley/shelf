@@ -1,4 +1,31 @@
 /* Home explicitly opts in. Library and legacy/shared card defaults stay intact. */
+/* Enlarged text must not let parent dashboard content overflow an otherwise
+   contained recent row. Keep normal 2/3/5-or-6 columns; reflow whole summary
+   tiles at a readable rem floor rather than clipping or splitting the numbers. */
+[data-home-summary="reflow-v1"] {
+    --home-summary-columns: 2;
+    --home-summary-gap: 1rem;
+    min-inline-size: 0;
+    grid-template-columns: repeat(auto-fill, minmax(min(100%, max(8rem, calc((100% + var(--home-summary-gap)) / var(--home-summary-columns) - var(--home-summary-gap)))), 1fr));
+    container-type: inline-size;
+    container-name: home-summary;
+}
+@media (min-width: 40rem) {
+    [data-home-summary="reflow-v1"] { --home-summary-columns: 3; }
+}
+@media (min-width: 64rem) {
+    [data-home-summary="reflow-v1"][data-home-summary-wide="5"] { --home-summary-columns: 5; }
+    [data-home-summary="reflow-v1"][data-home-summary-wide="6"] { --home-summary-columns: 6; }
+}
+/* The lending-off tile may span two normal tracks, but must never create an
+   implicit second track when text enlargement leaves room for only one. */
+@container home-summary (width < 17rem) {
+    [data-home-summary="reflow-v1"] > [data-testid="home-media-types"] { grid-column: auto; }
+}
+[data-home-mix-row="reflow-v1"] { gap: 0.5rem; }
+[data-home-mix-row="reflow-v1"] > span:first-child { min-inline-size: 0; overflow-wrap: anywhere; }
+[data-home-mix-row="reflow-v1"] > span:last-child { flex-shrink: 0; }
+
 [data-recent-shelf="streaming-v1"] { min-inline-size: 0; max-inline-size: 100%; }
 [data-recent-shelf="streaming-v1"] .recent-shelf__header {
     display: flex;
