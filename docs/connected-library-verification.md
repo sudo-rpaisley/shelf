@@ -849,10 +849,43 @@ selectors and shortcuts were actually reached and passed on this candidate.
 Separate retained checks pass **170 unit / 100.20 s**, **48 producer/caption/vector
 browser / 109.82 s**, and eleven offline/syntax checks, with all 940 inputs/guards
 exact and zero attempts/errors/skips. Independent review returns bounded
-**SOURCE_REVIEW_CLEAR** for `499ab86f`. A disjoint writer's two new explicit-mode
-test modules are still pending. Those tests must
-be composed without weakening assertions, regenerated and independently reviewed;
-fresh wider exact-candidate gates remain required before any UI primary selection.
+**SOURCE_REVIEW_CLEAR** for `499ab86f`.
+
+The independent test handoff `d152fd32` adds only the two assigned modules:
+**25 unit / 35 browser cases**, preserving all 939 base blobs/modes and 459 earlier
+test-tree files. Its complete missing-mode baseline remains recorded: **17 unit
+failed / eight passed**, **35 browser failed**, retained SVG/Account **five passed**,
+and the expected parent-owned stale-badge failure. These baseline failures did not
+qualify later assertions. Independent test review requires a stronger enclosing-focus
+oracle: a transparent shadow must not count as a painted cue. This is a test-oracle
+defect, not a demonstrated production focus defect.
+
+Parent `d6f7d89c` composes all 60 cases unchanged with source `499ab86f` and current
+documentation, then centrally regenerates. Badges now record collection **10877
+unit / 685 E2E**, not passes. The first exact-tree runs give **23 unit passed / two
+failed / 18.37 s** and **32 browser passed / three failed / 136.27 s**, all 942
+inputs/guards unchanged with zero attempts/errors/skips. Newly reached defects
+include series-index guidance remaining outside Help and the search input narrowing
+to 50px/79px at 320px/375px under 200% text.
+
+Bounded local repairs `eb48ff19` and `2b5b596f` move applicable series guidance
+once into Help, preserving the default standalone explanation, and make the native
+search row wrap before its input falls below 80px. No test assertions, shared
+components, navigation, catalogue semantics or SQL/kernel authority change.
+Focused checks pass **three series cases / 3.45 s** and **four enlargement plus
+four unchanged complete phone journeys / 33.65 s**. The repaired unit rerun gives
+**24 passed / one failed / 19.74 s** and the full new-browser rerun gives
+**34 passed / one failed / 137.29 s**, with unchanged inputs/guards and zero
+attempts/errors/skips. The production delta receives bounded **SOURCE_REVIEW_CLEAR**
+at `2b5b596f`; standalone-series boundary coverage remains specifically requested.
+The remaining notice selector and mixed-font painted-order failures are under
+independent test review, not waived or treated as reasons to change global palette
+markup or fonts. A test-only corrective writer is adding focus-oracle negative
+controls and standalone-series preservation proof; its results remain pending.
+
+All original tests remain unchanged and enabled. Fresh final source/test reviews,
+full union gates and separate original-navbar checks remain required before any
+UI primary selection.
 These local-font results do not close AT, pinned runtime or whole-programme gates.
 
 #### ME2-A protocol refinement — design ratified, no writer

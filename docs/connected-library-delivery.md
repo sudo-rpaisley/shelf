@@ -176,9 +176,16 @@ The reviewed finite mobile-layout contract is now implemented in a new, unselect
 prototype `499ab86f`. Both complete original phone journeys, the retained later-leg
 probe and focused geometry regression pass unchanged; the book heading is y=870.1875
 against y<900. Retained checks also pass **170 unit / 48 browser**, plus eleven
-offline/syntax checks and bounded source-review clearance. New mode-specific tests
-and final wider composition gates remain open. Original tests are unchanged; this is
-not overall acceptance or UI primary selection.
+offline/syntax checks and bounded source-review clearance. The two independent
+test modules now supply 25 unit/35 browser cases. Their first unchanged composition
+gives **23 unit passes / two failures** and **32 browser passes / three failures**.
+Two bounded source repairs address series Help ownership and enlarged search-input
+wrapping; four enlargement checks and all four retained phone journeys pass.
+Their production delta has source clearance; reruns give **24/25 unit and 34/35
+browser passes**, with the remaining failures under test-oracle review.
+Independent test review also requires rejecting transparent focus decorations in
+its oracle. Remaining oracle questions, reviews and final wider gates stay open.
+Original tests are unchanged; this is not overall acceptance or UI primary selection.
 Original tests remain unchanged and enabled; UI is still unselected.
 
 ME2-A's source-grounded finite protocol v2 is recorded, independently cleared for
