@@ -1086,11 +1086,13 @@ overlay; no navbar/styles are hidden. This is not AT qualification.
 The original 435 test files and 185 unchecked acceptance entries must remain exact.
 The sole permitted existing-test transition is the post-original
 Home terminal test's up-to24 inventory assertion; its geometry, keyboard, link and
-order assertions remain. Collection badges **10931 / 755** are not passing-suite totals.
+order assertions remain. At that checkpoint collection badges **10931 / 755**
+were not passing-suite totals.
 No deployment, programme completion, pinned-runtime or live-provider acceptance is
 implied.
 
-Candidate `8a2f2891` remains **unselected / unpublished**: fresh **2188 unit /
+Candidate `8a2f2891` was **held unselected and never pushed as the branch head**:
+fresh **2188 unit /
 1079.95s** and separate **12 navbar / 35.58s** passed, but the composed browser
 band gave **352 passes / two failures / 847.06s**. All prior 327 browser case
 identities/outcomes passed; the two new enlarged-text checks found whole-Home
@@ -1110,8 +1112,49 @@ Text-range bounds and eight-width / 200%-text checks now pass in **31 browser /
 99.86s**; separate affected units pass **202 / 97.07s**, including unchanged original
 Home feature-off/grid assertions. Independent v5 source/test review returns
 **REVIEW_CLEAR**. Corrected collection badges are **10931 / 759**. Fresh complete
-exact corrected-candidate gates remain required; no earlier pass transfers. No
-query/service/core or recent-card sizing change is involved.
+exact corrected-candidate qualification followed, rather than transferring any
+earlier pass. No query/service/core or recent-card sizing change is involved.
+
+Final exact-candidate qualification applies to
+**`1190397c34d978d20e5f25aa178dd500ebfcaa9d`**, tree
+`d206752dfc061bed7be1e83f1442735e2fc9c36f`:
+
+| Fresh gate | Result |
+|---|---|
+| Affected unit union | **2192 passed / 1084.74s**, exit 0 |
+| Affected browser union | **358 passed / 869.64s**, exit 0 |
+| Original navbar, separately invoked | **12 passed / 35.08s**, exit 0 |
+| Offline/syntax checks | Passed; private roadmap mapping unavailable, not accepted |
+
+Independent final verification returns **PASS_READY**: raw JUnit/commands/exits,
+all 950 source hashes/Git modes, HEAD/index/worktree/archive and all **206** sealed
+evidence files agree, without failures/errors/skips, missing files or drift.
+Guards remain exact with zero recorded external attempts. All previous
+**2137/327/12** identities/outcomes survive; every held-8a2 case now passes, including
+both formerly failing width assertions. Additional unit coverage is **18 new plus
+37 existing cases**, not 55 newly authored tests; there are **31 new browser cases**.
+
+All **435 original test files/modes** and the original acceptance SHA remain exact:
+**185 unchecked, zero checked**. Only the expressly permitted post-original Home
+inventory assertion transitions. Core reservation, service default eight, API stats
+zero-recent behavior and the search identifier alias remain unchanged. All ten
+fresh images were independently inspected; the Details crop matches its actual
+full-page bitmap, while the overlapping closed crop is not accepted alone as full
+readability evidence. The old 204-file RED packet stays sealed and unchanged.
+
+Evidence: `.temp/swarm-reviews/recent-shelf-final-1190397/`; manifest SHA-256
+`f609232c1b74b885ec47e43d788dafae6fa9e11d7f14f65913e50e0f3b4ba90b`.
+Primary fast-forwarded to the **exact qualified commit**, verified all 950 selected
+files/modes, then a non-forced `--no-follow-tags` push and remote-SHA check confirmed
+`origin/new-test` at `1190397c`. Later documentation revisions do not claim runtime
+tests reran on those revisions; publication is not deployment or inferred CI acceptance.
+
+These are compatible-local Python **3.14.8**, SQLite **3.53.4**, Playwright **1.65.1**
+(declared **1.52.0**) and native Chromium results—not pinned Python 3.12, the full
+**10931/759** collection, AT, provider, operational or programme qualification.
+Account preferences/CAS, complete editing, F1/RF3 scale/indexing, core's retained
+50 failures and artwork-recovery precommit failure remain open. No provider-account
+access, household activation, tag/image publication or deployment occurred.
 
 #### ME2-A protocol refinement — design ratified, no writer
 

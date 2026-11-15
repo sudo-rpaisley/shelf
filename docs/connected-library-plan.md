@@ -92,16 +92,22 @@ Badges **10913 unit / 728 E2E** count collection, not full-suite passes. Prefere
 above-default enlargement and the remaining programme/operational gates stay open;
 this is branch publication, not deployment or image publication.
 
-### Recently added refinement (2026-11-15, candidate)
+### Qualified Recently added refinement (2026-11-15)
 
 The operator requested streaming-site design research, a better-looking recent
-row and more items. A bounded Home-only candidate uses artwork-led compact
+row and more items. Published application **`1190397c`** uses artwork-led compact
 previews, native full Details, header navigation/View all and up to **24** additions.
 It preserves native artwork proportions, whole-item sizing and a genuine
 eight-item/no-JavaScript fallback. No new service, preference store or provider
-connection is involved. Independent design corrections are ratified; source/test
-review and fresh frozen qualification remain required before selection. Earlier
-whole-item passes do not transfer. See the [verification record](connected-library-verification.md#recently-added-refinement-2026-11-15).
+connection is involved. Fresh exact-candidate gates pass **2192 unit / 358 browser /
+separate 12 navbar**; independent final verification returns **PASS_READY** with all
+950 source files/modes and 206 evidence files exact. Original 435 tests and all
+185 unchecked acceptance entries remain unchanged. A composed-data overflow was
+fixed by reflowing Home summary tiles at enlarged text sizes, not shrinking fonts
+or weakening assertions. Earlier failed candidates remain recorded. Badges
+**10931 / 759** count collection, not full-suite passes. This is experimental-branch
+publication, not pinned-runtime, AT, provider, programme or deployment acceptance.
+See the [verification record](connected-library-verification.md#recently-added-refinement-2026-11-15).
 
 ## Remaining library frontend work
 

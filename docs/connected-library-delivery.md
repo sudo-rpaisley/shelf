@@ -63,7 +63,7 @@ data directories and must never be seeded from the operator's live catalogue.
 | Lane | Backlog responsibility | Evidence state, not completion |
 |---|---|---|
 | Search | F1 indexing, ranking, bounded grouping/paging and scale measurements | Pure search foundation selected; catalogue hydration, persistent indexing, ranking and bounded SQL/RAM acceptance remain open |
-| Front door | F2 shelves, creators, collections, preferences, navigation and whole-item sizing; ME1–ME7 | Published `f570b592`: 2137 unit / 327 browser / separate 12 navbar passes; document-local whole-item sizing/reflow, commands, locator and phone layout integrated; editor/account preferences/AT/pinned/scale gates remain open |
+| Front door | F2 shelves, creators, collections, preferences, navigation and whole-item sizing; ME1–ME7 | Published `1190397c`: 2192 unit / 358 browser / separate 12 navbar passes; artwork-led 24-item recent shelf plus retained whole-item sizing, commands, locator and phone layout; editor/account preferences/AT/pinned/scale gates remain open |
 | Source jobs | F3 scheduling, progress, retry/recovery and large-source boundaries | Streaming/lease integration and runtime verification open |
 | Handoff/progress | F4 preferred source and explicitly linked account progress | Next-batch integration; scheduled-pull acceptance open |
 | Media hierarchy | F5 works/editions/copies, music and source children | Atomic child hook prepared; production composition open |
@@ -263,7 +263,7 @@ Independent architecture, requirements, privacy and recovery audits accompany
 implementation. Additional reviewers/testers are assigned to completed
 candidates, not used as substitutes for implementation ownership.
 
-### Recently added refinement (2026-11-15, candidate)
+### Qualified Recently added refinement (2026-11-15)
 
 The operator's new screenshot-led request selects a Home-only streaming-style
 refinement: compact artwork-led captions with complete native Details, centered
@@ -271,9 +271,20 @@ native-ratio artwork, header View all/Previous/Next and up to **24** recent addi
 One existing bounded dashboard selection supplies eight real fallback cards and
 at most sixteen inert overflow cards; enhancement moves nodes without another
 catalogue request. No preference, service, registry, kernel or provider change is
-needed. Design corrections are ratified; independent source/test review and fresh
-frozen gates are still required. This does not inherit the density qualification
-or complete account grouping, ME1–ME7 or the programme.
+needed. Application **`1190397c34d978d20e5f25aa178dd500ebfcaa9d`** is selected and
+pushed after independent **PASS_READY** verification. Fresh gates pass **2192 unit /
+1084.74s**, **358 browser / 869.64s** and separately **12 original-navbar / 35.08s**;
+all prior case identities survive, with no failures/errors/skips or recorded
+external attempts. All 950 files/modes and 206 evidence hashes match. The failed
+parent's two composed-data overflow assertions are retained and now pass after a
+Home-only summary/mix wrapping correction; neither fonts nor tests were weakened.
+
+Original 435 tests and 185 unchecked acceptance entries remain exact. The only
+existing-test transition is the authorised post-original Home inventory assertion.
+Collection badges **10931 / 759** are not full-suite results. Qualification is
+compatible-local, not pinned runtime/AT/provider acceptance, and does not complete
+account grouping, ME1–ME7 or the programme. Publication is a non-forced branch push,
+not a deployment, tag or image publication; later factual docs are not runtime reruns.
 
 ## Non-negotiable integration decisions
 
