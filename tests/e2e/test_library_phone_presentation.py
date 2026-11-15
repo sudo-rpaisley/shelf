@@ -691,6 +691,100 @@ def test_new_direct_css_requires_both_markers_and_default_http_fragment_keeps_fu
         assert _box(member.locator("h3"))["y"] >= measured["art"]["bottom"] - 1
 
 
+def _semantic_field_fragments(member, labels):
+    fields = member.locator(".library-phone-facts").evaluate(r"""(facts,labels) => labels.map(label=>{
+        const roots=[...facts.children].filter(n=>n.textContent.replace(/\s+/g,' ').trim()===label);
+        const rects=[];
+        if(roots.length===1){
+            const walker=document.createTreeWalker(roots[0],NodeFilter.SHOW_TEXT);
+            for(let text=walker.nextNode();text;text=walker.nextNode()){
+                // Exclude whitespace, retain EVERY wrapped fragment in logical
+                // text/DOM order. Never sort the measured rectangles visually.
+                for(const word of text.textContent.matchAll(/\S+/gu)){
+                    const range=document.createRange();range.setStart(text,word.index);range.setEnd(text,word.index+word[0].length);
+                    for(const r of range.getClientRects())if(r.width>0 && r.height>0)
+                        rects.push({text:word[0],left:r.left,right:r.right,top:r.top,bottom:r.bottom,height:r.height});
+                }
+            }
+        }
+        return {label,bindings:roots.length,rects};
+    })""", labels)
+    assert len(fields) == len(labels) == 3
+    assert all(field["bindings"] == 1 and field["rects"] for field in fields), fields
+    return fields
+
+
+def _assert_painted_field_order(fields):
+    """LTR fragment order with mixed-font baselines, never visual re-sorting."""
+    assert len(fields) == 3 and all(field["rects"] for field in fields), fields
+    # Includes ID LAST -> series FIRST, every wrapped series fragment, and
+    # series LAST -> status FIRST (and each field's own internal fragments).
+    fragments = [(field["label"], rect) for field in fields for rect in field["rects"]]
+    for (first_label, first), (second_label, second) in zip(fragments, fragments[1:]):
+        overlap = min(first["bottom"], second["bottom"]) - max(first["top"], second["top"])
+        same_line = overlap >= .5 * min(first["height"], second["height"])
+        evidence = (first_label, first, second_label, second)
+        if same_line:
+            assert second["left"] >= first["right"] - .5, ("painted order: same-line LTR", evidence)
+        else:
+            assert second["top"] >= first["bottom"] - .5, ("painted order: forward nonoverlapping lines", evidence)
+
+
+@pytest.mark.parametrize("layout", (
+    "mixed-font-baseline", "wrapped-series", "same-line-reversal", "earlier-line", "premature-status",
+))
+def test_painted_order_oracle_on_controlled_browser_text_fragments(phone_library, layout, tmp_path):
+    """Local oracle fixtures: deliberate CSS order faults, not production edits."""
+    page = _open(phone_library)
+    series = ("The long local series of illustrated winter journeys through distant northern islands · 0.5"
+              if layout in {"wrapped-series", "premature-status"} else "Series label · 0.5")
+    labels = ["#731", series, "Matches filters"]
+    page.evaluate("""({layout,labels}) => {
+        const fixture=document.createElement('section');fixture.dataset.orderOracleFixture='';
+        fixture.style.cssText='width:320px;max-width:100%;margin:16px 0';
+        const facts=document.createElement('p');facts.className='library-phone-facts';
+        facts.style.cssText='font-size:12px;line-height:24px;width:300px;margin:0;padding:0';
+        const spans=labels.map((text,i)=>{const n=document.createElement('span');n.textContent=text;
+            n.style.fontSize=i===1?'14px':'12px';n.style.margin='0';return n;});
+        spans.forEach((n,i)=>{if(i)facts.append(document.createTextNode(' '));facts.append(n);});
+        if(layout==='wrapped-series')facts.style.width='180px';
+        if(layout==='same-line-reversal' || layout==='earlier-line'){
+            facts.style.display='flex';facts.style.gap='6px';facts.style.alignItems='baseline';
+            facts.style.flexDirection=layout==='earlier-line'?'column':'row';
+            spans.forEach((n,i)=>{n.style.order=String([2,1,3][i]);n.style.flexShrink='0';});
+        }
+        if(layout==='premature-status'){
+            spans.forEach(n=>{n.style.display='inline-block';n.style.verticalAlign='top';n.style.fontSize='14px';});
+            spans[0].style.width='35px';spans[1].style.width='155px';spans[2].style.width='90px';
+        }
+        fixture.append(facts);document.querySelector('[data-testid="library-page"]').append(fixture);
+    }""", {"layout": layout, "labels": labels})
+    fixture = page.locator("[data-order-oracle-fixture]")
+    expect(fixture).to_be_visible()
+    text = fixture.inner_text()
+    assert text.index(labels[0]) < text.index(labels[1]) < text.index(labels[2])
+    fields = _semantic_field_fragments(fixture, labels)
+    rects = [rect for field in fields for rect in field["rects"]]
+    bounds = fixture.bounding_box()
+    assert all(bounds["x"] <= rect["left"] and rect["right"] <= bounds["x"] + bounds["width"] + .5 and
+               bounds["y"] <= rect["top"] and rect["bottom"] <= bounds["y"] + bounds["height"] + .5 for rect in rects)
+    # Order negatives are not merely collision/outside failures in disguise.
+    assert all(min(a["right"], b["right"]) - max(a["left"], b["left"]) <= .5 or
+               min(a["bottom"], b["bottom"]) - max(a["top"], b["top"]) <= .5
+               for i, a in enumerate(rects) for b in rects[i + 1:]), fields
+    if layout in {"wrapped-series", "premature-status"}:
+        assert len({rect["top"] for rect in fields[1]["rects"]}) >= 2, fields
+    if layout == "mixed-font-baseline":
+        assert abs(fields[0]["rects"][0]["top"] - fields[1]["rects"][0]["top"]) >= 1, fields
+    (tmp_path / "painted-order-fixture.json").write_text(json.dumps({"layout": layout, "fields": fields}, indent=2))
+    if layout in {"mixed-font-baseline", "wrapped-series"}:
+        _assert_painted_field_order(fields)
+    else:
+        with pytest.raises(AssertionError, match="painted order"):
+            _assert_painted_field_order(fields)
+    assert_page_clean(page)
+
+
 def test_long_metadata_holdings_and_existing_other_format_disclosure_keep_order_and_all_actions(phone_library):
     server = phone_library
     title = "A substantially longer local title: " + "遠い島の記録 and the winter archive " * 5
@@ -726,14 +820,9 @@ def test_long_metadata_holdings_and_existing_other_format_disclosure_keep_order_
     expect(member.locator("h3")).to_have_text(title)
     text = member.inner_text()
     assert text.index(f"#{book}") < text.index("Archive Saga #1/2 · 0.5") < text.index("Matches filters")
-    lines = _painted(member)["lines"]
-    identity = next(line for line in lines if line["text"] == f"#{book}")
-    series = next(line for line in lines if "Archive Saga #1/2" in line["text"])
-    status = next(line for line in lines if line["text"] == "Matches filters")
-    for first, second in ((identity, series), (series, status)):
-        assert second["top"] >= first["top"] - 1
-        if abs(second["top"] - first["top"]) <= 1:
-            assert second["left"] >= first["left"]
+    _painted(member)
+    fields = _semantic_field_fragments(member, [f"#{book}", "Archive Saga #1/2 · 0.5", "Matches filters"])
+    _assert_painted_field_order(fields)
     assert "Archive " * 20 in text and "The full subtitle remains ordinary visible text " * 2 in text
     expect(member.locator('[data-holding-source] a')).to_have_count(1)
     expect(page.locator(f'[data-library-member="{digital}"] [data-holding-source] a')).to_have_count(1)
