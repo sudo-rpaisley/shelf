@@ -1030,6 +1030,66 @@ and picture-only/double-scaling negative controls. Collection badges are not pas
 Account-owned persistence/CAS, above-default growth, AT/pinned runtime and all other
 programme limits remain open. No deployment or provider-account access is implied.
 
+#### Recently added refinement (2026-11-15)
+
+The operator requested a better-looking, longer Home recent row. Public official
+[Jellyfin](https://jellyfin.org/), [Plex](https://support.plex.tv/articles/navigating-the-big-screen-apps/)
+and [Netflix](https://www.netflix.com/tudum/articles/netflix-new-tv-layout)
+references informed artwork-first captions and obvious row navigation. Jellyfin
+and Netflix screenshots were inspected; Plex's image returned 403 and was not
+bypassed. No external artwork/code is incorporated into the application.
+
+Independent finite design review required truthful materialized counts, native
+full Details without duplicate card selectors, retained terminal minimums, density
+button/RTL/HTMX lifecycle handling, and an inventory-independent test transition.
+Those corrections were ratified before productive edits. The candidate changes
+only the Home caller/templates and scoped assets, plus generated outputs and
+documentation: one existing summary invocation/recent SELECT with limit24, genuine
+SSR eight plus inert overflow, and no new API, service, store or provider access.
+
+Baseline checks reproduced eight rather than 24 cards and a 59px title exceeding
+its 39.2px two-line boundary. The initial affected unit band passed **196 / 92.08s**.
+Initial browsers gave **35 passes / 18 failures**: new screenshot fixtures' future
+timestamps displaced later tests' records in the session-scoped server. Finalizers
+now restore only those synthetic rows' original timestamps; existing selectors,
+queries and assertions were not weakened. Corrected browsers gave **66 passes /
+one new style-isolation failure / 166.97s**; all 45 retained sizing cases passed.
+A refreshed unit band, including both compiled locales, passed **198 / 94.23s**.
+Independent diagnosis found the new negative oracle confounded by parent/sibling
+stretching when disabling the whole stylesheet. Its corrected ancestor-only
+alignment control preserves the full subtree signature and track/slot widths,
+with positive/readiness controls. A subsequent **41 / 80.74s** mixed unit/browser
+invocation is diagnostic only, contrary to `CLAUDE.md:38`; qualification separates
+the two test kinds.
+
+Source review found buffered terminals were not rejected and requested targeted
+lifecycle evidence. New baselines reproduced the malformed-buffer defect and both
+retained-wrapper HTMX/OOB rows remaining at eight; a fourth test hit CSP because
+of its own wait helper. Bounded JS now rejects all buffer terminals, uses buffer
+removal rather than a stale wrapper cache, and disables failed controls. The wait
+uses a CSP-safe bounded frame flush, not weaker policy. Separate new-module runs
+passed **18 unit / 11.89s** and **27 browser / 80.31s**. Source follow-up accepted
+the application fix, but required proof that retained-wrapper tests really replace
+the old track. Marked-track removal plus canceled-swap negative controls now pass
+**two cases / 9.23s**. Independent final source/test follow-up returns
+**REVIEW_CLEAR**. Fresh clean frozen wider gates remain pending; no earlier
+density pass transfers.
+
+Corrected 375/1366/1920 screenshots were inspected for concise captions and centered
+contained artwork. An initial 375px, 50%-density, 200%-text element capture had a
+sticky navbar overlap and was not accepted alone as readability evidence. The
+added opened-Details case independently checks complete title/creator/type, no
+clamp or width/height clipping and card/shelf containment. Its actual full-page
+capture and bitmap crop were inspected: full text wraps without a clipped tail or
+overlay; no navbar/styles are hidden. This is not AT qualification.
+
+The original 435 test files and 185 unchecked acceptance entries must remain exact.
+The sole permitted existing-test transition is the post-original
+Home terminal test's up-to24 inventory assertion; its geometry, keyboard, link and
+order assertions remain. Collection badges **10931 / 755** are not passing-suite totals.
+No deployment, programme completion, pinned-runtime or live-provider acceptance is
+implied.
+
 #### ME2-A protocol refinement — design ratified, no writer
 
 The read-only planner's finite v2 is persisted alongside historical v1, receives

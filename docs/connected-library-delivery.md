@@ -263,6 +263,18 @@ Independent architecture, requirements, privacy and recovery audits accompany
 implementation. Additional reviewers/testers are assigned to completed
 candidates, not used as substitutes for implementation ownership.
 
+### Recently added refinement (2026-11-15, candidate)
+
+The operator's new screenshot-led request selects a Home-only streaming-style
+refinement: compact artwork-led captions with complete native Details, centered
+native-ratio artwork, header View all/Previous/Next and up to **24** recent additions.
+One existing bounded dashboard selection supplies eight real fallback cards and
+at most sixteen inert overflow cards; enhancement moves nodes without another
+catalogue request. No preference, service, registry, kernel or provider change is
+needed. Design corrections are ratified; independent source/test review and fresh
+frozen gates are still required. This does not inherit the density qualification
+or complete account grouping, ME1–ME7 or the programme.
+
 ## Non-negotiable integration decisions
 
 - Preserve the catalogue, physical copies, identifiers, locations, personal

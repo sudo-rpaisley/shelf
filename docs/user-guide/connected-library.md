@@ -49,11 +49,16 @@ TMDb, TVDb and MusicBrainz album/release IDs. Search words must all occur on
 the same item, though they can occur in different fields. Search is
 Unicode-aware and case-insensitive; it does not remove accents.
 
-Home's recent shelf shows up to eight items in one horizontally scrollable row;
-its terminal **View more** opens the complete mixed catalogue. Home, local Music
-and Library reuse artwork cards that contain rather than crop the image. Recent
-grouping is not yet configurable per account, and editing still opens the existing
-full-page form rather than a pop-out editor.
+Home's recent shelf shows up to **24** items in one horizontally scrollable row
+(up to eight without JavaScript). Swipe, scroll or use its previous/next buttons;
+the count describes the row's inventory, not simultaneously visible cards.
+Header **View all** and terminal **View more** open the complete mixed catalogue.
+Home's compact title/credit previews have native **Details** for the complete
+text, usable with a keyboard, touch or JavaScript disabled. Home, local Music and
+Library reuse artwork cards that contain rather than crop the image; Library's
+full metadata is not shortened. Recent grouping is not yet configurable per
+account, and editing still opens the existing full-page form rather than a
+pop-out editor.
 
 On phones, Library artwork sits beside naturally wrapping titles and metadata;
 the complete holdings and actions remain available and images keep their proportions.

@@ -41,7 +41,13 @@ async def index(
 ):
     """Render a collection overview while leaving Browse for exploration."""
     with get_db() as db:
-        summary = dashboard_summary(db, recent_limit=8)
+        # Keep eight real native-preview cards; pre-render the remaining bounded
+        # selection inertly for the enhanced shelf, without another query/API.
+        summary = dashboard_summary(db, recent_limit=24)
+        recent = summary["recent_items"]
+        summary["recent_items"] = recent[:8]
+        summary["recent_overflow"] = recent[8:24]
+        summary["recent_has_more"] = summary["total_count"] > len(recent)
         home_activity = None
         if features.feature_enabled("connected_library"):
             from app.services import personal_library

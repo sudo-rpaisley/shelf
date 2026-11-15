@@ -1671,6 +1671,27 @@ also handles older Store-cached bundles without extending Store precaching.
 Enlargement above the original size and account-owned persistence/CAS remain
 unfinished; administrative Browse and provider search results do not opt in.
 
+**Home's recent row progressively expands from eight to 24.** Only `index` calls
+the existing dashboard summary with `recent_limit=24`: one summary invocation and
+one bounded recent-item SELECT alongside the unchanged aggregate reads. The service
+default remains eight; API stats still request zero recent rows. The result is
+partitioned into eight real SSR cards and at most sixteen inert template cards,
+outside the inner shelf. Enhancement validates and moves those existing nodes
+before the sole View more tile once, with no extra catalogue/API request or store.
+Inventory labels and overflow hints follow the materialized count; native fallback
+retains eight cards, ordinary links and full Details.
+
+Exact Home `streaming-v1` and card `shelf-preview-v1` markers scope the compact
+preview styles. A centered 5:8 stage preserves each inner artwork's registry ratio
+and contain behaviour. Two-line titles and single-line credits/types are previews
+only: adjacent native Details exposes complete escaped text, outside the item
+anchor. Library/default cards keep complete metadata. Header paging uses native,
+nonanimated logical scrolling, guarded edge controls that retain focus, and layout
+refresh after sizing buttons, range input, resize, scrolling and HTMX/OOB swaps.
+Disconnected observed roots are released. Direct Home-only CSS also supports an
+older cached bundle; neither new asset extends Store precaching. No account
+preference, route, source access or database write implements this refinement.
+
 **Full Library pages explicitly opt into `phone-wrap-v1`.** The page and each
 member carry exact version markers; every card-formatting override requires both.
 Below 48rem, the real shared card becomes a block inside a contained wrapping

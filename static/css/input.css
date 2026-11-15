@@ -6,6 +6,7 @@
 @import "./item-density.source.css";
 @import "./copy-locator.source.css";
 @import "./library-presentation.source.css";
+@import "./recent-shelf.source.css";
 @source "../../app/templates";
 @source "../js";
 @theme {

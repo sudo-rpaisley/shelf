@@ -1,0 +1,40 @@
+{# Home owns IDs/modes. Eight live cards and <=16 inert cards share one selection.
+   No duplicated legacy row, additional endpoint, parser or frontend card model. #}
+{% set _recent_overflow = recent_overflow|default([]) %}
+{% set _recent_total = shelf.items|length + _recent_overflow|length %}
+<div class="recent-shelf" data-recent-shelf="streaming-v1">
+    <header class="recent-shelf__header">
+        <div class="recent-shelf__heading">
+            <h2 id="home-recent-heading">{{ shelf.title }}</h2>
+            <p><span data-recent-count>{{ ngettext('%(count)s recent item', '%(count)s recent items', shelf.items|length, count=shelf.items|length)|forceescape }}</span> · {{ _('Across your collection')|forceescape }}</p>
+        </div>
+        {% if shelf.items %}
+        <div class="recent-shelf__actions" role="group" aria-label="{{ _('Recently added navigation')|forceescape }}">
+            <a class="recent-shelf__all" href="{{ shelf.view_more_href }}">{{ _('View all')|forceescape }} <span aria-hidden="true">→</span></a>
+            <button type="button" data-recent-action="previous" aria-label="{{ _('Previous recently added items')|forceescape }}" aria-controls="home-recent-row" disabled>
+                <svg viewBox="0 0 20 20" aria-hidden="true" focusable="false"><path d="m12 5-5 5 5 5"/></svg>
+            </button>
+            <button type="button" data-recent-action="next" aria-label="{{ _('Next recently added items')|forceescape }}" aria-controls="home-recent-row" disabled>
+                <svg viewBox="0 0 20 20" aria-hidden="true" focusable="false"><path d="m8 5 5 5-5 5"/></svg>
+            </button>
+        </div>
+        {% endif %}
+    </header>
+    {% with recent_shelf_presentation='streaming-v1', recent_shelf_heading_hosted=true, media_card_presentation='shelf-preview-v1' %}
+        {% include "fragments/media_shelf.html" %}
+    {% endwith %}
+    {% if shelf.items %}
+    <template data-recent-overflow data-recent-total="{{ _recent_total }}"
+              data-recent-total-label="{{ ngettext('%(count)s recent item', '%(count)s recent items', _recent_total, count=_recent_total)|forceescape }}"
+              data-recent-has-more="{{ 'true' if recent_has_more|default(total_count > _recent_total) else 'false' }}">
+        {% for item in _recent_overflow %}
+        <li class="media-shelf__slot">
+            {% set card = build_media_card(item, badges=(_('Wishlist'),) if item.wishlisted else ()) %}
+            {% with media_card_presentation='shelf-preview-v1' %}{% include "components/media_card.html" %}{% endwith %}
+        </li>
+        {% endfor %}
+    </template>
+    <p class="recent-shelf__help">{{ _('Swipe or scroll to explore. Open Details for full titles and credits.')|forceescape }}</p>
+    <noscript><p class="recent-shelf__help">{{ _('View all opens the complete collection without JavaScript.')|forceescape }}</p></noscript>
+    {% endif %}
+</div>

@@ -150,7 +150,9 @@ def test_home_terminal_slot_resizes_with_the_items_and_remains_keyboard_reachabl
     terminal = shelf.locator(".media-shelf__view-more")
     href = terminal.get_attribute("href")
     ids = shelf.locator(".media-card").evaluate_all("nodes => nodes.map(n => n.dataset.itemId)")
-    assert len(ids) == 8 and slots.count() == 9
+    with sqlite3.connect(live_server["data_dir"] / "shelf.db") as db:
+        expected_count = min(24, db.execute("SELECT COUNT(*) FROM items WHERE deleted_at IS NULL").fetchone()[0])
+    assert len(ids) == expected_count and slots.count() == expected_count + 1
     assert terminal.evaluate("n => parseFloat(getComputedStyle(n).minHeight)") == 240
     page.locator("[data-cover-size-input]").press("Home")
     assert all(width == pytest.approx(96, abs=1) for width in slots.evaluate_all(

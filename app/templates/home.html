@@ -1,6 +1,11 @@
 {% extends "base.html" %}
 {% set item_size_mode = 'density-v1' %}
+{% set media_card_presentation = 'shelf-preview-v1' %}
 {% block title %}Home — Shelf{% endblock %}
+{% block head %}
+<link rel="stylesheet" href="/static/css/recent-shelf.source.css">
+<script defer src="/static/js/recent-shelf.js"></script>
+{% endblock %}
 {% block content %}
 <div data-item-size="density-v1">
     <div class="flex flex-wrap items-center justify-between gap-4 mb-8">
@@ -121,8 +126,8 @@
         </section>
     </div>
 
-    {# Default mixed preview only: reuse the route's bounded eight rows/count.
-       No account shelf preferences or extra catalogue reads are implied. #}
+    {# Eight native cards plus an inert buffer extend to at most24 on enhancement.
+       One bounded selection, no account preference or extra catalogue request. #}
     {% set recent = namespace(cards=[]) %}
     {% for item in recent_items %}
         {% set recent.cards = recent.cards + [build_media_card(item, badges=(_('Wishlist'),) if item.wishlisted else ())] %}
@@ -134,8 +139,7 @@
         empty_label='No items yet.') %}
     <div data-testid="home-recent-items">
         {% with cover_size_description_id='home-cover-size-description' %}{% include "fragments/cover_size_panel.html" %}{% endwith %}
-        {% include "fragments/media_shelf.html" %}
-        <p class="text-xs text-shelf-muted mt-2">{{ _('The latest items to enter your catalogue.')|forceescape }}</p>
+        {% include "fragments/home_recent_shelf.html" %}
         {% if not recent_items and user and user.role in ('admin', 'editor') %}
         <p class="text-sm mt-2"><a href="/scan" class="text-shelf-accent2 hover:text-shelf-accent">{{ _('Start scanning')|forceescape }}</a></p>
         {% endif %}

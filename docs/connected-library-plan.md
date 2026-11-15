@@ -92,6 +92,17 @@ Badges **10913 unit / 728 E2E** count collection, not full-suite passes. Prefere
 above-default enlargement and the remaining programme/operational gates stay open;
 this is branch publication, not deployment or image publication.
 
+### Recently added refinement (2026-11-15, candidate)
+
+The operator requested streaming-site design research, a better-looking recent
+row and more items. A bounded Home-only candidate uses artwork-led compact
+previews, native full Details, header navigation/View all and up to **24** additions.
+It preserves native artwork proportions, whole-item sizing and a genuine
+eight-item/no-JavaScript fallback. No new service, preference store or provider
+connection is involved. Independent design corrections are ratified; source/test
+review and fresh frozen qualification remain required before selection. Earlier
+whole-item passes do not transfer. See the [verification record](connected-library-verification.md#recently-added-refinement-2026-11-15).
+
 ## Remaining library frontend work
 
 Consolidated on **2026-11-13** from the operator's full-library-frontend goals

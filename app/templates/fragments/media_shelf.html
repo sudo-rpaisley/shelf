@@ -1,9 +1,10 @@
 {# shelf is a MediaShelf. Titles may be custom metadata; only empty_label is an
    owned msgid. No key-derived IDs, inline events, controls or JS dependency. #}
+{% set _recent_streaming = recent_shelf_presentation|default('') == 'streaming-v1' %}
 <section class="media-shelf" data-shelf-key="{{ shelf.key }}" aria-label="{{ shelf.title }}">
-    <h2 class="media-shelf__title">{{ shelf.title }}</h2>
+    {% if not (_recent_streaming and recent_shelf_heading_hosted|default(false) is sameas true) %}<h2 class="media-shelf__title">{{ shelf.title }}</h2>{% endif %}
     {% if shelf.items %}
-    <ul class="media-shelf__items" tabindex="0" aria-label="{{ shelf.title }}"{% if item_size_mode|default('') == 'density-v1' %} data-item-shelf="density-v1"{% endif %}>
+    <ul class="media-shelf__items" tabindex="0" aria-label="{{ shelf.title }}"{% if _recent_streaming %} id="home-recent-row"{% endif %}{% if item_size_mode|default('') == 'density-v1' %} data-item-shelf="density-v1"{% endif %}>
         {% for card in shelf.items %}
         <li class="media-shelf__slot">{% include "components/media_card.html" %}</li>
         {% endfor %}

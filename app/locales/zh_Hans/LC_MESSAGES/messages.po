@@ -6,7 +6,7 @@
 msgid ""
 msgstr ""
 "Report-Msgid-Bugs-To: EMAIL@ADDRESS\n"
-"PO-Revision-Date: 2026-11-15 12:17+0000\n"
+"PO-Revision-Date: 2026-11-15 20:43+0000\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language: zh_Hans\n"
 "Language-Team: zh_Hans <LL@li.org>\n"
@@ -318,7 +318,7 @@ msgstr "发现"
 msgid "Stats"
 msgstr "统计"
 
-#: app/nav.py:54 app/templates/home.html:14 app/templates/library.html:28
+#: app/nav.py:54 app/templates/home.html:19 app/templates/library.html:28
 msgid "My Activity"
 msgstr ""
 
@@ -337,7 +337,7 @@ msgid "Source progress"
 msgstr ""
 
 #: app/nav.py:60 app/templates/fragments/unsupported_title_search.html:6
-#: app/templates/home.html:94 app/templates/library.html:27
+#: app/templates/home.html:99 app/templates/library.html:27
 msgid "Sources"
 msgstr ""
 
@@ -345,7 +345,7 @@ msgstr ""
 msgid "Source repair"
 msgstr ""
 
-#: app/nav.py:64 app/templates/home.html:99 app/templates/library.html:29
+#: app/nav.py:64 app/templates/home.html:104 app/templates/library.html:29
 msgid "Needs Attention"
 msgstr ""
 
@@ -1251,7 +1251,7 @@ msgstr ""
 msgid "Unknown availability"
 msgstr ""
 
-#: app/services/library_catalog.py:51 app/templates/home.html:131
+#: app/services/library_catalog.py:51 app/templates/home.html:136
 msgid "Recently added"
 msgstr ""
 
@@ -1262,9 +1262,10 @@ msgstr "全部"
 
 #: app/services/library_catalog.py:56 app/templates/browse.html:236
 #: app/templates/fragments/filter_counts_oob.html:28
+#: app/templates/fragments/home_recent_shelf.html:32
 #: app/templates/fragments/item_card.html:7
 #: app/templates/fragments/item_row.html:51
-#: app/templates/fragments/library_results.html:28 app/templates/home.html:128
+#: app/templates/fragments/library_results.html:28 app/templates/home.html:133
 #: app/templates/item_detail.html:66 app/templates/library.html:108
 msgid "Wishlist"
 msgstr "心愿单"
@@ -2067,27 +2068,23 @@ msgstr "此副本没有可用的同地点相邻副本信息。"
 msgid "Catalogue order around the selected copy"
 msgstr "选中副本周围的目录顺序"
 
-#: app/templates/home.html:9
+#: app/templates/home.html:14
 msgid "Open Library to find every format and source, or Browse to organise catalogue records."
 msgstr ""
 
-#: app/templates/home.html:13 app/templates/sources.html:9
+#: app/templates/home.html:18 app/templates/sources.html:9
 msgid "Open library"
 msgstr ""
 
-#: app/templates/home.html:95
+#: app/templates/home.html:100
 msgid "Connect libraries and review availability and sync health."
 msgstr ""
 
-#: app/templates/home.html:100
+#: app/templates/home.html:105
 msgid "Review missing metadata, unavailable sources and suggested format connections."
 msgstr ""
 
-#: app/templates/home.html:138
-msgid "The latest items to enter your catalogue."
-msgstr ""
-
-#: app/templates/home.html:140
+#: app/templates/home.html:144
 msgid "Start scanning"
 msgstr ""
 
@@ -2332,7 +2329,7 @@ msgstr ""
 msgid "out"
 msgstr ""
 
-#: app/templates/components/media_card.html:16
+#: app/templates/components/media_card.html:17
 #: app/templates/fragments/item_copies.html:89
 #: app/templates/fragments/item_copies.html:93
 #: app/templates/fragments/item_copies.html:99
@@ -3751,6 +3748,10 @@ msgstr "结果与同步"
 msgid "Untitled item"
 msgstr ""
 
+#: app/templates/components/media_card.html:21
+msgid "Details"
+msgstr ""
+
 #: app/templates/fragments/account_menu.html:3
 msgid "Account menu"
 msgstr "账号菜单"
@@ -4300,6 +4301,41 @@ msgstr ""
 msgid "Open an item to set your personal status or add it to My List. Your plans are separate from the shared wishlist."
 msgstr ""
 
+#: app/templates/fragments/home_recent_shelf.html:9
+#: app/templates/fragments/home_recent_shelf.html:28
+#, python-format
+msgid "%(count)s recent item"
+msgid_plural "%(count)s recent items"
+msgstr[0] "%(count)s 个最近添加的项目"
+
+#: app/templates/fragments/home_recent_shelf.html:9
+msgid "Across your collection"
+msgstr "来自你的馆藏"
+
+#: app/templates/fragments/home_recent_shelf.html:12
+msgid "Recently added navigation"
+msgstr "最近添加导航"
+
+#: app/templates/fragments/home_recent_shelf.html:13
+msgid "View all"
+msgstr "查看全部"
+
+#: app/templates/fragments/home_recent_shelf.html:14
+msgid "Previous recently added items"
+msgstr "上一组最近添加的项目"
+
+#: app/templates/fragments/home_recent_shelf.html:17
+msgid "Next recently added items"
+msgstr "下一组最近添加的项目"
+
+#: app/templates/fragments/home_recent_shelf.html:37
+msgid "Swipe or scroll to explore. Open Details for full titles and credits."
+msgstr "滑动或滚动以浏览。打开详情可查看完整标题和创作者信息。"
+
+#: app/templates/fragments/home_recent_shelf.html:38
+msgid "View all opens the complete collection without JavaScript."
+msgstr "无需 JavaScript，也可通过“查看全部”打开完整馆藏。"
+
 #: app/templates/fragments/item_card.html:12
 #: app/templates/fragments/item_row.html:57
 #: app/templates/fragments/item_row.html:74
@@ -4738,11 +4774,11 @@ msgstr ""
 msgid "Manage"
 msgstr ""
 
-#: app/templates/fragments/media_shelf.html:12
+#: app/templates/fragments/media_shelf.html:13
 msgid "View more"
 msgstr ""
 
-#: app/templates/fragments/media_shelf.html:14
+#: app/templates/fragments/media_shelf.html:15
 msgid "More items are available."
 msgstr ""
 
