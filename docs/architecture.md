@@ -1640,14 +1640,27 @@ without changing disclosure state or adding an anchor. Absent/incomplete markup
 is not classified as unsupported dialog capability. Successful later enhancement
 clears the owned marker; ordinary supported narrow-menu collapse is unchanged.
 
-**Cover sizing is document-local, not a saved preference.** Home's recent shelf,
-Library's items/grouped-format cards and Music's local cards include the reviewed
-native range/buttons through a small producer wrapper. The wrapper explains the
-fixed rows/columns and readable floor; it is outside search/save forms and inside
-the existing page root. Requested scale is 50–100%, default 100%, applied once as
-`min(host width, max(80px, host width × scale))`; shelf slots remain 10rem and grid
-columns do not change. Artwork ratios, contain behaviour, fonts and metadata are
-unchanged. Every Library `view=series` page deliberately has no control: the
+**Item sizing is document-local, not a saved preference.** Home's recent shelf,
+Library's items/grouped-format cards and Music's local cards explicitly opt into
+`density-v1`. The native **Item size** range/buttons resize the complete Library
+article, Music tile or Home shelf slot, including metadata, holdings and actions.
+The layout fits more items across at smaller sizes, without shrinking fonts or
+changing results per page. Requested scale remains 50–100%, default 100%.
+Grid minimum tracks use `factor × (grid width + gap) / default columns − gap`,
+clamped to readable rem floors and available width; auto-fill stretches fitted
+tracks equally while preserving empty tracks. Ordinary default columns remain
+Library 1/2/3 and Music 2/3/4/5. Enlarged text may require fewer columns. Home
+keeps one native scrolling row; all slots, including View more, use
+`max(80px, 6rem, 10rem × factor)`. View more's minimum height also follows the
+factor; complete long text can still make a slot taller. Not every slider step
+crosses a layout threshold.
+
+Every density rule requires both an exact `data-item-size="density-v1"` parent
+and the corresponding Library/Music grid or Home shelf marker. The inner card
+fills its newly sized container once. Unversioned standalone components retain
+the earlier fixed-host cover-size contract and label. Artwork ratios, contain
+behaviour, fonts, item order, dataset and pagination remain unchanged. Every
+Library `view=series` page deliberately has no control: the
 series index uses direct thumbnails, while a selected-series drilldown uses
 grouped shared cards but keeps this same view-level boundary.
 External idempotent JS uses delegated input/click and HTMX/OOB listeners; inserted
@@ -1655,13 +1668,13 @@ cards inherit the document scale. No requests, storage, cookies, URL parameters
 or account writes implement sizing; full navigation/reload resets to 100%.
 Without JS the labelled controls are disabled with an explanation. Direct CSS
 also handles older Store-cached bundles without extending Store precaching.
-Density changes, enlargement above the original size and account-owned
-persistence/CAS are separate unfinished work.
+Enlargement above the original size and account-owned persistence/CAS remain
+unfinished; administrative Browse and provider search results do not opt in.
 
 **Full Library pages explicitly opt into `phone-wrap-v1`.** The page and each
 member carry exact version markers; every card-formatting override requires both.
 Below 48rem, the real shared card becomes a block inside a contained wrapping
-member. Its immediate parent and ME7 width calculation stay unchanged. Artwork is
+member. Its parent gets its width from the opted-in whole-item layout. Artwork is
 30% of the already-sized card, capped at 6rem, with native ratios and contain;
 scale is not applied again. Titles, metadata, holdings, actions and recent order
 remain real, complete and in DOM order. Default shared cards and unversioned

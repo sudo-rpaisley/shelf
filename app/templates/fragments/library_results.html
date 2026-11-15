@@ -1,4 +1,5 @@
 {% set _library_phone_wrap = library_presentation_mode is defined and library_presentation_mode == 'phone-wrap-v1' %}
+{% set _item_density = item_size_mode|default('') == 'density-v1' and filters.view != 'series' %}
 {% set _library_explanations_hosted = _library_phone_wrap and library_explanations_hosted is defined and library_explanations_hosted is sameas true %}
 {% macro state_label(state) -%}
     {% if state == 'available' %}{{ _('Available')|forceescape }}{% elif state == 'lent' %}{{ _('Lent out')|forceescape }}{% elif state == 'missing' %}{{ _('Missing')|forceescape }}{% elif state == 'unavailable' %}{{ _('Unavailable')|forceescape }}{% else %}{{ _('Unknown')|forceescape }}{% endif %}
@@ -63,7 +64,7 @@
     {% endif %}
     {% if result_kind == 'groups' and groups %}
     {% if not _library_explanations_hosted %}<p class="text-xs text-shelf-muted">{{ _('Groups use explicit format links only. Every live edition is shown, including editions that do not match your filters.')|forceescape }}</p>{% endif %}
-    <div class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
+    <div class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4"{% if _item_density %} data-item-grid="library"{% endif %}>
         {% for group in groups %}
         <article class="rounded-xl bg-shelf-card border border-shelf-border p-4 space-y-4" data-library-group="{{ group.id }}" data-member-ids="{{ group.member_ids|join(',') }}" data-matching-ids="{{ group.matching_ids|join(',') }}">
             {{ item_card(group.representative) }}
@@ -79,7 +80,7 @@
         {% endfor %}
     </div>
     {% elif result_kind == 'items' and items %}
-    <div class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
+    <div class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4"{% if _item_density %} data-item-grid="library"{% endif %}>
         {% for item in items %}<article class="rounded-xl bg-shelf-card border border-shelf-border p-4">{{ item_card(item) }}</article>{% endfor %}
     </div>
     {% elif result_kind == 'series' and series_results %}

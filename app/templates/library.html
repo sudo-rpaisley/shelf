@@ -1,6 +1,7 @@
 {% extends "base.html" %}
 {% set library_presentation_mode = 'phone-wrap-v1' %}
 {% set library_explanations_hosted = true %}
+{% set item_size_mode = 'density-v1' if filters.view != 'series' else '' %}
 {% block title %}{{ _('Library') }} — Shelf{% endblock %}
 {% block head %}<link rel="stylesheet" href="/static/css/library-presentation.source.css">{% endblock %}
 {% macro library_help() -%}
@@ -8,7 +9,7 @@
     <summary class="cursor-pointer text-sm font-medium">{{ _('About this Library')|forceescape }}</summary>
     <div class="space-y-2 mt-2 text-xs text-shelf-muted">
         <p class="text-sm">{{ _('Your local catalogue, physical copies and synced digital holdings in one place.')|forceescape }}</p>
-        {% if filters.view != 'series' %}<p id="library-cover-size-description">{{ _('Percentages request a card size, not more cards per row. Small cards stop shrinking to keep text readable.')|forceescape }}</p>{% endif %}
+        {% if filters.view != 'series' %}<p id="library-cover-size-description">{{ _('Smaller items fit more per row when space allows. Text stays readable; results per page are unchanged.')|forceescape }}</p>{% endif %}
         <p>{{ _('Availability uses local copies and cached source records, not a live connection check. All filters must match the same item; source and availability must match the same holding.')|forceescape }}</p>
         {% if result_kind == 'groups' and groups %}<p>{{ _('Groups use explicit format links only. Every live edition is shown, including editions that do not match your filters.')|forceescape }}</p>{% endif %}
         {% if result_kind == 'series' and series_results %}<p>{{ _('Series are grouped by their local names, preserving punctuation and scripts. No remote series lookup is needed.')|forceescape }}</p>{% endif %}
@@ -16,7 +17,7 @@
 </details>
 {%- endmacro %}
 {% block content %}
-<div class="page-layout space-y-6" data-testid="library-page" data-library-presentation="phone-wrap-v1">
+<div class="page-layout space-y-6" data-testid="library-page" data-library-presentation="phone-wrap-v1"{% if item_size_mode == 'density-v1' %} data-item-size="density-v1"{% endif %}>
     <header class="library-phone-heading flex flex-wrap items-start justify-between gap-4">
         <div>
             <h1 class="text-2xl font-bold">{{ _('Library') }}</h1>
@@ -31,7 +32,7 @@
     </header>
 
     {% if filters.view != 'series' %}
-    <div role="group" aria-label="{{ _('Cover size')|forceescape }}"
+    <div role="group" aria-label="{{ _('Item size')|forceescape }}"
          aria-describedby="library-cover-size-description" data-cover-size-panel data-library-presentation-tools="phone-wrap-v1">
         {% include "fragments/cover_size_control.html" %}
         {{ library_help() }}

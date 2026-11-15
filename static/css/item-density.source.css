@@ -1,0 +1,68 @@
+/* Whole-item sizing is opt-in at BOTH the producer and its layout container.
+   Legacy/unversioned cards keep cover-size.source.css's fixed-host contract.
+   Scale track pitch (track + gap), not just artwork or an inner card. auto-fill
+   preserves empty tracks, DOM order and the existing default column widths. */
+[data-item-size="density-v1"] [data-item-grid="library"] {
+    --item-base-columns: 1;
+    --item-gap: 1rem;
+    --item-minimum: 10rem;
+}
+
+[data-item-size="density-v1"] [data-item-grid="music"] {
+    --item-base-columns: 2;
+    --item-gap: 1.5rem;
+    --item-minimum: 6rem;
+}
+
+[data-item-size="density-v1"] [data-item-grid="library"],
+[data-item-size="density-v1"] [data-item-grid="music"] {
+    grid-template-columns: repeat(auto-fill, minmax(min(100%, max(var(--item-minimum), calc((100% + var(--item-gap)) / var(--item-base-columns) * var(--media-cover-scale, 1) - var(--item-gap)))), 1fr));
+    gap: var(--item-gap);
+}
+
+/* The article/tile owns all metadata, holdings and expanded editions. Let long
+   unbroken values wrap at desktop as well as phone widths; never clip content. */
+[data-item-size="density-v1"] [data-item-grid="library"] > *,
+[data-item-size="density-v1"] [data-item-grid="music"] > * {
+    min-inline-size: 0;
+    overflow-wrap: anywhere;
+}
+
+/* Fill a newly sized item ONCE. Fonts, native artwork ratios/contain and the
+   independent phone-wrap-v1 float/member boundary remain unchanged. */
+[data-item-size="density-v1"] [data-item-grid="library"] .media-card,
+[data-item-size="density-v1"] [data-item-grid="music"] .media-card,
+[data-item-size="density-v1"] [data-item-shelf="density-v1"] > .media-shelf__slot > .media-card {
+    width: 100%;
+}
+
+/* All slots participate, including the terminal View more action. These are
+   real flex bases, not visual transforms: more complete items fit in the same
+   native horizontal scroller. Long text can still make a slot taller. */
+[data-item-size="density-v1"] [data-item-shelf="density-v1"] > .media-shelf__slot {
+    --item-slot-width: max(80px, 6rem, calc(10rem * var(--media-cover-scale, 1)));
+    flex-basis: var(--item-slot-width);
+    width: var(--item-slot-width);
+    overflow-wrap: anywhere;
+}
+
+[data-item-size="density-v1"] [data-item-shelf="density-v1"] .media-shelf__view-more {
+    min-height: calc(15rem * var(--media-cover-scale, 1));
+}
+
+@media (min-width: 40rem) {
+    [data-item-size="density-v1"] [data-item-grid="music"] { --item-base-columns: 3; }
+}
+
+@media (min-width: 48rem) {
+    [data-item-size="density-v1"] [data-item-grid="library"] { --item-base-columns: 2; }
+}
+
+@media (min-width: 64rem) {
+    [data-item-size="density-v1"] [data-item-grid="music"] { --item-base-columns: 4; }
+}
+
+@media (min-width: 80rem) {
+    [data-item-size="density-v1"] [data-item-grid="library"] { --item-base-columns: 3; }
+    [data-item-size="density-v1"] [data-item-grid="music"] { --item-base-columns: 5; }
+}

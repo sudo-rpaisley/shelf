@@ -6,7 +6,7 @@ import pytest
 from playwright.sync_api import expect
 
 from tests.e2e.conftest import assert_page_clean
-from tests.e2e.test_cover_size_integration import _RATIOS, _assert_width, _seed
+from tests.e2e.test_cover_size_integration import _RATIOS, _assert_reflow, _measure, _seed
 from tests.e2e.test_responsive import _COLLAPSE
 
 
@@ -31,15 +31,21 @@ def test_actual_library_grid_and_artwork_retain_geometry_at_fifty_percent_before
     }}"""
     before = grid.evaluate(measure)
     assert before["display"] == "grid" and len(before["columns"].split()) == columns, before
-    host = card.evaluate("e => e.parentElement.getBoundingClientRect().width")
+    item_before = _measure(card)
     title = card.locator(".media-card__title")
     title_text = title.text_content()
     title_font = title.evaluate("e => getComputedStyle(e).fontSize")
     slider = page.locator("[data-cover-size-input]")
     slider.press("Home")
     expect(slider).to_have_value("50")
-    _assert_width(card, host, 50)
-    assert grid.evaluate(measure) == before
+    item_after = _assert_reflow(card, item_before, 50)
+    after = grid.evaluate(measure)
+    assert after["display"] == "grid" and after["width"] == before["width"]
+    assert len(after["columns"].split()) >= columns
+    if width >= 768:
+        assert len(after["columns"].split()) > columns and item_after["slot"] < item_before["slot"]
+    else:
+        assert item_after["slot"] == item_before["slot"], "The narrowest phone stops at a readable whole-item floor"
     assert title.text_content() == title_text and title.evaluate("e => getComputedStyle(e).fontSize") == title_font
     assert page.evaluate("document.documentElement.scrollWidth <= document.documentElement.clientWidth")
     assert page.evaluate(_COLLAPSE) == []

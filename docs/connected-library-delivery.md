@@ -232,6 +232,24 @@ design and ratified. No editor writer, new issuer, schema or expanded isolated-c
 authority is assigned. Lost-response, cookie
 ownership, native fallback and non-atomic artwork boundaries remain explicit.
 
+### Whole-item sizing refinement (2026-11-15)
+
+The operator clarified that resizing must change the **whole displayed item** so
+more or fewer items fit, superseding the earlier fixed-density producer decision.
+The bounded `density-v1` implementation resizes Library articles (including
+holdings/editions), complete local Music tiles and all Home shelf slots. Grid
+reflow and narrower shelf slots change visible density, not the fetched dataset,
+order, filters, counts or pagination. Fonts and artwork proportions are preserved;
+readable floors, reset and document-local 50–100% controls remain. Series/Browse,
+account preferences/CAS and above-default enlargement remain outside this increment.
+
+An independent design review's finite corrections were ratified before productive
+edits. Original 435 test files and acceptance185 remain exact; legacy component
+tests remain unchanged. Only post-original producer assertions for the superseded
+fixed-host contract transition, retaining case identities and independent checks.
+Fresh runtime qualification and candidate review are required; the earlier
+2115/300/12 receipts do not transfer to this implementation.
+
 Independent architecture, requirements, privacy and recovery audits accompany
 implementation. Additional reviewers/testers are assigned to completed
 candidates, not used as substitutes for implementation ownership.

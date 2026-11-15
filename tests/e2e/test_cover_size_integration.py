@@ -5,6 +5,7 @@ pages navigate normally; no new HTMX endpoint or account preference is implied.
 """
 
 import base64
+import math
 import sqlite3
 from urllib.parse import urlencode
 
@@ -53,13 +54,22 @@ def _domain_snapshot(server):
 
 
 def _measure(card):
-    return card.evaluate("""element => ({
-        card:element.getBoundingClientRect().width,
-        host:element.parentElement.getBoundingClientRect().width,
-        titleFont:getComputedStyle(element.querySelector('.media-card__title')).fontSize,
-        text:element.textContent,
-        columns:getComputedStyle(element.parentElement.parentElement).gridTemplateColumns
-    })""")
+    return card.evaluate("""element => {
+        const member = element.closest('[data-library-member]');
+        const item = member ? member.closest('article') : element.parentElement;
+        const grid = item.parentElement, style = getComputedStyle(grid);
+        return {
+            card:element.getBoundingClientRect().width,
+            host:element.parentElement.getBoundingClientRect().width,
+            slot:item.getBoundingClientRect().width,
+            gridWidth:grid.getBoundingClientRect().width,
+            gap:parseFloat(style.columnGap), columns:style.gridTemplateColumns,
+            kind:member ? 'library' : item.matches('.media-shelf__slot') ? 'shelf' : 'music',
+            rem:parseFloat(getComputedStyle(document.documentElement).fontSize),
+            titleFont:getComputedStyle(element.querySelector('.media-card__title')).fontSize,
+            text:item.textContent,
+        };
+    }""")
 
 
 def _assert_width(card, host, percentage):
@@ -67,32 +77,50 @@ def _assert_width(card, host, percentage):
     assert abs(card.bounding_box()["width"] - expected) <= 1, (host, percentage, expected)
 
 
+def _assert_reflow(card, before, percentage):
+    """Independent outer-track/pitch oracle; percentages need not equal tile ratios."""
+    after = _measure(card)
+    if before["kind"] == "shelf":
+        expected = max(80, 6 * before["rem"], 10 * before["rem"] * percentage / 100)
+    else:
+        width, gap = before["gridWidth"], before["gap"]
+        default_columns = len(before["columns"].split())
+        default_track = (width - gap * (default_columns - 1)) / default_columns
+        floor = (10 if before["kind"] == "library" else 6) * before["rem"]
+        requested = min(width, max(floor, (default_track + gap) * percentage / 100 - gap))
+        columns = max(1, math.floor((width + gap) / (requested + gap) + .0001))
+        assert len(after["columns"].split()) == columns, (before, percentage, after)
+        expected = (width - gap * (columns - 1)) / columns
+    assert after["slot"] == pytest.approx(expected, abs=1), (before, percentage, after)
+    _assert_width(card, after["host"], 100)  # Fill the newly sized item, not a second scale.
+    assert after["text"] == before["text"] and after["titleFont"] == before["titleFont"]
+    assert after["gridWidth"] == before["gridWidth"]
+    return after
+
+
 def _resize_and_reset(page, card):
     control = page.locator("[data-cover-size-control]")
     expect(control).to_have_count(1)
     panel = page.locator("[data-cover-size-panel]")
     description = page.locator("#" + panel.get_attribute("aria-describedby"))
-    expect(description).to_contain_text("not more cards per row")
+    expect(description).to_contain_text("fit more per row when space allows")
     slider = control.locator("[data-cover-size-input]")
     expect(slider).to_have_value("100")
     before = _measure(card)
-    _assert_width(card, before["host"], 100)
+    _assert_reflow(card, before, 100)
     control.locator('[data-cover-size-action="smaller"]').click()
     expect(slider).to_have_value("90")
-    _assert_width(card, before["host"], 90)
+    _assert_reflow(card, before, 90)
     slider.focus()
     slider.press("Home")
     expect(slider).to_have_value("50")
-    _assert_width(card, before["host"], 50)
+    _assert_reflow(card, before, 50)
     slider.press("ArrowRight")
     expect(slider).to_have_value("60")
-    _assert_width(card, before["host"], 60)
-    after = _measure(card)
-    assert after["host"] == before["host"] and after["columns"] == before["columns"]
-    assert after["text"] == before["text"] and after["titleFont"] == before["titleFont"]
+    _assert_reflow(card, before, 60)
     control.locator('[data-cover-size-action="reset"]').click()
     expect(slider).to_have_value("100")
-    _assert_width(card, before["host"], 100)
+    assert _measure(card) == before
     slider.focus()
     slider.press("End")
     expect(slider).to_have_value("100")
@@ -150,6 +178,7 @@ def test_actual_home_library_items_groups_and_music_use_the_floor_limited_curve(
 
 
 def test_real_shelf_stays_ten_rem_while_a_narrow_grid_card_reaches_the_readable_floor(authed_page, live_server):
+    # Retained case ID; the operator explicitly superseded its fixed-slot clause.
     page = authed_page
     prefix, ids = _seed(live_server, "floor")
     page.set_viewport_size({"width": 320, "height": 900})
@@ -158,17 +187,20 @@ def test_real_shelf_stays_ten_rem_while_a_narrow_grid_card_reaches_the_readable_
     slot = card.locator("..")
     rem = page.evaluate("parseFloat(getComputedStyle(document.documentElement).fontSize)")
     assert abs(slot.bounding_box()["width"] - 10 * rem) <= 1
+    before = _measure(card)
     page.locator("[data-cover-size-input]").press("Home")
-    assert abs(slot.bounding_box()["width"] - 10 * rem) <= 1
-    _assert_width(card, 10 * rem, 50)
-    # Library deliberately has one comfortable column on a phone. Music's real
-    # two-column grid supplies the sub-160px host needed for this floor control.
+    _assert_reflow(card, before, 50)
+    assert abs(slot.bounding_box()["width"] - max(80, 6 * rem)) <= 1
+    # A 320px Music grid cannot fit a third readable tile, so it stops at two
+    # whole, full-width tiles rather than shrinking artwork in fixed slots.
     page.goto(live_server["url"] + "/music", wait_until="load")
     card = page.locator(f'.media-card[data-item-id="{ids["cd", True]}"]')
-    host = _measure(card)["host"]
+    before = _measure(card)
+    host = before["host"]
     assert 80 < host < 160, host
     page.locator("[data-cover-size-input]").press("Home")
-    assert abs(card.bounding_box()["width"] - 80) <= 1
+    _assert_reflow(card, before, 50)
+    assert _measure(card)["host"] == host and card.bounding_box()["width"] == pytest.approx(host, abs=1)
     assert_page_clean(page)
 
 
@@ -221,11 +253,11 @@ def test_real_no_js_session_has_labelled_disabled_controls_and_unchanged_native_
     try:
         page.goto(live_server["url"] + "/", wait_until="load")
         control = page.locator("[data-cover-size-control]")
-        expect(control.get_by_role("slider", name="Cover size")).to_be_disabled()
+        expect(control.get_by_role("slider", name="Item size")).to_be_disabled()
         # Playwright intentionally excludes NOSCRIPT itself from text matching;
         # verify its actual rendered fallback paragraph, not the skipped wrapper.
         expect(control.locator("noscript p")).to_have_count(1)
-        expect(control.get_by_text("Enable JavaScript to change cover size.", exact=True)).to_be_visible()
+        expect(control.get_by_text("Enable JavaScript to change item size.", exact=True)).to_be_visible()
         card = page.locator(f'.media-card[data-item-id="{ids["book", True]}"]')
         _assert_width(card, _measure(card)["host"], 100)
         link = card.locator(".media-card__detail")

@@ -124,11 +124,17 @@ implementation, visual, live-provider or release acceptance.
 | ME4 | Single-row recently-added shelves | Each shelf scrolls horizontally without wrapping into a second row, with usable scroll controls and a terminal View more action that retains its scope and newest-first ordering. Avoid whole-page horizontal overflow; test touch, keyboard, zoom and empty/error states |
 | ME5 | Account-owned recent grouping | User settings offer mixed, media-family and individual-format recent shelves, plus ordered custom combinations of families/formats. Reuse existing preference foundations, preserve account isolation and define deterministic defaults/fallbacks. Do not repurpose a shared browser's storage as another account's preferences or fetch the whole catalogue per shelf |
 | ME6 | Shared presentation foundations | A common media taxonomy/presentation registry, reusable cards/shelves/navigation/editor partials and small existing-framework components should make later changes propagate. Retain server-rendered FastAPI/HTMX, Alpine CSP, escaped metadata and existing feature boundaries; no separate frontend rewrite |
-| ME7 | Adjustable media-cover size | Add a labelled, keyboard-accessible slider to adjust cover/card size with live feedback across Library and shared media-card views. Preserve each format's aspect ratio and contained artwork; resizing must not crop images, overlap text or cause whole-page horizontal overflow. Include a reset to the default size. Resolve account-versus-device persistence with the existing F2 preference work rather than creating a second preference store |
+| ME7 | Adjustable whole-item size and density | Add a labelled, keyboard-accessible slider to resize the complete displayed item, including metadata/actions, and reflow the layout to fit more or fewer items. Preserve readable text, item order, each format's aspect ratio and contained artwork; resizing must not crop images, overlap text or cause whole-page horizontal overflow. Include a reset to the default size. Resolve account-versus-device persistence with the existing F2 preference work rather than creating a second preference store |
 | ST1 | Steam library, links and playtime | The operator explicitly chose owned-library import, Steam launch/store links and Steam-reported playtime. Keep reported playtime as separate source data, never overwrite personal status/progress/history. Use stable App IDs, encrypted credentials, bounded read-only refresh and truthful private/incomplete-library states. Preserve catalogue/copies/manual edits; never reconcile absence after a partial or inaccessible result. Validate generated launch actions narrowly rather than allowing arbitrary custom URL schemes. Account/playtime visibility and integration must be reviewed before exposure; no Steam login, DRM, downloads or automatic launch is implied |
 
-ME7 is a newly requested F2 presentation task, **not yet implemented**. Earlier
-media and navigation receipts do not establish cover-size-slider acceptance.
+The 2026-11-15 operator refinement explicitly supersedes the earlier fixed-slot,
+fixed-column sizing choice: resize the **whole displayed item** to fit more or
+fewer items. The bounded `density-v1` implementation opts in Home recent shelves,
+Library items/groups and local Music; Series and administrative Browse stay
+separate. It retains document-only 50–100% controls and readable floors; account
+preferences/CAS and above-default enlargement remain open. Fresh qualification is
+recorded separately from the earlier media/navigation receipts, which cannot
+establish acceptance for this refinement.
 
 The existing 185 acceptance checks remain unchecked. These refinements require
 additional explicit implementation and verification criteria; they do not inherit

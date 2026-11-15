@@ -23,7 +23,7 @@ ROOT = Path(__file__).resolve().parents[1]
 MODE = "phone-wrap-v1"
 STYLE = "/static/css/library-presentation.source.css"
 INTRO = "Your local catalogue, physical copies and synced digital holdings in one place."
-GEOMETRY = "Percentages request a card size, not more cards per row. Small cards stop shrinking to keep text readable."
+GEOMETRY = "Smaller items fit more per row when space allows. Text stays readable; results per page are unchanged."
 AVAILABILITY = ("Availability uses local copies and cached source records, not a live connection check. "
                 "All filters must match the same item; source and availability must match the same holding.")
 GROUPING = "Groups use explicit format links only. Every live edition is shown, including editions that do not match your filters."
@@ -72,7 +72,7 @@ def test_full_page_owns_one_native_panel_help_and_unchanged_successful_controls(
     assert member.attrs.get("data-library-member-presentation") == MODE
     help_node = _help(markup)
     panel = _marked(markup, "data-cover-size-panel")
-    assert panel.attrs["role"] == "group" and panel.attrs["aria-label"] == "Cover size"
+    assert panel.attrs["role"] == "group" and panel.attrs["aria-label"] == "Item size"
     assert root in panel.ancestors and panel in help_node.ancestors
     geometry = _paragraph(markup, GEOMETRY)
     assert geometry.attrs["id"] == panel.attrs["aria-describedby"] == "library-cover-size-description"

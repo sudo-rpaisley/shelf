@@ -18,7 +18,7 @@ from tests.e2e.conftest import assert_page_clean
 from tests.e2e.test_connected_library import (
     connected_library, _browser_page, _cached_source, _copy, _counts, _db, _holding, _item, _link,
 )
-from tests.e2e.test_cover_size_integration import _domain_snapshot, _GIF
+from tests.e2e.test_cover_size_integration import _assert_reflow, _domain_snapshot, _GIF, _measure
 from tests.e2e.test_library_artwork_sources import RECTANGLE
 from tests.test_library_phone_presentation import AVAILABILITY, GEOMETRY, GROUPING, INTRO, MODE, STYLE
 
@@ -319,6 +319,7 @@ def test_all_native_formats_images_unknowns_and_placeholders_keep_one_outer_curv
         expect(image).to_have_js_property("complete", True)
         assert image.evaluate("node => node.naturalWidth > 0 && node.naturalHeight > 0")
     baseline = cards.evaluate_all(_CURVE)
+    outer_baselines = {card.get_attribute("data-item-id"): _measure(card) for card in cards.all()}
     assert all(len(measured["grid"].split()) == (3 if width >= 1280 else 1) for measured in baseline)
     domain, url = _domain_snapshot(server), page.url
     storage = page.evaluate("() => [JSON.stringify(localStorage),JSON.stringify(sessionStorage),document.cookie]")
@@ -340,11 +341,14 @@ def test_all_native_formats_images_unknowns_and_placeholders_keep_one_outer_curv
             expect(page.locator("[data-cover-size-output]")).to_have_text(f"{percentage}%")
             current = cards.evaluate_all(_CURVE)
             for original, measured in zip(baseline, current, strict=True):
-                host = original["host"]
-                assert measured["card"] == pytest.approx(min(host, max(80, host * percentage / 100)), abs=1)
+                # Locate within the producer rather than descend into a card.
+                card = page.locator(f'.media-card[data-item-id="{measured["id"]}"]')
+                _assert_reflow(card, outer_baselines[measured["id"]], percentage)
+                assert measured["card"] == pytest.approx(measured["host"], abs=1)
                 assert measured["cardDisplay"] != "contents"
-                for key in ("id", "host", "grid", "gridWidth", "text", "fonts", "image"):
+                for key in ("id", "gridWidth", "text", "fonts", "image"):
                     assert measured[key] == original[key], (percentage, key, measured, original)
+                assert measured["host"] <= original["host"] + 1
                 shape, covered = expected[measured["id"]]
                 assert measured["shape"] == shape
                 ratio = {"portrait": 2 / 3, "square": 1, "cassette": 5 / 8, "game": 3 / 4}[shape]
@@ -357,6 +361,9 @@ def test_all_native_formats_images_unknowns_and_placeholders_keep_one_outer_curv
                 assert measured["artWidth"] == pytest.approx(expected_art, abs=max(2, expected_art * .08))
             samples.append({"percentage": percentage, "cards": current})
         # Fifty percent was measured above, while still selected, BEFORE Reset.
+        assert all(len(measured["grid"].split()) > len(original["grid"].split())
+                   and measured["host"] < original["host"]
+                   for original, measured in zip(baseline, current, strict=True))
         for member in page.locator("[data-library-member]").all():
             _painted(member)
         expect(page.locator('[data-cover-size-action="smaller"]')).to_be_disabled()
@@ -588,7 +595,7 @@ def test_no_js_help_native_submission_and_disabled_cover_controls_keep_the_full_
         try:
             _open(server, page=page)
             help_node = _controls(page, no_js=True)
-            expect(page.get_by_text("Enable JavaScript to change cover size.", exact=True)).to_be_visible()
+            expect(page.get_by_text("Enable JavaScript to change item size.", exact=True)).to_be_visible()
             before = _values(page)
             help_node.locator(":scope > summary").press("Enter")
             expect(help_node.get_by_text(GEOMETRY, exact=True)).to_be_visible()
@@ -637,7 +644,12 @@ def test_actual_cached_app_asset_with_new_html_preserves_native_help_and_live_co
         assert measured["art"]["width"] == pytest.approx(card["width"], abs=1)
     page.locator('[data-cover-size-action="smaller"]').click()
     expect(page.locator("[data-cover-size-input]")).to_have_value("90")
-    assert _box(member.locator(".media-card"))["width"] == pytest.approx(measured["outer"]["width"] * .9, abs=1)
+    assert _box(member.locator(".media-card"))["width"] == pytest.approx(_box(member)["width"], abs=1)
+    # At the compact endpoint the new direct density CSS must resize the whole
+    # article even while the browser is still serving the actual old bundle.
+    page.locator("[data-cover-size-input]").press("Home")
+    assert _box(member)["width"] < measured["outer"]["width"]
+    assert _box(member.locator(".media-card"))["width"] == pytest.approx(_box(member)["width"], abs=1)
     assert _values(page) == before
 
 

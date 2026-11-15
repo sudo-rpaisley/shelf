@@ -3,7 +3,7 @@
 <section class="media-shelf" data-shelf-key="{{ shelf.key }}" aria-label="{{ shelf.title }}">
     <h2 class="media-shelf__title">{{ shelf.title }}</h2>
     {% if shelf.items %}
-    <ul class="media-shelf__items" tabindex="0" aria-label="{{ shelf.title }}">
+    <ul class="media-shelf__items" tabindex="0" aria-label="{{ shelf.title }}"{% if item_size_mode|default('') == 'density-v1' %} data-item-shelf="density-v1"{% endif %}>
         {% for card in shelf.items %}
         <li class="media-shelf__slot">{% include "components/media_card.html" %}</li>
         {% endfor %}

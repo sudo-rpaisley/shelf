@@ -1,8 +1,9 @@
 {% extends "base.html" %}
+{% set item_size_mode = 'density-v1' %}
 {% block title %}Music — Shelf{% endblock %}
 {% block content %}
 {% set fact_labels = {'barcode': _('Barcode'), 'catalog_number': _('Catalogue number'), 'title': _('Title'), 'artist': _('Artist'), 'format': _('Format'), 'country': _('Country')} %}
-<div>
+<div data-item-size="density-v1">
     <div class="flex items-center justify-between gap-4 mb-6">
         <div>
             <p class="text-xs text-shelf-muted">Catalogue</p>
@@ -119,7 +120,7 @@
             <span class="text-sm text-shelf-muted">{{ _('%(count)s shown', count=items|length)|forceescape }}</span>
         </div>
         {% if items %}
-        <div class="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-6">
+        <div class="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-6" data-item-grid="music">
             {% for item in items %}
             <div class="min-w-0 space-y-2">
                 {% set card = build_media_card(item, detail_href='/music/item/' ~ item.id) %}

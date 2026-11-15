@@ -57,12 +57,14 @@ full-page form rather than a pop-out editor.
 
 On phones, Library artwork sits beside naturally wrapping titles and metadata;
 the complete holdings and actions remain available and images keep their proportions.
-Open **About this Library** for catalogue, cover-size, cached-availability and
+Open **About this Library** for catalogue, item-size, cached-availability and
 grouping/series explanations. Search, presets and live controls stay outside Help.
 
-**Cover size** shrinks cards on the current page from 100% towards 50%, without
-adding columns or changing artwork proportions. Reload or navigation resets it;
-it is not an account preference. **Local series** has no cover-size controls or
+**Item size** changes the complete item footprint from 100% towards 50%, fitting
+more items across when space permits. Text stays readable and artwork keeps its
+proportions; item order and results per page stay the same. **Larger** fits fewer
+items and **Reset** restores the default. Reload or navigation also resets it;
+it is not an account preference. **Local series** has no item-size controls or
 geometry guidance, including after opening a series' grouped-format drilldown.
 
 ### Groups are equivalent formats, not adaptations

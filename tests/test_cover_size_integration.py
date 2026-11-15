@@ -31,10 +31,11 @@ def test_registered_card_producers_have_one_explained_native_control_inside_exis
     page_root = panel.ancestors[panel.ancestors.index(main) + 1]
     assert page_root is not panel and page_root.tag == "div"
     assert not any(node.tag in {"form", "article", "ul"} for node in control.ancestors)
-    assert panel.attrs["role"] == "group" and panel.attrs["aria-label"] == "Cover size"
+    assert panel.attrs["role"] == "group" and panel.attrs["aria-label"] == "Item size"
     explanation = markup.one("p", id=panel.attrs["aria-describedby"])
     assert panel in explanation.ancestors
-    assert "not more cards per row" in explanation.text and "stop shrinking" in explanation.text
+    assert "fit more per row when space allows" in explanation.text
+    assert "Text stays readable; results per page are unchanged." in explanation.text
     slider = _marked(markup, "data-cover-size-input", tag="input", within=control)
     assert slider.ancestors[-1].tag == "label", "Native implicit label works before enhancement"
     assert (slider.attrs["type"], slider.attrs["min"], slider.attrs["max"],
@@ -93,8 +94,12 @@ def test_card_controls_gets_do_not_change_catalogue_or_private_state(viewer_clie
 
 
 @pytest.mark.parametrize("locale,label,explanation", (
-    ("it", "Dimensione delle copertine", "mantenere il testo leggibile"),
-    ("zh_Hans", "封面大小", "保证文字可读"),
+    ("it", "Dimensione degli elementi", "Il testo resta leggibile"),
+    ("zh_Hans", "项目大小", "文字保持清晰易读"),
+), ids=(
+    # Keep historical case IDs while the opted-in producer's visible copy changes.
+    "it-Dimensione delle copertine-mantenere il testo leggibile",
+    "zh_Hans-封面大小-保证文字可读",
 ))
 def test_control_and_geometry_explanation_use_the_actual_compiled_account_locale(
     viewer_client, viewer_user, db, monkeypatch, locale, label, explanation,

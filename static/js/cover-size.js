@@ -31,7 +31,8 @@
     function sync() {
         percentage = bounded(percentage);
         // The sole CSS write: a finite, bounded unitless number. CSS applies it
-        // once to cards, never to their parent slots, artwork or fonts.
+        // once to legacy cards or opted-in whole-item layout containers, never
+        // to artwork or fonts. CSS owns reflow and readable-size floors.
         document.documentElement.style.setProperty('--media-cover-scale', String(percentage / 100));
         for (const root of document.querySelectorAll(CONTROL)) {
             const input = root.querySelector(INPUT);

@@ -24,12 +24,13 @@ directly visible. Menus are not opened automatically.
 
 ## Views
 
-On Home, Library's item/group views and Music's local collection, **Cover size**
-shrinks cards on the current page. Use the native slider, **Smaller**, **Larger**
-or **Reset**. The default is 100%; the smallest requested size is 50%. Rows and
-columns stay fixed, and a readable minimum can stop small cards shrinking before
-the requested percentage. This does not fit more cards into a row or change
-artwork proportions. Every Library **Local series** view, including a series
+On Home, Library's item/group views and Music's local collection, **Item size**
+changes the whole displayed item, including its text and details. Use the native
+slider, **Smaller**, **Larger** or **Reset**. Smaller items fit more across; larger
+items fit fewer. Home keeps a single horizontally scrolling shelf. The default
+is 100%; the smallest requested size is 50%. Readable minimums can stop shrinking,
+and some slider steps keep the same column count. Text sizes, artwork proportions,
+item order and results per page do not change. Every Library **Local series** view, including a series
 drilldown, omits these controls.
 
 The choice is not saved: navigation or reload restores the default. No account

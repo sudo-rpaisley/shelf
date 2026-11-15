@@ -964,6 +964,47 @@ acceptance is not inferred from a push. Later documentation-only commits do not
 change the selected application
 commit or inherit a claim that tests ran on those documentation revisions.
 
+#### Whole-item density refinement (2026-11-15)
+
+The operator's whole-item sizing request supersedes the fixed-density producer
+contract, not the retained legacy standalone component. Independent design review
+required pitch-aware grid arithmetic, exact paired markers, readable rem floors,
+rich-content wrapping, terminal slot sizing and a finite test-transition whitelist;
+those amendments were ratified before productive edits. No Python, database,
+preference store, catalogue query, artwork registry or JS runtime changes are used.
+
+The four new actual-producer baseline checks failed on the original unchanged
+outer widths, demonstrating the picture-only defect. Their initial long-TMPDIR
+invocation was blocked before assertions by Chromium's socket path limit; the
+existing short temporary path resolved that infrastructure issue. The first new
+boundary run gave **13 passed / nine missing-behaviour failures**.
+
+The first implementation checks gave **107 unit passes / 65.92 s** and
+**42 browser passes / three new-fixture failures / 97.78 s**. The latter three
+collided on a repeated location name in the session-scoped synthetic database;
+they are not waived or classified as passing. Fresh complete affected gates and
+independent candidate review remain required. Earlier `56d4a434` passes do not
+transfer to this refinement.
+
+Subsequent fixture strengthening corrected the tag relation setup and retained
+a newly exposed Home 200%-text overflow assertion. The existing Collection mix /
+Browse all header needed one wrapping class, not clipping or smaller text.
+Independent source/test follow-up review cleared that finite correction; all
+**27 new browser cases pass / 52.16 s**, including rich phone/desktop groups,
+holdings and tags, full Music pressing metadata, Home enlargement and both
+picture-only/double-scaling negative controls. Broader exact-candidate gates are
+still separate requirements, not inferred from these bounded results.
+
+All 435 original test files and the acceptance185 SHA above remain exact. The
+legacy cover-size CSS and both legacy component-test modules are unchanged.
+Only five post-original test modules transition their superseded producer geometry
+or labels; case identities and independent artwork/content/state/navigation checks
+remain. Separate additive modules test actual outer containers/painted density,
+rich holdings/editions, minimum sizes, keyboard/focus, cached assets, paired markers
+and picture-only/double-scaling negative controls. Collection badges are not passes.
+Account-owned persistence/CAS, above-default growth, AT/pinned runtime and all other
+programme limits remain open. No deployment or provider-account access is implied.
+
 #### ME2-A protocol refinement — design ratified, no writer
 
 The read-only planner's finite v2 is persisted alongside historical v1, receives
