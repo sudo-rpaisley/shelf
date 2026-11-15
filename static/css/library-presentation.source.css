@@ -39,6 +39,11 @@
     [data-library-presentation="phone-wrap-v1"] [data-library-presentation-tools="phone-wrap-v1"] .cover-size-control > noscript { order: 6; flex-basis: 100%; }
     [data-library-presentation="phone-wrap-v1"] .library-phone-filters { padding: 0.5rem 0.75rem; }
     [data-library-presentation="phone-wrap-v1"] .library-phone-filters > :not(:last-child) { margin-block-end: 0.5rem; }
+    [data-library-presentation="phone-wrap-v1"] .library-phone-search { flex-wrap: wrap; }
+    [data-library-presentation="phone-wrap-v1"] .library-phone-search > input {
+        flex-basis: 80px;
+        min-inline-size: 80px;
+    }
     [data-library-presentation="phone-wrap-v1"] .library-phone-saved { padding: 0.5rem 0.75rem; }
     [data-library-presentation="phone-wrap-v1"] #library-results > :not(:last-child) { margin-block-end: 0.5rem; }
 

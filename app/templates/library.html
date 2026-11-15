@@ -51,7 +51,7 @@
         <input type="hidden" name="types" value="{{ filters.types }}">
         <div>
             <label for="library-q" class="block text-sm font-medium mb-1">{{ _('Search your library') }}</label>
-            <div class="flex gap-2">
+            <div class="library-phone-search flex gap-2">
                 <input id="library-q" name="q" value="{{ filters.q }}" type="search" maxlength="300" class="min-w-0 flex-1 bg-shelf-bg border border-shelf-border rounded-lg px-3 py-2" placeholder="{{ _('Title, creator, ISBN, UPC, ASIN, narrator, series, publisher, tag or external ID') }}">
                 <button type="submit" class="px-4 py-2 rounded-lg bg-shelf-accent text-white hover:bg-shelf-accent2">{{ _('Search') }}</button>
             </div>
