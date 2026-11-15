@@ -169,9 +169,16 @@ Vector correction `5ef2a7ea` now has bounded source clearance and fresh parent
 **928-unit / five-browser passes**. Its Linux-only close-semantics boundary remains
 explicit. The full vector range is now composed with phone/caption at `d11b37d4`:
 five vector browser checks, including the full original SVG/Account journey, pass
-on that actual tree. Three card-position failures remain unchanged. Broader
-combined gates and the mobile-layout contract review remain open; no component
-pass is transferred or UI selected.
+on that actual tree. Its wider checks give **2076 unit passes / 246 browser passes
+and three retained geometry failures**, with no component-pass transfer.
+
+The reviewed finite mobile-layout contract is now implemented in a new, unselected
+prototype `499ab86f`. Both complete original phone journeys, the retained later-leg
+probe and focused geometry regression pass unchanged; the book heading is y=870.1875
+against y<900. Retained checks also pass **170 unit / 48 browser**, plus eleven
+offline/syntax checks and bounded source-review clearance. New mode-specific tests
+and final wider composition gates remain open. Original tests are unchanged; this is
+not overall acceptance or UI primary selection.
 Original tests remain unchanged and enabled; UI is still unselected.
 
 ME2-A's source-grounded finite protocol v2 is recorded, independently cleared for

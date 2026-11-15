@@ -813,10 +813,47 @@ failures / 29.22 s**: the complete original SVG/Account phone journey through li
 four vector cases pass; original main-phone 1003, later-leg 734 and focused 239
 retain y=2209.1875 versus y<900. A separate original-navbar invocation passes
 **12 / 38.57 s**. Both have exact inputs/guards and zero attempts/errors/skips.
-Broader combined unit/browser gates are running; no results transfer from `ced`
-or `5ef`. Badges **10852 unit / 650 E2E** are collection counts, not suite passes.
-The new Library-presentation contract is still under requirements review; no
-layout implementation or UI primary selection is authorized by these results.
+Fresh broader combined checks complete **2076 unit / 1074.14 s** and **246 browser
+passed / three same geometry failures / 574.35 s**, with exact inputs/guards and
+zero attempts/errors/skips. Unit identities are exactly the union of all 1729
+`ced` and 928 vector cases; browser retains all earlier 245 IDs and changes only
+the original SVG outcome RED to GREEN, adding four vector cases. No result was
+transferred from a component. Badges **10852 unit / 650 E2E** remain collection
+counts, not full-suite passes.
+
+#### Explicit Library phone presentation — frozen prototype, not selected
+
+The finite `phone-wrap-v1` contract receives independent implementation-contract
+clearance. Parent derives a new tree from the full vector composition and changes
+only four reserved presentation sources: Library page/results templates, one CSS
+import and a new versioned stylesheet, plus central generated assets/catalogues.
+Shared cards/artwork/cover controls, navigation, JS, routers/services, model/SQL
+and kernel sources remain unchanged. All 459 existing test files remain exact.
+
+Prototype `208203f2` preserves the geometry REDs at **y=904.1875**, rather than
+weakening y<900. Flow refinement `499ab86f` retains normal fonts, 80px control
+minima, outer-card sizing, grid density, recent order and native artwork ratios.
+It uses a contained Library-only wrapping layout and one native Help for the
+existing explanations, leaving controls, notices, counts, holdings and actions
+available. The page/member markers and explicit owned-help flag do not change
+default standalone/shared component behavior.
+
+Fresh frozen checks pass **all four unchanged phone journeys / 18.59 s**: the
+complete original main-phone case through **line 1053**, original SVG/Account case
+through **962**, retained later-leg journey and focused geometry regression.
+The book heading is **y=870.1875** (29.8125px clearance), results start at y=588,
+order remains video 2 then book 1, artwork remains portrait and document width is
+375px without overflow. Thus filters, saved views, Account/Sources, item-copy
+selectors and shortcuts were actually reached and passed on this candidate.
+
+Separate retained checks pass **170 unit / 100.20 s**, **48 producer/caption/vector
+browser / 109.82 s**, and eleven offline/syntax checks, with all 940 inputs/guards
+exact and zero attempts/errors/skips. Independent review returns bounded
+**SOURCE_REVIEW_CLEAR** for `499ab86f`. A disjoint writer's two new explicit-mode
+test modules are still pending. Those tests must
+be composed without weakening assertions, regenerated and independently reviewed;
+fresh wider exact-candidate gates remain required before any UI primary selection.
+These local-font results do not close AT, pinned runtime or whole-programme gates.
 
 #### ME2-A protocol refinement — design ratified, no writer
 
