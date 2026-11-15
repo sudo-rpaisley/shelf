@@ -374,6 +374,25 @@ def test_all_native_formats_images_unknowns_and_placeholders_keep_one_outer_curv
     expect(page.locator("[data-cover-size-input]")).to_have_value("100")
 
 
+def _focus_decorations(member):
+    decorations = """node => [node,node.querySelector('.media-card'),node.querySelector('.media-card__detail'),node.parentElement]
+        .map(n=>{const s=getComputedStyle(n),r=n.getBoundingClientRect();return {outline:s.outlineStyle,width:parseFloat(s.outlineWidth),
+            color:s.outlineColor,shadow:s.boxShadow,border:s.borderTopStyle,borderWidth:parseFloat(s.borderTopWidth),
+            borderColor:s.borderTopColor,left:r.left,top:r.top,right:r.right,bottom:r.bottom};})"""
+    return member.evaluate(decorations)
+
+
+def _enclosing_focus(before, after, member):
+    enclosing = []
+    for old, new in zip(before, after, strict=True):
+        painted = ((new["outline"] not in {"none", "hidden"} and new["width"] > 0 and new["color"] != "rgba(0, 0, 0, 0)")
+                   or new["shadow"] != "none" or (new["border"] not in {"none", "hidden"} and new["borderWidth"] > 0))
+        changed = any(new[key] != old[key] for key in ("outline", "width", "color", "shadow", "border", "borderWidth", "borderColor"))
+        if painted and changed and new["left"] <= member["left"] + 1 and new["right"] >= member["right"] - 1 and new["top"] <= member["top"] + 1 and new["bottom"] >= member["bottom"] - 1:
+            enclosing.append(new)
+    return enclosing
+
+
 @pytest.mark.parametrize("target", ("artwork", "title"))
 def test_actual_title_and_artwork_hit_the_one_native_link_with_enclosing_keyboard_focus(phone_library, target):
     page = _open(phone_library)
@@ -383,23 +402,13 @@ def test_actual_title_and_artwork_hit_the_one_native_link_with_enclosing_keyboar
     expect(link).to_have_count(1)
     expect(video.locator("h3")).to_have_count(1)
     assert video.locator('[tabindex]:not([tabindex="-1"])').count() == 0
-    decorations = """node => [node,node.querySelector('.media-card'),node.querySelector('.media-card__detail'),node.parentElement]
-        .map(n=>{const s=getComputedStyle(n),r=n.getBoundingClientRect();return {outline:s.outlineStyle,width:parseFloat(s.outlineWidth),
-            color:s.outlineColor,shadow:s.boxShadow,border:s.borderTopStyle,borderWidth:parseFloat(s.borderTopWidth),
-            borderColor:s.borderTopColor,left:r.left,top:r.top,right:r.right,bottom:r.bottom};})"""
-    before = video.evaluate(decorations)
+    before = _focus_decorations(video)
     page.keyboard.press("Tab")  # Establish actual keyboard modality before focus.
     link.focus()
     expect(link).to_be_focused()
-    after = video.evaluate(decorations)
+    after = _focus_decorations(video)
     member = _painted(video)["outer"]
-    enclosing = []
-    for old, new in zip(before, after, strict=True):
-        painted = ((new["outline"] not in {"none", "hidden"} and new["width"] > 0 and new["color"] != "rgba(0, 0, 0, 0)")
-                   or new["shadow"] != "none" or (new["border"] not in {"none", "hidden"} and new["borderWidth"] > 0))
-        changed = any(new[key] != old[key] for key in ("outline", "width", "color", "shadow", "border", "borderWidth", "borderColor"))
-        if painted and changed and new["left"] <= member["left"] + 1 and new["right"] >= member["right"] - 1 and new["top"] <= member["top"] + 1 and new["bottom"] >= member["bottom"] - 1:
-            enclosing.append(new)
+    enclosing = _enclosing_focus(before, after, member)
     assert enclosing, {"before": before, "after": after, "member": member}
     link.press("Tab")
     expect(book.locator(".media-card__detail")).to_be_focused()
@@ -415,6 +424,60 @@ def test_actual_title_and_artwork_hit_the_one_native_link_with_enclosing_keyboar
     assert navigation.value.status == 200
     expect(page).to_have_url(phone_library["url"] + f'/item/{phone_library["video"]}?from=library')
     expect(page.get_by_role("heading", level=1)).to_have_text(VIDEO)
+
+
+@pytest.mark.parametrize("decoration", (
+    "transparent-outset-shadow", "transparent-outline", "transparent-border", "top-border-only",
+    "zero-outset-shadow", "inset-shadow", "offset-outset-shadow", "non-enclosing-outline",
+    "unchanged-outline-with-transparent-shadow",
+))
+def test_focus_oracle_rejects_nonpainting_or_non_enclosing_fixture(phone_library, decoration, tmp_path):
+    """Isolated browser STYLE MUTATIONS test the oracle, not production focus CSS."""
+    page = _open(phone_library)
+    video = page.locator(f'[data-library-member="{phone_library["video"]}"]')
+    link = video.locator(".media-card__detail")
+    # Suppress ALL real anchor/member/ancestor cues, including pseudo-elements;
+    # an otherwise valid source outline must not rescue a bad fixture shadow.
+    page.add_style_tag(content="""*, *::before, *::after {
+        outline: none !important; box-shadow: none !important; border-color: transparent !important;
+    }""")
+    residual = video.evaluate("""node => {
+        const nodes=new Set([node,...node.querySelectorAll('*')]);
+        for(let n=node.parentElement;n;n=n.parentElement)nodes.add(n);
+        return [...nodes].flatMap(n=>[null,'::before','::after'].map(p=>getComputedStyle(n,p)))
+            .filter(s=>s.outlineStyle!=='none' || s.boxShadow!=='none' ||
+                ['Top','Right','Bottom','Left'].some(side=>s['border'+side+'Color']!=='rgba(0, 0, 0, 0)'))
+            .map(s=>({outline:s.outline,shadow:s.boxShadow,border:s.borderColor}));
+    }""")
+    assert residual == [], residual
+    selector = f'[data-library-member="{phone_library["video"]}"]'
+    declarations = {
+        "transparent-outset-shadow": "box-shadow: 0 0 0 2px transparent !important;",
+        "transparent-outline": "outline: 2px solid rgba(255, 0, 0, 0) !important;",
+        "transparent-border": "border: 2px solid rgba(255, 0, 0, 0) !important;",
+        "top-border-only": "border: 2px solid transparent !important; border-top-color: yellow !important;",
+        "zero-outset-shadow": "box-shadow: 0 0 0 0 yellow !important;",
+        "inset-shadow": "box-shadow: inset 0 0 0 2px yellow !important;",
+        "offset-outset-shadow": "box-shadow: 8px 0 0 0 yellow !important;",
+        "non-enclosing-outline": "outline: 2px solid yellow !important;",
+        "unchanged-outline-with-transparent-shadow": "box-shadow: 0 0 0 2px transparent !important;",
+    }
+    static = selector + " {outline: 2px solid yellow !important;}" if decoration == "unchanged-outline-with-transparent-shadow" else ""
+    target = selector + (" .media-card" if decoration == "non-enclosing-outline" else "")
+    page.add_style_tag(content=static + target + ":focus-within {" + declarations[decoration] + "}")
+    before = _focus_decorations(video)
+    page.keyboard.press("Tab")
+    link.focus()
+    expect(link).to_be_focused()
+    assert video.evaluate("node => node.matches(':focus-within')")
+    after = _focus_decorations(video)
+    member = video.evaluate("node => {const r=node.getBoundingClientRect();return {left:r.left,top:r.top,right:r.right,bottom:r.bottom};}")
+    enclosing = _enclosing_focus(before, after, member)
+    evidence = {"fixture": decoration, "before": before, "after": after, "member": member, "accepted": enclosing}
+    print(json.dumps(evidence, indent=2))
+    (tmp_path / "focus-oracle-fixture.json").write_text(json.dumps(evidence, indent=2))
+    assert enclosing == [], evidence
+    assert_page_clean(page)
 
 
 @pytest.mark.parametrize("width", (375, 1280))
