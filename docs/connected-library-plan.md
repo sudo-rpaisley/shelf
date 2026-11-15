@@ -58,9 +58,9 @@ All **185** original acceptance checks remain unchecked; **F1–F8, R1–R10 and
 X1–X6 remain in scope**. No programme, pinned-runtime, live-provider, household or
 deployment acceptance follows from this documentation snapshot.
 
-### Qualified local UI selection (2026-11-15)
+### Qualified UI foundation (2026-11-15)
 
-Application `56d4a434` is now selected locally after bounded source/test reviews,
+Application `56d4a434` was selected after bounded source/test reviews,
 fresh **2115 unit / 300 browser passes**, a separate **12 original-navbar passes**,
 eleven offline checks and independent final drift verification. It integrates
 commands, document-local cover sizing, exact-copy locating, native phone navigation,
@@ -75,6 +75,22 @@ AT, pinned runtime and provider/IdP acceptance remain open. This bounded selecti
 does not complete ME1–ME7 or the programme. Git authentication now reuses the
 existing GitHub login; the first successful repair push published the qualified
 code through `6ea540f6` on `new-test`, without a deployment or image publication.
+
+### Qualified whole-item sizing (2026-11-15)
+
+Application **`f570b592`** is now selected and pushed to `new-test`. The operator's
+whole-item requirement supersedes fixed-density sizing: Library articles, complete
+local Music tiles and Home shelf slots resize and fit more/fewer items across.
+Text, artwork proportions, metadata/actions, order and results per page stay intact.
+
+Fresh exact-candidate gates pass **2137 unit / 327 browser / separate 12 navbar**;
+independent final verification confirms all 945 source files/modes and retained
+evidence, all previous case identities, the original 435 test files and unchanged
+185 unchecked acceptance entries. The 22 unit / 27 browser additions include
+actual outer-footprint/painted-density and picture-only/double-scaling controls.
+Badges **10913 unit / 728 E2E** count collection, not full-suite passes. Preferences,
+above-default enlargement and the remaining programme/operational gates stay open;
+this is branch publication, not deployment or image publication.
 
 ## Remaining library frontend work
 

@@ -63,7 +63,7 @@ data directories and must never be seeded from the operator's live catalogue.
 | Lane | Backlog responsibility | Evidence state, not completion |
 |---|---|---|
 | Search | F1 indexing, ranking, bounded grouping/paging and scale measurements | Pure search foundation selected; catalogue hydration, persistent indexing, ranking and bounded SQL/RAM acceptance remain open |
-| Front door | F2 shelves, creators, collections, preferences, navigation and cover-size slider; ME1–ME7 | Local `56d4a434` selection: 2115 unit / 300 browser / separate 12 navbar passes; page-only sizing, commands, locator and phone layout integrated; editor/account preferences/AT/pinned/scale gates remain open |
+| Front door | F2 shelves, creators, collections, preferences, navigation and whole-item sizing; ME1–ME7 | Published `f570b592`: 2137 unit / 327 browser / separate 12 navbar passes; document-local whole-item sizing/reflow, commands, locator and phone layout integrated; editor/account preferences/AT/pinned/scale gates remain open |
 | Source jobs | F3 scheduling, progress, retry/recovery and large-source boundaries | Streaming/lease integration and runtime verification open |
 | Handoff/progress | F4 preferred source and explicitly linked account progress | Next-batch integration; scheduled-pull acceptance open |
 | Media hierarchy | F5 works/editions/copies, music and source children | Atomic child hook prepared; production composition open |
@@ -201,9 +201,9 @@ its oracle. Remaining oracle questions, reviews and final wider gates stay open.
 Original tests are unchanged; this is not overall acceptance or UI primary selection.
 Original tests remain unchanged and enabled; UI is still unselected.
 
-### Selected UI increment (2026-11-15)
+### Previously selected UI foundation (2026-11-15)
 
-Primary now selects application **`56d4a434d86f1e54e3347017ce8a8a90b8a1c81c`**, by
+Primary previously selected application **`56d4a434d86f1e54e3347017ce8a8a90b8a1c81c`**, by
 fast-forward to the exact independently verified tree. It composes the full
 reviewed palette, page-only sizing, exact-copy locator, native phone navigation,
 caption/status, validated local-vector and Library wrapping-presentation ranges.
@@ -234,6 +234,12 @@ ownership, native fallback and non-atomic artwork boundaries remain explicit.
 
 ### Whole-item sizing refinement (2026-11-15)
 
+Application **`f570b5923e1f7e123a850302d66b6df2e9ae18c0`** is selected and
+published on `new-test`, after independent final **PASS — READY** verification.
+Fresh affected gates pass **2137 unit / 1207.76 s**, **327 browser / 881.02 s** and
+the separately invoked **12 original-navbar checks / 38.08 s**. Offline/syntax
+checks pass; private roadmap-map checking is unavailable, not accepted.
+
 The operator clarified that resizing must change the **whole displayed item** so
 more or fewer items fit, superseding the earlier fixed-density producer decision.
 The bounded `density-v1` implementation resizes Library articles (including
@@ -247,8 +253,11 @@ An independent design review's finite corrections were ratified before productiv
 edits. Original 435 test files and acceptance185 remain exact; legacy component
 tests remain unchanged. Only post-original producer assertions for the superseded
 fixed-host contract transition, retaining case identities and independent checks.
-Fresh runtime qualification and candidate review are required; the earlier
-2115/300/12 receipts do not transfer to this implementation.
+The fresh qualification preserves every prior 2115/300/12 case identity/outcome
+and adds 22 unit / 27 browser cases. All 945 files/modes match the gated candidate;
+all 18030 retained evidence hashes were independently checked. Earlier failures
+remain retained, not waived. Badges 10913/728 count collection, not full-suite
+passes; no programme, AT, pinned-runtime or provider acceptance is inferred.
 
 Independent architecture, requirements, privacy and recovery audits accompany
 implementation. Additional reviewers/testers are assigned to completed

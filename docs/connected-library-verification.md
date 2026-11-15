@@ -983,7 +983,7 @@ The first implementation checks gave **107 unit passes / 65.92 s** and
 **42 browser passes / three new-fixture failures / 97.78 s**. The latter three
 collided on a repeated location name in the session-scoped synthetic database;
 they are not waived or classified as passing. Fresh complete affected gates and
-independent candidate review remain required. Earlier `56d4a434` passes do not
+independent candidate review remained required. Earlier `56d4a434` passes do not
 transfer to this refinement.
 
 Subsequent fixture strengthening corrected the tag relation setup and retained
@@ -992,8 +992,33 @@ Browse all header needed one wrapping class, not clipping or smaller text.
 Independent source/test follow-up review cleared that finite correction; all
 **27 new browser cases pass / 52.16 s**, including rich phone/desktop groups,
 holdings and tags, full Music pressing metadata, Home enlargement and both
-picture-only/double-scaling negative controls. Broader exact-candidate gates are
-still separate requirements, not inferred from these bounded results.
+picture-only/double-scaling negative controls. Broader exact-candidate gates were
+required separately, not inferred from these bounded results.
+
+Final exact-candidate qualification on **`f570b5923e1f7e123a850302d66b6df2e9ae18c0`**:
+
+| Gate | Result |
+|---|---|
+| Fresh affected unit union | **2137 passed / 1207.76 s**, exit 0 |
+| Fresh affected browser union | **327 passed / 881.02 s**, exit 0 |
+| Separately invoked original navbar | **12 passed / 38.08 s**, exit 0 |
+| Offline and syntax checks | `make checks-fast`, JS syntax and committed-range whitespace checks pass; private roadmap-map unavailable |
+
+Independent final verification returns **PASS — READY**: all prior **2115/300/12**
+case identities/outcomes match archived JUnit exactly, with **22 unit / 27 browser**
+additions and zero failures/errors/skips. Both historical locale IDs survive.
+All **945 source files and Git modes** match HEAD, each gate's before/after
+manifests, both clean worktrees and the source archive. Guards remain exact with
+zero recorded attempts. All **18030 evidence-manifest hashes** were verified,
+without missing/unlisted artifacts or unresolved drift. Original phone journeys
+and retained geometry/artwork/focus regressions remain unchanged and passing.
+
+Evidence: `.temp/swarm-reviews/item-density-final-f570b59/`; parent receipts under
+`.temp/implementation-wave-20261114/`. Primary fast-forwarded to the exact qualified
+commit and a non-forced push plus remote-SHA check confirmed `new-test` at
+`f570b592`. Later documentation-only revisions do not claim that tests reran on
+those revisions. These are compatible local-runtime results, not full10913/728
+suite, pinned-runtime, AT, live-provider, programme or deployment acceptance.
 
 All 435 original test files and the acceptance185 SHA above remain exact. The
 legacy cover-size CSS and both legacy component-test modules are unchanged.
