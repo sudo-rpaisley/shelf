@@ -12,7 +12,7 @@ from urllib.parse import urlencode
 
 import httpx
 
-from fastapi import APIRouter, Depends, Form, Request
+from fastapi import APIRouter, Depends, Form, Query, Request
 from fastapi.responses import HTMLResponse, JSONResponse
 
 from app import i18n
@@ -197,6 +197,7 @@ async def title_search(
     q: str = "",
     media_type: str = "book",
     platform: str = "",
+    mode: str = Query("add", max_length=16),
     _=Depends(require_role("editor")),
 ):
     """Unified title search — routes to the right backend based on media type."""
@@ -204,12 +205,15 @@ async def title_search(
         return HTMLResponse("")
     media_type = canonical_media_type(media_type)
     if media_type in MUSIC_MEDIA_TYPES:
+        if mode not in {"add", "wishlist"}:
+            return HTMLResponse(i18n.gettext("Choose Add or Wishlist before adding music by hand."), status_code=400)
         query = q.strip()[:200]
         return request.app.state.templates.TemplateResponse(
             request, "fragments/music_title_search.html",
             {"music_enabled": feature_enabled("music"), "show_music_handoff": True,
              "music_search_url": "/music?" + urlencode({"q": query, "format": media_type}),
              "manual_title": query, "manual_artist": "", "manual_format": media_type,
+             "manual_mode": mode, "manual_from_scan": True,
              "music_media_types": {key: MEDIA_TYPES[key] for key in MEDIA_TYPES if key in MUSIC_MEDIA_TYPES}},
         )
     if media_type == "video_game":

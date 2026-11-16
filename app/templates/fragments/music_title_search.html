@@ -11,6 +11,10 @@
         <summary class="cursor-pointer text-sm text-shelf-accent2">{{ _('Add by hand — pressing unknown') }}</summary>
         <p class="text-sm text-shelf-muted mt-3">{{ _('If none of the releases matches your copy, keep only what you know. This does not attach a provider release, barcode or track list.') }}</p>
         <form method="post" action="/api/items/manual" class="space-y-3 mt-3" data-testid="music-manual-form">
+            {# No child x-data: on Scan these controls inherit the same mode
+               state as #scan-mode, including a late title-search response. #}
+            <fieldset class="space-y-3"{% if manual_from_scan | default(false) %} :disabled="mode !== 'add' && mode !== 'wishlist'"{% endif %}>
+            <input type="hidden" name="mode" value="{{ manual_mode | default('add') }}"{% if manual_from_scan | default(false) %} :value="mode"{% endif %}>
             <input type="hidden" name="_csrf" value="{{ request.cookies.get('csrf_token', '') }}">
             <label for="music-manual-title" class="block text-sm text-shelf-muted">{{ _('Release title') }}
                 <input id="music-manual-title" name="title" value="{{ manual_title | default('') }}" required maxlength="200" class="block w-full mt-1 bg-shelf-bg border border-shelf-border rounded-lg px-3 py-2 text-shelf-text">
@@ -25,6 +29,8 @@
                 </select>
             </label>
             <button type="submit" class="px-4 py-2 bg-shelf-accent text-white rounded-lg text-sm">{{ _('Add by hand') }}</button>
+            </fieldset>
         </form>
     </details>
+    <a href="/scan?add=manual" class="inline-block text-sm text-shelf-accent2">{{ _('Add by hand') }} — {{ _('Scan') }}</a>
 </section>

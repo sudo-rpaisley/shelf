@@ -50,6 +50,12 @@ def _release_formats(release):
     return known
 
 
+def _check_item_format(item, release):
+    known = _release_formats(release)
+    if item and known and item["media_type"] not in known:
+        raise music_review.ReviewError(i18n.gettext("The release format contradicts this item's music format. Choose the correct pressing."))
+
+
 def _discogs_link_id(value):
     try:
         parsed = urlsplit(value)
@@ -183,6 +189,7 @@ async def preview(request: Request):
                     raise music_review.ReviewError("The MusicBrainz release could not be read. Try again shortly.")
                 release = answer.payload
                 _check_release(release, "musicbrainz", mbid, requested_format)
+                _check_item_format(item, release)
                 art = await music_artwork.release_candidates(release, client)
             candidates = [{"kind": "musicbrainz", "source_url": f"https://musicbrainz.org/release/{mbid}",
                            "release": release, "fields": music_review.fields_for(release),
@@ -201,6 +208,7 @@ async def preview(request: Request):
             if not answer.found:
                 raise music_review.ReviewError(i18n.gettext("The Discogs release could not be read. Try again shortly."))
             _check_release(answer.payload, "discogs", discogs_id, requested_format)
+            _check_item_format(item, answer.payload)
             candidates = [{"kind": "discogs", "source_url": f"https://www.discogs.com/release/{discogs_id}", "release": answer.payload,
                             "fields": music_review.fields_for(answer.payload) if provider == "discogs" else {},
                             "images": [image["url"] for image in answer.payload.get("images", [])],
@@ -210,6 +218,7 @@ async def preview(request: Request):
         else:
             candidates = await shop_metadata.preview(url)
         for candidate in candidates:
+            _check_item_format(item, candidate["release"])
             known = _release_formats(candidate["release"])
             if requested_format and known and requested_format not in known:
                 raise music_review.ReviewError(i18n.gettext("The selected format contradicts the provider's release details. Choose the correct pressing."))
@@ -277,6 +286,7 @@ async def apply_match(request: Request):
             item = _item(db, item_id)
             if music_review.fingerprint(db, item_id) != review["fingerprint"]:
                 raise music_review.ReviewError("This item changed after the preview. Preview it again before applying anything.")
+            _check_item_format(item, candidate["release"])
             _refuse_release_duplicate(db, candidate, item_id)
         values = {field: candidate["fields"][field] for field in chosen}
         if not item_id:
@@ -296,8 +306,10 @@ async def apply_match(request: Request):
                 raise music_review.ReviewError("The chosen image could not be downloaded. Nothing was changed; try keeping the existing artwork.")
         with get_db() as db:
             db.execute("BEGIN IMMEDIATE")
+            item = _item(db, item_id)
             if music_review.fingerprint(db, item_id) != review["fingerprint"]:
                 raise music_review.ReviewError("This item changed while the artwork was loading. Preview it again.")
+            _check_item_format(item, candidate["release"])
             _refuse_release_duplicate(db, candidate, item_id)
             creating = not item_id
             if not item_id:

@@ -110,97 +110,52 @@ async def search(client, *, title="", artist="", barcode="", catalog_number="", 
                                    provider="musicbrainz")
 
 
-async def _catalogue_mb_search(query, client, *, artist=None, barcode=None, catalog_number=None,
-                               media_type="", country="", limit=30):
-    """Strict empty-response boundary for catalogue fallback, not legacy search.
-
-    The legacy MB client accepts a missing/null releases member as an empty
-    list. That cannot authorize a second provider, so validate the raw search
-    envelope here before using its existing release normalizer.
-    """
-    def literal(value):
-        return re.sub(r'([+\-!(){}\[\]^"~*?:\\/|&])', r'\\\1', value.strip())
-
-    clauses = []
-    for field, value in (("barcode", barcode), ("catno", catalog_number), ("release", query), ("artist", artist)):
-        if value and value.strip():
-            clauses.append(f'{field}:"{literal(value)}"')
-    if not clauses:
-        return provider_result.no_match("musicbrainz")
-    formats = {"vinyl": "(Vinyl OR 7vinyl OR 10vinyl OR 12vinyl)", "cd": "CD",
-               "cassette": "Cassette", "digital_music": "DigitalMedia"}
-    if media_type in formats:
-        clauses.append("format:" + formats[media_type])
-    if country:
-        clauses.append(f'country:"{literal(country)}"')
-    result = await musicbrainz._request_json(client, f"{musicbrainz.MUSICBRAINZ_BASE}/release/", params={
-        "query": " AND ".join(clauses), "fmt": "json", "limit": str(limit),
-    })
-    if not result.found:
-        if result.outcome == "no_match" and result.status in (400, 401, 403):
-            return provider_result.rejected("musicbrainz", status=result.status)
-        if result.outcome == "no_match" and result.status is not None and result.status >= 500:
-            return provider_result.transport_failed("musicbrainz")
-        return result
-    payload = result.payload
-    if not isinstance(payload, dict) or not isinstance(payload.get("releases"), list):
-        return provider_result.transport_failed("musicbrainz")
-    releases = []
-    try:
-        for row in payload["releases"][:100]:
-            if (not isinstance(row, dict) or not release_id(row.get("id"))
-                    or not isinstance(row.get("title"), str) or not row["title"].strip()):
-                return provider_result.transport_failed("musicbrainz")
-            releases.append(musicbrainz._search_summary(row))
-    except (TypeError, ValueError, AttributeError):
-        return provider_result.transport_failed("musicbrainz")
-    return result.with_payload(releases)
-
-
 def _catalogue_summaries(result):
     if not result.found:
         return result
+    if not isinstance(result.payload, list):
+        return provider_result.transport_failed(result.provider)
     candidates = []
     for row in result.payload:
+        if not isinstance(row, dict):
+            return provider_result.transport_failed(result.provider)
         candidate = dict(row)
         if result.provider == "musicbrainz":
             mbid = candidate.get("musicbrainz_release_id")
+            if (not isinstance(mbid, str) or not release_id(mbid)
+                    or not isinstance(candidate.get("title"), str) or not candidate["title"].strip()):
+                return provider_result.transport_failed("musicbrainz")
             candidate.update(provider="musicbrainz", provider_release_id=mbid,
                              source_url=f"https://musicbrainz.org/release/{mbid}")
         candidates.append(candidate)
     return result.with_payload(candidates)
 
 
+def _catalogue_search_result(result):
+    """An unsuccessful HTTP search is a provider failure, not an empty catalogue."""
+    if result.status in (None, 200) or result.outcome not in {"found", "no_match"}:
+        return result
+    if result.status == 429:
+        return provider_result.rate_limited(result.provider, status=result.status)
+    if result.status in (400, 401, 403):
+        return provider_result.rejected(result.provider, status=result.status)
+    return provider_result.ProviderResult("transport_failed", result.provider, status=result.status)
+
+
 async def search_catalogue(client, *, title="", artist="", barcode="", catalog_number="", format="",
                            country="", discogs_token=""):
     """MusicBrainz first; only a genuine empty cassette lookup permits Discogs."""
     title, artist = title.strip(), artist.strip()
-    if format != "cassette" or not title or not artist:
-        return _catalogue_summaries(await search(client, title=title, artist=artist, barcode=barcode,
-                                                catalog_number=catalog_number, format=format, country=country))
+    result = _catalogue_summaries(_catalogue_search_result(await search(client, title=title, artist=artist, barcode=barcode,
+        catalog_number=catalog_number, format=format, country=country)))
+    empty = (result.provider == "musicbrainz" and result.status in (None, 200)
+             and ((result.found and result.payload == []) or result.outcome == "no_match"))
+    if format != "cassette" or not title or not artist or not empty:
+        return result
     barcode = upc.normalize_barcode(barcode)[:32]
-    options = {"media_type": format, "country": country[:2], "limit": 30}
-    queries = []
-    if barcode:
-        codes = [barcode]
-        if len(barcode) == 12:
-            codes.append("0" + barcode)
-        elif len(barcode) == 13 and barcode.startswith("0"):
-            codes.append(barcode[1:])
-        queries.extend(("", {"barcode": code}) for code in codes)
-    if catalog_number.strip():
-        queries.append(("", {"catalog_number": catalog_number.strip()}))
-    queries.append((title, {"artist": artist}))
-    for query, identifiers in queries:
-        result = await _catalogue_mb_search(query, client, **identifiers, **options)
-        if result.found and result.payload:
-            return _catalogue_summaries(result.with_payload(rank(result.payload, title=title, artist=artist,
-                barcode=barcode, catalog_number=catalog_number, format=format, country=country)))
-        if not (result.found or (result.outcome == "no_match" and result.status == 200)):
-            return result
-    result = await discogs.search_public_releases(title, client, token=discogs_token, artist=artist,
+    result = _catalogue_search_result(await discogs.search_public_releases(title, client, token=discogs_token, artist=artist,
         barcode=barcode or None, catalog_number=catalog_number.strip() or None,
-        media_type=format, country=country or None, limit=20)
+        media_type=format, country=country or None, limit=20))
     if not result.found:
         return result
     return result.with_payload(rank(result.payload, title=title, artist=artist, barcode=barcode,
