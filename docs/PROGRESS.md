@@ -3,6 +3,93 @@
 The live checklist is [NEXT_ACTIONS.md](NEXT_ACTIONS.md). Entries here distinguish
 implementation and verified outcomes from investigation or blocked acceptance.
 
+## 2026-11-16 — Barcode-free cassette and UI repairs published
+
+**[`fa90abdb`](https://github.com/sudo-rpaisley/shelf/commit/fa90abdb550fed6ae123ad5aa521414e94adf56a)**
+is pushed and remote-verified on `new-test` after independent
+**PASS_BOUNDED_APPLICATION_BATCH**. On **Music**, choose **Cassette**, enter
+**Hits Out of Hell** and **Meat Loaf**, leave the barcode blank, then compare the
+possible pressings before saving. Your exact pressing is not inferred or selected
+on your behalf. See the [Music guide](user-guide/music.md#add-a-cassette-without-a-barcode).
+
+The batch delivers genuine-empty-only public Discogs fallback after MusicBrainz,
+explicit signed review/selective saving and a prefilled native manual alternative.
+Scan retains current Add/Wishlist intent. Existing-item format contradictions,
+duplicates/Trash references and stale reviews refuse before artwork/writes and
+recheck under the write lock. Discogs IDs never become MusicBrainz IDs; tracks are
+live details, not copied into canonical MusicBrainz tables. Copies, locations,
+history and existing MusicBrainz metadata remain intact.
+
+It also repairs blank-cover review, label stock/start controls, scoped Discover/
+copy-confirmation translations and CSP-safe shortcut help. The palette's reproduced
+duplicate-native-close cleanup is single-use and preserves deliberate outside
+focus; historical failure scheduling remains unknown. The editor protocol stays
+**unwired**.
+
+### Fresh combined qualification
+
+All bands use the same **975 frozen source files**, with **1,586 disjoint unit /
+92 disjoint browser passes**, zero failures/errors/skips or recorded external
+attempts, matching guards and raw before/after input manifests:
+
+| Band | Passes | JUnit seconds |
+|---|---:|---:|
+| Cassette plus retained music/Discogs | 324 | 265.745 |
+| Cover/labels/i18n/copies/help/palette/navigation | 455 | 326.328 |
+| Protocol plus native editor controls | 807 | 523.234 |
+| English cassette workflows | 12 | 48.122 |
+| Separate Italian/Chinese cassette previews | 2 | 11.066 |
+| Original ordered palette/help/CSP plus lifecycle | 56 | 70.322 |
+| Labels plus real Discover/copy locale journeys | 17 | 66.680 |
+| Upcoming plus retained Release Radar | 5 | 27.443 |
+
+Offline checks pass and generation converges. README **12022 / 799** records
+collection, not full-suite passes. Independent verification checked all source
+hashes/modes/blobs/index entries, **151 sealed evidence files**, 18 supplementary
+references, the exact 52-path scope and all eight actual screenshots. Source
+fingerprint: `01ea86fb2a8d6ef6bbf31a662a7e2f8a61a3c64d34e9bc3194b340026466f447`.
+
+All **435 original tests/modes** and the original185 acceptance SHA remain exact.
+Of **469 published-base test files**, 468 are exact; the remaining file changes
+only the previously ratified post-original consumed-ARIA/no-onclick assertion.
+The new cassette tests retain their original 142 unit/four browser identities;
+only the separately approved stronger status/title/no-error receipt oracle replaces
+an unsupported capitalization assumption, with a real POST and 20 counterexamples.
+No skips, xfails or weakened production assertions were used.
+
+### Localization and honest evidence limits
+
+The actual catalogs compile **63 scoped new messages / 126 Italian-Chinese values**,
+preserving active existing translations and explicitly retiring one obsolete Discogs
+notice per locale. Cassette runtime checks cover eight visible new messages per
+language, not all 50 messages or native-language certification. Broad R9 remains open.
+
+Initial Chinese text/state checks passed, but screenshot inspection found the local
+OpenSans-only harness lacked Han glyphs. Those images were **not** accepted as visual
+proof. An already-local embedded Droid fallback was copied into an isolated test
+font configuration—no installation/download, native-library execution or application
+font-asset change. Fresh affected two-case and 17-case runs pass, and Chinese1280
+glyphs and Italian320 layouts are visibly readable. Chinese320 cassette layout is
+not claimed. The initial three-case Upcoming selection also omitted retained Release
+Radar; the complete original two-file five-case rerun passes. These earlier runs
+are preserved but excluded from final unique totals.
+
+Evidence: `.temp/feature-completion-20261116/FINAL_APPLICATION_FROZEN_CANDIDATE.json`,
+`FINAL_APPLICATION_RUNTIME_RECEIPT.json`, `FINAL_VISUAL_INSPECTION.json`,
+`FINAL_APPLICATION_INDEPENDENT_GATE.json` and `FINAL_APPLICATION_PUBLICATION.json`.
+Evidence fingerprint: `94914b5dbc1424cffaf3e00c5a3208f28590943ebb2da7c5326e6741d11b98ac`.
+
+This is compatible-local Python3.14.8/Playwright1.65.1/native Chromium qualification,
+not the full suite, pinned Python3.12/declared browser/container, live-provider/account
+or whole programme. Preferences/CAS, complete editing, persistent indexing/scale,
+critical restore/core and the wider audited queue remain open. `main` stays at
+`43e244f5`; the held integration, Actions, deployments, tags/images and household/
+editor activation are untouched. This documentation-only successor does not claim
+another runtime run on its new SHA.
+
+The following checkpoints retain their outcomes **when recorded**; the latest
+published section above supersedes their scoped pending notes, not their history.
+
 ## 2026-11-16 — Dormant editor-protocol prerequisite published
 
 **[`dbc948f1`](https://github.com/sudo-rpaisley/shelf/commit/dbc948f19fb7609f68639c653c4d9a806ceb7f1e)**

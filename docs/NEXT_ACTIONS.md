@@ -18,28 +18,33 @@ does not identify the exact pressing, country, catalogue number or release date.
   artist and title; record source links and unresolved pressing differences.
   **Research complete:** Discogs returns 20 cassette editions; verified UK/European
   1984 examples include catalogue number EPC 40-26156. MusicBrainz's cassette
-  query returns no matches. No exact pressing has been selected or added yet.
+  query returns no matches. Your exact pressing remains unknown; no real copy has
+  been selected or added on your behalf.
   Sources and limits: [Progress](PROGRESS.md#cassette-metadata-research).
-- [ ] **CAS-02 — Make the entry path usable.** Reach title/artist search without a
+- [x] **CAS-02 — Make the entry path usable.** Reach title/artist search without a
   barcode, select cassette format, and show useful candidate choices.
-  **In progress:** design ratified; separate implementation and regression writers.
-- [ ] **CAS-03 — Save the chosen release correctly.** Preserve cassette format,
+  **Published:** `fa90abdb`; MusicBrainz-first search and genuine-empty-only public
+  Discogs cassette fallback show explicit competing pressings without a token.
+- [x] **CAS-03 — Save the chosen release correctly.** Preserve cassette format,
   artist/title, available tracks and source identity; do not invent an exact
   pressing or silently replace user-entered data.
-  **In progress:** bounded source implementation and independent regression authoring.
-- [ ] **CAS-04 — Keep a useful fallback.** No match or provider failure must leave
+  **Published:** `fa90abdb`; checked fields/artwork and exact Discogs reference,
+  without invented MusicBrainz IDs. Discogs tracks remain live details; existing
+  MusicBrainz metadata, copies and history are preserved.
+- [x] **CAS-04 — Keep a useful fallback.** No match or provider failure must leave
   a usable manual-add path without requiring a barcode.
-  **In progress:** manual unknown-pressing path is part of the ratified contract.
-- [ ] **CAS-05 — Prove the complete journey.** Add deterministic offline unit and
+  **Published:** `fa90abdb`; prefilled native form and full Scan manual entry,
+  current Add/Wishlist intent, no invented identifiers and honest provider failures.
+- [x] **CAS-05 — Prove the complete journey.** Add deterministic offline unit and
   browser regressions for the example, competing formats, ambiguity and failures;
   retain all existing assertions and strict CSP/CSRF protections.
-  **In progress:** 142 unit and 4 browser cases authored independently; composition
-  first produced 252 passes / 3 failures. Source repairs now cover Wishlist intent,
-  existing-item format contradictions and honest provider failures. Strengthened
-  regression composition and fresh browser qualification are pending.
-- [ ] **CAS-06 — Publish a reviewed development batch.** Record checks and push
+  **Verified:** fresh 324 cassette/music/Discogs units, 12 English cassette browsers
+  and two separate real-locale previews pass on the final combined source. Original
+  new-case identities and strengthened selective-save/receipt assertions remain.
+- [x] **CAS-06 — Publish a reviewed development batch.** Record checks and push
   the tested result to `new-test` for further testing.
-  **Pending:** qualification; no deployment or `main` merge.
+  **Published:** `fa90abdb`, remote-verified after independent bounded PASS;
+  no deployment or `main` merge. See [Music](user-guide/music.md).
 
 ## Remaining programme: discovery and repair
 
@@ -57,34 +62,34 @@ these groups into finite, dependency-ordered jobs.
 - [ ] **FLOW-01 — Repair independent user-facing gaps.** Inspect optional feature
   entry points and select confirmed, bounded defects for separate writer lanes.
   **Static audit complete:** three concrete repairs below have separate writers.
-- [ ] **FLOW-COVER — Make missing-cover review reachable.** Needs Attention
-  recognizes blank/whitespace paths, but Cover Review currently excludes them.
-  **Source review clear:** revised candidate passes 113 units, including correct
-  blank-path display. Parent composition/publication still pending.
-- [ ] **FLOW-LABEL — Preserve label print selections.** Allow stock/start changes
+- [x] **FLOW-COVER — Make missing-cover review reachable.** Align Cover Review
+  with Needs Attention for NULL, blank and whitespace-only cover paths.
+  **Published:** `fa90abdb`; queue membership/display checks pass without provider I/O.
+- [x] **FLOW-LABEL — Preserve label print selections.** Allow stock/start changes
   while retaining the exact newly assigned label range.
-  **Blocked candidate:** 37 units pass; browser journeys reach their final CSP
-  guard and fail on inherited shortcut-help inline handlers. FLOW-CSP owns the fix.
+  **Published:** `fa90abdb`; real layout controls retain range/selection and print
+  only requested labels, with unchanged catalogue/barcodes and clean CSP guards.
 - [x] **FLOW-RADAR — Remove feature-gated dead controls.** Upcoming must not offer
   Series-dependent actions when Series is disabled but radar remains enabled.
   **Published:** `b4cfd3e4`; independent bounded gate, fresh parent checks below.
-- [ ] **R9-DISCOVER / R9-COPY-CONFIRM — Finish these translated surfaces.** Mark
+- [x] **R9-DISCOVER / R9-COPY-CONFIRM — Finish these translated surfaces.** Mark
   Discover's interface and the copy-specific Trash confirmation safely, then verify
   real catalogs, placeholders and attribute escaping.
-  **In progress:** reviewed templates/tests are composed with actual Italian and
-  Simplified Chinese catalogs. Fresh real-locale browser checks are running.
+  **Published:** `fa90abdb`; actual Italian/Chinese catalogs and native confirmation
+  journeys pass. This closes these scoped surfaces, not all R9 localization.
 - [x] **X4-BULK-RECEIPT — Report real bulk-update results.** Duplicate, missing and
   trashed IDs must not inflate the affected count or mutate Trash.
   **Published:** `b4cfd3e4`; unique live selection and receipt under one write lock.
-- [ ] **FLOW-CSP — Repair shortcut help without inline handlers.** Remove the
+- [x] **FLOW-CSP — Repair shortcut help without inline handlers.** Remove the
   three handler attributes at source and bind translated controls through stable
   data hooks. Preserve the unchanged existing CSP assertions and shortcut actions.
-  **In progress:** controlled native-close witnesses reproduced a duplicate-cleanup
-  defect on baseline and candidate. The reviewed repair passes 185 unit / 56 browser
-  cases; final combined application checks remain. Historical attribution is unknown.
+  **Published:** `fa90abdb`; source handlers removed without policy relaxation;
+  fresh ordered 56-browser palette/help/CSP band passes, including single-cleanup,
+  outside-focus, stale-event and fallback controls. Historical scheduling is unknown.
 - [ ] **EDIT-01 — Account preferences and editor completion.** Establish remaining
   compare-and-swap, isolation and complete-editor obligations before changes.
-  **Unverified:** exact open subjobs being reconciled.
+  **Design refinement:** account-owned store/CAS proposal received finite contract
+  amendments. No schema/store/HTTP/UI writer is granted; full editing remains open.
 - [ ] **CORE-01 — Core/admission repair.** Review the existing isolated repair
   evidence and its exact three-file authority; do not transplant a held RED kernel.
   **Blocked on:** current failure attribution and critical contracts.
@@ -93,7 +98,8 @@ these groups into finite, dependency-ordered jobs.
   **Unverified:** current candidate and missing evidence being identified.
 - [ ] **SCALE-01 — Large-library performance.** Reconcile remaining F1/F3 indexing
   and scale evidence without reducing correctness or coverage.
-  **Unverified:** current implementation/evidence boundaries.
+  **Audited, still open:** pure helpers and saved filters are not persistent indexing,
+  rebuild/query integration or scale proof. Central lifecycle/restore contracts remain.
 - [x] **ADAPT-01 — Deliver the dormant pure protocol prerequisite.** Ratify C1/C2,
   implement the unwired data-only module and independently test its contracts.
   **Published:** `dbc948f1`; 807 fresh cases and independent bounded gate passed.
@@ -235,10 +241,12 @@ Canonical scope and evidence: [plan](connected-library-plan.md),
 
 ## Working and publication rules
 
-Published batch `b4cfd3e4` passed **383 unit / 5 browser** cases, offline checks and
-independent **PASS_BOUNDED_BATCH**. All 435 original and 465 batch-base test files
-retain their exact blobs/modes; all 185 original acceptance entries remain unchecked.
-This is targeted compatible-local evidence, not full-suite/pinned/main readiness.
+Latest application batch `fa90abdb` passed **1,586 unit / 92 browser** cases, offline
+checks and independent **PASS_BOUNDED_APPLICATION_BATCH**. All 435 original tests
+retain exact blobs/modes. Of 469 published-base test files, only the exact ratified
+post-original CSP ARIA/no-onclick hunk differs; all 185 original acceptance entries
+remain unchanged and unchecked. This is targeted compatible-local evidence, not
+full-suite/pinned/main readiness. Earlier batches remain recorded in [Progress](PROGRESS.md).
 
 - Parallel agents receive nonoverlapping file ownership; shared schema, fixtures,
   generated assets and Git selection remain centrally coordinated.
