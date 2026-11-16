@@ -1019,14 +1019,15 @@ async def bulk_update(request: Request, _=Depends(require_role("admin"))):
     placeholders = ",".join("?" for _ in item_ids)
 
     with get_db() as db:
-        old_series_names = []
-        if "series_name" in filtered:
-            old_series_names = [
-                r["series_name"] for r in db.execute(
-                    f"SELECT DISTINCT series_name FROM items_live WHERE id IN ({placeholders})",
-                    item_ids,
-                ).fetchall()
-            ]
+        db.execute("BEGIN IMMEDIATE")
+        # The funnel's UPDATE is physical: select unique live targets before
+        # any write, and keep that selection stable through its projections.
+        targets = db.execute(
+            f"SELECT id, series_name FROM items_live WHERE id IN ({placeholders})",
+            item_ids,
+        ).fetchall()
+        item_ids = [r["id"] for r in targets]
+        old_series_names = [r["series_name"] for r in targets] if "series_name" in filtered else []
 
         try:
             if "owned" in filtered:
@@ -1041,6 +1042,13 @@ async def bulk_update(request: Request, _=Depends(require_role("admin"))):
                 # includes an owned row) whole, before any write (G96).
                 coerced = item_write._coerce_owned(filtered["owned"])
                 filtered["owned"] = coerced
+            if not item_ids:
+                # The bulk funnel skips empty selections. Preserve its value
+                # errors even when every submitted ID is missing or trashed.
+                values = dict(filtered)
+                wishlisted = item_write._pop_wishlisted(values)
+                item_write._refuse_owned_wishlist(db, wishlisted, values, item_ids)
+                validate_item_fields(db, values)
             update_items_fields(db, item_ids, filtered)
         except ItemValueError as e:
             return {"ok": False, "message": str(e)}
