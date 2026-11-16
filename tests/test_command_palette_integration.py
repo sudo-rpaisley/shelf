@@ -51,7 +51,8 @@ def test_real_shell_load_order_keeps_existing_alpine_and_app_registration(viewer
     assert "defer" in alpine.attrs and "async" not in alpine.attrs
     assert "Open command palette" in markup.one(id="shortcut-modal").text
     help_button = _marked(markup, "data-shortcut-help", tag="button")
-    assert "shortcut-modal" in help_button.attrs["onclick"]
+    assert help_button.attrs["aria-controls"] == "shortcut-modal"
+    assert "onclick" not in help_button.attrs
     assert viewer_client.get(script.attrs["src"]).status_code == 200
 
 
