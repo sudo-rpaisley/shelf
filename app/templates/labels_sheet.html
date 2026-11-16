@@ -48,6 +48,36 @@
             <a href="/labels" class="px-3 py-2 text-sm text-shelf-muted hover:text-shelf-text">Back to Labels</a>
         </div>
     </div>
+    {# Keep the active selection and chunk in a native GET form. Unlike the
+       /labels form, a sheet must not restore saved defaults over its URL.
+       The route caps start to the submitted stock, so changing stock and
+       start together is not blocked by the previous stock's maximum. #}
+    <form method="get" action="/labels/sheet" aria-label="{{ _('Label print settings') }}"
+          data-testid="labels-sheet-controls" class="space-y-3">
+        {% for name, value in selector.items() %}
+        <input type="hidden" name="{{ name }}" value="{{ value }}">
+        {% endfor %}
+        {% if offset %}<input type="hidden" name="offset" value="{{ offset }}">{% endif %}
+        <div class="flex flex-wrap items-end gap-3">
+            <div class="min-w-0 w-full">
+                <label for="labels-sheet-preset" class="block text-sm font-medium text-shelf-muted mb-1">{{ _('Label stock') }}</label>
+                <select id="labels-sheet-preset" name="preset"
+                        class="w-full bg-shelf-bg border border-shelf-border rounded-lg px-3 py-2 text-shelf-text">
+                    {% for p in presets %}
+                    <option value="{{ p.key }}" {% if p.key == stock.key %}selected{% endif %}>{{ p.label }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+            <div>
+                <label for="labels-sheet-start" class="block text-sm font-medium text-shelf-muted mb-1">{{ _('Start at label') }}</label>
+                <input type="number" id="labels-sheet-start" name="start" min="1" step="1" required value="{{ start }}"
+                       aria-describedby="labels-sheet-start-help"
+                       class="w-28 bg-shelf-bg border border-shelf-border rounded-lg px-3 py-2 text-shelf-text">
+            </div>
+            <button type="submit" class="px-4 py-2 bg-shelf-hover text-shelf-text rounded-lg text-sm hover:bg-shelf-border transition-colors">{{ _('Apply layout') }}</button>
+        </div>
+        <p id="labels-sheet-start-help" class="text-xs text-shelf-muted">{{ _('Use a later start for a part-used sheet. The start is limited to the selected stock and applies only at the beginning of the selection.') }}</p>
+    </form>
     {% if next_url %}
     <p class="text-xs text-shelf-muted">One page holds at most 300 labels. Print this one, then use Next for the rest.</p>
     {% endif %}
