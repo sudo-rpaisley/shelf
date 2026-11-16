@@ -3,7 +3,9 @@
 {% block content %}
 {% set can_edit = user and user.role in ('admin', 'editor') %}
 <div class="mb-6">
+    {% if feature_on('series') %}
     <a href="/series" class="text-sm text-shelf-muted hover:text-shelf-text">&larr; Series</a>
+    {% endif %}
     <h1 class="text-2xl font-bold mt-1">Upcoming releases</h1>
     <p class="text-sm text-shelf-muted mt-1">Announced volumes in the series you watch, checked once a day.</p>
 </div>
@@ -44,9 +46,11 @@
                 <button type="button" hx-post="/api/upcoming/{{ r.id }}/dismiss" hx-target="closest li" hx-swap="outerHTML"
                         data-testid="upcoming-row-dismiss"
                         class="px-3 py-1.5 text-xs rounded-lg border border-shelf-border text-shelf-muted hover:text-shelf-text">Dismiss</button>
+                {% if feature_on('series') %}
                 <button type="button" hx-post="/api/series/{{ r.series_name|urlencode }}/watch" hx-vals='{"watch": "0"}' hx-swap="none"
                         data-testid="upcoming-row-stop"
                         class="px-3 py-1.5 text-xs rounded-lg border border-shelf-border text-shelf-muted hover:text-shelf-text">Stop watching {{ r.series_name }}</button>
+                {% endif %}
             </div>
             {% endif %}
         </div>
