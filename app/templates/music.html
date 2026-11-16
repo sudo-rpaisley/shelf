@@ -8,7 +8,7 @@
         <div>
             <p class="text-xs text-shelf-muted">Catalogue</p>
             <h1 class="text-2xl font-bold mt-1">Music</h1>
-            <p class="text-sm text-shelf-muted mt-1">Search exact MusicBrainz releases and keep the pressing, medium and track list you actually own.</p>
+            <p class="text-sm text-shelf-muted mt-1">{{ _('Search MusicBrainz first. For cassettes with no matches, Shelf also checks public Discogs releases by title and artist. Compare the pressing before saving; a barcode is optional.') }}</p>
         </div>
         <a href="/browse" class="text-sm px-3 py-2 bg-shelf-card border border-shelf-border rounded-lg text-shelf-muted hover:text-shelf-text">Browse all media</a>
     </div>
@@ -45,7 +45,7 @@
             </div>
         </div>
         <div class="flex gap-3 mt-4">
-            <button type="submit" class="px-4 py-2 bg-shelf-accent text-white rounded-lg text-sm">Search MusicBrainz</button>
+            <button type="submit" class="px-4 py-2 bg-shelf-accent text-white rounded-lg text-sm">{{ _('Search MusicBrainz and cassette catalogue') }}</button>
             {% if q or artist or barcode or catalog_number %}<a href="/music" class="px-4 py-2 text-sm text-shelf-muted hover:text-shelf-text">Clear</a>{% endif %}
         </div>
     </form>
@@ -57,12 +57,14 @@
     {% if results %}
     <section class="mb-6">
         <h2 class="text-lg font-semibold mb-3">Matching releases</h2>
+        <p class="text-sm text-shelf-muted mb-3">{{ _('These are possible releases, not an automatic pressing identification. Check the country, year, catalogue number and track order against your copy.') }}</p>
         <div class="space-y-3">
             {% for release in results %}
             <article class="bg-shelf-card border border-shelf-border rounded-xl p-4">
                 <div class="flex flex-col sm:flex-row items-start justify-between gap-4">
                     <div class="min-w-0">
                         <h3 class="font-semibold">{{ release.title }}</h3>
+                        <p class="text-xs text-shelf-muted mt-1">{{ 'Discogs' if release.provider == 'discogs' else 'MusicBrainz' }} · {{ _('Release') }} #{{ release.provider_release_id }} · <a href="{{ release.source_url }}" target="_blank" rel="noopener noreferrer" class="text-shelf-accent2">{{ _('View release') }}</a></p>
                         {% if release.artist_credit %}<p class="text-sm text-shelf-accent2 mt-1">{{ release.artist_credit }}</p>{% endif %}
                         <p class="text-xs text-shelf-muted mt-2">
                             {{ release.shelf_media_label }}
@@ -77,7 +79,7 @@
                         {% if release.match_reasons %}<p class="text-xs text-shelf-muted mt-2">{{ _('Matching facts') }}: {% for key in release.match_reasons %}{{ fact_labels[key] }}{{ ', ' if not loop.last }}{% endfor %}</p>{% endif %}
                         {% if release.match_conflicts %}<p class="text-xs text-shelf-warning">{{ _('Check differences') }}: {% for key in release.match_conflicts %}{{ fact_labels[key] }}{{ ', ' if not loop.last }}{% endfor %}</p>{% endif %}
                     </div>
-                    {% if user and user.role in ('admin', 'editor') %}
+                    {% if user and user.role in ('admin', 'editor') and release.provider == 'musicbrainz' %}
                     <form method="post" action="/api/music/add" class="space-y-2">
                         <input type="hidden" name="release_id" value="{{ release.musicbrainz_release_id }}">
                         <select name="media_type" required class="w-full bg-shelf-bg border border-shelf-border rounded-lg px-3 py-2 text-sm">
@@ -99,10 +101,13 @@
                 {% if user and user.role in ('admin', 'editor') %}
                 <form method="post" action="/api/music/preview" hx-post="/api/music/preview" hx-target="#music-matching" hx-swap="outerHTML show:top" class="mt-3">
                     <input type="hidden" name="_csrf" value="{{ request.cookies.get('csrf_token', '') }}">
-                    <input type="hidden" name="release_id" value="{{ release.musicbrainz_release_id }}">
+                    <input type="hidden" name="provider" value="{{ release.provider }}">
+                    <input type="hidden" name="release_id" value="{{ release.provider_release_id }}">
+                    <input type="hidden" name="format" value="{{ release.shelf_media_type or '' }}">
                     <button type="submit" class="px-3 py-2 bg-shelf-hover rounded-lg text-sm">{{ _('Preview details and artwork') }}</button>
                 </form>
                 {% endif %}
+                {% if release.provider == 'discogs' %}<p class="text-xs text-shelf-muted mt-3"><a href="https://www.discogs.com" target="_blank" rel="noopener noreferrer" class="text-shelf-accent2">{{ _('Data provided by Discogs') }}</a></p>{% endif %}
             </article>
             {% endfor %}
         </div>
@@ -111,6 +116,9 @@
 
     {% if user and user.role in ('admin', 'editor') %}
     <div class="mb-6">{% include "fragments/music_matching.html" %}</div>
+    <div class="mb-6">
+        {% with manual_title=q, manual_artist=artist, manual_format=format %}{% include "fragments/music_title_search.html" %}{% endwith %}
+    </div>
     {% endif %}
 
     {% with cover_size_description_id='music-cover-size-description' %}{% include "fragments/cover_size_panel.html" %}{% endwith %}

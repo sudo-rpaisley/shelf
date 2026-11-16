@@ -253,11 +253,11 @@ async def search_releases(
     )
     if not result.found:
         return result
-    releases = (result.payload.get("releases") or []) if isinstance(result.payload, dict) else None
-    if not isinstance(releases, list):
+    releases = result.payload.get("releases") if isinstance(result.payload, dict) else None
+    if not isinstance(releases, list) or any(not isinstance(row, dict) for row in releases):
         return provider_result.transport_failed("musicbrainz")
     try:
-        return result.with_payload([_search_summary(r) for r in releases[:100] if isinstance(r, dict)])
+        return result.with_payload([_search_summary(r) for r in releases[:100]])
     except (TypeError, ValueError, AttributeError):
         return provider_result.transport_failed("musicbrainz")
 

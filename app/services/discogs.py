@@ -1,8 +1,8 @@
-"""Discogs exact-release client used as optional music pressing enrichment.
+"""Discogs exact-release clients for reviewed pressing metadata.
 
-MusicBrainz remains Shelf's canonical release identity. Discogs is consulted
-only after a music item exists, and a user deliberately selects a concrete
-Discogs Release (pressing).
+The original helpers remain token-only enrichment. The public helpers also
+support an explicitly selected Discogs-only item, without assigning an MBID or
+persisting the provider's response/track tree as MusicBrainz metadata.
 """
 
 from __future__ import annotations
@@ -322,6 +322,118 @@ async def lookup_release(release_id: int | str, client: httpx.AsyncClient, *, to
     if not result.found or not isinstance(result.payload, dict):
         return result if not result.found else provider_result.no_match("discogs")
     return result.with_payload(normalise_release(result.payload))
+
+
+def _public_release_id(value: Any) -> int | None:
+    if type(value) not in (str, int):
+        return None
+    text = str(value).strip()
+    if not re.fullmatch(r"[0-9]{1,19}", text):
+        return None
+    number = int(text)
+    return number if 0 < number <= 2**63 - 1 else None
+
+
+async def _request_public_json(client: httpx.AsyncClient, path: str, *, token: str = "",
+                               params: dict[str, str] | None = None):
+    """Use only constructed API paths; never follow a provider-supplied URL."""
+    token = (token or "").strip()
+    headers = _headers(token) if token else {"User-Agent": USER_AGENT, "Accept": "application/json"}
+    try:
+        response = await outbound.fetch(
+            client, "GET", f"{DISCOGS_BASE}{path}", params=params,
+            headers=headers, timeout=15, follow_redirects=False,
+        )
+    except Exception:
+        logger.debug("Public Discogs request failed", exc_info=True)
+        return provider_result.transport_failed("discogs")
+    classified = provider_result.classify_response("discogs", response, auth_statuses=(400, 401, 403))
+    if classified is not None:
+        if classified.outcome == "no_match" and response.status_code != 404:
+            return provider_result.transport_failed("discogs")
+        return classified
+    try:
+        return provider_result.found("discogs", response.json(), status=response.status_code)
+    except ValueError:
+        return provider_result.transport_failed("discogs")
+
+
+async def search_public_releases(query: str, client: httpx.AsyncClient, *, token: str = "",
+                                 artist: str | None = None, barcode: str | None = None,
+                                 catalog_number: str | None = None, media_type: str | None = None,
+                                 country: str | None = None, limit: int = 20):
+    """One bounded release-only page, with anonymous access when unconfigured."""
+    limit = max(1, min(limit, 20))
+    params = {"type": "release", "per_page": str(limit), "page": "1"}
+    for name, value in (("release_title", query), ("artist", artist), ("barcode", barcode),
+                        ("catno", catalog_number), ("country", country)):
+        if value and value.strip():
+            params[name] = value.strip()
+    if not any(name in params for name in ("release_title", "artist", "barcode", "catno")):
+        return provider_result.no_match("discogs")
+    formats = {"vinyl": "Vinyl", "cassette": "Cassette", "cd": "CD", "digital_music": "File"}
+    if media_type:
+        if media_type not in formats:
+            return provider_result.no_match("discogs")
+        params["format"] = formats[media_type]
+    result = await _request_public_json(client, "/database/search", token=token, params=params)
+    if not result.found:
+        return result
+    payload = result.payload
+    if not isinstance(payload, dict) or not isinstance(payload.get("results"), list):
+        return provider_result.transport_failed("discogs")
+    candidates = []
+    try:
+        for row in payload["results"][:limit]:
+            if not isinstance(row, dict):
+                return provider_result.transport_failed("discogs")
+            if row.get("type") not in (None, "release"):
+                continue
+            release_id = _public_release_id(row.get("id"))
+            if not release_id or not isinstance(row.get("title"), str) or not row["title"].strip():
+                return provider_result.transport_failed("discogs")
+            candidate = _search_summary(row)
+            # Search titles are composite display text, not an artist identity.
+            candidate.update(provider="discogs", provider_release_id=str(release_id),
+                             artist_credit=_artist_credit(row.get("artists")),
+                             source_url=f"https://www.discogs.com/release/{release_id}",
+                             discogs_url=f"https://www.discogs.com/release/{release_id}")
+            candidates.append(candidate)
+    except (TypeError, ValueError, AttributeError):
+        return provider_result.transport_failed("discogs")
+    return result.with_payload(candidates)
+
+
+async def lookup_public_release(release_id: int | str, client: httpx.AsyncClient, *, token: str = ""):
+    """Read exactly one release, checking its identity before exposing artwork."""
+    release_id = _public_release_id(release_id)
+    if release_id is None:
+        return provider_result.no_match("discogs")
+    result = await _request_public_json(client, f"/releases/{release_id}", token=token)
+    if not result.found:
+        return result
+    payload = result.payload
+    if (not isinstance(payload, dict) or _public_release_id(payload.get("id")) != release_id
+            or payload.get("type") not in (None, "release")
+            or not isinstance(payload.get("title"), str) or not payload["title"].strip()
+            or any(key in payload and not isinstance(payload[key], list)
+                   for key in ("formats", "artists", "labels", "identifiers", "tracklist", "images"))):
+        return provider_result.transport_failed("discogs")
+    try:
+        release = normalise_release(payload)
+        from app.services import upc
+        for identifier in release["identifiers"]:
+            if identifier["identifier_type"] == "barcode":
+                valid, barcode = upc.canonical_retail_barcode(identifier["value"])
+                if valid:
+                    release["barcode"] = barcode
+                    break
+    except (TypeError, ValueError, AttributeError):
+        return provider_result.transport_failed("discogs")
+    release.update(provider="discogs", provider_release_id=str(release_id),
+                   source_url=f"https://www.discogs.com/release/{release_id}",
+                   discogs_url=f"https://www.discogs.com/release/{release_id}")
+    return result.with_payload(release)
 
 
 async def test_connection(token: str, client: httpx.AsyncClient):

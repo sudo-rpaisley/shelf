@@ -9,6 +9,7 @@ import httpx
 from fastapi import APIRouter, Depends, Query, Request
 from fastapi.responses import HTMLResponse, RedirectResponse, Response
 
+from app import i18n
 from app.auth import require_role
 from app.config import COVERS_DIR, HTTP_TIMEOUT, MEDIA_TYPES, MUSIC_MEDIA_TYPES
 from app.database import get_db, get_setting
@@ -37,6 +38,66 @@ def _item(db, item_id):
     return dict(item) if item else None
 
 
+def _release_formats(release):
+    formats = [str(m.get("format") or "") for m in release.get("media") or [] if isinstance(m, dict)]
+    formats.append(str(release.get("format_summary") or ""))
+    text = " ".join(formats).casefold()
+    known = set()
+    for pattern, kind in ((r'\bvinyl\b|\b(?:7|10|12)"', "vinyl"), (r"\bcassette\b", "cassette"),
+                          (r"\bcd\b|\bcompact disc\b", "cd"), (r"\bdigital\b|\bfile\b", "digital_music")):
+        if re.search(pattern, text):
+            known.add(kind)
+    return known
+
+
+def _discogs_link_id(value):
+    try:
+        parsed = urlsplit(value)
+        if (parsed.scheme != "https" or parsed.hostname not in {"discogs.com", "www.discogs.com"}
+                or parsed.username is not None or parsed.password is not None
+                or parsed.port not in (None, 443) or parsed.query or parsed.fragment):
+            return None
+        match = re.fullmatch(r"/release/([0-9]+)(?:-[^/]*)?/?", parsed.path)
+        return discogs._public_release_id(match[1]) if match else None
+    except ValueError:
+        return None
+
+
+def _check_release(release, provider, identifier, requested_format=""):
+    if not isinstance(release, dict):
+        raise music_review.ReviewError(i18n.gettext("The provider returned unreadable release details."))
+    returned = (music_matching.release_id(release.get("musicbrainz_release_id")) if provider == "musicbrainz"
+                else discogs._public_release_id(release.get("discogs_release_id")))
+    if returned != identifier:
+        raise music_review.ReviewError(i18n.gettext("The provider returned a different release. Preview the exact release again."))
+    known = _release_formats(release)
+    if requested_format and known and requested_format not in known:
+        raise music_review.ReviewError(i18n.gettext("The selected format contradicts the provider's release details. Choose the correct pressing."))
+
+
+def _refuse_release_duplicate(db, candidate, item_id):
+    """Identifiers survive Trash; do not join them to a live-only item first."""
+    release = candidate.get("release") or {}
+    if candidate["kind"] == "discogs":
+        release_id = discogs._public_release_id(release.get("discogs_release_id"))
+        if release_id is None:
+            raise music_review.ReviewError(i18n.gettext("Choose a concrete Discogs release."))
+        rows = db.execute(
+            "SELECT item_id FROM music_identifiers WHERE identifier_type = ? AND value = ? AND item_id != ?",
+            (discogs_selection.IDENTIFIER_TYPE, str(release_id), item_id),
+        ).fetchall()
+    elif candidate["kind"] == "musicbrainz" and release.get("musicbrainz_release_id"):
+        rows = db.execute("SELECT item_id FROM music_releases WHERE musicbrainz_release_id = ? AND item_id != ?",
+                          (release["musicbrainz_release_id"], item_id)).fetchall()
+    else:
+        return
+    for row in rows:
+        live = db.execute("SELECT id FROM items_live WHERE id = ?", (row["item_id"],)).fetchone()
+        if not live:
+            raise music_review.ReviewError(i18n.gettext("This release is in Trash. Restore it from Trash instead of adding another item. No changes were saved."))
+        raise music_review.ReviewError(i18n.gettext("This release is already catalogued. Open the existing item instead. No changes were saved."))
+
+
 def _render(request, *, item=None, candidates=(), error=None, results=(), fields=None):
     if fields is None and item:
         fields = {"q": item["title"], "artist": item.get("authors") or "", "barcode": item.get("upc") or "",
@@ -56,20 +117,25 @@ async def match_panel(request: Request, item_id: int = Query(0, ge=0, le=2**63 -
         with get_db() as db:
             item = _item(db, item_id)
             release = music_catalog.get_release(db, item_id) if item else None
+            token = get_setting(db, "discogs_token") or ""
         fields = {"q": q.strip()[:200] if search else (item or {}).get("title", ""),
                   "artist": artist.strip()[:200] if search else (item or {}).get("authors") or "",
                   "barcode": barcode.strip()[:32] if search else (item or {}).get("upc") or "",
                   "catalog_number": catalog_number.strip()[:100] if search else (release or {}).get("catalog_number") or "",
-                  "format": format if search else (item or {}).get("media_type", "vinyl"), "country": country.strip()[:2].upper()}
+                  "format": format if search and format in MUSIC_MEDIA_TYPES else (item or {}).get("media_type", ""),
+                  "country": country.strip()[:2].upper()}
         results, error = [], None
         if search:
             async with httpx.AsyncClient(timeout=HTTP_TIMEOUT) as client:
-                answer = await music_matching.search(client, title=fields["q"], artist=fields["artist"], barcode=fields["barcode"],
-                                                     catalog_number=fields["catalog_number"], format=fields["format"], country=fields["country"])
+                answer = await music_matching.search_catalogue(client, title=fields["q"], artist=fields["artist"], barcode=fields["barcode"],
+                    catalog_number=fields["catalog_number"], format=fields["format"], country=fields["country"], discogs_token=token)
             if answer.found:
                 results = answer.payload
             else:
-                error = "No matching release was found. Try fewer filters or paste a release/shop link." if answer.outcome == "no_match" else "The music provider could not complete this search. Try again shortly."
+                provider = "Discogs" if answer.provider == "discogs" else "MusicBrainz"
+                error = i18n.gettext("No matching release was found. Try fewer filters or paste a release/shop link.") if answer.outcome == "no_match" else (
+                    i18n.gettext("Discogs could not complete this search. Try again shortly.") if provider == "Discogs"
+                    else i18n.gettext("MusicBrainz could not complete this search. Try again shortly."))
         return _render(request, item=item, fields=fields, results=results, error=error)
     except music_review.ReviewError as error:
         return HTMLResponse(str(error), status_code=404)
@@ -80,12 +146,18 @@ async def preview(request: Request):
     item = None
     try:
         form = await _form(request, MUSIC_PREVIEW_FORM_BYTES)
-        if set(form) - {"item_id", "release_id", "url", "_csrf"} or any(len(form.getlist(key)) != 1 for key in form):
+        if set(form) - {"item_id", "release_id", "url", "provider", "format", "_csrf"} or any(len(form.getlist(key)) != 1 for key in form):
             raise music_review.ReviewError("Submit only the release/link preview form.")
+        provider = form.get("provider")
+        requested_format = str(form.get("format", ""))
+        if provider is not None and provider not in {"musicbrainz", "discogs"}:
+            raise music_review.ReviewError(i18n.gettext("Choose MusicBrainz or Discogs as the release provider."))
+        if requested_format and requested_format not in MUSIC_MEDIA_TYPES:
+            raise music_review.ReviewError(i18n.gettext("Choose a valid music format."))
         item_id = int(form.get("item_id", "0"))
         if not 0 <= item_id <= 2**63 - 1:
             raise music_review.ReviewError("Music item not found.")
-        release_id, url = str(form.get("release_id", "")), str(form.get("url", ""))
+        release_id, url = str(form.get("release_id", "")).strip(), str(form.get("url", "")).strip()
         with get_db() as db:
             item = _item(db, item_id)
             fingerprint = music_review.fingerprint(db, item_id)
@@ -95,35 +167,53 @@ async def preview(request: Request):
             raise music_review.ReviewError("That link is too long.")
         mbid = music_matching.release_id(release_id or url)
         parsed = urlsplit(url)
-        discogs_match = re.fullmatch(r"/release/(\d+)(?:-[^/]*)?/?", parsed.path) if parsed.hostname in {"discogs.com", "www.discogs.com"} else None
-        if mbid:
+        discogs_id = _discogs_link_id(url)
+        if provider == "discogs":
+            discogs_id = discogs._public_release_id(release_id)
+            if discogs_id is None or (url and _discogs_link_id(url) != discogs_id):
+                raise music_review.ReviewError(i18n.gettext("Choose a concrete Discogs release ID, not a master or marketplace listing."))
+        elif provider == "musicbrainz" and (not mbid or not release_id):
+            raise music_review.ReviewError(i18n.gettext("Choose an exact MusicBrainz release ID."))
+        if provider != "discogs" and mbid and url and music_matching.release_id(url) != mbid:
+            raise music_review.ReviewError(i18n.gettext("The release ID and link do not match."))
+        if provider != "discogs" and mbid:
             async with httpx.AsyncClient(timeout=HTTP_TIMEOUT) as client:
                 answer = await musicbrainz.lookup_release(mbid, client)
                 if not answer.found:
                     raise music_review.ReviewError("The MusicBrainz release could not be read. Try again shortly.")
                 release = answer.payload
+                _check_release(release, "musicbrainz", mbid, requested_format)
                 art = await music_artwork.release_candidates(release, client)
             candidates = [{"kind": "musicbrainz", "source_url": f"https://musicbrainz.org/release/{mbid}",
                            "release": release, "fields": music_review.fields_for(release),
                            "images": [image["url"] for image in art.payload[:12]] if art.found else [],
                            "image_labels": [image["label"] for image in art.payload[:12]] if art.found else []}]
-        elif discogs_match and shop_metadata.public_url(url, page=True):
-            if not item:
+        elif discogs_id:
+            if provider is None and release_id:
+                raise music_review.ReviewError(i18n.gettext("The release ID and link do not match."))
+            if provider is None and not item:
                 raise music_review.ReviewError("Add a catalogue item first to attach its optional Discogs pressing, or use a MusicBrainz/shop link.")
-            if not token:
+            if provider is None and not token:
                 raise music_review.ReviewError("Add a Discogs token in Settings → Integrations before using a Discogs release link.")
             async with httpx.AsyncClient(timeout=HTTP_TIMEOUT) as client:
-                answer = await discogs.lookup_release(discogs_match[1], client, token=token)
-            if not answer.found or not answer.payload.get("discogs_release_id"):
-                raise music_review.ReviewError("The Discogs release could not be read.")
-            candidates = [{"kind": "discogs", "source_url": answer.payload["discogs_url"], "release": answer.payload,
-                           "fields": {}, "images": [image["url"] for image in answer.payload.get("images", [])],
-                           "image_labels": [image["label"] for image in answer.payload.get("images", [])]}]
+                lookup = discogs.lookup_public_release if provider == "discogs" else discogs.lookup_release
+                answer = await lookup(discogs_id, client, token=token or "")
+            if not answer.found:
+                raise music_review.ReviewError(i18n.gettext("The Discogs release could not be read. Try again shortly."))
+            _check_release(answer.payload, "discogs", discogs_id, requested_format)
+            candidates = [{"kind": "discogs", "source_url": f"https://www.discogs.com/release/{discogs_id}", "release": answer.payload,
+                            "fields": music_review.fields_for(answer.payload) if provider == "discogs" else {},
+                            "images": [image["url"] for image in answer.payload.get("images", [])],
+                            "image_labels": [image["label"] for image in answer.payload.get("images", [])]}]
         elif release_id or parsed.hostname in {"musicbrainz.org", "www.musicbrainz.org", "discogs.com", "www.discogs.com"}:
             raise music_review.ReviewError("Paste an exact release link, not an artist, release group, master or marketplace listing.")
         else:
             candidates = await shop_metadata.preview(url)
         for candidate in candidates:
+            known = _release_formats(candidate["release"])
+            if requested_format and known and requested_format not in known:
+                raise music_review.ReviewError(i18n.gettext("The selected format contradicts the provider's release details. Choose the correct pressing."))
+            candidate["media_type"] = next(iter(known)) if len(known) == 1 else None
             candidate["keep_release"] = bool(current_release and current_release.get("musicbrainz_release_id") and candidate["kind"] == "shop")
             candidate["ticket"] = music_review.sign(candidate, user_id=request.state.user["id"], item_id=item_id, fingerprint=fingerprint)
             candidate["image_tickets"] = [music_review.sign({"kind": candidate["kind"], "images": [image]},
@@ -187,6 +277,15 @@ async def apply_match(request: Request):
             item = _item(db, item_id)
             if music_review.fingerprint(db, item_id) != review["fingerprint"]:
                 raise music_review.ReviewError("This item changed after the preview. Preview it again before applying anything.")
+            _refuse_release_duplicate(db, candidate, item_id)
+        values = {field: candidate["fields"][field] for field in chosen}
+        if not item_id:
+            kind = str(form.get("media_type", ""))
+            known = _release_formats(candidate["release"])
+            if kind not in MUSIC_MEDIA_TYPES or not values.get("title"):
+                raise music_review.ReviewError(i18n.gettext("Choose a music format and a title before adding this item."))
+            if known and kind not in known:
+                raise music_review.ReviewError(i18n.gettext("The selected format contradicts the provider's release details. Choose the correct pressing."))
         index = int(form.get("image", "-1"))
         if index != -1:
             images = candidate.get("images", [])
@@ -195,15 +294,13 @@ async def apply_match(request: Request):
             path = await manual_cover.download(item_id, images[index], unique=True, caa=candidate["kind"] == "musicbrainz")
             if not path:
                 raise music_review.ReviewError("The chosen image could not be downloaded. Nothing was changed; try keeping the existing artwork.")
-        values = {field: candidate["fields"][field] for field in chosen}
         with get_db() as db:
             db.execute("BEGIN IMMEDIATE")
             if music_review.fingerprint(db, item_id) != review["fingerprint"]:
                 raise music_review.ReviewError("This item changed while the artwork was loading. Preview it again.")
+            _refuse_release_duplicate(db, candidate, item_id)
+            creating = not item_id
             if not item_id:
-                kind = form.get("media_type", "vinyl")
-                if kind not in MUSIC_MEDIA_TYPES or not values.get("title"):
-                    raise music_review.ReviewError("Choose a music format and a title before adding this item.")
                 location = validated_location_id(db, int(form["location_id"]) if form.get("location_id") else None)
                 owned = form.get("owned", "1") == "1"
                 # A conflicting barcode belongs to an existing item: refuse
@@ -217,7 +314,7 @@ async def apply_match(request: Request):
                 music_catalog.save_release(db, item_id, candidate["release"])
             elif candidate["kind"] == "discogs":
                 if not music_catalog.get_release(db, item_id):
-                    music_catalog.save_release(db, item_id, {"source": "manual", "media": []})
+                    music_catalog.save_release(db, item_id, {"source": "discogs" if creating else "manual", "media": []})
                 discogs_selection.set_selected_release_id(db, item_id, candidate["release"]["discogs_release_id"])
             else:
                 current = music_catalog.get_release(db, item_id)

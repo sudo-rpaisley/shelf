@@ -334,7 +334,7 @@ HOST_RATE_LIMITS: dict[str, float] = {
     # Cover Art Archive is separate from MusicBrainz. Artwork requests are
     # not latency critical, so pace them conservatively too.
     "coverartarchive.org": 1.0,
-    "api.discogs.com": 1.0,  # 60/min for authenticated requests
+    "api.discogs.com": 2.5,  # Conservative public access: below 25 requests/minute
     # EXPLORER (the keyless trial tier this client uses) allows 6 lookups per
     # minute and 100 per day; faster than the burst rate is declined with 429
     # (https://www.upcitemdb.com/wp/docs/main/development/api-rate-limits/).

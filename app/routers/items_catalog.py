@@ -8,6 +8,7 @@ call through it so tests can patch.
 
 import logging
 import sqlite3
+from urllib.parse import urlencode
 
 import httpx
 
@@ -16,8 +17,9 @@ from fastapi.responses import HTMLResponse, JSONResponse
 
 from app import i18n
 from app.auth import require_role
-from app.config import BOOK_MEDIA_TYPES, HTTP_TIMEOUT, MEDIA_TYPES, canonical_media_type
+from app.config import BOOK_MEDIA_TYPES, HTTP_TIMEOUT, MEDIA_TYPES, MUSIC_MEDIA_TYPES, canonical_media_type
 from app.database import get_db, get_game_platforms, get_setting
+from app.features import feature_enabled
 from app.routers import items_common
 from app.services import covers, igdb, item_write, openlibrary, restore_report, scan_outcome, tmdb
 from app.services import tags as tags_svc
@@ -201,6 +203,15 @@ async def title_search(
     if not q.strip():
         return HTMLResponse("")
     media_type = canonical_media_type(media_type)
+    if media_type in MUSIC_MEDIA_TYPES:
+        query = q.strip()[:200]
+        return request.app.state.templates.TemplateResponse(
+            request, "fragments/music_title_search.html",
+            {"music_enabled": feature_enabled("music"), "show_music_handoff": True,
+             "music_search_url": "/music?" + urlencode({"q": query, "format": media_type}),
+             "manual_title": query, "manual_artist": "", "manual_format": media_type,
+             "music_media_types": {key: MEDIA_TYPES[key] for key in MEDIA_TYPES if key in MUSIC_MEDIA_TYPES}},
+        )
     if media_type == "video_game":
         return await search_games(request, q=q, platform=platform, _=_)
     if media_type == "dvd":

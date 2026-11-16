@@ -1,0 +1,30 @@
+<section class="bg-shelf-card border border-shelf-border rounded-xl p-4 space-y-4" data-testid="music-title-search">
+    {% if show_music_handoff | default(false) %}
+    {% if music_enabled %}
+    <p class="text-sm text-shelf-muted">{{ _('Music searches use release metadata, not book results. Add the artist on the Music page and compare the exact releases before saving.') }}</p>
+    <a href="{{ music_search_url }}" class="inline-block px-4 py-2 bg-shelf-accent text-white rounded-lg text-sm">{{ _('Continue to Music search') }}</a>
+    {% else %}
+    <p class="text-sm text-shelf-muted">{{ _('Music matching is turned off. You can still add a music item by hand without identifying a pressing.') }}</p>
+    {% endif %}
+    {% endif %}
+    <details data-testid="music-manual-add">
+        <summary class="cursor-pointer text-sm text-shelf-accent2">{{ _('Add by hand — pressing unknown') }}</summary>
+        <p class="text-sm text-shelf-muted mt-3">{{ _('If none of the releases matches your copy, keep only what you know. This does not attach a provider release, barcode or track list.') }}</p>
+        <form method="post" action="/api/items/manual" class="space-y-3 mt-3" data-testid="music-manual-form">
+            <input type="hidden" name="_csrf" value="{{ request.cookies.get('csrf_token', '') }}">
+            <label for="music-manual-title" class="block text-sm text-shelf-muted">{{ _('Release title') }}
+                <input id="music-manual-title" name="title" value="{{ manual_title | default('') }}" required maxlength="200" class="block w-full mt-1 bg-shelf-bg border border-shelf-border rounded-lg px-3 py-2 text-shelf-text">
+            </label>
+            <label for="music-manual-artist" class="block text-sm text-shelf-muted">{{ _('Artist') }}
+                <input id="music-manual-artist" name="authors" value="{{ manual_artist | default('') }}" maxlength="200" class="block w-full mt-1 bg-shelf-bg border border-shelf-border rounded-lg px-3 py-2 text-shelf-text">
+            </label>
+            <label for="music-manual-format" class="block text-sm text-shelf-muted">{{ _('Format') }}
+                <select id="music-manual-format" name="media_type" required class="block w-full mt-1 bg-shelf-bg border border-shelf-border rounded-lg px-3 py-2 text-shelf-text">
+                    <option value="">{{ _('Choose format') }}</option>
+                    {% for key, label in music_media_types.items() %}<option value="{{ key }}"{% if manual_format | default('') == key %} selected{% endif %}>{{ _(label) }}</option>{% endfor %}
+                </select>
+            </label>
+            <button type="submit" class="px-4 py-2 bg-shelf-accent text-white rounded-lg text-sm">{{ _('Add by hand') }}</button>
+        </form>
+    </details>
+</section>

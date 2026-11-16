@@ -42,12 +42,25 @@
                             <button type="submit" data-music-review-open class="px-3 py-2 bg-shelf-accent text-white rounded-lg text-sm">{{ _('Review latest metadata') }}</button>
                         </form>
                         {% endif %}
+                        {% if release and release.metadata_source == 'discogs' and selected_id and user and user.role in ('admin', 'editor') %}
+                        <form method="post" action="/api/music/preview" hx-post="/api/music/preview" hx-target="#music-matching" hx-swap="outerHTML show:top">
+                            <input type="hidden" name="_csrf" value="{{ request.cookies.get('csrf_token', '') }}">
+                            <input type="hidden" name="item_id" value="{{ item.id }}">
+                            <input type="hidden" name="provider" value="discogs">
+                            <input type="hidden" name="release_id" value="{{ selected_id }}">
+                            <input type="hidden" name="format" value="{{ item.media_type }}">
+                            <button type="submit" data-music-review-open class="px-3 py-2 bg-shelf-accent text-white rounded-lg text-sm">{{ _('Review latest metadata') }}</button>
+                        </form>
+                        {% endif %}
                     </div>
                 </div>
             </div>
         </div>
 
         {% if release %}
+        {% if release.metadata_source == 'discogs' %}
+        <p class="text-sm text-shelf-muted mb-4">{{ _('Reviewed catalogue fields from Discogs. No MusicBrainz release is attached; load the selected pressing below for fresh provider details and track order.') }}</p>
+        {% endif %}
         <div class="space-y-2 text-sm mb-4">
             {% if release.release_type %}<div><span class="text-shelf-muted">Release:</span> {{ release.release_type }}</div>{% endif %}
             {% if release.release_date %}<div><span class="text-shelf-muted">Date:</span> {{ release.release_date }}</div>{% endif %}
@@ -110,7 +123,7 @@
              hx-get="/api/music/items/{{ item.id }}/discogs"
              hx-trigger="load" hx-swap="outerHTML"
              class="mt-6 bg-shelf-card border border-shelf-border rounded-xl p-6 text-sm text-shelf-muted">
-        Loading Discogs pressing information&hellip;
+        {{ _('Loading Discogs pressing information…') }}
     </section>
     {% endif %}
 </div>

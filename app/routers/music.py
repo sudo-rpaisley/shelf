@@ -9,6 +9,7 @@ import httpx
 from fastapi import APIRouter, Depends, Form, Query, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
 
+from app import i18n
 from app.auth import require_role
 from app.features import require_feature
 from app.config import COVERS_DIR, HTTP_TIMEOUT, MEDIA_TYPES, MUSIC_MEDIA_TYPES
@@ -59,6 +60,8 @@ def _infer_media_type(release: dict) -> str | None:
 def _provider_error(result) -> str | None:
     if result is None or result.found:
         return None
+    if result.provider == "discogs":
+        return _discogs_error(result)
     return {
         "rate_limited": "MusicBrainz is rate-limiting requests. Try again shortly.",
         "transport_failed": "MusicBrainz could not be reached.",
@@ -71,11 +74,11 @@ def _discogs_error(result) -> str | None:
     if result is None or result.found:
         return None
     return {
-        "rate_limited": "Discogs is rate-limiting requests. Try again shortly.",
-        "transport_failed": "Discogs could not be reached.",
-        "rejected": "Discogs rejected the request. Check the configured token.",
-        "no_match": "No matching Discogs releases were found.",
-    }.get(result.outcome, "Discogs lookup failed.")
+        "rate_limited": i18n.gettext("Discogs is rate-limiting requests. Try again shortly."),
+        "transport_failed": i18n.gettext("Discogs could not be reached or returned unreadable release details."),
+        "rejected": i18n.gettext("Discogs rejected the request. Check the configured token if one is set."),
+        "no_match": i18n.gettext("No matching Discogs releases were found."),
+    }.get(result.outcome, i18n.gettext("Discogs lookup failed."))
 
 
 def _music_types_sql() -> tuple[str, tuple[str, ...]]:
@@ -151,21 +154,20 @@ async def music_page(
         locations = db.execute(
             "SELECT id, name FROM locations ORDER BY sort_order, name"
         ).fetchall()
+        discogs_token = get_setting(db, "discogs_token")
 
     results: list[dict] = []
     error = None
     if q or artist or barcode or catalog_number:
         async with httpx.AsyncClient(timeout=HTTP_TIMEOUT) as client:
-            result = await music_matching.search(client, title=q, artist=artist, barcode=barcode,
-                                                 catalog_number=catalog_number, format=format, country=country)
+            result = await music_matching.search_catalogue(client, title=q, artist=artist, barcode=barcode,
+                catalog_number=catalog_number, format=format, country=country, discogs_token=discogs_token or "")
         if result.found:
             results = result.payload or []
             for release in results:
                 media_type = _infer_media_type(release)
                 release["shelf_media_type"] = media_type
-                release["shelf_media_label"] = (
-                    MEDIA_TYPES[media_type] if media_type else "Choose format"
-                )
+                release["shelf_media_label"] = MEDIA_TYPES[media_type] if media_type else i18n.gettext("Choose format")
         else:
             error = _provider_error(result)
 
@@ -307,11 +309,12 @@ async def music_item_page(
         if not item or item["media_type"] not in MUSIC_MEDIA_TYPES:
             return RedirectResponse(f"/item/{item_id}", status_code=303)
         release = music_catalog.get_release(db, item_id)
+        selected_id = discogs_selection.get_selected_release_id(db, item_id)
 
     return request.app.state.templates.TemplateResponse(
         request,
         "music_item.html",
-        {"item": item, "release": release, "media_types": MEDIA_TYPES,
+        {"item": item, "release": release, "selected_id": selected_id, "media_types": MEDIA_TYPES,
          "music_media_types": {key: MEDIA_TYPES[key] for key in MEDIA_TYPES if key in MUSIC_MEDIA_TYPES},
          "field_labels": music_review.FIELD_LABELS, "show_match_search": True,
          "shop_links": [url for identifier in (release or {}).get("identifiers", [])
@@ -372,6 +375,7 @@ async def discogs_panel(
     item_id: int,
     search: int = Query(0),
     details: int = Query(0),
+    public_details: int = Query(0, ge=0, le=1),
     q: str = Query(""),
     artist: str = Query(""),
     barcode: str = Query(""),
@@ -379,7 +383,7 @@ async def discogs_panel(
     _=Depends(require_role("viewer")),
     __=Depends(require_feature("music")),
 ):
-    """Render the optional exact-pressing panel for one MusicBrainz release."""
+    """Render pressing references, with an explicit public detail read for any item."""
     with get_db() as db:
         item = db.execute(
             "SELECT * FROM items_live WHERE id = ?", (item_id,)
@@ -396,8 +400,10 @@ async def discogs_panel(
     # the authentication helpers. Keep role inspection consistent with the rest
     # of Shelf rather than treating it like an object.
     can_edit = bool(user and user.get("role") in ("admin", "editor"))
-    if (search or details) and not can_edit:
+    if (search or details or public_details) and not can_edit:
         return HTMLResponse("Editor role required", status_code=403)
+    if public_details and (search or details):
+        return HTMLResponse(i18n.gettext("Choose one Discogs action at a time."), status_code=400)
 
     fields = {
         "q": q.strip()[:200] or item["title"],
@@ -411,11 +417,15 @@ async def discogs_panel(
     selected_release = None
     error = None
 
-    if (search or details) and not token:
+    public_selection = release.get("metadata_source") == "discogs"
+    if public_details and not selected_id:
+        error = i18n.gettext("Select a Discogs release before loading its public details.")
+    elif (search or details) and not token and not public_selection:
         error = "Discogs is not configured. Add a token in Settings → Integrations."
     elif search:
         async with httpx.AsyncClient(timeout=HTTP_TIMEOUT) as client:
-            result = await discogs.search_releases(
+            lookup = discogs.search_public_releases if public_selection else discogs.search_releases
+            result = await lookup(
                 fields["q"],
                 client,
                 token=token,
@@ -423,16 +433,23 @@ async def discogs_panel(
                 barcode=fields["barcode"] or None,
                 catalog_number=fields["catalog_number"] or None,
                 limit=20,
+                **({"media_type": item["media_type"]} if public_selection else {}),
             )
         if result.found:
             results = result.payload or []
         else:
             error = _discogs_error(result)
-    elif details and selected_id:
+    elif (details or public_details) and selected_id:
         async with httpx.AsyncClient(timeout=HTTP_TIMEOUT) as client:
-            result = await discogs.lookup_release(selected_id, client, token=token)
+            # A deliberate public read is independent of the canonical metadata
+            # source. Keep the original details action's token-only semantics.
+            lookup = discogs.lookup_public_release if public_details or public_selection else discogs.lookup_release
+            result = await lookup(selected_id, client, token=token or "")
         if result.found:
-            selected_release = result.payload
+            if (result.payload or {}).get("discogs_release_id") == selected_id:
+                selected_release = result.payload
+            else:
+                error = i18n.gettext("Discogs returned a different release. Nothing was changed.")
         else:
             error = _discogs_error(result)
 
@@ -447,7 +464,8 @@ async def discogs_panel(
             "results": results,
             "error": error,
             "fields": fields,
-            "configured": bool(token),
+            "configured": bool(token) or public_selection,
+            "public_selection": public_selection,
             "can_edit": can_edit,
         },
     )

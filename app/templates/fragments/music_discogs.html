@@ -1,8 +1,12 @@
-<section id="discogs-panel" class="mt-6 bg-shelf-card border border-shelf-border rounded-xl p-6">
+<section id="discogs-panel" class="mt-6 bg-shelf-card border border-shelf-border rounded-xl p-4 sm:p-6">
     <div class="flex items-start justify-between gap-4 mb-4">
         <div>
-            <h2 class="text-lg font-semibold">Discogs exact pressing</h2>
+            <h2 class="text-lg font-semibold">{{ _('Discogs exact pressing') }}</h2>
+            {% if public_selection %}
+            <p class="text-xs text-shelf-muted mt-1">{{ _('This item has a reviewed Discogs pressing reference, not a MusicBrainz release. Provider details are read fresh on request.') }}</p>
+            {% else %}
             <p class="text-xs text-shelf-muted mt-1">Optional pressing-level enrichment. MusicBrainz remains Shelf's canonical release identity.</p>
+            {% endif %}
         </div>
         {% if selected_id %}
         <a href="https://www.discogs.com/release/{{ selected_id }}" target="_blank" rel="noopener"
@@ -11,29 +15,36 @@
     </div>
 
     {% if selected_id %}
-    <div class="mb-4 rounded-lg border border-shelf-border bg-shelf-bg p-4">
+    <div class="mb-4 rounded-lg border border-shelf-border bg-shelf-bg p-4" data-testid="music-discogs-selection">
         <div class="flex items-start justify-between gap-3 flex-wrap">
             <div>
                 <p class="text-xs text-shelf-muted">Selected Discogs release</p>
                 <p class="font-medium mt-1">#{{ selected_id }}</p>
             </div>
             {% if can_edit %}
-            <div class="flex gap-2">
-                <button type="button"
-                        hx-get="/api/music/items/{{ item.id }}/discogs?details=1"
+            <div class="flex flex-wrap gap-2">
+                <a href="/api/music/items/{{ item.id }}/discogs?public_details=1"
+                        hx-get="/api/music/items/{{ item.id }}/discogs?public_details=1"
                         hx-target="#discogs-panel" hx-swap="outerHTML"
-                        class="px-3 py-1.5 border border-shelf-border rounded-lg text-xs text-shelf-muted hover:text-shelf-text">Load fresh details</button>
+                        class="px-3 py-1.5 border border-shelf-border rounded-lg text-xs text-shelf-muted hover:text-shelf-text">{{ _('Load fresh details') }}</a>
                 <form method="post" action="/api/music/items/{{ item.id }}/discogs/clear">
                     <button type="submit" class="px-3 py-1.5 border border-shelf-border rounded-lg text-xs text-shelf-muted hover:text-shelf-error">Clear selection</button>
                 </form>
             </div>
             {% endif %}
         </div>
+        <p class="text-xs text-shelf-muted mt-3">{{ _('Load fresh details from the selected public Discogs release without changing your saved catalogue metadata.') }}</p>
         {% if can_edit %}
         <form method="post" action="/api/music/preview" hx-post="/api/music/preview" hx-target="#music-matching" hx-swap="outerHTML show:top" class="mt-3">
             <input type="hidden" name="_csrf" value="{{ request.cookies.get('csrf_token', '') }}">
             <input type="hidden" name="item_id" value="{{ item.id }}">
+            {% if public_selection %}
+            <input type="hidden" name="provider" value="discogs">
+            <input type="hidden" name="release_id" value="{{ selected_id }}">
+            <input type="hidden" name="format" value="{{ item.media_type }}">
+            {% else %}
             <input type="hidden" name="url" value="https://www.discogs.com/release/{{ selected_id }}">
+            {% endif %}
             <button type="submit" data-music-review-open class="px-3 py-2 bg-shelf-hover rounded-lg text-sm">{{ _('Preview details and artwork') }}</button>
         </form>
         {% endif %}
@@ -57,6 +68,15 @@
                 </div>
             </div>
             {% endif %}
+            {% if selected_release.notes %}<details class="pt-2"><summary class="cursor-pointer text-shelf-muted">{{ _('Release notes') }}</summary><p class="whitespace-pre-wrap break-words mt-2">{{ selected_release.notes }}</p></details>{% endif %}
+            {% for medium in selected_release.media | default([]) %}
+            {% if medium.tracks %}
+            <details class="pt-2">
+                <summary class="cursor-pointer text-shelf-muted">{{ _('Track listing') }} ({{ medium.tracks|length }})</summary>
+                <ol class="mt-2 space-y-1">{% for track in medium.tracks %}<li class="flex gap-3"><span class="shrink-0 text-shelf-muted">{{ track.number or track.position }}</span><span class="break-words">{{ track.title }}</span></li>{% endfor %}</ol>
+            </details>
+            {% endif %}
+            {% endfor %}
         </div>
         {% endif %}
     </div>
@@ -98,14 +118,18 @@
             </div>
         </form>
         {% else %}
+        {% if selected_id %}
+        <p class="text-sm text-shelf-muted mb-4">{{ _('The selected release can be read publicly without a token. A token is needed only for the optional Discogs search in this panel.') }}</p>
+        {% else %}
         <p class="text-sm text-shelf-muted mb-4">Configure a Discogs personal access token in <a href="/settings" class="text-shelf-accent2">Settings → Integrations</a> to identify the exact pressing.</p>
+        {% endif %}
         {% endif %}
     {% endif %}
 
     {% if results %}
     <div class="space-y-2">
         {% for candidate in results %}
-        <div class="border border-shelf-border bg-shelf-bg rounded-lg p-3 flex items-start justify-between gap-4">
+        <div class="border border-shelf-border bg-shelf-bg rounded-lg p-3 flex flex-col sm:flex-row items-start justify-between gap-4">
             <div class="min-w-0 text-sm">
                 <p class="font-medium">{{ candidate.title }}</p>
                 <p class="text-xs text-shelf-muted mt-1">
@@ -119,10 +143,21 @@
                 <a href="{{ candidate.discogs_url }}" target="_blank" rel="noopener" class="text-xs text-shelf-accent2 mt-1 inline-block">View release ↗</a>
             </div>
             {% if can_edit and candidate.discogs_release_id %}
+            {% if public_selection %}
+            <form method="post" action="/api/music/preview" hx-post="/api/music/preview" hx-target="#music-matching" hx-swap="outerHTML show:top" class="shrink-0">
+                <input type="hidden" name="_csrf" value="{{ request.cookies.get('csrf_token', '') }}">
+                <input type="hidden" name="item_id" value="{{ item.id }}">
+                <input type="hidden" name="provider" value="discogs">
+                <input type="hidden" name="release_id" value="{{ candidate.discogs_release_id }}">
+                <input type="hidden" name="format" value="{{ item.media_type }}">
+                <button type="submit" class="px-3 py-1.5 bg-shelf-accent text-white rounded-lg text-xs">{{ _('Preview details and artwork') }}</button>
+            </form>
+            {% else %}
             <form method="post" action="/api/music/items/{{ item.id }}/discogs/select" class="shrink-0">
                 <input type="hidden" name="release_id" value="{{ candidate.discogs_release_id }}">
                 <button type="submit" class="px-3 py-1.5 bg-shelf-accent text-white rounded-lg text-xs">Use this pressing</button>
             </form>
+            {% endif %}
             {% endif %}
         </div>
         {% endfor %}
@@ -131,7 +166,7 @@
 
     {% if selected_id or results or selected_release %}
     <p class="mt-4 pt-3 border-t border-shelf-border text-xs text-shelf-muted">
-        <a href="https://www.discogs.com" target="_blank" rel="noopener" class="text-shelf-accent2">Data provided by Discogs</a>. Provider data shown here is requested live and is not copied into Shelf's release metadata.
+        <a href="https://www.discogs.com" target="_blank" rel="noopener" class="text-shelf-accent2">{{ _('Data provided by Discogs') }}</a>. {{ _('Release details shown here are requested live and are not copied into the canonical release or track tables.') }}
     </p>
     {% endif %}
 </section>
