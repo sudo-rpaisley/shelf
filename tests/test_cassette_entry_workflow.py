@@ -50,6 +50,33 @@ def _search(client, *, title="Hits Out of Hell", artist="Meat Loaf"):
     return client.get("/music", params={"q": title, "artist": artist, "format": "cassette", "barcode": ""})
 
 
+def _assert_provider_failure_alert(response, provider_name, *, rate_limited=False):
+    import re
+
+    alert = _one(_root(response).find(role="alert"))
+    message = " ".join(alert.text.casefold().split())
+    assert provider_name.casefold() in message
+    assert not re.search(r"\bno\s+(?:matching\s+)?(?:releases?|results?|matches?|match)\b", message), (
+        "Provider failure must not be presented as no matches"
+    )
+    assert any(phrase in message for phrase in (
+        "could not", "failed", "error", "reject", "unavailable", "limit", "quota", "try again",
+    )), "The real HTTP alert must describe a failure, not merely name the provider"
+    if rate_limited:
+        assert any(phrase in message for phrase in ("limit", "quota", "too many requests"))
+
+
+def _assert_native_added_receipt(response, expected_title):
+    """The existing native receipt contract, not prose or a toast substring."""
+    assert response.status_code == 200
+    root = _root(response)
+    receipt = _one(root.find(cls="scan-result"))
+    assert receipt.attrs.get("data-scan-status") == "added"
+    assert _one(receipt.find(**{"data-scan-title": None})).text.strip() == expected_title
+    assert not root.find(**{"data-scan-status": "error"})
+    assert not any("data-scan-error" in node.attrs for node in root.find())
+
+
 def _preview(client, release_id=18670711, *, item_id=0, format="cassette", **extra):
     return client.post("/api/music/preview", data={
         "provider": "discogs", "release_id": str(release_id), "format": format, "item_id": str(item_id), **extra,
@@ -173,6 +200,9 @@ def test_chosen_exact_canadian_pressing_is_reviewed_then_saved_and_reloaded_with
         name: _value(candidate, name) for name in ("provider", "release_id", "format", "_csrf")
     })
     form = _form(response, "/api/music/apply-match")
+    publisher_choice = _one(form.find("input", name="fields", value="publisher"))
+    assert publisher_choice.attrs.get("type") == "checkbox"
+    assert response.context["candidates"][0]["fields"]["publisher"] == "Epic"
     assert "Canada" in response.text and "1995" in response.text and "BT 57615" in response.text
     assert "EPC 40-26156" not in response.text and "https://www.discogs.com/release/18670711" in response.text
     _assert_researched_http_tracklist(response, 18670711)
@@ -187,6 +217,7 @@ def test_chosen_exact_canadian_pressing_is_reviewed_then_saved_and_reloaded_with
     assert row["title"] == "Hits Out Of Hell" and row["authors"] == "Meat Loaf"
     assert row["publish_year"] == 1995 and row["media_type"] == "cassette" and row["source"] == "discogs"
     assert row["upc"] is None and row["isbn"] is None and row["location_id"] is None and row["cover_path"] is None
+    assert row["publisher"] is None, "Unchecked publisher must remain NULL after creation"
     assert db.execute("SELECT COUNT(*) FROM item_copies").fetchone()[0] == 0
     release = music_catalog.get_release(db, item_id)
     assert release["metadata_source"] == "discogs"
@@ -200,6 +231,7 @@ def test_chosen_exact_canadian_pressing_is_reviewed_then_saved_and_reloaded_with
     page = editor_client.get(f"/music/item/{item_id}")
     assert page.status_code == 200 and "Hits Out Of Hell" in page.text and "Discogs" in page.text
     assert "musicbrainz.org/release/18670711" not in page.text
+    assert db.execute("SELECT publisher FROM items WHERE id = ?", (item_id,)).fetchone()[0] is None
     fresh = editor_client.get(f"/api/music/items/{item_id}/discogs", params={"public_details": "1"})
     assert fresh.status_code == 200 and "Canada" in fresh.text and "BT 57615" in fresh.text
     assert "Data provided by Discogs" in fresh.text
@@ -207,6 +239,36 @@ def test_chosen_exact_canadian_pressing_is_reviewed_then_saved_and_reloaded_with
     assert _snapshot(db) == saved
     assert provider.calls[-1]["url"] == "https://api.discogs.com/releases/18670711"
     assert not any(call["authorization_present"] for call in provider.calls)
+
+
+def test_new_create_excludes_available_unselected_publisher_from_real_review(editor_client, db, provider):
+    """Reach the shared new-item Apply branch even on the feature-absent baseline.
+
+    The retained exact MusicBrainz interface supplies the real signed review;
+    its label is explicitly synthetic. No review HTML, token or insert is faked.
+    The Discogs creation and browser tests independently retain the same oracle.
+    """
+    release = provider.catalogue["synthetic"]["musicbrainz_release"]
+    label = "Synthetic unselected create label"
+    release["label-info"] = [{"label": {"name": label}}]
+    response = editor_client.post("/api/music/preview", data={"release_id": release["id"], "item_id": "0"})
+    form = _form(response, "/api/music/apply-match")
+    publisher_choice = _one(form.find("input", name="fields", value="publisher"))
+    assert publisher_choice.attrs.get("type") == "checkbox"
+    assert response.context["candidates"][0]["fields"]["publisher"] == label
+    applied = _apply(editor_client, form)
+    submitted = parse_qs(applied.request.content.decode())
+    assert submitted["fields"] == ["title", "authors", "publish_year"]
+    assert "publisher" not in submitted["fields"]
+    item_id = _saved_id(applied)
+    row = db.execute("SELECT * FROM items WHERE id = ?", (item_id,)).fetchone()
+    assert row["title"] == release["title"] and row["authors"] == "Synthetic canonical artist"
+    assert row["publish_year"] == 2001 and row["media_type"] == "cassette"
+    assert row["publisher"] is None, "Unchecked publisher must remain NULL after creation"
+    assert row["location_id"] is None and db.execute("SELECT COUNT(*) FROM item_copies").fetchone()[0] == 0
+    page = editor_client.get(f"/music/item/{item_id}")
+    assert page.status_code == 200 and release["title"] in page.text
+    assert db.execute("SELECT publisher FROM items WHERE id = ?", (item_id,)).fetchone()[0] is None
 
 
 @pytest.mark.parametrize("release_id,country,catno,year", [
@@ -419,7 +481,7 @@ def test_unknown_pressing_offers_native_manual_add_without_invented_ids(editor_c
     result = editor_client.post("/api/items/manual", data={
         "title": query["title"], "authors": query["artist"], "media_type": "cassette", "isbn": "", "location_id": "",
     })
-    assert result.status_code == 200 and "Added" in result.text
+    _assert_native_added_receipt(result, query["title"])
     row = db.execute("SELECT * FROM items").fetchone()
     assert row["source"] == "manual" and row["media_type"] == "cassette" and row["isbn"] is None and row["upc"] is None
     assert not db.execute("SELECT * FROM music_identifiers").fetchall()
@@ -427,6 +489,54 @@ def test_unknown_pressing_offers_native_manual_add_without_invented_ids(editor_c
     assert not db.execute("SELECT * FROM item_copies").fetchall()
     assert not db.execute("SELECT * FROM music_releases WHERE musicbrainz_release_id IS NOT NULL OR musicbrainz_release_group_id IS NOT NULL").fetchall()
     assert len(provider.calls) == 2
+
+
+def test_native_added_receipt_accepts_actual_core_manual_post_without_music_link(editor_client, db, provider):
+    """Positive control: real auth/CSRF/core POST/receipt/insert, no synthetic HTML."""
+    query = provider.catalogue["synthetic"]["manual_query"]
+    result = editor_client.post("/api/items/manual", data={
+        "title": query["title"], "authors": query["artist"], "media_type": "cassette", "isbn": "", "location_id": "",
+    })
+    _assert_native_added_receipt(result, query["title"])
+    row = db.execute("SELECT * FROM items").fetchone()
+    assert row["title"] == query["title"] and row["authors"] == query["artist"]
+    assert row["source"] == "manual" and row["media_type"] == "cassette" and row["isbn"] is None and row["upc"] is None
+    assert not db.execute("SELECT * FROM music_identifiers").fetchall()
+    assert not db.execute("SELECT * FROM music_media").fetchall() and not db.execute("SELECT * FROM music_tracks").fetchall()
+    assert not db.execute("SELECT * FROM item_copies").fetchall()
+    assert not db.execute("SELECT * FROM music_releases WHERE musicbrainz_release_id IS NOT NULL OR musicbrainz_release_group_id IS NOT NULL").fetchall()
+    assert not provider.calls
+
+
+@pytest.mark.parametrize("status_code,synthetic_html", [
+    pytest.param(200, '<article class="scan-result" data-scan-status="error"><p data-scan-title>Synthetic expected receipt title</p>Added</article>', id="error-status-with-Added"),
+    pytest.param(200, '<article class="scan-result" data-scan-status="duplicate"><p data-scan-title>Synthetic expected receipt title</p>Added</article>', id="duplicate-status-with-Added"),
+    pytest.param(200, '<article class="scan-result" data-scan-status="wishlisted"><p data-scan-title>Synthetic expected receipt title</p>Added</article>', id="wishlisted-status-with-Added"),
+    pytest.param(200, '<article class="scan-result" data-scan-status="anything"><p data-scan-title>Synthetic expected receipt title</p>Added</article>', id="unknown-status-with-Added"),
+    pytest.param(200, '<article class="scan-result" data-scan-status="Added"><p data-scan-title>Synthetic expected receipt title</p>Added</article>', id="wrong-case-status"),
+    pytest.param(200, '<article class="scan-result"><p data-scan-title>Synthetic expected receipt title</p>Added</article>', id="missing-status"),
+    pytest.param(200, '<article class="scan-result" data-scan-status=""><p data-scan-title>Synthetic expected receipt title</p>Added</article>', id="empty-status"),
+    pytest.param(200, '', id="empty-body"),
+    pytest.param(200, '<article data-scan-status="added"><p data-scan-title>Synthetic expected receipt title</p>Added</article>', id="missing-receipt-class"),
+    pytest.param(200, '<article class="scan-result" data-scan-status="added"><p>Synthetic expected receipt title</p>Added</article>', id="missing-title-marker"),
+    pytest.param(200, '<article class="scan-result" data-scan-status="added"><p data-scan-title></p>Added</article>', id="empty-title"),
+    pytest.param(200, '<article class="scan-result" data-scan-status="added"><p data-scan-title>Incorrect title</p>Added</article>', id="incorrect-title"),
+    pytest.param(200, '<article class="scan-result" data-scan-status="added"><p data-scan-title>Synthetic expected receipt title</p><p data-scan-title>Synthetic expected receipt title</p>Added</article>', id="multiple-title-markers"),
+    pytest.param(200, '<article class="scan-result" data-scan-status="added"><p data-scan-title="">Synthetic expected receipt title</p>Added</article>', id="nonbare-title-marker"),
+    pytest.param(200, '<article class="scan-result" data-scan-status="added"><p data-scan-title>Synthetic expected receipt title</p>Added</article><article class="scan-result" data-scan-status="added"><p data-scan-title>Synthetic expected receipt title</p>Added</article>', id="multiple-added-receipts"),
+    pytest.param(200, '<article class="scan-result" data-scan-status="added"><p data-scan-title>Synthetic expected receipt title</p>Added</article><article class="scan-result" data-scan-status="duplicate">Added</article>', id="conflicting-receipts"),
+    pytest.param(200, '<article class="scan-result" data-scan-status="added"><p data-scan-title>Synthetic expected receipt title</p>Added</article><aside data-scan-status="error">Added</aside>', id="root-error-status"),
+    pytest.param(200, '<article class="scan-result" data-scan-status="added"><p data-scan-title>Synthetic expected receipt title</p><span data-scan-error>Added</span></article>', id="bare-error-marker-inside"),
+    pytest.param(200, '<article class="scan-result" data-scan-status="added"><p data-scan-title>Synthetic expected receipt title</p>Added</article><aside data-scan-error="Added">Error</aside>', id="valued-error-marker-outside"),
+    pytest.param(409, '<article class="scan-result" data-scan-status="added"><p data-scan-title>Synthetic expected receipt title</p>Added</article>', id="non-200-receipt"),
+])
+def test_native_added_receipt_rejects_labelled_local_oracle_counterexamples(status_code, synthetic_html):
+    """Synthetic HTML is ONLY a local negative oracle input, never an endpoint/browser response."""
+    from types import SimpleNamespace
+
+    response = SimpleNamespace(status_code=status_code, text=synthetic_html)
+    with pytest.raises(AssertionError):
+        _assert_native_added_receipt(response, "Synthetic expected receipt title")
 
 
 @pytest.mark.parametrize("format", ["CD", "Vinyl"])
@@ -816,4 +926,35 @@ def test_search_errors_attribute_the_failed_provider_and_do_not_write(editor_cli
     response = _search(editor_client)
     alert = _one(_root(response).find(role="alert"))
     assert provider_name in alert.text and ("rate" in alert.text.lower() or "limit" in alert.text.lower())
+    _assert_provider_failure_alert(response, provider_name, rate_limited=True)
     assert len(provider.calls) == (1 if case == "mb" else 2) and _snapshot(db) == before
+
+
+@pytest.mark.parametrize("response", [
+    {"status": 429, "json": {"message": "Synthetic MusicBrainz quota"}},
+    {"status": 403, "json": {"message": "Synthetic MusicBrainz rejection"}},
+    {"status": 404, "json": {"message": "Synthetic endpoint failure, not an empty search"}},
+    {"status": 200, "text": "{synthetic broken JSON"},
+    {"status": 200, "json": {"releases": "synthetic malformed list"}},
+    {"status": 200, "json": {"synthetic_missing_releases": True}},
+    {"status": 503, "json": {"message": "Synthetic unavailable service"}},
+])
+def test_musicbrainz_failed_search_is_actionable_http_error_not_no_matches(editor_client, db, provider, response):
+    before = _snapshot(db)
+    provider.mb_search = response
+    result = _search(editor_client)
+    _assert_provider_failure_alert(result, "MusicBrainz", rate_limited=response["status"] == 429)
+    assert len(provider.calls) == 1 and provider.calls[0]["url"] == "https://musicbrainz.org/ws/2/release/"
+    assert not _root(result).find("form", action="/api/music/apply-match")
+    assert _snapshot(db) == before
+
+
+@pytest.mark.parametrize("case", ["rate_limited", "rejected", "malformed_json", "malformed_discogs"])
+def test_discogs_failed_search_is_actionable_http_error_not_no_matches(editor_client, db, provider, case):
+    before = _snapshot(db)
+    provider.discogs_search = provider.catalogue["synthetic"][case]
+    response = _search(editor_client)
+    _assert_provider_failure_alert(response, "Discogs", rate_limited=case == "rate_limited")
+    assert len(provider.calls) == 2 and provider.calls[-1]["url"] == "https://api.discogs.com/database/search"
+    assert not _root(response).find("form", action="/api/music/apply-match")
+    assert _snapshot(db) == before

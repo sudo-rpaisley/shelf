@@ -359,6 +359,15 @@ async def test_musicbrainz_failure_or_malformed_response_never_falls_back(bounda
     boundary.mb_search = response
     result = await _search_catalogue()
     assert not result.found and result.provider == "musicbrainz"
+    assert result.outcome in {"rate_limited", "rejected", "transport_failed"}, (
+        "A failed HTTP/malformed search must remain a provider failure, never no_match"
+    )
+    if response["status"] == 429:
+        assert result.outcome == "rate_limited"
+    elif response["status"] == 403:
+        assert result.outcome in {"rejected", "transport_failed"}
+    else:
+        assert result.outcome == "transport_failed"
     assert len(boundary.calls) == 1, "Failure is not evidence of no cassette match"
 
 

@@ -126,7 +126,9 @@ def _search(page, server, *, title="Hits Out of Hell", artist="Meat Loaf"):
 
 
 def _rows(server, query, parameters=()):
-    with sqlite3.connect(server["data_dir"] / "shelf.db") as connection:
+    from contextlib import closing
+
+    with closing(sqlite3.connect(server["data_dir"] / "shelf.db")) as connection:
         connection.row_factory = sqlite3.Row
         return [dict(row) for row in connection.execute(query, parameters)]
 
@@ -187,8 +189,17 @@ def test_blank_barcode_search_review_chosen_pressing_save_reload(cassette_page, 
     _assert_selected_track_order(preview, release_id)
     _assert_no_search_writes(live_server, before)
     _artifact(page, tmp_path, "exact-pressing-review")
+    publisher_choice = review.locator('[name="fields"][value="publisher"]')
+    expect(publisher_choice).to_have_count(1)
+    expect(review.locator("label").filter(has=publisher_choice)).to_contain_text("Epic")
+    for choice in review.locator('[name="fields"]').all():
+        choice.uncheck()
+    expect(review.locator('[name="fields"]:checked')).to_have_count(0)
+    expect(publisher_choice).not_to_be_checked()
     for field in ("title", "authors", "publish_year"):
         review.locator(f'[name="fields"][value="{field}"]').check()
+    expect(publisher_choice).not_to_be_checked()
+    expect(review.locator('[name="fields"]:checked')).to_have_count(3)
     with page.expect_navigation():
         review.locator('button[type="submit"]').click()
     assert urlsplit(page.url).path.startswith("/music/item/")
@@ -199,6 +210,7 @@ def test_blank_barcode_search_review_chosen_pressing_save_reload(cassette_page, 
     item = next(row for row in items if row["id"] == item_id)
     assert item["authors"] == "Meat Loaf" and item["publish_year"] == year and item["media_type"] == "cassette"
     assert item["source"] == "discogs" and item["location_id"] is None and item["isbn"] is None and item["upc"] is None
+    assert item["publisher"] is None, "Unchecked publisher must remain NULL after creation"
     assert not _rows(live_server, "SELECT * FROM item_copies WHERE item_id = ?", (item_id,))
     release = _rows(live_server, "SELECT * FROM music_releases WHERE item_id = ?", (item_id,))[0]
     assert release["metadata_source"] == "discogs" and release["musicbrainz_release_id"] is None and release["musicbrainz_release_group_id"] is None
@@ -206,6 +218,7 @@ def test_blank_barcode_search_review_chosen_pressing_save_reload(cassette_page, 
     assert not _rows(live_server, "SELECT * FROM music_media WHERE item_id = ?", (item_id,))
     page.reload()
     expect(page.get_by_role("heading", level=1)).to_have_text("Hits Out Of Hell")
+    assert _rows(live_server, "SELECT publisher FROM items WHERE id = ?", (item_id,)) == [{"publisher": None}]
     fresh = page.locator(f'[hx-get="/api/music/items/{item_id}/discogs?public_details=1"]')
     expect(fresh).to_be_visible()
     with page.expect_response(lambda response: f"/api/music/items/{item_id}/discogs?public_details=1" in response.url and response.ok):
@@ -220,6 +233,8 @@ def test_blank_barcode_search_review_chosen_pressing_save_reload(cassette_page, 
     apply_controls = parse_qs(next(body for path, body in seen if path == "/api/music/apply-match"))
     assert apply_controls["ticket"] and apply_controls["media_type"] == ["cassette"]
     assert apply_controls["image"] == ["-1"]
+    assert set(apply_controls["fields"]) == {"title", "authors", "publish_year"}
+    assert "publisher" not in apply_controls["fields"]
     audit = [json.loads(line) for line in live_server["audit"].read_text().splitlines()]
     assert any(call["url"] == f"https://api.discogs.com/releases/{release_id}" for call in audit)
     assert sum(call["url"] == f"https://api.discogs.com/releases/{release_id}" for call in audit) >= 2
