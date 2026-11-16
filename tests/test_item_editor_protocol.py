@@ -1820,3 +1820,47 @@ def test_observed_protocol_preserves_api_introspection_and_clean_forwarding():
     assert p.encode_projection(record) is record
     assert p.make_reply(record, record) is record
     assert _BOMB_CALLS[before:] == []
+
+
+@pytest.mark.parametrize("identifier", (0, -1, -9223372036854775808),
+                         ids=("zero_without_primary", "negative_one_without_primary", "signed64_min_without_primary"))
+def test_nonpositive_item_identity_refuses_without_primary_mismatch_mask(identifier):
+    p = _protocol()
+    values = _stored(p, item=_slot(ITEM, 0, identifier), primary=None)
+    assert values.primary is None
+    response = p.encode_projection(values)
+    assert type(response) is p.NeedsNative
+    assert response.reason == "invalid_state"
+
+
+@pytest.mark.parametrize("raw_path,expected_item_id,expected_reply", (
+    (
+        b"/item/%37/edit", None,
+        b'{"protocol":"shelf.me2","version":2,"operation":"form",'
+        b'"generation":"0123456789abcdef0123456789abcdef",'
+        b'"request":"fedcba9876543210fedcba9876543210","item_id":null,'
+        b'"actor":{"id":"5","token_version":"1"},'
+        b'"result":"refused","outcome":"not_saved",'
+        b'"payload":{"code":"invalid_protocol","field":null,"blocking_item_id":null}}',
+    ),
+    (
+        b"/item/8/edit", "8",
+        b'{"protocol":"shelf.me2","version":2,"operation":"form",'
+        b'"generation":"0123456789abcdef0123456789abcdef",'
+        b'"request":"fedcba9876543210fedcba9876543210","item_id":"8",'
+        b'"actor":{"id":"5","token_version":"1"},'
+        b'"result":"refused","outcome":"not_saved",'
+        b'"payload":{"code":"invalid_protocol","field":null,"blocking_item_id":null}}',
+    ),
+), ids=("encoded_raw_id_has_no_echo", "different_raw_id_echoes_raw_id"))
+def test_raw_path_alone_supplies_malformed_item_echo_and_reply(raw_path, expected_item_id, expected_reply):
+    p = _protocol()
+    wire = p.decode_wire(_scope(p, path="/item/7/edit", raw_path=raw_path))
+    _assert_malformed(p, wire)
+    if expected_item_id is None:
+        assert wire.echo.item_id is None
+    else:
+        assert type(wire.echo.item_id) is str and wire.echo.item_id == expected_item_id
+    response = p.make_reply(wire, p.RefusedData(code="invalid_protocol", field=None, blocking_item_id=None))
+    assert type(response) is p.ReplySpec and response.status == 400
+    assert type(response.body) is bytes and response.body == expected_reply
