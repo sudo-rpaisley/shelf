@@ -105,7 +105,7 @@ class StoredValues:
     wishlisted: int
     primary: tuple[SqlAtom, ...] | None
     cover: CoverFingerprint | None
-    caller_form_assessment: _Literal["supported"] | NativeReason
+    caller_form_assessment: _Literal["supported", "invalid_state", "state_too_large", "context_too_large"]
 
 
 @_dataclass(frozen=True, slots=True, kw_only=True, eq=False, repr=False)
