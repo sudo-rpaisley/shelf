@@ -1,0 +1,130 @@
+{
+  "provenance": {
+    "kind": "abridged research projections, NOT recorded raw API responses",
+    "research_date": "2026-11-16",
+    "research_agent": "ses_e1e472139ffe9LEJ6yD70djE7",
+    "source": ".temp/feature-completion-20261116/CASSETTE_RESEARCH.json",
+    "track_research": {
+      "source": ".temp/feature-completion-20261116/CASSETTE_TRACK_RESEARCH.json",
+      "method": "Parent public unauthenticated Discogs GETs; structured projection, not full raw responses",
+      "date": "2026-11-16",
+      "urls": ["https://api.discogs.com/releases/3935124", "https://api.discogs.com/releases/8297774", "https://api.discogs.com/releases/18670711"],
+      "http_statuses": [200, 200, 200],
+      "anonymous_limit_per_minute": 25,
+      "remaining_after_requests": [25, 24, 23],
+      "images_fetched": false,
+      "exact_user_pressing_selected": false
+    },
+    "qualification": "Public catalogue examples, not identification of the user's exact tape",
+    "projection_rules": [
+      "Only reported release facts from the two attributed structured research projections are included; these are NOT full raw response recordings.",
+      "Search composite titles are locally constructed display projections, not verbatim search records.",
+      "images=[] means artwork was deliberately omitted, not that a release has no artwork.",
+      "Track positions/titles/durations, label names and format descriptions come from CASSETTE_TRACK_RESEARCH.json. Canada durations and European subtrack durations are reported blank, not inferred from another release or the index's total.",
+      "No barcode or other unreported raw field is asserted as verified; synthetic controls are labelled separately."
+    ]
+  },
+  "query": {"title": "Hits Out of Hell", "artist": "Meat Loaf", "format": "cassette", "barcode": ""},
+  "musicbrainz_empty": {"releases": [], "release-count": 0},
+  "discogs_search": {
+    "results": [
+      {"id": 3935124, "type": "release", "title": "Meat Loaf - Hits Out Of Hell", "country": "UK", "year": 1984, "catno": "EPC 40-26156", "format": ["Cassette"]},
+      {"id": 8297774, "type": "release", "title": "Meat Loaf - Hits Out Of Hell", "country": "Europe", "year": 1984, "catno": "40-26156", "format": ["Cassette"]},
+      {"id": 18670711, "type": "release", "title": "Meat Loaf - Hits Out Of Hell", "country": "Canada", "year": 1995, "catno": "BT 57615", "format": ["Cassette"]}
+    ]
+  },
+  "discogs_releases": {
+    "3935124": {
+      "id": 3935124, "title": "Hits Out Of Hell", "country": "UK", "released": "1984", "year": 1984,
+      "artists": [{"name": "Meat Loaf", "join": ""}],
+      "labels": [{"name": "Epic", "catno": "EPC 40-26156"}],
+      "formats": [{"name": "Cassette", "qty": "1", "descriptions": ["Compilation"]}],
+      "images": [],
+      "tracklist": [
+        {"position": "A1", "type_": "track", "title": "Bat Out Of Hell", "duration": "9:48"},
+        {"position": "A2", "type_": "track", "title": "Read 'Em And Weep", "duration": "5:25"},
+        {"position": "A3", "type_": "track", "title": "Midnight At The Lost And Found", "duration": "3:36"},
+        {"position": "A4", "type_": "track", "title": "Two Out Of Three Ain't Bad", "duration": "5:23"},
+        {"position": "A5", "type_": "track", "title": "Dead Ringer For Love", "duration": "4:21"},
+        {"position": "B1", "type_": "track", "title": "Modern Girl", "duration": "4:24"},
+        {"position": "B2", "type_": "track", "title": "I'm Gonna Love Her For Both Of Us", "duration": "7:09"},
+        {"position": "B3", "type_": "track", "title": "You Took The Words Right Out Of My Mouth (Hot Summer Night)", "duration": "3:40"},
+        {"position": "B4", "type_": "track", "title": "Razor's Edge", "duration": "4:07"},
+        {"position": "B5", "type_": "track", "title": "Paradise By The Dashboard Light", "duration": "8:28"}
+      ]
+    },
+    "8297774": {
+      "id": 8297774, "title": "Hits Out Of Hell", "country": "Europe", "released": "1984", "year": 1984,
+      "artists": [{"name": "Meat Loaf", "join": ""}],
+      "labels": [{"name": "Cleveland International Records", "catno": "40-26156"}, {"name": "Epic", "catno": "EPC 40-26156"}],
+      "formats": [{"name": "Cassette", "qty": "1", "descriptions": ["Compilation"]}],
+      "images": [],
+      "tracklist": [
+        {"position": "A1", "type_": "track", "title": "Bat Out Of Hell", "duration": "9:48"},
+        {"position": "A2", "type_": "track", "title": "Read 'Em And Weep", "duration": "5:25"},
+        {"position": "A3", "type_": "track", "title": "Midnight At The Lost And Found", "duration": "3:36"},
+        {"position": "A4", "type_": "track", "title": "Two Out Of Three Ain't Bad", "duration": "5:23"},
+        {"position": "A5", "type_": "track", "title": "Dead Ringer For Love", "duration": "4:23"},
+        {"position": "B1", "type_": "track", "title": "Modern Girl", "duration": "4:21"},
+        {"position": "B2", "type_": "track", "title": "I'm Gonna Love Her For Both Of Us", "duration": "7:09"},
+        {"position": "B3", "type_": "track", "title": "You Took The Words Right Out Of My Mouth (Hot Summer Night)", "duration": "4:12"},
+        {"position": "B4", "type_": "track", "title": "Razor's Edge", "duration": "4:07"},
+        {"position": "", "type_": "index", "title": "Paradise By The Dashboard Light", "duration": "8:28", "sub_tracks": [
+          {"position": "B5-I", "type_": "track", "title": "Paradise", "duration": ""},
+          {"position": "B5-II", "type_": "track", "title": "Let Me Sleep On It", "duration": ""},
+          {"position": "B5-III", "type_": "track", "title": "Praying For The End Of Time", "duration": ""}
+        ]}
+      ]
+    },
+    "18670711": {
+      "id": 18670711, "title": "Hits Out Of Hell", "country": "Canada", "released": "1995", "year": 1995,
+      "artists": [{"name": "Meat Loaf", "join": ""}],
+      "labels": [{"name": "Epic", "catno": "BT 57615"}, {"name": "Cleveland International Records", "catno": "BT 57615"}],
+      "formats": [{"name": "Cassette", "qty": "1", "descriptions": ["Compilation", "Reissue"], "text": "Dolby"}],
+      "images": [],
+      "tracklist": [
+        {"position": "A1", "type_": "track", "title": "Bat Out Of Hell", "duration": ""},
+        {"position": "A2", "type_": "track", "title": "Read 'Em And Weep", "duration": ""},
+        {"position": "A3", "type_": "track", "title": "Dead Ringer For Love", "duration": ""},
+        {"position": "A4", "type_": "track", "title": "Two Out Of Three Ain't Bad", "duration": ""},
+        {"position": "A5", "type_": "track", "title": "Midnight At The Lost And Found", "duration": ""},
+        {"position": "B1", "type_": "track", "title": "All Revved Up With No Place To Go", "duration": ""},
+        {"position": "B2", "type_": "track", "title": "I'm Gonna Love Her For Both Of Us", "duration": ""},
+        {"position": "B3", "type_": "track", "title": "You Took The Words Right Out Of My Mouth (Hot Summer Night)", "duration": ""},
+        {"position": "B4", "type_": "track", "title": "Razor's Edge", "duration": ""},
+        {"position": "B5", "type_": "track", "title": "Paradise By The Dashboard Light", "duration": ""}
+      ]
+    }
+  },
+  "synthetic": {
+    "notice": "ALL objects in this section are invented test controls, NOT public catalogue research.",
+    "manual_query": {"title": "Unidentified home-recorded tape", "artist": "Unknown artist"},
+    "empty_discogs": {"results": []},
+    "barcode": "012345678905",
+    "label": "Synthetic test label, not a verified pressing fact",
+    "composite_title": "A - B / C - Do not split this display title",
+    "rate_limited": {"status": 429, "headers": {"Retry-After": "300"}, "json": {"message": "Synthetic quota response"}},
+    "rejected": {"status": 401, "json": {"message": "Synthetic credential rejection"}},
+    "malformed_json": {"status": 200, "text": "{synthetic broken JSON"},
+    "malformed_musicbrainz": {"status": 200, "json": {"releases": "synthetic non-list"}},
+    "malformed_discogs": {"status": 200, "json": {"results": "synthetic non-list"}},
+    "image_url": "https://i.discogs.com/synthetic-offline-cassette.png",
+    "tracklist": [
+      {"type_": "heading", "title": "Synthetic side A"},
+      {"position": "A1", "title": "Synthetic first track", "duration": "3:01"},
+      {"type_": "index", "title": "Synthetic indexed work", "sub_tracks": [
+        {"position": "B1a", "title": "Synthetic movement one", "duration": "1:02"},
+        {"position": "B1b", "title": "Synthetic movement two", "duration": "2:03"}
+      ]}
+    ],
+    "musicbrainz_release": {
+      "id": "11111111-1111-4111-8111-111111111111",
+      "title": "Synthetic canonical MusicBrainz cassette",
+      "artist-credit": [{"name": "Synthetic canonical artist"}],
+      "release-group": {"id": "22222222-2222-4222-8222-222222222222"},
+      "date": "2001", "media": [{"position": 1, "format": "Cassette", "tracks": [
+        {"number": "A1", "title": "Synthetic canonical track", "recording": {"id": "33333333-3333-4333-8333-333333333333"}}
+      ]}]
+    }
+  }
+}
