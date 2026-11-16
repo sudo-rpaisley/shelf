@@ -101,10 +101,11 @@
                     hx-get="/api/items/{{ item_id }}/copies"
                     hx-target="#item-copies" hx-swap="outerHTML"
                     class="px-3 py-1 bg-shelf-card border border-shelf-border text-shelf-text rounded-lg text-xs hover:bg-shelf-hover transition-colors">{{ _('Cancel') }}</button>
+            {# Escape the translation first, then bind the copy number without double escaping it. #}
             <button type="button" data-testid="remove-copy"
                     hx-delete="/api/items/{{ item_id }}/copies/{{ copy.id }}"
                     hx-target="#item-copies" hx-swap="outerHTML"
-                    hx-confirm="Move copy #{{ copy.copy_number }} to Trash? Restore it from Trash to get it back."
+                    hx-confirm="{{ (_('Move copy #%(n)s to Trash? Restore it from Trash to get it back.', n='%(n)s')|forceescape).replace('%(n)s', copy.copy_number|string) }}"
                     class="px-3 py-1 bg-shelf-error/20 text-shelf-error rounded-lg text-xs hover:bg-shelf-error/30 transition-colors ml-auto">{{ _('Remove copy') }}</button>
         </div>
     </form>
