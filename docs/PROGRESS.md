@@ -3,6 +3,42 @@
 The live checklist is [NEXT_ACTIONS.md](NEXT_ACTIONS.md). Entries here distinguish
 implementation and verified outcomes from investigation or blocked acceptance.
 
+## 2026-11-16 — Dormant editor-protocol prerequisite published
+
+**[`dbc948f1`](https://github.com/sudo-rpaisley/shelf/commit/dbc948f19fb7609f68639c653c4d9a806ceb7f1e)**
+is pushed and remote-verified on `new-test`. It adds only the pure, **unwired**
+protocol module, its independent tests and the actual collection-count badge.
+No request path, schema, permission, editor or household behavior is activated.
+
+Fresh qualification: **807 passes / 382.56s**—730 protocol cases and 77 retained
+native-editor controls—zero failures/errors/skips, unchanged inputs/guards and zero
+external attempts. Offline checks pass. Independent **PASS_BOUNDED_DORMANT_BATCH**
+verified all 957 source hashes/modes, 39 evidence files, exact three-path scope,
+data-only purity and absence of application callers. All 435 original and all 468
+base test files retain exact blobs/modes; original185 remains unchecked and exact.
+
+The test review strengthened swallowed-exception detection, stored-ID positivity
+and raw-path echo provenance. The earlier annotation-representation failure remains
+recorded; a one-line finite-Literal normalization passed the fresh final suite.
+README **11725 / 762** counts collection, not full-suite passes. This is targeted
+compatible-local evidence, not active-editor, full-suite, pinned/container or main
+readiness. `main` remains unchanged; no deployment, Actions or account change.
+
+### Application composition continues
+
+The reviewed UI composition passed **444 units / 24 browsers**, including real
+Italian/Chinese catalogs and native confirmations. A separately reproduced palette
+duplicate-native-close defect now has reviewed **185-unit / 56-browser** repair
+evidence; the historical failure's exact schedule remains unknown. These increments
+are being composed with cassette fixes, then rechecked on one frozen application
+candidate rather than transferring earlier results to the combined tree.
+
+Cassette review also found and repaired lost Scan Wishlist intent, contradictory
+CD/vinyl attachment to an existing cassette, and failure-to-no-match classification.
+New regressions and stricter selective-creation/receipt oracles preserve the actual
+producer/consumer contracts. Final combined units, real cassette browsers, locale
+checks and publication are still pending. **Cassette entry is not yet marked done.**
+
 ## 2026-11-16 — First application repair batch published
 
 **[`b4cfd3e4`](https://github.com/sudo-rpaisley/shelf/commit/b4cfd3e4439e2601d682c3fca249ca234462704b)**

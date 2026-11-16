@@ -34,8 +34,9 @@ does not identify the exact pressing, country, catalogue number or release date.
   browser regressions for the example, competing formats, ambiguity and failures;
   retain all existing assertions and strict CSP/CSRF protections.
   **In progress:** 142 unit and 4 browser cases authored independently; composition
-  first produced 252 passes / 3 failures across the new and retained unit band.
-  A bounded source repair is active; browser qualification is still pending.
+  first produced 252 passes / 3 failures. Source repairs now cover Wishlist intent,
+  existing-item format contradictions and honest provider failures. Strengthened
+  regression composition and fresh browser qualification are pending.
 - [ ] **CAS-06 — Publish a reviewed development batch.** Record checks and push
   the tested result to `new-test` for further testing.
   **Pending:** qualification; no deployment or `main` merge.
@@ -78,9 +79,9 @@ these groups into finite, dependency-ordered jobs.
 - [ ] **FLOW-CSP — Repair shortcut help without inline handlers.** Remove the
   three handler attributes at source and bind translated controls through stable
   data hooks. Preserve the unchanged existing CSP assertions and shortcut actions.
-  **In progress:** scoped CSP checks pass. Passive baseline/candidate traces and a
-  controlled native-dialog lifecycle witness are being prepared for the unwaived
-  broader palette-focus failure. No CSP policy relaxation or speculative repair.
+  **In progress:** controlled native-close witnesses reproduced a duplicate-cleanup
+  defect on baseline and candidate. The reviewed repair passes 185 unit / 56 browser
+  cases; final combined application checks remain. Historical attribution is unknown.
 - [ ] **EDIT-01 — Account preferences and editor completion.** Establish remaining
   compare-and-swap, isolation and complete-editor obligations before changes.
   **Unverified:** exact open subjobs being reconciled.
@@ -93,11 +94,10 @@ these groups into finite, dependency-ordered jobs.
 - [ ] **SCALE-01 — Large-library performance.** Reconcile remaining F1/F3 indexing
   and scale evidence without reducing correctness or coverage.
   **Unverified:** current implementation/evidence boundaries.
-- [ ] **ADAPT-01 — Dormant adapter prerequisites.** Reconcile ME2 C1/C2 contracts
-  before granting a writer or enabling any dormant authority.
-  **In progress:** C1/C2 independently cleared; dormant module and independent
-  tests exist. Bomb-call observability is being strengthened before their fresh
-  composition gate. Activation/editor wiring remains unauthorized.
+- [x] **ADAPT-01 — Deliver the dormant pure protocol prerequisite.** Ratify C1/C2,
+  implement the unwired data-only module and independently test its contracts.
+  **Published:** `dbc948f1`; 807 fresh cases and independent bounded gate passed.
+  This does not complete ME2-DIALOG/ME2-SESSIONS or authorize editor/authority wiring.
 - [ ] **INT-01 — Preserve both branches in main integration.** Resolve the
   isolated integration semantically, including migrations, active library ACLs,
   private history, copy/location identity and both regression baselines.
