@@ -87,6 +87,21 @@ critical restore/core and the wider audited queue remain open. `main` stays at
 editor activation are untouched. This documentation-only successor does not claim
 another runtime run on its new SHA.
 
+### Next bounded increment: account-preference storage, in progress
+
+Requirements and critical-schema design reviews cleared **PREF-STORE-1** after
+explicit amendments. Separate isolated writers now own the unwired domain store,
+the centrally owned companion-table/bootstrap change and three independent new test
+modules. No preference implementation has been selected or published yet.
+
+The contract specifies strict supported fields, preserved original JSON, account
+revalidation and revision-CAS under the caller's transaction. Schema collision checks
+preserve logical data/ledger, not prior WAL/filesystem effects; a later bootstrap
+failure may leave the committed additive table. Existing concurrent cold-start and
+restore/auth token-version collision limits are not repaired or waived. HTTP/UI,
+cookie-response ownership, browser storage and actual consumer integration require
+separate grants and qualification. No F2/ME5/X5/ME7 completion is claimed.
+
 The following checkpoints retain their outcomes **when recorded**; the latest
 published section above supersedes their scoped pending notes, not their history.
 

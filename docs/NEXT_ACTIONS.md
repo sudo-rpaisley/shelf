@@ -88,8 +88,13 @@ these groups into finite, dependency-ordered jobs.
   outside-focus, stale-event and fallback controls. Historical scheduling is unknown.
 - [ ] **EDIT-01 — Account preferences and editor completion.** Establish remaining
   compare-and-swap, isolation and complete-editor obligations before changes.
-  **Design refinement:** account-owned store/CAS proposal received finite contract
-  amendments. No schema/store/HTTP/UI writer is granted; full editing remains open.
+  **In progress:** independently cleared storage/CAS contract, with separate schema,
+  domain and independent-test lanes. This does not grant HTTP/UI/auth integration.
+- [ ] **PREF-STORE-1 — Account-owned storage prerequisite.** Implement the bounded
+  unwired store, caller-transaction CAS, strict three-field validation and preservation,
+  with a centrally owned companion table and native SQLite regression coverage.
+  **Private implementation:** separate worktrees; no preference page, consumer,
+  browser-store import or new permissions are enabled on the published branch.
 - [ ] **CORE-01 — Core/admission repair.** Review the existing isolated repair
   evidence and its exact three-file authority; do not transplant a held RED kernel.
   **Blocked on:** current failure attribution and critical contracts.
