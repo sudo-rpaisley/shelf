@@ -142,6 +142,26 @@ def _assert_no_lifecycle(conn, external=()):
     assert conn.in_transaction, "the caller's transaction must still be open"
 
 
+def _store_statement_allowed(sql, parameters=()):
+    """Keep the three existing kinds; admit only the fixed readonly encoding PRAGMA."""
+    if re.match(r"\s*(?:SELECT|INSERT|UPDATE)\b", sql, re.I):
+        return True
+    main = r'''(?:main|"main"|'main'|\[main\]|`main`)'''
+    encoding = r'''(?:encoding|"encoding"|'encoding'|\[encoding\]|`encoding`)'''
+    return type(parameters) is tuple and parameters == () and re.fullmatch(
+        rf"\s*PRAGMA\b\s*(?:{main}\s*\.\s*)?{encoding}\s*;?\s*", sql, re.I | re.ASCII,
+    ) is not None
+
+
+def _assert_store_statement_kinds(executions, traces):
+    """Pure policy over BOTH attempted triples and successful SQL traces."""
+    for sql, parameters, active in executions:
+        assert active is True, "store statement attempted outside the caller transaction"
+        assert _store_statement_allowed(sql, parameters), "forbidden attempted store statement"
+    for sql in traces:
+        assert _store_statement_allowed(sql), "forbidden traced store statement"
+
+
 def _preference_read_queries(executions):
     table = r'(?:library_preferences|"library_preferences"|\[library_preferences\]|`library_preferences`)'
     main = r'(?:main|"main"|\[main\]|`main`)'
@@ -1122,7 +1142,8 @@ def test_final_actor_recheck_after_validation_before_any_preference_dml(
     try:
         with pytest.raises(store.PreferenceStoreError) as error:
             if operation == "save":
-                store.save_preferences(unit_db, actor, 1, {"default_saved_view": "7"})
+                changes = {"item_size_percent": 80} if change == "delete" else {"default_saved_view": "7"}
+                store.save_preferences(unit_db, actor, 1, changes)
             else:
                 store.reset_preferences(unit_db, actor, 1, ("item_size_percent",))
         assert reached == [True]
@@ -1356,7 +1377,7 @@ def test_store_never_owns_transactions_connections_callbacks_or_logging(
             # Observations are checked even if the store swallows a forbidden
             # call's exception or another assertion would otherwise mask it.
             _assert_no_lifecycle(unit_db, external)
-            assert all(re.match(r"\s*(?:SELECT|INSERT|UPDATE)\b", sql, re.I) for sql in unit_db.sql)
+            _assert_store_statement_kinds(unit_db.executions, unit_db.sql)
     finally:
         sys.setprofile(previous_profile)
         unit_db.rollback()
@@ -1620,3 +1641,158 @@ def test_oracle_control_exact_utf16_endpoint_is_native_readable_and_inclusive(tm
     finally:
         conn.rollback()
         conn.close()
+
+
+_ENCODING_READ_SYNTAX = (
+    "PRAGMA encoding",
+    "PRAGMA main.encoding",
+    " \n\tpRaGmA   MaIn . EnCoDiNg  ; \n",
+    'PRAGMA "main"."encoding";',
+    "PRAGMA [main].[encoding];",
+    "PRAGMA `main`.`encoding`;",
+    "PRAGMA 'main'.'encoding';",
+    'PRAGMA "encoding";',
+    'PRAGMA"main"."encoding";',
+)
+
+
+def _encoding_fixture_configuration(conn):
+    """Caller-only readonly checks, outside the observed store/control phase."""
+    # Do not prime the exact "PRAGMA main.encoding" statement under test: a
+    # cached statement's binding-count check can precede authorizer reprepare.
+    return tuple(conn.execute(sql).fetchone()[0] for sql in (
+        "PRAGMA encoding", "PRAGMA main.foreign_keys", "PRAGMA main.journal_mode",
+    ))
+
+
+@pytest.mark.parametrize("sql", _ENCODING_READ_SYNTAX)
+@pytest.mark.parametrize("encoding", ["UTF-8", "UTF-16le"])
+def test_oracle_control_readonly_encoding_native_syntax_preserves_data_configuration_and_transaction(
+    tmp_path, encoding, sql,
+):
+    conn = _make_database(tmp_path / "readonly-encoding.db", encoding=encoding)
+    try:
+        _seed(conn, {"item_size_percent": 80, "opaque": [False, 0, "", None]})
+        before, configuration = _logical_state(conn), _encoding_fixture_configuration(conn)
+        assert configuration[0] == encoding and configuration[1] == 1
+        count = conn.total_changes
+        _begin(conn, write=False)
+        assert conn.execute(sql).fetchone()[0] == encoding
+        assert conn.executions == [(sql, (), True)]
+        assert len(conn.sql) == 1
+        assert conn.total_changes == count
+        _assert_no_lifecycle(conn)
+        _assert_store_statement_kinds(conn.executions, conn.sql)
+        conn.rollback()  # caller completion, after all observed-phase assertions
+        assert _logical_state(conn) == before
+        assert _encoding_fixture_configuration(conn) == configuration
+        assert conn.total_changes == count
+    finally:
+        conn.rollback()
+        conn.close()
+
+
+@pytest.mark.parametrize("sql,parameters,trace", [
+    ("SELECT id FROM users WHERE id=?", (1,), "SELECT id FROM users WHERE id=1"),
+    ("INSERT INTO library_preferences (user_id,values_json,revision) VALUES (?,?,1)",
+     (1, "{}"), "INSERT INTO library_preferences (user_id,values_json,revision) VALUES (1,'{}',1)"),
+    ("UPDATE library_preferences SET values_json=?,revision=? WHERE user_id=? AND revision=?",
+     ("{}", 2, 1, 1), "UPDATE library_preferences SET values_json='{}',revision=2 WHERE user_id=1 AND revision=1"),
+])
+def test_oracle_control_statement_policy_retains_three_existing_kinds(sql, parameters, trace):
+    # Pure policy admission, not execution or persistence/authority evidence.
+    _assert_store_statement_kinds([(sql, parameters, True)], [trace])
+
+
+@pytest.mark.parametrize("channel", ["attempted", "traced"])
+@pytest.mark.parametrize("sql", [
+    "PRAGMA encoding='UTF-8'",
+    "PRAGMA main.encoding = 'UTF-16le'",
+    "PRAGMA encoding('UTF-8')",
+    "PRAGMA main.encoding()",
+    "PRAGMA encoding ?",
+    "PRAGMA encoding UTF8",
+    "PRAGMA main.encoding + 0",
+    "PRAGMA foreign_keys",
+    "PRAGMA main.foreign_keys=OFF",
+    "PRAGMA journal_mode",
+    "PRAGMA journal_mode=MEMORY",
+    "PRAGMA temp.encoding",
+    "PRAGMA other.encoding",
+    "PRAGMA ma\u0131n.encoding",
+    "PRAGMA main.encod\u0131ng",
+    'PRAGMA "mainly"."encoding"',
+    "PRAGMA main.encoding_extra",
+    "PRAGMA main.encoding; SELECT 1",
+    "PRAGMA encoding; PRAGMA foreign_keys=OFF",
+    "PRAGMA encoding;;",
+    "PRAGMA encoding unexpected",
+    'PRAGMA "main"."foreign_keys"',
+    "DELETE FROM library_preferences WHERE user_id=1",
+    "CREATE TABLE forbidden (id INTEGER)",
+    "",
+])
+def test_oracle_control_statement_policy_rejects_forbidden_pragma_and_trailing_sql_in_both_channels(sql, channel):
+    # Pure classification ONLY: no setter/configuration-changing SQL is executed.
+    attempts, traces = ([(sql, (), True)], []) if channel == "attempted" else ([], [sql])
+    with pytest.raises(AssertionError, match=f"forbidden {channel} store statement"):
+        _assert_store_statement_kinds(attempts, traces)
+
+
+@pytest.mark.parametrize("parameters", [(1,), ("UTF-8",), (None,), (1, 2)])
+def test_oracle_control_encoding_statement_policy_refuses_bound_arguments(parameters):
+    with pytest.raises(AssertionError, match="forbidden attempted store statement"):
+        _assert_store_statement_kinds([("PRAGMA main.encoding", parameters, True)], ["PRAGMA main.encoding"])
+
+
+@pytest.mark.parametrize("sql", ["SELECT 1", "PRAGMA main.encoding"])
+def test_oracle_control_statement_policy_requires_caller_transaction_in_attempt_triples(sql):
+    with pytest.raises(AssertionError, match="outside the caller transaction"):
+        _assert_store_statement_kinds([(sql, (), False)], [sql])
+
+
+@pytest.mark.parametrize("sql,parameters", [
+    ("PRAGMA main.encoding='UTF-16le'", ()),
+    ("PRAGMA encoding('UTF-8')", ()),
+    ("PRAGMA foreign_keys", ()),
+    ("PRAGMA foreign_keys=OFF", ()),
+    ("PRAGMA journal_mode", ()),
+    ("PRAGMA journal_mode=MEMORY", ()),
+    ("PRAGMA temp.encoding", ()),
+    ("PRAGMA main.encoding", ("extra",)),
+])
+def test_oracle_control_denied_pragma_prepare_is_rejected_from_actual_attempt_without_trace_or_marker(
+    unit_db, sql, parameters,
+):
+    before, configuration = _logical_state(unit_db), _encoding_fixture_configuration(unit_db)
+    count = unit_db.total_changes
+    _begin(unit_db, write=False)
+    denials = []
+
+    def authorize(action, first, second, database, context):
+        if action == sqlite3.SQLITE_PRAGMA:
+            denials.append((action, first, second, database))
+            return sqlite3.SQLITE_DENY  # prevent configuration changes, not just observe them
+        return sqlite3.SQLITE_OK
+
+    unit_db.set_authorizer(authorize)
+    try:
+        swallowed = None
+        try:
+            unit_db.execute(sql, parameters)
+        except sqlite3.DatabaseError as error:
+            swallowed = error
+        assert swallowed is not None and swallowed.sqlite_errorcode == sqlite3.SQLITE_AUTH
+        assert denials, "native SQLITE_PRAGMA denial must precede execution/binding"
+        assert unit_db.calls == [] and unit_db.sql == []
+        assert unit_db.executions == [(sql, parameters, True)]
+        assert unit_db.total_changes == count
+        _assert_no_lifecycle(unit_db)  # lifecycle remains a separate, unchanged oracle
+        with pytest.raises(AssertionError, match="forbidden attempted store statement"):
+            _assert_store_statement_kinds(unit_db.executions, unit_db.sql)
+    finally:
+        unit_db.set_authorizer(None)
+        unit_db.rollback()
+    assert _logical_state(unit_db) == before
+    assert _encoding_fixture_configuration(unit_db) == configuration
+    assert unit_db.total_changes == count
