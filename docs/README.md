@@ -60,6 +60,8 @@ New here? Start with **[Installation](installation.md)**, then
 | Doc | What it covers |
 |---|---|
 | [Development](development.md) | Running from source, tests, lints, the Makefile, project layout |
+| [Live feature work queue](NEXT_ACTIONS.md) | Current cassette-entry priority, unfinished work, owners and explicit blockers |
+| [Feature work progress](PROGRESS.md) | Reviewed development batches and their implementation/verification evidence |
 | [Architecture](architecture.md) | Request path, middleware, data model, metadata pipeline, background jobs |
 | [Physical copies](item-copies.md) | The `item_copies` model, and how the item's own location field still drives the primary copy |
 | [Related Media](related-media.md) | Linking a work to its other formats, related items and adaptations; how a group is derived rather than stored |
