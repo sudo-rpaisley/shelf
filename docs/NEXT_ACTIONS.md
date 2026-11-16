@@ -9,7 +9,19 @@ review are recorded. **In progress**, **unverified** and **blocked** are not don
 The original [acceptance checklist](connected-library-acceptance.md) is unchanged;
 this queue does not waive or automatically complete any of its 185 entries.
 
-## Priority: add a cassette without a barcode
+## Next UI priority: unified Add Media
+
+- [ ] **ADD-01 — Search and add media in one place.** Provide one front door with
+  inline type/format and title/identifier controls, relevant artist/platform fields,
+  results, preview and manual alternatives—without sending music users elsewhere.
+  **Planning, not implemented:** preserve existing Scan/API contracts and all eight
+  Scan modes, native add paths, Add/Wishlist intent and exact-release review.
+  Catalogue numbers must not silently become barcodes or provider release IDs.
+  Keep MusicBrainz-first matching and the bounded cassette fallback unchanged;
+  Library search must not automatically broadcast queries to external providers.
+  Independent contract review and fresh unit/browser qualification precede publication.
+
+## Published priority: add a cassette without a barcode
 
 Example: **Meat Loaf — Hits Out of Hell**, physical cassette. Album metadata alone
 does not identify the exact pressing, country, catalogue number or release date.
@@ -88,13 +100,14 @@ these groups into finite, dependency-ordered jobs.
   outside-focus, stale-event and fallback controls. Historical scheduling is unknown.
 - [ ] **EDIT-01 — Account preferences and editor completion.** Establish remaining
   compare-and-swap, isolation and complete-editor obligations before changes.
-  **In progress:** independently cleared storage/CAS contract, with separate schema,
-  domain and independent-test lanes. This does not grant HTTP/UI/auth integration.
-- [ ] **PREF-STORE-1 — Account-owned storage prerequisite.** Implement the bounded
+  **Prerequisite published:** bounded storage/CAS at `c010b07e`; HTTP/UI, response
+  ownership, actual consumers and complete-editor integration remain separately gated.
+- [x] **PREF-STORE-1 — Account-owned storage prerequisite.** Implement the bounded
   unwired store, caller-transaction CAS, strict three-field validation and preservation,
   with a centrally owned companion table and native SQLite regression coverage.
-  **Private implementation:** separate worktrees; no preference page, consumer,
-  browser-store import or new permissions are enabled on the published branch.
+  **Published:** `c010b07e`, remote-verified after independent bounded PASS and 1,575
+  disjoint checks (147 new meta-controls, 422 new dependent cases, 1,006 retained).
+  No preference page, consumer, browser-store import or new permission is enabled.
 - [ ] **CORE-01 — Core/admission repair.** Review the existing isolated repair
   evidence and its exact three-file authority; do not transplant a held RED kernel.
   **Blocked on:** current failure attribution and critical contracts.
@@ -137,7 +150,8 @@ not been accepted here. Historical failure totals are not current-primary totals
 - [ ] **R9-CONVERGENCE — Complete localization.** Re-audit current strings, dynamic
   errors and JS; historical 186/33 dispositions are not today's remaining total.
 - [ ] **ME7 — Remaining presentation preferences.** Preserve qualified whole-item
-  density; account persistence/CAS and above-default enlargement remain open.
+  density; unwired account storage/CAS is published, but settings/consumer integration
+  and above-default enlargement remain open. Stored size choices are 50–100% only.
 
 ### Missing or candidate-only product work
 
@@ -145,8 +159,9 @@ not been accepted here. Historical failure totals are not current-primary totals
   approve central index/rebuild/restore contracts before bounded query integration
   and declared representative scale/RAM/query-plan gates.
 - [ ] **F2 / ME5 / X5 — Account-owned presentation preferences.** Pure normalization
-  and isolated frontend work exist; storage, actor ownership, CAS and real settings
-  integration remain missing. Never import shared-device preferences silently.
+  and unwired account-owned storage/CAS exist; HTTP, response-cookie ownership, real
+  settings and consumer integration remain incomplete. Never import shared-device
+  preferences silently.
 - [ ] **RF1 — Theme and card options.** No complete configurable appearance flow
   established; share the preference model rather than add another store.
 - [ ] **ME2-DIALOG / ME2-SESSIONS — Complete common editor.** Extracted fields are
@@ -246,12 +261,13 @@ Canonical scope and evidence: [plan](connected-library-plan.md),
 
 ## Working and publication rules
 
-Latest application batch `fa90abdb` passed **1,586 unit / 92 browser** cases, offline
-checks and independent **PASS_BOUNDED_APPLICATION_BATCH**. All 435 original tests
-retain exact blobs/modes. Of 469 published-base test files, only the exact ratified
-post-original CSP ARIA/no-onclick hunk differs; all 185 original acceptance entries
-remain unchanged and unchecked. This is targeted compatible-local evidence, not
-full-suite/pinned/main readiness. Earlier batches remain recorded in [Progress](PROGRESS.md).
+Latest storage prerequisite `c010b07e` passed **1,575 disjoint checks** and independent
+**PASS_BOUNDED_PREF_STORE_BATCH**, with offline checks and convergent generation.
+All **435 original / 486 batch-base tests** retain exact blobs/modes; all **185 original
+acceptance entries** remain unchanged and unchecked. This unwired batch adds no UI
+or browser qualification claim. The earlier `fa90abdb` application batch retains its
+**1,586 unit / 92 browser** evidence. These are targeted compatible-local results,
+not full-suite/pinned/main readiness. Details and limits: [Progress](PROGRESS.md).
 
 - Parallel agents receive nonoverlapping file ownership; shared schema, fixtures,
   generated assets and Git selection remain centrally coordinated.

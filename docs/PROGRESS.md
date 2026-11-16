@@ -3,6 +3,86 @@
 The live checklist is [NEXT_ACTIONS.md](NEXT_ACTIONS.md). Entries here distinguish
 implementation and verified outcomes from investigation or blocked acceptance.
 
+## 2026-11-16 — Unwired account-preference storage published
+
+**[`c010b07e`](https://github.com/sudo-rpaisley/shelf/commit/c010b07e431f87827f5a7214bb2e4d96979d7dc1)**
+is pushed and remote-verified on `new-test` after independent
+**PASS_BOUNDED_PREF_STORE_BATCH**. This completes **PREF-STORE-1 only**: a bounded
+SQLite storage/CAS prerequisite, not working preferences pages or complete
+F2/ME5/X5/ME7. No HTTP route, auth behavior, consumer or editor is wired to it.
+
+The store supports `recent`, integer `item_size_percent` in **50/60/70/80/90/100**,
+and an account-owned canonical `default_saved_view` ID string. Immutable supported-only
+snapshots and revision CAS preserve freshly reread original JSON and opaque fields.
+The caller owns the transaction/commit and must supply the captured actor and verified
+entry-cookie expiry; constructing the actor object is not authentication. Schema scope
+is exactly **45 additive lines** in `app/database.py`; the service, three new test
+modules and generated README collection badge complete the six-path batch.
+
+### Fresh bounded qualification
+
+All nine bands use the same **979 frozen source paths**: **1,575 disjoint passes**,
+zero failures/errors/skips, recorded external attempts or source/guard drift.
+
+| Band | Passes | JUnit seconds |
+|---|---:|---:|
+| New storage/schema/native SQLite | 569 | 277.981 |
+| Retained schema/registration | 74 | 65.901 |
+| Retained historical migrations | 152 | 232.413 |
+| Retained legacy upgrades | 49 | 84.581 |
+| Retained transaction callbacks/cache | 9 | 7.266 |
+| Retained auth/account/library | 378 | 246.203 |
+| Retained source handoff/progress | 240 | 233.001 |
+| Retained backup/restore | 27 | 21.298 |
+| Retained native editor | 77 | 77.333 |
+
+The 569 new cases include **147 meta/oracle controls and 422 implementation-dependent
+cases**; the remaining **1,006** are retained regressions. Offline checks pass and
+official generation converges. README **12591 / 799** counts collection, not full-suite
+passes. All **435 original / 486 batch-base test blobs and modes** and all **185
+unchecked original acceptance entries** remain exact. No assertion weakening, skips
+or xfails were used. Visible Starlette/`record_property` warnings remain disclosed.
+
+Historical failures remain preserved, not counted as final passes: the identical
+three-case malformed-TEXT revision probe went genuinely RED→GREEN after an integer-only
+decoder repair. The earlier composed **480-pass/4-fail** run exposed independently
+diagnosed new-test fixture/oracle issues, repaired without further production changes.
+The separate cache meta-fixture RED and its narrow caller-query correction are retained.
+The earlier incomplete step-limit audit is superseded by the completed final PASS.
+
+Independent verification checked all source hashes/modes/Git/index entries, **524
+sealed evidence files / 28,474,542 bytes**, metadata and historical bindings. Evidence:
+`.temp/feature-completion-20261116/PREFERENCES_FROZEN_CANDIDATE.json`,
+`PREFERENCES_FINAL_RUNTIME_RECEIPT.json`, `PREFERENCES_FINAL_EVIDENCE_MANIFEST.json`,
+`PREFERENCES_FINAL_INDEPENDENT_GATE.json` and `PREFERENCES_PUBLICATION.json`.
+Source fingerprint: `408c4efe807b6107585e7c9a2e8f390a93844478c756daa4250a23c9336b3756`.
+Evidence fingerprint, recorded order:
+`87385ded74dbe651e288cebbf69358e9ca8166bc130141d31b2fdaa96f8de1dc`.
+
+This is compatible-local **Python3.14.8/SQLite3.53.4** qualification, not the full
+suite, pinned Python3.12/container, browser or provider/account acceptance. Collision
+preservation covers logical schema/rows/ledger, not WAL/filesystem bytes; later bootstrap
+failure may retain the committed additive table. The separate native busy probe proves
+zero-timeout handling, not measured nonzero waiting or global cold-start correctness.
+Concurrent cold-start ledger races and restore/auth token-version collisions remain
+open; only quiescent restore invalidation is covered. Selected native backups retain
+the table; the closed portable archive still excludes it.
+
+`main` remains `43e244f5`; held integration, deployments, tags/images, Actions and
+household/graph activation are untouched. HTTP/UI, response-cookie ownership and
+actual consumers need separate contracts and qualification. The documentation-only
+successor does not claim another runtime run on its SHA.
+
+### Next UI priority: unified Add Media
+
+The user's next priority is one adding page, with inline type/format, title/identifier,
+artist/platform, results, preview and manual actions rather than separate music search.
+**Planning only, not implemented or qualified.** Preserve legacy Scan/API behavior and
+all eight modes, native save paths, exact-release safeguards and MusicBrainz-first
+cassette fallback. Catalogue numbers are not barcodes or provider release IDs; Library
+search must not silently broadcast private queries to providers. The detailed queue
+keeps **ADD-01** unchecked pending bounded contracts, implementation and fresh evidence.
+
 ## 2026-11-16 — Barcode-free cassette and UI repairs published
 
 **[`fa90abdb`](https://github.com/sudo-rpaisley/shelf/commit/fa90abdb550fed6ae123ad5aa521414e94adf56a)**
@@ -87,7 +167,7 @@ critical restore/core and the wider audited queue remain open. `main` stays at
 editor activation are untouched. This documentation-only successor does not claim
 another runtime run on its new SHA.
 
-### Next bounded increment: account-preference storage, in progress
+### Storage planning at that publication (historical)
 
 Requirements and critical-schema design reviews cleared **PREF-STORE-1** after
 explicit amendments. Separate isolated writers now own the unwired domain store,
