@@ -570,6 +570,20 @@ CREATE TABLE IF NOT EXISTS users (
     updated_at     TEXT NOT NULL DEFAULT (datetime('now'))
 );
 
+CREATE TABLE IF NOT EXISTS library_preferences (
+    user_id INTEGER NOT NULL PRIMARY KEY
+        REFERENCES users(id) ON DELETE CASCADE
+        CHECK (typeof(user_id) = 'integer'
+            AND user_id BETWEEN 1 AND 9223372036854775807),
+    values_json TEXT NOT NULL DEFAULT '{}'
+        CHECK (typeof(values_json) = 'text'),
+    revision INTEGER NOT NULL DEFAULT 1
+        CHECK (typeof(revision) = 'integer'
+            AND revision BETWEEN 1 AND 9223372036854775807),
+    updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+        CHECK (typeof(updated_at) = 'text')
+);
+
 CREATE TABLE IF NOT EXISTS game_platforms (
     id         INTEGER PRIMARY KEY AUTOINCREMENT,
     slug       TEXT NOT NULL UNIQUE,
@@ -1277,6 +1291,32 @@ def _bootstrap_statements():
             pending = ""
 
 
+def _bootstrap_preferences_table(db: sqlite3.Connection) -> None:
+    """Inspect/create only canonical preferences metadata under the caller's write lock."""
+    definitions = [statement for statement in _bootstrap_statements()
+                   if statement.startswith("CREATE TABLE IF NOT EXISTS library_preferences (")]
+    if len(definitions) != 1:
+        raise RuntimeError("preferences_schema_definition_invalid")
+    create = definitions[0]
+    expected_sql = "CREATE TABLE " + create[len("CREATE TABLE IF NOT EXISTS "):]
+    expected_sql = expected_sql.removesuffix(";")
+    query = (
+        "SELECT type, name, tbl_name, sql "
+        "FROM main.sqlite_master "
+        "WHERE name = ? COLLATE NOCASE "
+        "   OR tbl_name = ? COLLATE NOCASE;"
+    )
+    parameters = ("library_preferences", "library_preferences")
+    objects = db.execute(query, parameters).fetchall()
+    if not objects:
+        db.execute(create)
+        objects = db.execute(query, parameters).fetchall()
+    if len(objects) != 1 or tuple(objects[0]) != (
+        "table", "library_preferences", "library_preferences", expected_sql
+    ):
+        raise RuntimeError("preferences_schema_incompatible")
+
+
 def _table_columns(db, table):
     return {row["name"] for row in db.execute(f"PRAGMA table_info({table})")}
 
@@ -1862,6 +1902,11 @@ def init_db():
     DATABASE_PATH.parent.mkdir(parents=True, exist_ok=True)
     COVERS_DIR.mkdir(parents=True, exist_ok=True)
     with get_db() as db:
+        if db.in_transaction:
+            raise RuntimeError("preferences_bootstrap_transaction_active")
+        db.execute("BEGIN IMMEDIATE")
+        _bootstrap_preferences_table(db)
+        db.commit()
         db.executescript(SCHEMA)
         migration_logs = _run_migrations(db)
     # Only now, with the migration transaction committed and its connection
