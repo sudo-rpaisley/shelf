@@ -71,7 +71,11 @@ _QUEUE_COLUMNS = """
     ) AS location_name
 """
 
-_QUEUE_PREDICATE = "i.cover_path IS NULL AND i.cover_review_dismissed = 0"
+# Match Needs Attention's definition of a missing cover, including blank paths.
+_QUEUE_PREDICATE = (
+    "(i.cover_path IS NULL OR TRIM(i.cover_path) = '') "
+    "AND i.cover_review_dismissed = 0"
+)
 
 # `updated_at` alone is not unique, and a non-deterministic order makes the
 # keyset seek below skip or repeat rows.
@@ -136,6 +140,11 @@ def next_from_key(db, key):
     return _seek(db, key["updated_at"], key["id"])
 
 
+def _display_cover_path(cover_path: str | None) -> str | None:
+    """Hide missing previews using SQLite TRIM's ASCII-space-only semantics."""
+    return cover_path if cover_path and cover_path.strip(" ") else None
+
+
 def render_card(request, db, item, pos: int, total: int, **extra):
     """Render the swappable card, or the terminal state when the seek is spent.
 
@@ -161,7 +170,7 @@ def render_card(request, db, item, pos: int, total: int, **extra):
     ctx = {
         "item": item,
         "item_id": item["id"],
-        "cover_path": item["cover_path"],
+        "cover_path": _display_cover_path(item["cover_path"]),
         "media_type": item["media_type"],
         "candidates": [],
         "query": "",
@@ -194,7 +203,10 @@ async def cover_review_page(request: Request, _=Depends(require_role("editor")))
         {
             "item": item,
             "item_id": item["id"] if item is not None else None,
-            "cover_path": item["cover_path"] if item is not None else None,
+            "cover_path": (
+                _display_cover_path(item["cover_path"])
+                if item is not None else None
+            ),
             "media_type": item["media_type"] if item is not None else None,
             "candidates": [],
             "query": "",
@@ -264,7 +276,7 @@ async def cover_review_search(
         {
             "candidates": result.payload or [],
             "item_id": item_id,
-            "cover_path": item["cover_path"],
+            "cover_path": _display_cover_path(item["cover_path"]),
             "media_type": item["media_type"],
             "query": search_query,
             "search_note": items_covers._search_note(item["media_type"], creds),
