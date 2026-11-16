@@ -34,6 +34,28 @@ test implementation remain separate from any active editor or authority wiring.
 
 This status-document update does not claim another runtime run on a docs-only SHA.
 
+### Follow-up qualification in progress
+
+The first combined cassette unit gate produced **252 passes / 3 failures** with
+unchanged inputs/guards and zero external attempts. Two failures expose a duplicate
+MusicBrainz search path bypassing the established coordinator; the third requires
+a real Scan manual-entry link alongside the new prefilled native form. A two-file
+source repair is active; the 142 independent tests are unchanged. **The cassette
+feature is not yet qualified or published.**
+
+The reviewed cover/labels/localization/CSP candidates are composed privately.
+Thirteen scoped messages now have real Italian and Simplified Chinese translations;
+all existing nonempty translations were preserved. Compilation and asset generation
+converged. Fresh unit and real-locale browser gates are running—not yet reported
+green. Cassette's separate 48-message translation proposals are ready for adoption
+after its source freeze.
+
+The broader palette-focus failure remains unwaived. Its queued-native-close cause
+is a hypothesis, not established attribution; a bounded passive trace and controlled
+lifecycle witness are being executed without protected-test edits or added sleeps.
+The dormant editor protocol's independent tests are also being strengthened so a
+swallowed bomb exception cannot hide forbidden method calls.
+
 ## 2026-11-16 — Parallel feature completion wave started
 
 **Priority example:** add **Meat Loaf — Hits Out of Hell** as a cassette without a
