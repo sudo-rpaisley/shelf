@@ -34,7 +34,8 @@ does not identify the exact pressing, country, catalogue number or release date.
   browser regressions for the example, competing formats, ambiguity and failures;
   retain all existing assertions and strict CSP/CSRF protections.
   **In progress:** 142 unit and 4 browser cases authored independently; composition
-  still pending. Retained baseline passed 113 units before changes.
+  first produced 252 passes / 3 failures across the new and retained unit band.
+  A bounded source repair is active; browser qualification is still pending.
 - [ ] **CAS-06 — Publish a reviewed development batch.** Record checks and push
   the tested result to `new-test` for further testing.
   **Pending:** qualification; no deployment or `main` merge.
@@ -69,15 +70,17 @@ these groups into finite, dependency-ordered jobs.
 - [ ] **R9-DISCOVER / R9-COPY-CONFIRM — Finish these translated surfaces.** Mark
   Discover's interface and the copy-specific Trash confirmation safely, then verify
   real catalogs, placeholders and attribute escaping.
-  **In progress:** isolated template/test writer; catalogs remain coordinator-owned.
+  **In progress:** reviewed templates/tests are composed with actual Italian and
+  Simplified Chinese catalogs. Fresh real-locale browser checks are running.
 - [x] **X4-BULK-RECEIPT — Report real bulk-update results.** Duplicate, missing and
   trashed IDs must not inflate the affected count or mutate Trash.
   **Published:** `b4cfd3e4`; unique live selection and receipt under one write lock.
 - [ ] **FLOW-CSP — Repair shortcut help without inline handlers.** Remove the
   three handler attributes at source and bind translated controls through stable
   data hooks. Preserve the unchanged existing CSP assertions and shortcut actions.
-  **In progress:** scoped CSP checks pass, but a broader retained palette-focus
-  failure remains unwaived and is being diagnosed. No CSP policy relaxation.
+  **In progress:** scoped CSP checks pass. Passive baseline/candidate traces and a
+  controlled native-dialog lifecycle witness are being prepared for the unwaived
+  broader palette-focus failure. No CSP policy relaxation or speculative repair.
 - [ ] **EDIT-01 — Account preferences and editor completion.** Establish remaining
   compare-and-swap, isolation and complete-editor obligations before changes.
   **Unverified:** exact open subjobs being reconciled.
@@ -93,7 +96,8 @@ these groups into finite, dependency-ordered jobs.
 - [ ] **ADAPT-01 — Dormant adapter prerequisites.** Reconcile ME2 C1/C2 contracts
   before granting a writer or enabling any dormant authority.
   **In progress:** C1/C2 independently cleared; dormant module and independent
-  tests have separate writers. Activation/editor wiring remains unauthorized.
+  tests exist. Bomb-call observability is being strengthened before their fresh
+  composition gate. Activation/editor wiring remains unauthorized.
 - [ ] **INT-01 — Preserve both branches in main integration.** Resolve the
   isolated integration semantically, including migrations, active library ACLs,
   private history, copy/location identity and both regression baselines.
