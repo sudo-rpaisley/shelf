@@ -135,7 +135,7 @@
             navigationFallback(true);
             return;
         }
-        var composing = false, opener = null, entries = [], selected = -1, outsideDown = false;
+        var composing = false, opener = null, closePending = false, entries = [], selected = -1, outsideDown = false;
 
         function choose(index, scroll) {
             selected = entries.length ? (index + entries.length) % entries.length : -1;
@@ -191,6 +191,14 @@
         }
 
         function restoreFocus() {
+            var active = document.activeElement;
+            // Native restoration or deliberate outside focus already won.
+            // A queued close must not steal that visible focus back.
+            if (active !== document.body && active !== document.documentElement &&
+                !dialog.contains(active) && visible(active)) {
+                opener = null;
+                return;
+            }
             var restored = [opener, root.querySelector('[data-command-palette-launcher]'), document.querySelector('[data-nav-primary="browse"]')].some(function (target) {
                 if (!visible(target) || target === document.body || target === document.documentElement) return false;
                 target.focus();
@@ -215,6 +223,7 @@
         function openPalette(trigger) {
             if (!root.isConnected || !dialog.isConnected || dialog.open || otherOverlay(dialog)) return false;
             opener = trigger;
+            closePending = true;
             input.value = '';
             composing = false;
             render();
@@ -233,7 +242,10 @@
         close.addEventListener('click', closePalette);
         input.addEventListener('input', render);
         dialog.addEventListener('close', function () {
-            if (dialog.open) return; // A queued close event must not reset a reopened palette.
+            // Finish only the currently closed opening, once. Obsolete
+            // native close events cannot reset an open or finished one.
+            if (dialog.open || !closePending) return;
+            closePending = false;
             launcher.setAttribute('aria-expanded', 'false');
             input.setAttribute('aria-expanded', 'false');
             input.removeAttribute('aria-activedescendant');
