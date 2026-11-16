@@ -42,8 +42,9 @@ its home.
   title.", which would be untrue: the artwork exists, Shelf just cannot ask
   for it.
 
-  MusicBrainz and Cover Art Archive need no API key; Discogs images require an
-  optional token and an explicitly selected pressing. If Music is turned off,
+  MusicBrainz and Cover Art Archive need no API key. In **Choose artwork**, Discogs
+  images require an optional token and an explicitly selected pressing; public
+  cassette candidate previews can offer available images without a token. If Music is turned off,
   the generic music item still offers manual image URLs and uploads without
   contacting music providers. See [Music](music.md) for release matching and
   shop-link previews. Selecting artwork does not change the matched edition.

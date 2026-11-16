@@ -515,6 +515,11 @@ not grow a column per family:
   update rather than duplicate it, while `musicbrainz_release_group_id` is
   indexed and *not* unique — that is how the vinyl and the CD of one album find
   each other.
+  Discogs-only creation instead saves a minimal `metadata_source=discogs`
+  container, NULL MusicBrainz release/group IDs and an explicit
+  `discogs_release_id` identifier. Checked generic fields and chosen artwork are
+  saved separately; Discogs media/tracks are not persisted as canonical
+  MusicBrainz metadata.
 - **Periodicals.** `periodical_publications` is the ongoing thing, with a
   `UNIQUE COLLATE NOCASE` ISSN; `periodical_issues` is 1:1 with `items` and
   points at it. So a run of one magazine is one publication row and many item
@@ -696,18 +701,23 @@ cover allowlist. Any later
 OSZK cover source needs its own request pacing, host configuration, URL
 validation and a placement decision in the cover order and picker.
 
-**Music and periodicals do not enter through `_lookup_metadata` at all.** Each
-has its own page and its own provider, because neither is answered by an ISBN or
-a retail UPC and neither produces a plain `items` row:
+**Music and periodicals have dedicated entry paths and provider handling**, rather
+than relying on the ordinary book metadata cascade:
 
 - **MusicBrainz** (`services/musicbrainz.py`) backs the Music page — search by
   title, artist, barcode or catalogue number, then a release fetch that carries
-  media and tracks with it. It is a lookup of a *release*, not of a title, which
-  is why the side tables above are keyed on the release MBID rather than on
-  anything Shelf invents. `services/music_catalog.py` is what writes the item and
-  its four tables in one transaction.
+  media and tracks with it. It is a lookup of a *release*, not merely an album
+  title. Side tables are keyed on Shelf's `item_id`; MusicBrainz-backed releases
+  carry exact MBIDs, while Discogs-only containers do not. The item-write funnel
+  and `services/music_catalog.py` persist the item and release hierarchy in one
+  transaction.
   `services/music_matching.py` ranks identifier-first searches with visible
   matching facts/conflicts and bounded fallback, plus format/country filters.
+  Its `search_catalogue` wrapper reuses the existing MusicBrainz search and permits
+  one bounded public Discogs cassette search only after a genuine empty/no-match
+  result with nonblank title and artist. Provider failures do not permit fallback.
+  Scan title search hands music to this path or its native manual form rather
+  than searching Open Library; the manual form retains Scan's Add/Wishlist intent.
   `routers/music_matching.py` exposes editor-only, music-feature-gated search,
   preview, same-origin preview-image and Apply endpoints. `services/music_review.py`
   signs 15-minute user/item/purpose-bound JWTs with an HMAC-derived key distinct
@@ -745,18 +755,26 @@ a retail UPC and neither produces a plain `items` row:
   because `_find_item_by_barcode` cannot see a magazine issue. Shelf Fill calls
   the same dispatch, so it renders the card, and it places only an owned issue
   rescanned with its add-on (the `duplicate` card).
-- **Discogs** (`services/discogs.py`) is optional exact-pressing enrichment on
-  an existing Music item. `routers/music.py` searches concrete releases and
-  validates a chosen release before `services/discogs_selection.py` stores only
-  its Release ID in `music_identifiers` as `discogs_release_id`. MusicBrainz
-  remains the canonical identity in `music_releases`; Discogs response metadata
-  is fetched fresh on demand rather than copied into canonical release tables.
-  Its normalized tracklist, notes and identifiers can be previewed. An explicit
-  artwork choice may save a local image from the selected pressing; condition,
-  acquisition and provenance remain in the copy model, not the Discogs selection.
-  The admin's personal access token (`discogs_token`) remains a sensitive
-  setting, and `api.discogs.com` is paced at 1 req/s, the published rate for
-  authenticated requests.
+- **Discogs** (`services/discogs.py`) supplies reviewed public cassette candidates
+  and optional token-based pressing enrichment. Public helpers are explicit and
+  additive; legacy search/lookup helpers remain token-only. Signed reviews can
+  create generic cassette items with a minimal container and exact Release ID in
+  `music_identifiers` as `discogs_release_id`, without assigning MusicBrainz IDs.
+  Checked generic fields and selected artwork are saved; the Discogs response and
+  tracks are not copied into canonical release tables. Existing MusicBrainz release
+  identity and tracks remain unchanged by Discogs enrichment.
+  Editors use `GET /api/music/items/{item_id}/discogs?public_details=1` to load fresh
+  details for any selected reference, including MusicBrainz-backed/manual items,
+  without requiring a token or writing canonical metadata. Preview can show notes,
+  identifiers, structured tracks and available images with attribution. An explicit
+  artwork choice may save a local image; condition, acquisition and provenance
+  remain copy-specific. Known formats must agree with an existing item's format,
+  not just the client-submitted filter. Duplicate/Trash references and stale reviews
+  are refused before downloads and rechecked under the write lock.
+  The optional personal access token (`discogs_token`) remains a sensitive setting.
+  Discogs requests use a conservative global minimum interval of 2.5 seconds,
+  including anonymous requests. A rejected configured token is not silently retried
+  anonymously.
 
 All three pace through `services/outbound.py` like every other shared public host.
 
@@ -1203,8 +1221,9 @@ trusted only when `title_match.titles_match_exactly` accepts it. That guard is
 deliberately stricter than the book path's `titles_agree`, which strips a
 `": subtitle"` tail and would therefore accept *Dune* for *Dune: Part Two*.
 A row whose lookup was declined is reported as such, distinctly from one that
-was never eligible. Anything else (a CD, for want of a music provider) is
-filed title-only with no outbound request at all.
+was never eligible. Anything else (including CDs, which this Photo Intake
+confirmation pipeline does not look up) is filed title-only with no outbound
+metadata request.
 
 **Invariant: non-book rows are enriched by a direct provider lookup and a
 direct cover download, and they bypass the cover queue by design.** The queue's

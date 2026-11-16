@@ -29,7 +29,7 @@ New here? Start with **[Installation](installation.md)**, then
 | [Browse & search](user-guide/browse-and-search.md) | Filters, views, sorting, tags, bulk editing |
 | [Connected library (experimental)](user-guide/connected-library.md) | The `new-test` experiment: format stacks, cached availability, OPDS/Jellyfin/manual sources, personal activity, metadata/connection review and backup limits |
 | [Items](user-guide/items.md) | The item page, editing, covers, synopses, status (read, watched, played), locations, merging |
-| [Music](user-guide/music.md) | Cataloguing exact releases from MusicBrainz: formats, track lists, multi-disc, identifiers |
+| [Music](user-guide/music.md) | MusicBrainz releases, public cassette candidates and manual entry: formats, reviewed pressing references, track lists and artwork |
 | [Periodicals](user-guide/periodicals.md) | Magazines as publication plus issue, and what a 977 barcode resolves to |
 | [Locations](user-guide/locations.md) | Nested locations: creating, moving, renaming and deleting them, and what a full path means |
 | [Shelf Fill](user-guide/shelf-fill.md) | Rapid placement: keep a shelf selected and scan items onto it one after another |

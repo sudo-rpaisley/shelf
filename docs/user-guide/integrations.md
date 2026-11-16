@@ -276,11 +276,13 @@ wishlist price-drop digest and the release-radar digest. See
 ## Always-on sources (no key)
 
 Open Library, Google Books (anonymous by default), Amazon cover images, UPC Item DB,
-the Deutsche Nationalbibliothek for German ISBNs, the Bibliothèque nationale
-de France for French ones, and the Servizio Bibliotecario Nazionale for Italian
-ones. Apart from credentials you
-explicitly configure, lookups send only the ISBN or UPC — never your account,
-collection or personal data. Requests to every provider are paced to its
+MusicBrainz and Cover Art Archive, public Discogs cassette search/review and selected
+release details, the Deutsche Nationalbibliothek for German ISBNs, the Bibliothèque
+nationale de France for French ones, and the Servizio Bibliotecario Nazionale for
+Italian ones. Apart from credentials you explicitly configure, metadata lookups send
+the fields needed for the request, such as identifiers, title/artist and selected
+format/country filters—not your Shelf account credentials or a collection export.
+Requests to every provider are paced to its
 published rate limit. UPC Item DB's free tier is
 the tightest of them at six lookups a minute, so Shelf leaves ten seconds
 between consecutive barcode lookups: scanning a stack of discs or games is

@@ -109,7 +109,7 @@ key material.
 - **Camera barcode scanning** on mobile — tap to scan ISBNs and UPCs, on iPhone and iPad as well as Android (EAN-13, EAN-8, UPC-A, UPC-E, and Code 128 copy labels). Also available from an item's edit form, for correcting a single wrong ISBN
 - **USB/Bluetooth scanner support** — works with any scanner that sends Enter after the barcode
 - **Photo intake** — bulk-add from a photo of your shelves; a vision model (Anthropic API, any OpenAI-compatible endpoint, or fully local Ollama) reads the spines and you confirm before import. Rows typed DVD or Video Game are looked up on TMDb or IGDB at confirm, on an exact title match
-- **Title search** — search Open Library, TMDb, or IGDB by title when you don't have a barcode
+- **Title search** — search Open Library, TMDb, or IGDB by title when you don't have a barcode; music titles continue to Music for artist/format matching or manual entry
 - **Add by hand** — a title is the only field required, for anything no lookup can find: a self-published book, a burned CD, a niche import, something you made yourself. Every media type, no barcode needed, and reachable from Home, from an empty title search, from a mistyped barcode, and from any item's page
 - **Cascading metadata lookup** — Open Library, Hardcover, Google Books, and more
 - **Cover art pipeline** — automatically fetches covers from multiple sources, with manual upload or a pasted image URL as a fallback, plus a cover review queue for everything the automatic sweep cannot reach (discs, games, music) with a remembered "not available" verdict
@@ -130,7 +130,7 @@ key material.
 
 ### Media Types
 - Books, audiobooks, eBooks, magazines, DVDs, Blu-rays, vinyl, cassettes, CDs, digital music, comics, manga, and video games
-- **Music by release, not by title** — search MusicBrainz by title, artist, barcode or catalogue number and catalogue the exact pressing: country, date, label, catalogue number, packaging, and real track lists across multiple discs. Two pressings of one album stay distinct and link to each other. Artwork is shown square and uncropped
+- **Music by release, not by title** — search MusicBrainz first by title, artist, barcode or catalogue number. A genuine empty cassette search with title and artist can fall back to bounded public Discogs candidates without a token; compare the pressing before saving or add it by hand if unknown. MusicBrainz metadata retains country, date, label, catalogue number, packaging and multi-disc tracks; Discogs tracks are read live. MusicBrainz releases sharing a Release Group can link without merging. Artwork is shown square and uncropped
 - **Periodicals as publication plus issue** — a magazine run is one publication with many issues; a 977 barcode resolves it from its ISSN
 - Link physical and digital formats together, and connect a novel to its audiobook or its film adaptation as a related-media group — the whole group shows on every item in it, and you build it by hand rather than having Shelf guess
 - Video game support with IGDB metadata and 30+ platforms (Atari 2600 to PS5)

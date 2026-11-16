@@ -41,7 +41,7 @@ Shelf opens on **Home** — a read-only overview of your collection. Click
 | **Browse** | Your catalog — grid or list, filters, search, bulk edit. [Browse & search](browse-and-search.md) |
 | **Shelf Fill** | Keep one shelf selected and scan items onto it (editors and admins). [Shelf Fill](shelf-fill.md) |
 | **Series** | Library grouped by series with gap detection. [Series](series.md) |
-| **Music** | Your releases, and MusicBrainz search to add more. [Music](music.md) |
+| **Music** | Your releases, MusicBrainz-first matching, public cassette candidates and manual entry. [Music](music.md) |
 | **Periodicals** | Magazine publications and their issues. [Periodicals](periodicals.md) |
 | **Stats** | Charts: read per year, growth, top authors, value over time. [Stats & valuation](stats-and-valuation.md) |
 | **Photo Intake** | Bulk-add from a shelf photo (appears once a vision provider is configured). [Photo Intake](photo-intake.md) |

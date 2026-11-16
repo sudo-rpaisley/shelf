@@ -175,14 +175,20 @@ pre-ISBN books, retro game cartridges, discs with a scuffed UPC:
 - **Movies** — TMDb title search (needs a TMDb key).
 - **Video games** — IGDB title search (needs IGDB credentials); filter by
   platform for "Super Mario Bros." ambiguity.
+- **Music** — continue to Music with the title and format, then add the artist
+  and compare releases. When Music is turned off, use manual entry; music titles
+  are not searched as books. The direct manual result form retains Scan's Add or
+  Wishlist mode. See [Music](music.md#add-a-cassette-without-a-barcode).
 
 An empty result box tells you *why* it is empty, in the same words the scan
 card uses: a rejected key, a provider that is rate-limiting us, or a provider
 Shelf could not reach at all. "No books found for …" now means only what it
 says — the provider answered and genuinely had nothing.
 
-An item added from the results takes the [default tags](#default-tags) and
-the [default reading status](#default-reading-status) set on the card.
+Items added directly from book, movie or game results take the
+[default tags](#default-tags) and [default reading status](#default-reading-status)
+set on the card. Music matching continues to a separate review page; check its
+fields and ownership choices before saving.
 
 ## Add by hand
 
@@ -401,12 +407,11 @@ different responses:
 - **the key was rejected** — fix it. The provider answered, and said no.
 - **a provider is rate-limiting us** — wait and re-scan. This may not be a
   genuine miss, so it is worth trying again before adding anything by hand.
-- **Shelf has no metadata source for this format yet** — nothing to fix. CDs
-  are the case today: there is no music provider wired up, so a scanned CD is
-  filed under its barcode title. That now happens on **Auto** — the CD is
-  detected rather than needing the dropdown — and it is still filed silently,
-  with no film database asked. This one is decided by the *format*; the
-  hardware case above is decided by the *title*.
+- **Shelf has no metadata source for this format in this scan path** — a music
+  scan can remain filed under its barcode title without asking a film database.
+  Auto detection and Music's reviewed release matching are separate; use
+  **Music** to identify the release. This decision is based on the *format*;
+  the hardware case above is based on the *title*.
 - **the provider had no match** — nothing to fix either. It was asked, and it
   genuinely does not have this edition.
 

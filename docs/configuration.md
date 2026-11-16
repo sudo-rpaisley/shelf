@@ -104,7 +104,7 @@ lives:
 | **Photo Intake (Vision)** | Provider: Anthropic (API key + model), OpenAI-compatible (base URL, optional key, model, ingest long-edge), or Ollama (URL, model, ingest long-edge) |
 | **IGDB (Video Games)** | Twitch client ID + secret, for game lookups, for **Find cover** on a video game, and for the lookup a Photo Intake row typed Video Game runs when you confirm it |
 | **LibraryThing** | API token for the English related-edition cover fallback: a book whose own ISBN has no cover gets one from a verified English edition, in **Retry Missing Covers** and as extra **Find cover** tiles. Non-commercial use unless LibraryThing grants permission |
-| **Discogs** | Personal access token for optional exact-pressing lookup on Music item pages. MusicBrainz remains the canonical release identity; Shelf stores only the selected Discogs Release ID and fetches provider details on demand |
+| **Discogs** | Optional personal access token for legacy pressing search/selection and selected-pressing artwork in the chooser. Public cassette search/review and Load fresh details need no token. Discogs-only adds save checked catalogue fields, chosen artwork and a Release ID without assigning MusicBrainz IDs; existing MusicBrainz metadata is preserved and Discogs tracks are fetched live |
 
 Each card has a short inline setup guide for obtaining its credential. Keys
 are **write-only** — once saved you see a masked placeholder and a "clear"
