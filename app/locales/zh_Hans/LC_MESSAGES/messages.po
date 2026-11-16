@@ -6,7 +6,7 @@
 msgid ""
 msgstr ""
 "Report-Msgid-Bugs-To: EMAIL@ADDRESS\n"
-"PO-Revision-Date: 2026-11-15 20:43+0000\n"
+"PO-Revision-Date: 2026-11-16 03:37+0000\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language: zh_Hans\n"
 "Language-Team: zh_Hans <LL@li.org>\n"
@@ -250,7 +250,9 @@ msgstr ""
 
 #: app/config.py:140 app/templates/fragments/music_matching.html:2
 #: app/templates/fragments/music_matching.html:16
-#: app/templates/fragments/music_matching.html:70 app/templates/music.html:5
+#: app/templates/fragments/music_matching.html:74
+#: app/templates/fragments/music_title_search.html:22
+#: app/templates/music.html:5
 msgid "Artist"
 msgstr "艺术家"
 
@@ -294,7 +296,7 @@ msgstr "书库"
 msgid "Browse"
 msgstr "浏览"
 
-#: app/nav.py:43
+#: app/nav.py:43 app/templates/fragments/music_title_search.html:35
 msgid "Scan"
 msgstr "扫码"
 
@@ -310,7 +312,7 @@ msgstr "定位上架"
 msgid "Store"
 msgstr "书店模式"
 
-#: app/nav.py:52
+#: app/nav.py:52 app/templates/discover.html:2
 msgid "Discover"
 msgstr "发现"
 
@@ -589,31 +591,35 @@ msgstr "没有可更新的有效字段"
 msgid "Series name cannot be empty"
 msgstr "系列名称不能为空"
 
-#: app/routers/items_catalog.py:93
+#: app/routers/items_catalog.py:95
 msgid "Unrecognised game platform — pick one and try again"
 msgstr ""
 
-#: app/routers/items_catalog.py:110
+#: app/routers/items_catalog.py:112
 msgid "Failed to fetch game details from IGDB"
 msgstr ""
 
-#: app/routers/items_catalog.py:274
+#: app/routers/items_catalog.py:209
+msgid "Choose Add or Wishlist before adding music by hand."
+msgstr "手动添加音乐前，请选择添加或心愿单模式。"
+
+#: app/routers/items_catalog.py:289
 msgid "Unrecognised media type — pick one and try again"
 msgstr ""
 
-#: app/routers/items_catalog.py:282
+#: app/routers/items_catalog.py:297
 msgid "Invalid ISBN"
 msgstr ""
 
-#: app/routers/items_catalog.py:324
+#: app/routers/items_catalog.py:339
 msgid "Could not fetch metadata for this ISBN"
 msgstr ""
 
-#: app/routers/items_catalog.py:444
+#: app/routers/items_catalog.py:459
 msgid "Title is required"
 msgstr ""
 
-#: app/routers/items_catalog.py:452
+#: app/routers/items_catalog.py:467
 msgid "Invalid publish year"
 msgstr ""
 
@@ -717,6 +723,112 @@ msgstr ""
 #: app/routers/metadata_review.py:101
 msgid "Source value saved. Future refreshes may update this field only while you leave it unmodified."
 msgstr ""
+
+#: app/routers/music.py:77
+msgid "Discogs is rate-limiting requests. Try again shortly."
+msgstr "Discogs 正在限制请求频率。请稍后重试。"
+
+#: app/routers/music.py:78
+msgid "Discogs could not be reached or returned unreadable release details."
+msgstr "无法连接 Discogs，或其返回的发行详情无法读取。"
+
+#: app/routers/music.py:79
+msgid "Discogs rejected the request. Check the configured token if one is set."
+msgstr "Discogs 拒绝了此请求。如果已配置令牌，请检查该令牌。"
+
+#: app/routers/music.py:80
+msgid "No matching Discogs releases were found."
+msgstr "未找到匹配的 Discogs 发行版本。"
+
+#: app/routers/music.py:81
+msgid "Discogs lookup failed."
+msgstr "Discogs 查询失败。"
+
+#: app/routers/music.py:170 app/templates/fragments/music_matching.html:129
+#: app/templates/fragments/music_title_search.html:27
+msgid "Choose format"
+msgstr "选择格式"
+
+#: app/routers/music.py:406
+msgid "Choose one Discogs action at a time."
+msgstr "每次只能选择一项 Discogs 操作。"
+
+#: app/routers/music.py:422
+msgid "Select a Discogs release before loading its public details."
+msgstr "请先选择 Discogs 发行版本，再加载其公开详情。"
+
+#: app/routers/music.py:452
+msgid "Discogs returned a different release. Nothing was changed."
+msgstr "Discogs 返回了不同的发行版本。未作任何更改。"
+
+#: app/routers/music_matching.py:56
+msgid "The release format contradicts this item's music format. Choose the correct pressing."
+msgstr "发行版本的格式与此条目的音乐格式相矛盾。请选择正确的具体发行版本。"
+
+#: app/routers/music_matching.py:74
+msgid "The provider returned unreadable release details."
+msgstr "数据提供方返回的发行详情无法读取。"
+
+#: app/routers/music_matching.py:78
+msgid "The provider returned a different release. Preview the exact release again."
+msgstr "数据提供方返回了不同的发行版本。请重新预览确切的发行版本。"
+
+#: app/routers/music_matching.py:81 app/routers/music_matching.py:224
+#: app/routers/music_matching.py:298
+msgid "The selected format contradicts the provider's release details. Choose the correct pressing."
+msgstr "所选格式与数据提供方的发行详情相矛盾。请选择正确的具体发行版本。"
+
+#: app/routers/music_matching.py:90
+msgid "Choose a concrete Discogs release."
+msgstr "请选择 Discogs 上的具体发行版本。"
+
+#: app/routers/music_matching.py:103
+msgid "This release is in Trash. Restore it from Trash instead of adding another item. No changes were saved."
+msgstr "此发行版本在回收站中。请从回收站恢复，而不是另行添加条目。未保存任何更改。"
+
+#: app/routers/music_matching.py:104
+msgid "This release is already catalogued. Open the existing item instead. No changes were saved."
+msgstr "此发行版本已收录到目录中。请改为打开现有条目。未保存任何更改。"
+
+#: app/routers/music_matching.py:142
+msgid "No matching release was found. Try fewer filters or paste a release/shop link."
+msgstr "未找到匹配的发行版本。请尝试减少筛选条件，或粘贴发行版本/商店链接。"
+
+#: app/routers/music_matching.py:143
+msgid "Discogs could not complete this search. Try again shortly."
+msgstr "Discogs 未能完成此次搜索。请稍后重试。"
+
+#: app/routers/music_matching.py:144
+msgid "MusicBrainz could not complete this search. Try again shortly."
+msgstr "MusicBrainz 未能完成此次搜索。请稍后重试。"
+
+#: app/routers/music_matching.py:160
+msgid "Choose MusicBrainz or Discogs as the release provider."
+msgstr "请选择 MusicBrainz 或 Discogs 作为发行版本的数据提供方。"
+
+#: app/routers/music_matching.py:162
+msgid "Choose a valid music format."
+msgstr "请选择有效的音乐格式。"
+
+#: app/routers/music_matching.py:180
+msgid "Choose a concrete Discogs release ID, not a master or marketplace listing."
+msgstr "请选择 Discogs 具体发行版本的 ID，而不是主发行版本（master）或交易市场商品条目。"
+
+#: app/routers/music_matching.py:182
+msgid "Choose an exact MusicBrainz release ID."
+msgstr "请选择确切的 MusicBrainz 发行版本 ID。"
+
+#: app/routers/music_matching.py:184 app/routers/music_matching.py:200
+msgid "The release ID and link do not match."
+msgstr "发行版本 ID 与链接不匹配。"
+
+#: app/routers/music_matching.py:209
+msgid "The Discogs release could not be read. Try again shortly."
+msgstr "无法读取该 Discogs 发行版本的信息。请稍后重试。"
+
+#: app/routers/music_matching.py:296
+msgid "Choose a music format and a title before adding this item."
+msgstr "添加此条目前，请选择音乐格式和标题。"
 
 #: app/routers/personal_library.py:80
 msgid "Submit personal changes using the form"
@@ -1959,8 +2071,8 @@ msgstr "条目 ID"
 #: app/templates/copy_locator.html:12
 #: app/templates/fragments/music_matching.html:2
 #: app/templates/fragments/music_matching.html:16
-#: app/templates/fragments/music_matching.html:48 app/templates/music.html:5
-#: app/templates/music.html:75
+#: app/templates/fragments/music_matching.html:49 app/templates/music.html:5
+#: app/templates/music.html:77
 msgid "Barcode"
 msgstr "条形码"
 
@@ -2067,6 +2179,34 @@ msgstr "此副本没有可用的同地点相邻副本信息。"
 #: app/templates/copy_locator.html:66
 msgid "Catalogue order around the selected copy"
 msgstr "选中副本周围的目录顺序"
+
+#: app/templates/discover.html:5
+msgid "Discover Books"
+msgstr "发现图书"
+
+#: app/templates/discover.html:10
+msgid "Connect your Hardcover account to search for books and add them to your wishlist."
+msgstr "关联你的 Hardcover 账号，即可搜索图书并将其加入心愿单。"
+
+#: app/templates/discover.html:11
+msgid "Go to Settings"
+msgstr "前往设置"
+
+#: app/templates/discover.html:13
+msgid "Hardcover is not connected. Ask an administrator to configure the integration."
+msgstr "尚未关联 Hardcover。请管理员配置此集成。"
+
+#: app/templates/discover.html:20
+msgid "Search by title or author..."
+msgstr "按书名或作者搜索..."
+
+#: app/templates/discover.html:31
+msgid "Search Hardcover's catalog to find books and add them to your wishlist."
+msgstr "搜索 Hardcover 的书目，查找图书并将其加入心愿单。"
+
+#: app/templates/discover.html:33
+msgid "Search Hardcover's catalog to explore books."
+msgstr "搜索 Hardcover 的书目，探索图书。"
 
 #: app/templates/home.html:14
 msgid "Open Library to find every format and source, or Browse to organise catalogue records."
@@ -2437,7 +2577,7 @@ msgstr ""
 
 #: app/templates/fragments/audiobook_metadata.html:52
 #: app/templates/fragments/item_editor_common_fields.html:84
-#: app/templates/fragments/music_matching.html:109
+#: app/templates/fragments/music_matching.html:113
 #: app/templates/item_edit.html:78
 msgid "Artwork"
 msgstr ""
@@ -2466,6 +2606,26 @@ msgstr ""
 #: app/templates/item_edit.html:109
 msgid "Tags save as you add or remove them."
 msgstr ""
+
+#: app/templates/labels_sheet.html:55
+msgid "Label print settings"
+msgstr "标签打印设置"
+
+#: app/templates/labels_sheet.html:63
+msgid "Label stock"
+msgstr "标签纸规格"
+
+#: app/templates/labels_sheet.html:72
+msgid "Start at label"
+msgstr "起始标签位置"
+
+#: app/templates/labels_sheet.html:77
+msgid "Apply layout"
+msgstr "应用布局"
+
+#: app/templates/labels_sheet.html:79
+msgid "Use a later start for a part-used sheet. The start is limited to the selected stock and applies only at the beginning of the selection."
+msgstr "对于已使用部分标签的纸张，请从较后的位置开始。起始位置受所选标签纸规格限制，且仅在所选标签的开头生效。"
 
 #: app/templates/library.html:9
 msgid "About this Library"
@@ -2529,8 +2689,9 @@ msgstr[0] ""
 
 #: app/templates/fragments/music_matching.html:2
 #: app/templates/fragments/music_matching.html:19
-#: app/templates/fragments/music_matching.html:70
-#: app/templates/fragments/music_matching.html:124
+#: app/templates/fragments/music_matching.html:74
+#: app/templates/fragments/music_matching.html:128
+#: app/templates/fragments/music_title_search.html:25
 #: app/templates/fragments/related_media_search.html:15
 #: app/templates/library.html:69 app/templates/music.html:5
 #: app/templates/music.html:36
@@ -2667,14 +2828,18 @@ msgstr "密码"
 
 #: app/templates/fragments/music_matching.html:2
 #: app/templates/fragments/music_matching.html:16
-#: app/templates/fragments/music_matching.html:70 app/templates/music.html:5
+#: app/templates/fragments/music_matching.html:74 app/templates/music.html:5
 msgid "Catalogue number"
 msgstr "唱片编号"
 
 #: app/templates/fragments/music_matching.html:2
-#: app/templates/fragments/music_matching.html:70 app/templates/music.html:5
+#: app/templates/fragments/music_matching.html:74 app/templates/music.html:5
 msgid "Country"
 msgstr "国家或地区"
+
+#: app/templates/music.html:11
+msgid "Search MusicBrainz first. For cassettes with no matches, Shelf also checks public Discogs releases by title and artist. Compare the pressing before saving; a barcode is optional."
+msgstr "先搜索 MusicBrainz。对于没有匹配结果的磁带，Shelf 还会按标题和艺术家查找公开的 Discogs 发行版本。请在保存前比较具体发行版本；条形码为可选项。"
 
 #: app/templates/fragments/music_matching.html:21 app/templates/music.html:38
 msgid "Any music format"
@@ -2684,24 +2849,47 @@ msgstr "所有音乐格式"
 msgid "Country code (optional)"
 msgstr "国家或地区代码（可选）"
 
-#: app/templates/fragments/music_matching.html:50 app/templates/music.html:77
+#: app/templates/music.html:48
+msgid "Search MusicBrainz and cassette catalogue"
+msgstr "搜索 MusicBrainz 和磁带目录"
+
+#: app/templates/music.html:60
+msgid "These are possible releases, not an automatic pressing identification. Check the country, year, catalogue number and track order against your copy."
+msgstr "这些是可能的发行版本，并非对具体发行版本的自动识别。请对照您的副本核对国家或地区、年份、唱片编号和曲目顺序。"
+
+#: app/templates/fragments/music_matching.html:46 app/templates/music.html:67
+msgid "Release"
+msgstr "发行版本"
+
+#: app/templates/fragments/music_matching.html:46 app/templates/music.html:67
+msgid "View release"
+msgstr "查看发行版本"
+
+#: app/templates/fragments/music_matching.html:51 app/templates/music.html:79
 msgid "Matching facts"
 msgstr "匹配的信息"
 
-#: app/templates/fragments/music_matching.html:51 app/templates/music.html:78
+#: app/templates/fragments/music_matching.html:52 app/templates/music.html:80
 msgid "Check differences"
 msgstr "请核对差异"
 
-#: app/templates/fragments/music_discogs.html:37
-#: app/templates/fragments/music_matching.html:56 app/templates/music.html:103
+#: app/templates/fragments/music_discogs.html:48
+#: app/templates/fragments/music_discogs.html:153
+#: app/templates/fragments/music_matching.html:59 app/templates/music.html:107
 msgid "Preview details and artwork"
 msgstr "预览详情与封面"
 
-#: app/templates/music.html:119
+#: app/templates/fragments/music_discogs.html:169
+#: app/templates/fragments/music_matching.html:61
+#: app/templates/fragments/music_matching.html:138 app/templates/music.html:110
+msgid "Data provided by Discogs"
+msgstr "数据由 Discogs 提供"
+
+#: app/templates/music.html:127
 msgid "Your music"
 msgstr ""
 
-#: app/templates/music.html:120
+#: app/templates/music.html:128
 #, python-format
 msgid "%(count)s shown"
 msgstr ""
@@ -2711,17 +2899,25 @@ msgstr ""
 msgid "Choose artwork"
 msgstr "选择封面"
 
-#: app/templates/music_item.html:42
+#: app/templates/music_item.html:42 app/templates/music_item.html:52
 msgid "Review latest metadata"
 msgstr "审核最新元数据"
 
-#: app/templates/music_item.html:94
+#: app/templates/music_item.html:62
+msgid "Reviewed catalogue fields from Discogs. No MusicBrainz release is attached; load the selected pressing below for fresh provider details and track order."
+msgstr "已审阅来自 Discogs 的目录字段。未关联 MusicBrainz 发行版本；请在下方加载所选的具体发行版本，以获取数据提供方的最新详情和曲目顺序。"
+
+#: app/templates/music_item.html:107
 msgid "Reviewed shop source"
 msgstr "已审核的商店来源"
 
-#: app/templates/music_item.html:103
+#: app/templates/music_item.html:116
 msgid "Match or fix release metadata"
 msgstr "匹配或修正发行版本元数据"
+
+#: app/templates/music_item.html:126
+msgid "Loading Discogs pressing information…"
+msgstr "正在加载 Discogs 具体发行版本信息…"
 
 #: app/templates/needs_attention.html:2 app/templates/needs_attention.html:6
 msgid "Needs attention"
@@ -3053,9 +3249,21 @@ msgstr ""
 msgid "Journal for this session"
 msgstr ""
 
-#: app/templates/scan.html:239
+#: app/templates/scan.html:241
+msgid "No barcode? Enter a release title, then continue to Music to add the artist and check the format and pressing."
+msgstr "没有条形码？请输入发行标题，然后前往音乐页面添加艺术家，并核对格式和具体发行版本。"
+
+#: app/templates/scan.html:243
+msgid "Music matching is turned off. Add the title and artist by hand without claiming an exact pressing."
+msgstr "音乐匹配已关闭。请手动添加标题和艺术家，但这不表示已确定具体发行版本。"
+
+#: app/templates/scan.html:246
 msgid "Digital video and television can be added by hand or imported from Sources. Title lookup is not available for these formats."
 msgstr ""
+
+#: app/templates/scan.html:250
+msgid "Release title or artist..."
+msgstr "发行标题或艺术家..."
 
 #: app/templates/setup.html:6
 msgid "Welcome"
@@ -3918,7 +4126,7 @@ msgstr ""
 
 #: app/templates/fragments/audiobook_metadata.html:43
 #: app/templates/fragments/cover_search.html:46
-#: app/templates/fragments/music_matching.html:101
+#: app/templates/fragments/music_matching.html:105
 msgid "Current"
 msgstr ""
 
@@ -3935,7 +4143,7 @@ msgid "Local clear or series decision preserved; select explicitly to replace"
 msgstr ""
 
 #: app/templates/fragments/audiobook_metadata.html:53
-#: app/templates/fragments/music_matching.html:110
+#: app/templates/fragments/music_matching.html:114
 msgid "Keep current artwork"
 msgstr "保留当前封面"
 
@@ -4183,7 +4391,7 @@ msgid "Use this artwork: %(source)s"
 msgstr "使用此封面：%(source)s"
 
 #: app/templates/fragments/cover_search.html:58
-#: app/templates/fragments/music_matching.html:115
+#: app/templates/fragments/music_matching.html:119
 msgid "Cover candidate"
 msgstr ""
 
@@ -4200,7 +4408,7 @@ msgid "Use image from URL"
 msgstr ""
 
 #: app/templates/fragments/cover_search.html:102
-#: app/templates/fragments/music_matching.html:116
+#: app/templates/fragments/music_matching.html:120
 msgid "Use image"
 msgstr ""
 
@@ -4459,6 +4667,11 @@ msgid "Provenance"
 msgstr ""
 
 #: app/templates/fragments/item_copy_edit.html:108
+#, python-format
+msgid "Move copy #%(n)s to Trash? Restore it from Trash to get it back."
+msgstr "将副本 #%(n)s 移至回收站？可从回收站还原该副本。"
+
+#: app/templates/fragments/item_copy_edit.html:109
 msgid "Remove copy"
 msgstr ""
 
@@ -4551,7 +4764,7 @@ msgid "Ownership, physical location and collection value."
 msgstr ""
 
 #: app/templates/fragments/item_editor_common_fields.html:231
-#: app/templates/fragments/music_matching.html:126
+#: app/templates/fragments/music_matching.html:133
 msgid "I own this item"
 msgstr ""
 
@@ -4850,6 +5063,40 @@ msgstr ""
 msgid "This panel shows a limited number of saved source fields; additional observations may not be shown."
 msgstr ""
 
+#: app/templates/fragments/music_discogs.html:4
+msgid "Discogs exact pressing"
+msgstr "Discogs 具体发行版本"
+
+#: app/templates/fragments/music_discogs.html:6
+msgid "This item has a reviewed Discogs pressing reference, not a MusicBrainz release. Provider details are read fresh on request."
+msgstr "此条目有已审阅的 Discogs 具体发行版本参考，而非 MusicBrainz 发行版本。数据提供方的详情会在请求时重新读取。"
+
+#: app/templates/fragments/music_discogs.html:29
+msgid "Load fresh details"
+msgstr "加载最新详情"
+
+#: app/templates/fragments/music_discogs.html:36
+msgid "Load fresh details from the selected public Discogs release without changing your saved catalogue metadata."
+msgstr "从所选的公开 Discogs 发行版本加载最新详情，不会更改您已保存的目录元数据。"
+
+#: app/templates/fragments/music_discogs.html:71
+#: app/templates/fragments/music_matching.html:82
+msgid "Release notes"
+msgstr "发行说明"
+
+#: app/templates/fragments/music_discogs.html:75
+#: app/templates/fragments/music_matching.html:86
+msgid "Track listing"
+msgstr "曲目列表"
+
+#: app/templates/fragments/music_discogs.html:122
+msgid "The selected release can be read publicly without a token. A token is needed only for the optional Discogs search in this panel."
+msgstr "无需令牌即可读取所选发行版本的公开信息。只有此面板中的可选 Discogs 搜索需要令牌。"
+
+#: app/templates/fragments/music_discogs.html:169
+msgid "Release details shown here are requested live and are not copied into the canonical release or track tables."
+msgstr "此处显示的发行详情为实时请求获取，不会复制到发行版本或曲目的规范数据表中。"
+
 #: app/templates/fragments/music_matching.html:5
 msgid "Match a release or use a shop link"
 msgstr "匹配发行版本或使用商店链接"
@@ -4863,6 +5110,7 @@ msgid "Search and link options"
 msgstr "搜索与链接选项"
 
 #: app/templates/fragments/music_matching.html:16
+#: app/templates/fragments/music_title_search.html:19
 msgid "Release title"
 msgstr "发行标题"
 
@@ -4882,69 +5130,83 @@ msgstr "预览链接"
 msgid "Public HTTPS product pages only. Shelf reads published product metadata, not scripts, audio or your shop account. Some shops require manual details."
 msgstr "仅支持公开的 HTTPS 商品页面。Shelf 只读取公开的商品元数据，不运行脚本，不读取音频或您的商店账户。部分商店需要手动输入详情。"
 
-#: app/templates/fragments/music_matching.html:50
+#: app/templates/fragments/music_matching.html:51
 msgid "Title search only — check the edition"
 msgstr "仅按标题搜索，请核对版本"
 
-#: app/templates/fragments/music_matching.html:66
+#: app/templates/fragments/music_matching.html:70
 msgid "Shop-provided details are not proof of an exact pressing. Check the barcode, catalogue number, format and artwork."
 msgstr "商店提供的详情不能证明是完全相同的压片版本。请核对条形码、唱片编号、格式与封面。"
 
-#: app/templates/fragments/music_matching.html:67
+#: app/templates/fragments/music_matching.html:71
 msgid "Your exact MusicBrainz release and track list will be kept. Only the catalogue fields and artwork you select below can change."
 msgstr "现有的确切 MusicBrainz 发行版本和曲目列表将保留。只有下方选中的目录字段与封面会更改。"
 
-#: app/templates/fragments/music_matching.html:68
+#: app/templates/fragments/music_matching.html:72
 msgid "Applying this match attaches this exact release and replaces its release details and track list. Only checked catalogue fields change."
 msgstr "应用此匹配会关联这一确切发行版本，并替换其发行详情和曲目列表。只有选中的目录字段会更改。"
 
-#: app/templates/fragments/music_matching.html:70
+#: app/templates/fragments/music_matching.html:74
 msgid "Release date"
 msgstr "发行日期"
 
-#: app/templates/fragments/music_matching.html:70
+#: app/templates/fragments/music_matching.html:74
 msgid "Label"
 msgstr "唱片公司"
 
-#: app/templates/fragments/music_matching.html:70
+#: app/templates/fragments/music_matching.html:74
 msgid "Packaging"
 msgstr "包装"
 
-#: app/templates/fragments/music_matching.html:78
-msgid "Release notes"
-msgstr "发行说明"
-
-#: app/templates/fragments/music_matching.html:82
-msgid "Track listing"
-msgstr "曲目列表"
-
-#: app/templates/fragments/music_matching.html:96
+#: app/templates/fragments/music_matching.html:100
 msgid "Choose which catalogue fields to use"
 msgstr "选择要使用的目录字段"
 
-#: app/templates/fragments/music_matching.html:110
+#: app/templates/fragments/music_matching.html:114
 msgid "Add without artwork"
 msgstr "不添加封面"
 
-#: app/templates/fragments/music_matching.html:120
+#: app/templates/fragments/music_matching.html:124
 msgid "No artwork was supplied. You can use Choose artwork, an image URL or an upload afterwards."
 msgstr "未提供封面。您可以稍后使用“选择封面”、图片网址或上传功能。"
 
-#: app/templates/fragments/music_matching.html:128
-msgid "Discogs details are displayed live. Applying this preview remembers the pressing reference and any artwork you select; it does not replace your MusicBrainz metadata."
-msgstr "Discogs 详情为实时读取。应用此预览仅保存压片版本参考和选中的封面，不会替换 MusicBrainz 元数据。"
+#: app/templates/fragments/music_matching.html:135
+msgid "Discogs details are displayed live. Applying this preview saves only the catalogue fields and artwork you select, plus the pressing reference. It does not replace existing MusicBrainz metadata or copy Discogs tracks into the catalogue."
+msgstr "Discogs 详情为实时读取。应用此预览仅保存您选中的目录字段与封面，以及具体发行版本参考。不会替换现有 MusicBrainz 元数据，也不会将 Discogs 曲目复制到目录中。"
 
-#: app/templates/fragments/music_matching.html:129
+#: app/templates/fragments/music_matching.html:136
 msgid "Apply selected match"
 msgstr "应用所选匹配"
 
-#: app/templates/fragments/music_matching.html:129
+#: app/templates/fragments/music_matching.html:136
 msgid "Add release"
 msgstr "添加发行版本"
 
-#: app/templates/fragments/music_matching.html:131
-msgid "Data provided by Discogs"
-msgstr "数据由 Discogs 提供"
+#: app/templates/fragments/music_title_search.html:4
+msgid "Music searches use release metadata, not book results. Add the artist on the Music page and compare the exact releases before saving."
+msgstr "音乐搜索使用发行版本元数据，而非图书搜索结果。请在音乐页面添加艺术家，并在保存前比较各个具体发行版本。"
+
+#: app/templates/fragments/music_title_search.html:5
+msgid "Continue to Music search"
+msgstr "前往音乐页面继续搜索"
+
+#: app/templates/fragments/music_title_search.html:7
+msgid "Music matching is turned off. You can still add a music item by hand without identifying a pressing."
+msgstr "音乐匹配已关闭。您仍可手动添加音乐条目，无需确定具体发行版本。"
+
+#: app/templates/fragments/music_title_search.html:11
+msgid "Add by hand — pressing unknown"
+msgstr "手动添加 — 具体发行版本未知"
+
+#: app/templates/fragments/music_title_search.html:12
+msgid "If none of the releases matches your copy, keep only what you know. This does not attach a provider release, barcode or track list."
+msgstr "如果没有任何发行版本与您的副本相符，请仅保留您已知的信息。此操作不会关联数据提供方的发行版本、条形码或曲目列表。"
+
+#: app/templates/fragments/music_title_search.html:31
+#: app/templates/fragments/music_title_search.html:35
+#: app/templates/fragments/unsupported_title_search.html:5
+msgid "Add by hand"
+msgstr "手动添加"
 
 #: app/templates/fragments/personal_library.html:6
 #: app/templates/fragments/personal_library.html:29
@@ -5428,10 +5690,6 @@ msgstr ""
 
 #: app/templates/fragments/unsupported_title_search.html:3
 msgid "Add it by hand, or import its availability from a connected source. No book search was made."
-msgstr ""
-
-#: app/templates/fragments/unsupported_title_search.html:5
-msgid "Add by hand"
 msgstr ""
 
 #: app/templates/fragments/item_editor_sections/audio.html:3

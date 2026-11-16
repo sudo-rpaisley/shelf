@@ -191,7 +191,9 @@ def test_blank_barcode_search_review_chosen_pressing_save_reload(cassette_page, 
     _artifact(page, tmp_path, "exact-pressing-review")
     publisher_choice = review.locator('[name="fields"][value="publisher"]')
     expect(publisher_choice).to_have_count(1)
-    expect(review.locator("label").filter(has=publisher_choice)).to_contain_text("Epic")
+    publisher_label = review.locator('label:has(input[name="fields"][value="publisher"])')
+    expect(publisher_label).to_have_count(1)
+    expect(publisher_label).to_contain_text("Epic")
     for choice in review.locator('[name="fields"]').all():
         choice.uncheck()
     expect(review.locator('[name="fields"]:checked')).to_have_count(0)

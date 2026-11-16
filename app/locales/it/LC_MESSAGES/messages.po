@@ -3,7 +3,7 @@
 msgid ""
 msgstr ""
 "Report-Msgid-Bugs-To: andrea@bergamasco.me\n"
-"PO-Revision-Date: 2026-11-15 20:43+0000\n"
+"PO-Revision-Date: 2026-11-16 03:37+0000\n"
 "Last-Translator: Andrea Bergamasco\n"
 "Language: it\n"
 "Language-Team: Italian\n"
@@ -247,7 +247,9 @@ msgstr ""
 
 #: app/config.py:140 app/templates/fragments/music_matching.html:2
 #: app/templates/fragments/music_matching.html:16
-#: app/templates/fragments/music_matching.html:70 app/templates/music.html:5
+#: app/templates/fragments/music_matching.html:74
+#: app/templates/fragments/music_title_search.html:22
+#: app/templates/music.html:5
 msgid "Artist"
 msgstr "Artista"
 
@@ -291,7 +293,7 @@ msgstr "Biblioteca"
 msgid "Browse"
 msgstr "Sfoglia"
 
-#: app/nav.py:43
+#: app/nav.py:43 app/templates/fragments/music_title_search.html:35
 msgid "Scan"
 msgstr "Scansiona"
 
@@ -307,7 +309,7 @@ msgstr "Riempi scaffale"
 msgid "Store"
 msgstr "Negozio"
 
-#: app/nav.py:52
+#: app/nav.py:52 app/templates/discover.html:2
 msgid "Discover"
 msgstr "Scopri"
 
@@ -586,31 +588,35 @@ msgstr "Nessun campo valido da aggiornare"
 msgid "Series name cannot be empty"
 msgstr "Il nome della serie non può essere vuoto"
 
-#: app/routers/items_catalog.py:93
+#: app/routers/items_catalog.py:95
 msgid "Unrecognised game platform — pick one and try again"
 msgstr "Piattaforma di gioco non riconosciuta: scegline una e riprova"
 
-#: app/routers/items_catalog.py:110
+#: app/routers/items_catalog.py:112
 msgid "Failed to fetch game details from IGDB"
 msgstr "Impossibile recuperare i dettagli del gioco da IGDB"
 
-#: app/routers/items_catalog.py:274
+#: app/routers/items_catalog.py:209
+msgid "Choose Add or Wishlist before adding music by hand."
+msgstr "Scegli Aggiungi o Lista dei desideri prima di aggiungere musica a mano."
+
+#: app/routers/items_catalog.py:289
 msgid "Unrecognised media type — pick one and try again"
 msgstr "Tipo di media non riconosciuto: scegline uno e riprova"
 
-#: app/routers/items_catalog.py:282
+#: app/routers/items_catalog.py:297
 msgid "Invalid ISBN"
 msgstr "ISBN non valido"
 
-#: app/routers/items_catalog.py:324
+#: app/routers/items_catalog.py:339
 msgid "Could not fetch metadata for this ISBN"
 msgstr "Impossibile recuperare i dati per questo ISBN"
 
-#: app/routers/items_catalog.py:444
+#: app/routers/items_catalog.py:459
 msgid "Title is required"
 msgstr "Il titolo è obbligatorio"
 
-#: app/routers/items_catalog.py:452
+#: app/routers/items_catalog.py:467
 msgid "Invalid publish year"
 msgstr "Anno di pubblicazione non valido"
 
@@ -714,6 +720,112 @@ msgstr ""
 #: app/routers/metadata_review.py:101
 msgid "Source value saved. Future refreshes may update this field only while you leave it unmodified."
 msgstr ""
+
+#: app/routers/music.py:77
+msgid "Discogs is rate-limiting requests. Try again shortly."
+msgstr "Discogs sta limitando la frequenza delle richieste. Riprova tra poco."
+
+#: app/routers/music.py:78
+msgid "Discogs could not be reached or returned unreadable release details."
+msgstr "Non è stato possibile contattare Discogs oppure i dettagli dell'edizione restituiti sono illeggibili."
+
+#: app/routers/music.py:79
+msgid "Discogs rejected the request. Check the configured token if one is set."
+msgstr "Discogs ha rifiutato la richiesta. Controlla il token configurato, se presente."
+
+#: app/routers/music.py:80
+msgid "No matching Discogs releases were found."
+msgstr "Non sono state trovate edizioni Discogs corrispondenti."
+
+#: app/routers/music.py:81
+msgid "Discogs lookup failed."
+msgstr "Consultazione di Discogs non riuscita."
+
+#: app/routers/music.py:170 app/templates/fragments/music_matching.html:129
+#: app/templates/fragments/music_title_search.html:27
+msgid "Choose format"
+msgstr "Scegli il formato"
+
+#: app/routers/music.py:406
+msgid "Choose one Discogs action at a time."
+msgstr "Scegli una sola azione Discogs alla volta."
+
+#: app/routers/music.py:422
+msgid "Select a Discogs release before loading its public details."
+msgstr "Seleziona un'edizione Discogs prima di caricarne i dettagli pubblici."
+
+#: app/routers/music.py:452
+msgid "Discogs returned a different release. Nothing was changed."
+msgstr "Discogs ha restituito un'edizione diversa. Non è stato modificato nulla."
+
+#: app/routers/music_matching.py:56
+msgid "The release format contradicts this item's music format. Choose the correct pressing."
+msgstr "Il formato dell'edizione è in contrasto con il formato musicale di questo elemento. Scegli l'edizione corretta."
+
+#: app/routers/music_matching.py:74
+msgid "The provider returned unreadable release details."
+msgstr "Il fornitore dei dati ha restituito dettagli dell'edizione illeggibili."
+
+#: app/routers/music_matching.py:78
+msgid "The provider returned a different release. Preview the exact release again."
+msgstr "Il fornitore dei dati ha restituito un'edizione diversa. Visualizza di nuovo l'anteprima dell'edizione esatta."
+
+#: app/routers/music_matching.py:81 app/routers/music_matching.py:224
+#: app/routers/music_matching.py:298
+msgid "The selected format contradicts the provider's release details. Choose the correct pressing."
+msgstr "Il formato selezionato è in contrasto con i dettagli dell'edizione restituiti dal fornitore dei dati. Scegli l'edizione corretta."
+
+#: app/routers/music_matching.py:90
+msgid "Choose a concrete Discogs release."
+msgstr "Scegli un'edizione specifica di Discogs."
+
+#: app/routers/music_matching.py:103
+msgid "This release is in Trash. Restore it from Trash instead of adding another item. No changes were saved."
+msgstr "Questa edizione è nel Cestino. Ripristinala dal Cestino invece di aggiungere un altro elemento. Non è stata salvata alcuna modifica."
+
+#: app/routers/music_matching.py:104
+msgid "This release is already catalogued. Open the existing item instead. No changes were saved."
+msgstr "Questa edizione è già catalogata. Apri invece l'elemento esistente. Non è stata salvata alcuna modifica."
+
+#: app/routers/music_matching.py:142
+msgid "No matching release was found. Try fewer filters or paste a release/shop link."
+msgstr "Non è stata trovata alcuna edizione corrispondente. Prova a usare meno filtri oppure incolla un link a un'edizione o a un negozio."
+
+#: app/routers/music_matching.py:143
+msgid "Discogs could not complete this search. Try again shortly."
+msgstr "Discogs non ha potuto completare questa ricerca. Riprova tra poco."
+
+#: app/routers/music_matching.py:144
+msgid "MusicBrainz could not complete this search. Try again shortly."
+msgstr "MusicBrainz non ha potuto completare questa ricerca. Riprova tra poco."
+
+#: app/routers/music_matching.py:160
+msgid "Choose MusicBrainz or Discogs as the release provider."
+msgstr "Scegli MusicBrainz o Discogs come fornitore dei dati dell'edizione."
+
+#: app/routers/music_matching.py:162
+msgid "Choose a valid music format."
+msgstr "Scegli un formato musicale valido."
+
+#: app/routers/music_matching.py:180
+msgid "Choose a concrete Discogs release ID, not a master or marketplace listing."
+msgstr "Scegli l'ID di un'edizione specifica di Discogs, non un master o un annuncio del marketplace."
+
+#: app/routers/music_matching.py:182
+msgid "Choose an exact MusicBrainz release ID."
+msgstr "Scegli l'ID dell'edizione esatta di MusicBrainz."
+
+#: app/routers/music_matching.py:184 app/routers/music_matching.py:200
+msgid "The release ID and link do not match."
+msgstr "L'ID dell'edizione e il link non corrispondono."
+
+#: app/routers/music_matching.py:209
+msgid "The Discogs release could not be read. Try again shortly."
+msgstr "Non è stato possibile leggere i dati dell'edizione Discogs. Riprova tra poco."
+
+#: app/routers/music_matching.py:296
+msgid "Choose a music format and a title before adding this item."
+msgstr "Scegli un formato musicale e un titolo prima di aggiungere questo elemento."
 
 #: app/routers/personal_library.py:80
 msgid "Submit personal changes using the form"
@@ -1956,8 +2068,8 @@ msgstr "ID elemento"
 #: app/templates/copy_locator.html:12
 #: app/templates/fragments/music_matching.html:2
 #: app/templates/fragments/music_matching.html:16
-#: app/templates/fragments/music_matching.html:48 app/templates/music.html:5
-#: app/templates/music.html:75
+#: app/templates/fragments/music_matching.html:49 app/templates/music.html:5
+#: app/templates/music.html:77
 msgid "Barcode"
 msgstr "Codice a barre"
 
@@ -2064,6 +2176,34 @@ msgstr "Per questa copia non sono disponibili copie vicine nella collocazione."
 #: app/templates/copy_locator.html:66
 msgid "Catalogue order around the selected copy"
 msgstr "Ordine del catalogo attorno alla copia selezionata"
+
+#: app/templates/discover.html:5
+msgid "Discover Books"
+msgstr "Scopri libri"
+
+#: app/templates/discover.html:10
+msgid "Connect your Hardcover account to search for books and add them to your wishlist."
+msgstr "Collega il tuo account Hardcover per cercare libri e aggiungerli alla tua lista dei desideri."
+
+#: app/templates/discover.html:11
+msgid "Go to Settings"
+msgstr "Vai alle impostazioni"
+
+#: app/templates/discover.html:13
+msgid "Hardcover is not connected. Ask an administrator to configure the integration."
+msgstr "Hardcover non è collegato. Chiedi a un amministratore di configurare l'integrazione."
+
+#: app/templates/discover.html:20
+msgid "Search by title or author..."
+msgstr "Cerca per titolo o autore..."
+
+#: app/templates/discover.html:31
+msgid "Search Hardcover's catalog to find books and add them to your wishlist."
+msgstr "Cerca nel catalogo di Hardcover per trovare libri e aggiungerli alla tua lista dei desideri."
+
+#: app/templates/discover.html:33
+msgid "Search Hardcover's catalog to explore books."
+msgstr "Cerca nel catalogo di Hardcover per esplorare i libri."
 
 #: app/templates/home.html:14
 msgid "Open Library to find every format and source, or Browse to organise catalogue records."
@@ -2434,7 +2574,7 @@ msgstr "Generale"
 
 #: app/templates/fragments/audiobook_metadata.html:52
 #: app/templates/fragments/item_editor_common_fields.html:84
-#: app/templates/fragments/music_matching.html:109
+#: app/templates/fragments/music_matching.html:113
 #: app/templates/item_edit.html:78
 msgid "Artwork"
 msgstr "Copertina"
@@ -2463,6 +2603,26 @@ msgstr "Annulla"
 #: app/templates/item_edit.html:109
 msgid "Tags save as you add or remove them."
 msgstr "I tag si salvano mentre li aggiungi o li rimuovi."
+
+#: app/templates/labels_sheet.html:55
+msgid "Label print settings"
+msgstr "Impostazioni di stampa delle etichette"
+
+#: app/templates/labels_sheet.html:63
+msgid "Label stock"
+msgstr "Formato del foglio di etichette"
+
+#: app/templates/labels_sheet.html:72
+msgid "Start at label"
+msgstr "Inizia dall'etichetta"
+
+#: app/templates/labels_sheet.html:77
+msgid "Apply layout"
+msgstr "Applica impaginazione"
+
+#: app/templates/labels_sheet.html:79
+msgid "Use a later start for a part-used sheet. The start is limited to the selected stock and applies only at the beginning of the selection."
+msgstr "Per un foglio parzialmente utilizzato, inizia da un'etichetta successiva. La posizione iniziale è limitata al formato del foglio selezionato e si applica solo all'inizio della selezione."
 
 #: app/templates/library.html:9
 msgid "About this Library"
@@ -2527,8 +2687,9 @@ msgstr[1] ""
 
 #: app/templates/fragments/music_matching.html:2
 #: app/templates/fragments/music_matching.html:19
-#: app/templates/fragments/music_matching.html:70
-#: app/templates/fragments/music_matching.html:124
+#: app/templates/fragments/music_matching.html:74
+#: app/templates/fragments/music_matching.html:128
+#: app/templates/fragments/music_title_search.html:25
 #: app/templates/fragments/related_media_search.html:15
 #: app/templates/library.html:69 app/templates/music.html:5
 #: app/templates/music.html:36
@@ -2665,14 +2826,18 @@ msgstr "Password"
 
 #: app/templates/fragments/music_matching.html:2
 #: app/templates/fragments/music_matching.html:16
-#: app/templates/fragments/music_matching.html:70 app/templates/music.html:5
+#: app/templates/fragments/music_matching.html:74 app/templates/music.html:5
 msgid "Catalogue number"
 msgstr "Numero di catalogo"
 
 #: app/templates/fragments/music_matching.html:2
-#: app/templates/fragments/music_matching.html:70 app/templates/music.html:5
+#: app/templates/fragments/music_matching.html:74 app/templates/music.html:5
 msgid "Country"
 msgstr "Paese"
+
+#: app/templates/music.html:11
+msgid "Search MusicBrainz first. For cassettes with no matches, Shelf also checks public Discogs releases by title and artist. Compare the pressing before saving; a barcode is optional."
+msgstr "Cerca prima in MusicBrainz. Per le cassette senza corrispondenze, Shelf cerca anche tra le edizioni pubbliche di Discogs per titolo e artista. Confronta l'edizione prima di salvare; il codice a barre è facoltativo."
 
 #: app/templates/fragments/music_matching.html:21 app/templates/music.html:38
 msgid "Any music format"
@@ -2682,24 +2847,47 @@ msgstr "Qualsiasi formato musicale"
 msgid "Country code (optional)"
 msgstr "Codice paese (facoltativo)"
 
-#: app/templates/fragments/music_matching.html:50 app/templates/music.html:77
+#: app/templates/music.html:48
+msgid "Search MusicBrainz and cassette catalogue"
+msgstr "Cerca in MusicBrainz e nel catalogo delle cassette"
+
+#: app/templates/music.html:60
+msgid "These are possible releases, not an automatic pressing identification. Check the country, year, catalogue number and track order against your copy."
+msgstr "Queste sono possibili edizioni, non un'identificazione automatica dell'edizione. Confronta il paese, l'anno, il numero di catalogo e l'ordine delle tracce con la tua copia."
+
+#: app/templates/fragments/music_matching.html:46 app/templates/music.html:67
+msgid "Release"
+msgstr "Edizione"
+
+#: app/templates/fragments/music_matching.html:46 app/templates/music.html:67
+msgid "View release"
+msgstr "Visualizza edizione"
+
+#: app/templates/fragments/music_matching.html:51 app/templates/music.html:79
 msgid "Matching facts"
 msgstr "Dati corrispondenti"
 
-#: app/templates/fragments/music_matching.html:51 app/templates/music.html:78
+#: app/templates/fragments/music_matching.html:52 app/templates/music.html:80
 msgid "Check differences"
 msgstr "Controlla le differenze"
 
-#: app/templates/fragments/music_discogs.html:37
-#: app/templates/fragments/music_matching.html:56 app/templates/music.html:103
+#: app/templates/fragments/music_discogs.html:48
+#: app/templates/fragments/music_discogs.html:153
+#: app/templates/fragments/music_matching.html:59 app/templates/music.html:107
 msgid "Preview details and artwork"
 msgstr "Anteprima di dettagli e copertine"
 
-#: app/templates/music.html:119
+#: app/templates/fragments/music_discogs.html:169
+#: app/templates/fragments/music_matching.html:61
+#: app/templates/fragments/music_matching.html:138 app/templates/music.html:110
+msgid "Data provided by Discogs"
+msgstr "Dati forniti da Discogs"
+
+#: app/templates/music.html:127
 msgid "Your music"
 msgstr ""
 
-#: app/templates/music.html:120
+#: app/templates/music.html:128
 #, python-format
 msgid "%(count)s shown"
 msgstr ""
@@ -2709,17 +2897,25 @@ msgstr ""
 msgid "Choose artwork"
 msgstr "Scegli la copertina"
 
-#: app/templates/music_item.html:42
+#: app/templates/music_item.html:42 app/templates/music_item.html:52
 msgid "Review latest metadata"
 msgstr "Esamina i metadati aggiornati"
 
-#: app/templates/music_item.html:94
+#: app/templates/music_item.html:62
+msgid "Reviewed catalogue fields from Discogs. No MusicBrainz release is attached; load the selected pressing below for fresh provider details and track order."
+msgstr "Campi del catalogo da Discogs già esaminati. Non è collegata alcuna edizione MusicBrainz; carica qui sotto l'edizione selezionata per ottenere dettagli aggiornati dal fornitore dei dati e l'ordine delle tracce."
+
+#: app/templates/music_item.html:107
 msgid "Reviewed shop source"
 msgstr "Fonte del negozio verificata"
 
-#: app/templates/music_item.html:103
+#: app/templates/music_item.html:116
 msgid "Match or fix release metadata"
 msgstr "Abbina o correggi i metadati dell'edizione"
+
+#: app/templates/music_item.html:126
+msgid "Loading Discogs pressing information…"
+msgstr "Caricamento delle informazioni sull'edizione Discogs…"
 
 #: app/templates/needs_attention.html:2 app/templates/needs_attention.html:6
 msgid "Needs attention"
@@ -3051,9 +3247,21 @@ msgstr ""
 msgid "Journal for this session"
 msgstr ""
 
-#: app/templates/scan.html:239
+#: app/templates/scan.html:241
+msgid "No barcode? Enter a release title, then continue to Music to add the artist and check the format and pressing."
+msgstr "Nessun codice a barre? Inserisci il titolo dell'edizione, poi passa a Musica per aggiungere l'artista e controllare il formato e l'edizione."
+
+#: app/templates/scan.html:243
+msgid "Music matching is turned off. Add the title and artist by hand without claiming an exact pressing."
+msgstr "L'abbinamento delle edizioni musicali è disattivato. Aggiungi titolo e artista a mano, senza dichiarare di aver identificato l'edizione esatta."
+
+#: app/templates/scan.html:246
 msgid "Digital video and television can be added by hand or imported from Sources. Title lookup is not available for these formats."
 msgstr ""
+
+#: app/templates/scan.html:250
+msgid "Release title or artist..."
+msgstr "Titolo dell'edizione o artista..."
 
 #: app/templates/setup.html:6
 msgid "Welcome"
@@ -3916,7 +4124,7 @@ msgstr ""
 
 #: app/templates/fragments/audiobook_metadata.html:43
 #: app/templates/fragments/cover_search.html:46
-#: app/templates/fragments/music_matching.html:101
+#: app/templates/fragments/music_matching.html:105
 msgid "Current"
 msgstr "Attuale"
 
@@ -3933,7 +4141,7 @@ msgid "Local clear or series decision preserved; select explicitly to replace"
 msgstr ""
 
 #: app/templates/fragments/audiobook_metadata.html:53
-#: app/templates/fragments/music_matching.html:110
+#: app/templates/fragments/music_matching.html:114
 msgid "Keep current artwork"
 msgstr "Mantieni la copertina attuale"
 
@@ -4182,7 +4390,7 @@ msgid "Use this artwork: %(source)s"
 msgstr "Usa questa copertina: %(source)s"
 
 #: app/templates/fragments/cover_search.html:58
-#: app/templates/fragments/music_matching.html:115
+#: app/templates/fragments/music_matching.html:119
 msgid "Cover candidate"
 msgstr "Copertina proposta"
 
@@ -4199,7 +4407,7 @@ msgid "Use image from URL"
 msgstr "Usa l'immagine da un URL"
 
 #: app/templates/fragments/cover_search.html:102
-#: app/templates/fragments/music_matching.html:116
+#: app/templates/fragments/music_matching.html:120
 msgid "Use image"
 msgstr "Usa l'immagine"
 
@@ -4459,6 +4667,11 @@ msgid "Provenance"
 msgstr "Provenienza"
 
 #: app/templates/fragments/item_copy_edit.html:108
+#, python-format
+msgid "Move copy #%(n)s to Trash? Restore it from Trash to get it back."
+msgstr "Spostare la copia n. %(n)s nel Cestino? Per recuperarla, ripristinala dal Cestino."
+
+#: app/templates/fragments/item_copy_edit.html:109
 msgid "Remove copy"
 msgstr "Rimuovi copia"
 
@@ -4551,7 +4764,7 @@ msgid "Ownership, physical location and collection value."
 msgstr "Possesso, posizione fisica e valore nella collezione."
 
 #: app/templates/fragments/item_editor_common_fields.html:231
-#: app/templates/fragments/music_matching.html:126
+#: app/templates/fragments/music_matching.html:133
 msgid "I own this item"
 msgstr "Possiedo questo elemento"
 
@@ -4853,6 +5066,40 @@ msgstr ""
 msgid "This panel shows a limited number of saved source fields; additional observations may not be shown."
 msgstr ""
 
+#: app/templates/fragments/music_discogs.html:4
+msgid "Discogs exact pressing"
+msgstr "Edizione esatta su Discogs"
+
+#: app/templates/fragments/music_discogs.html:6
+msgid "This item has a reviewed Discogs pressing reference, not a MusicBrainz release. Provider details are read fresh on request."
+msgstr "Questo elemento ha un riferimento già esaminato a un'edizione Discogs, non un'edizione MusicBrainz. I dettagli del fornitore dei dati vengono riletti su richiesta."
+
+#: app/templates/fragments/music_discogs.html:29
+msgid "Load fresh details"
+msgstr "Carica dettagli aggiornati"
+
+#: app/templates/fragments/music_discogs.html:36
+msgid "Load fresh details from the selected public Discogs release without changing your saved catalogue metadata."
+msgstr "Carica i dettagli aggiornati dall'edizione pubblica di Discogs selezionata senza modificare i metadati salvati nel catalogo."
+
+#: app/templates/fragments/music_discogs.html:71
+#: app/templates/fragments/music_matching.html:82
+msgid "Release notes"
+msgstr "Note sull'edizione"
+
+#: app/templates/fragments/music_discogs.html:75
+#: app/templates/fragments/music_matching.html:86
+msgid "Track listing"
+msgstr "Elenco delle tracce"
+
+#: app/templates/fragments/music_discogs.html:122
+msgid "The selected release can be read publicly without a token. A token is needed only for the optional Discogs search in this panel."
+msgstr "L'edizione selezionata è consultabile pubblicamente senza token. Il token serve solo per la ricerca Discogs facoltativa in questo pannello."
+
+#: app/templates/fragments/music_discogs.html:169
+msgid "Release details shown here are requested live and are not copied into the canonical release or track tables."
+msgstr "I dettagli dell'edizione mostrati qui vengono richiesti in tempo reale e non vengono copiati nelle tabelle canoniche delle edizioni o delle tracce."
+
 #: app/templates/fragments/music_matching.html:5
 msgid "Match a release or use a shop link"
 msgstr "Abbina un'edizione o usa il link di un negozio"
@@ -4866,6 +5113,7 @@ msgid "Search and link options"
 msgstr "Opzioni di ricerca e link"
 
 #: app/templates/fragments/music_matching.html:16
+#: app/templates/fragments/music_title_search.html:19
 msgid "Release title"
 msgstr "Titolo dell'edizione"
 
@@ -4885,69 +5133,83 @@ msgstr "Anteprima del link"
 msgid "Public HTTPS product pages only. Shelf reads published product metadata, not scripts, audio or your shop account. Some shops require manual details."
 msgstr "Solo pagine pubbliche di prodotti in HTTPS. Shelf legge i metadati pubblicati, non gli script, l'audio o il tuo account del negozio. Alcuni negozi richiedono l'inserimento manuale dei dettagli."
 
-#: app/templates/fragments/music_matching.html:50
+#: app/templates/fragments/music_matching.html:51
 msgid "Title search only — check the edition"
 msgstr "Solo ricerca per titolo — controlla l'edizione"
 
-#: app/templates/fragments/music_matching.html:66
+#: app/templates/fragments/music_matching.html:70
 msgid "Shop-provided details are not proof of an exact pressing. Check the barcode, catalogue number, format and artwork."
 msgstr "I dettagli forniti dal negozio non confermano l'esatta stampa. Controlla il codice a barre, il numero di catalogo, il formato e la copertina."
 
-#: app/templates/fragments/music_matching.html:67
+#: app/templates/fragments/music_matching.html:71
 msgid "Your exact MusicBrainz release and track list will be kept. Only the catalogue fields and artwork you select below can change."
 msgstr "L'edizione esatta MusicBrainz e l'elenco delle tracce verranno mantenuti. Possono cambiare solo i campi del catalogo e la copertina selezionati qui sotto."
 
-#: app/templates/fragments/music_matching.html:68
+#: app/templates/fragments/music_matching.html:72
 msgid "Applying this match attaches this exact release and replaces its release details and track list. Only checked catalogue fields change."
 msgstr "Applicando questo abbinamento si collega questa edizione esatta e si sostituiscono i relativi dettagli e l'elenco delle tracce. Cambiano solo i campi del catalogo selezionati."
 
-#: app/templates/fragments/music_matching.html:70
+#: app/templates/fragments/music_matching.html:74
 msgid "Release date"
 msgstr "Data di pubblicazione"
 
-#: app/templates/fragments/music_matching.html:70
+#: app/templates/fragments/music_matching.html:74
 msgid "Label"
 msgstr "Etichetta"
 
-#: app/templates/fragments/music_matching.html:70
+#: app/templates/fragments/music_matching.html:74
 msgid "Packaging"
 msgstr "Confezione"
 
-#: app/templates/fragments/music_matching.html:78
-msgid "Release notes"
-msgstr "Note sull'edizione"
-
-#: app/templates/fragments/music_matching.html:82
-msgid "Track listing"
-msgstr "Elenco delle tracce"
-
-#: app/templates/fragments/music_matching.html:96
+#: app/templates/fragments/music_matching.html:100
 msgid "Choose which catalogue fields to use"
 msgstr "Scegli quali campi del catalogo utilizzare"
 
-#: app/templates/fragments/music_matching.html:110
+#: app/templates/fragments/music_matching.html:114
 msgid "Add without artwork"
 msgstr "Aggiungi senza copertina"
 
-#: app/templates/fragments/music_matching.html:120
+#: app/templates/fragments/music_matching.html:124
 msgid "No artwork was supplied. You can use Choose artwork, an image URL or an upload afterwards."
 msgstr "Non è stata fornita alcuna copertina. Puoi usare Scegli la copertina, l'URL di un'immagine o caricarla in seguito."
 
-#: app/templates/fragments/music_matching.html:128
-msgid "Discogs details are displayed live. Applying this preview remembers the pressing reference and any artwork you select; it does not replace your MusicBrainz metadata."
-msgstr "I dettagli Discogs vengono visualizzati in tempo reale. Applicando questa anteprima si memorizzano il riferimento alla stampa e la copertina selezionata; i metadati MusicBrainz non vengono sostituiti."
+#: app/templates/fragments/music_matching.html:135
+msgid "Discogs details are displayed live. Applying this preview saves only the catalogue fields and artwork you select, plus the pressing reference. It does not replace existing MusicBrainz metadata or copy Discogs tracks into the catalogue."
+msgstr "I dettagli Discogs vengono visualizzati in tempo reale. Applicando questa anteprima si salvano solo i campi del catalogo e la copertina selezionati, oltre al riferimento all'edizione. I metadati MusicBrainz esistenti non vengono sostituiti e le tracce Discogs non vengono copiate nel catalogo."
 
-#: app/templates/fragments/music_matching.html:129
+#: app/templates/fragments/music_matching.html:136
 msgid "Apply selected match"
 msgstr "Applica l'abbinamento selezionato"
 
-#: app/templates/fragments/music_matching.html:129
+#: app/templates/fragments/music_matching.html:136
 msgid "Add release"
 msgstr "Aggiungi edizione"
 
-#: app/templates/fragments/music_matching.html:131
-msgid "Data provided by Discogs"
-msgstr "Dati forniti da Discogs"
+#: app/templates/fragments/music_title_search.html:4
+msgid "Music searches use release metadata, not book results. Add the artist on the Music page and compare the exact releases before saving."
+msgstr "Le ricerche musicali usano i metadati delle edizioni, non i risultati delle ricerche di libri. Aggiungi l'artista nella pagina Musica e confronta le edizioni esatte prima di salvare."
+
+#: app/templates/fragments/music_title_search.html:5
+msgid "Continue to Music search"
+msgstr "Continua con la ricerca in Musica"
+
+#: app/templates/fragments/music_title_search.html:7
+msgid "Music matching is turned off. You can still add a music item by hand without identifying a pressing."
+msgstr "L'abbinamento delle edizioni musicali è disattivato. Puoi comunque aggiungere un elemento musicale a mano senza identificare un'edizione specifica."
+
+#: app/templates/fragments/music_title_search.html:11
+msgid "Add by hand — pressing unknown"
+msgstr "Aggiungi a mano — edizione sconosciuta"
+
+#: app/templates/fragments/music_title_search.html:12
+msgid "If none of the releases matches your copy, keep only what you know. This does not attach a provider release, barcode or track list."
+msgstr "Se nessuna delle edizioni corrisponde alla tua copia, conserva solo le informazioni che conosci. Questa operazione non associa edizioni di un fornitore, codici a barre o elenchi delle tracce."
+
+#: app/templates/fragments/music_title_search.html:31
+#: app/templates/fragments/music_title_search.html:35
+#: app/templates/fragments/unsupported_title_search.html:5
+msgid "Add by hand"
+msgstr "Aggiungi a mano"
 
 #: app/templates/fragments/personal_library.html:6
 #: app/templates/fragments/personal_library.html:29
@@ -5431,10 +5693,6 @@ msgstr ""
 
 #: app/templates/fragments/unsupported_title_search.html:3
 msgid "Add it by hand, or import its availability from a connected source. No book search was made."
-msgstr ""
-
-#: app/templates/fragments/unsupported_title_search.html:5
-msgid "Add by hand"
 msgstr ""
 
 #: app/templates/fragments/item_editor_sections/audio.html:3
