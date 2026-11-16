@@ -33,7 +33,8 @@ does not identify the exact pressing, country, catalogue number or release date.
 - [ ] **CAS-05 — Prove the complete journey.** Add deterministic offline unit and
   browser regressions for the example, competing formats, ambiguity and failures;
   retain all existing assertions and strict CSP/CSRF protections.
-  **In progress:** independent tests; retained baseline passed 113 units before changes.
+  **In progress:** 142 unit and 4 browser cases authored independently; composition
+  still pending. Retained baseline passed 113 units before changes.
 - [ ] **CAS-06 — Publish a reviewed development batch.** Record checks and push
   the tested result to `new-test` for further testing.
   **Pending:** qualification; no deployment or `main` merge.
@@ -56,26 +57,27 @@ these groups into finite, dependency-ordered jobs.
   **Static audit complete:** three concrete repairs below have separate writers.
 - [ ] **FLOW-COVER — Make missing-cover review reachable.** Needs Attention
   recognizes blank/whitespace paths, but Cover Review currently excludes them.
-  **Review pending:** reproduced RED; candidate passes 103 compatible-local units.
+  **Source review clear:** revised candidate passes 113 units, including correct
+  blank-path display. Parent composition/publication still pending.
 - [ ] **FLOW-LABEL — Preserve label print selections.** Allow stock/start changes
   while retaining the exact newly assigned label range.
   **Blocked candidate:** 37 units pass; browser journeys reach their final CSP
   guard and fail on inherited shortcut-help inline handlers. FLOW-CSP owns the fix.
-- [ ] **FLOW-RADAR — Remove feature-gated dead controls.** Upcoming must not offer
+- [x] **FLOW-RADAR — Remove feature-gated dead controls.** Upcoming must not offer
   Series-dependent actions when Series is disabled but radar remains enabled.
-  **Review pending:** reproduced RED; candidate passes 83 units and 3 browser cases.
+  **Published:** `b4cfd3e4`; independent bounded gate, fresh parent checks below.
 - [ ] **R9-DISCOVER / R9-COPY-CONFIRM — Finish these translated surfaces.** Mark
   Discover's interface and the copy-specific Trash confirmation safely, then verify
   real catalogs, placeholders and attribute escaping.
   **In progress:** isolated template/test writer; catalogs remain coordinator-owned.
-- [ ] **X4-BULK-RECEIPT — Report real bulk-update results.** Duplicate, missing and
+- [x] **X4-BULK-RECEIPT — Report real bulk-update results.** Duplicate, missing and
   trashed IDs must not inflate the affected count or mutate Trash.
-  **Review pending:** reproduced RED; 36 new cases, 28 retained bulk cases and
-  9 value-guard cases pass in separate compatible-local runs.
+  **Published:** `b4cfd3e4`; unique live selection and receipt under one write lock.
 - [ ] **FLOW-CSP — Repair shortcut help without inline handlers.** Remove the
   three handler attributes at source and bind translated controls through stable
   data hooks. Preserve the unchanged existing CSP assertions and shortcut actions.
-  **In progress:** new shared-shell writer; no CSP policy relaxation.
+  **In progress:** scoped CSP checks pass, but a broader retained palette-focus
+  failure remains unwaived and is being diagnosed. No CSP policy relaxation.
 - [ ] **EDIT-01 — Account preferences and editor completion.** Establish remaining
   compare-and-swap, isolation and complete-editor obligations before changes.
   **Unverified:** exact open subjobs being reconciled.
@@ -90,8 +92,8 @@ these groups into finite, dependency-ordered jobs.
   **Unverified:** current implementation/evidence boundaries.
 - [ ] **ADAPT-01 — Dormant adapter prerequisites.** Reconcile ME2 C1/C2 contracts
   before granting a writer or enabling any dormant authority.
-  **In progress:** finite pure-protocol contract amendment; activation is not
-  authorized, and editor wiring is not part of this prerequisite job.
+  **In progress:** C1/C2 independently cleared; dormant module and independent
+  tests have separate writers. Activation/editor wiring remains unauthorized.
 - [ ] **INT-01 — Preserve both branches in main integration.** Resolve the
   isolated integration semantically, including migrations, active library ACLs,
   private history, copy/location identity and both regression baselines.
@@ -228,6 +230,11 @@ Canonical scope and evidence: [plan](connected-library-plan.md),
   data, provider account, household/graph activation or deployment is implied.
 
 ## Working and publication rules
+
+Published batch `b4cfd3e4` passed **383 unit / 5 browser** cases, offline checks and
+independent **PASS_BOUNDED_BATCH**. All 435 original and 465 batch-base test files
+retain their exact blobs/modes; all 185 original acceptance entries remain unchecked.
+This is targeted compatible-local evidence, not full-suite/pinned/main readiness.
 
 - Parallel agents receive nonoverlapping file ownership; shared schema, fixtures,
   generated assets and Git selection remain centrally coordinated.

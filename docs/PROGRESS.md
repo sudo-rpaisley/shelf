@@ -3,6 +3,37 @@
 The live checklist is [NEXT_ACTIONS.md](NEXT_ACTIONS.md). Entries here distinguish
 implementation and verified outcomes from investigation or blocked acceptance.
 
+## 2026-11-16 — First application repair batch published
+
+**[`b4cfd3e4`](https://github.com/sudo-rpaisley/shelf/commit/b4cfd3e4439e2601d682c3fca249ca234462704b)**
+is pushed and remote-verified on `new-test`:
+
+- **FLOW-RADAR:** Upcoming hides Series-dependent links/actions when Series is off,
+  while retaining readable announcements, wishlist/dismiss actions and role gates.
+- **X4-BULK-RECEIPT:** bulk update selects unique live targets under its write lock;
+  missing/duplicate/trashed IDs neither inflate receipts nor mutate Trash.
+
+Fresh parent qualification: **383 units / 305.10s**, **5 browsers / 28.94s**, zero
+failures/errors/skips; offline checks pass. Generation converged. Independent
+**PASS_BOUNDED_BATCH** verified all 955 source hashes/modes, 63 evidence files and
+the exact six-path change. All 435 original and all 465 batch-base tests retain
+their exact blobs/modes; the original185 checklist remains unchecked and unchanged.
+README badges **10995 / 762** are collected counts, **not** suite pass totals.
+
+Selection fast-forwarded the exact tested candidate; no source edits followed
+qualification. `main` stayed at `43e244f5`; no deployment, tag/image or Actions change.
+This is compatible-local targeted acceptance, not full-suite, pinned/container,
+global-CSP, programme or merge readiness. The inherited shortcut CSP work remains
+separately open, and its broader palette-focus failure is not waived.
+
+The cassette has independent **142 unit / 4 browser** cases awaiting composition
+with its source candidate. Public research now pins full UK/Canada track ordering
+and European subtracks. No exact pressing has been attributed to the user's tape.
+The dormant editor protocol's C1/C2 contract is independently cleared; module and
+test implementation remain separate from any active editor or authority wiring.
+
+This status-document update does not claim another runtime run on a docs-only SHA.
+
 ## 2026-11-16 — Parallel feature completion wave started
 
 **Priority example:** add **Meat Loaf — Hits Out of Hell** as a cassette without a
