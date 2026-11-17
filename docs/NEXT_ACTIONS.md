@@ -1,6 +1,6 @@
 # Live feature work queue
 
-Updated: **2026-11-16**. This is the working checklist for the current development
+Updated: **2026-11-17**. This is the working checklist for the current development
 wave on `new-test`, not a release-readiness claim. See [Progress](PROGRESS.md) for
 completed batches and evidence.
 
@@ -9,17 +9,21 @@ review are recorded. **In progress**, **unverified** and **blocked** are not don
 The original [acceptance checklist](connected-library-acceptance.md) is unchanged;
 this queue does not waive or automatically complete any of its 185 entries.
 
-## Next UI priority: unified Add Media
+## Published priority: unified Add Media
 
-- [ ] **ADD-01 — Search and add media in one place.** Provide one front door with
-  inline type/format and title/identifier controls, relevant artist/platform fields,
-  results, preview and manual alternatives—without sending music users elsewhere.
-  **Planning, not implemented:** preserve existing Scan/API contracts and all eight
-  Scan modes, native add paths, Add/Wishlist intent and exact-release review.
-  Catalogue numbers must not silently become barcodes or provider release IDs.
-  Keep MusicBrainz-first matching and the bounded cassette fallback unchanged;
-  Library search must not automatically broadcast queries to external providers.
-  Independent contract review and fresh unit/browser qualification precede publication.
+- [x] **ADD-01 — Search and add media in one place.** Native `/add` now provides
+  one editor/admin front door with concrete formats, explicit search, candidates,
+  exact-release review, manual Add/Wishlist alternatives and stored-state receipts.
+  **Published:** `a1542204`, remote-verified after independent
+  **PASS_BOUNDED_ADD_MEDIA_FINAL_V4** and **3,222 fresh passing cases**, with zero
+  failures/errors/skips. Music Automatic remains MusicBrainz-first with the narrow
+  genuine-empty cassette fallback; MusicBrainz only stays MB-only; Discogs only
+  searches directly across all four music formats, including catalogue-only input.
+  When entered as a Catalogue number, `4026156` is not interpreted as a barcode or
+  provider release ID and does not prove a pressing. Existing Scan/APIs and all
+  eight modes remain; no typing/broadcast lookup or Add-host offline queue is added.
+  Full-suite, pinned-runtime/container and live-provider gates remain separate.
+  See [Add media](user-guide/add-media.md) and [Progress](PROGRESS.md).
 
 ## Published priority: add a cassette without a barcode
 

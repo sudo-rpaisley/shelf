@@ -3,6 +3,107 @@
 The live checklist is [NEXT_ACTIONS.md](NEXT_ACTIONS.md). Entries here distinguish
 implementation and verified outcomes from investigation or blocked acceptance.
 
+## 2026-11-17 — Unified Add Media published
+
+**[`a1542204`](https://github.com/sudo-rpaisley/shelf/commit/a1542204ecf17fd2fe3b8d3ef851c6e3457eefc5)**
+is pushed and remote-verified on `new-test` after independent
+**PASS_BOUNDED_ADD_MEDIA_FINAL_V4**. This completes the bounded **ADD-01** native
+front door, not the remaining preferences/editor/indexing programme or release gates.
+See [Add media](user-guide/add-media.md).
+
+Editors/admins can reach `/add` from the desktop/mobile shell, without JavaScript
+or a Music-feature dependency. Explicit search, inline candidates, exact-release
+review, selected music fields, manual Add/Wishlist and stored-state receipts stay
+on one page. Viewers and visitors gain no editing authority. Automatic preserves
+MusicBrainz-first matching and the narrow genuine-empty cassette fallback;
+MusicBrainz only never falls back, while Discogs only searches directly across all
+four music formats, including catalogue-only input. Catalogue input such as
+`4026156` is not reinterpreted as a barcode, provider release ID or pressing proof.
+Existing Scan/APIs and all eight modes remain. No typing lookup, provider broadcast,
+review artwork or Add-host offline queue is introduced.
+
+### Fresh composed qualification
+
+All six bands executed on the same **995-path** source fingerprint
+`5adcdf97fcb058023233b6d75c0da1c68dd49322ded42d6c194bfca61dcb119e`.
+This is a source fingerprint, not a Git commit ID. Exact staged-index **and actual
+commit-tree** path/mode/blob equality were verified before the non-force source push;
+the published source tree is `31b7c8b1d306a05e2bdb1d6bec39a5e607bb359b`.
+
+| Band | Passed | JUnit seconds |
+|---|---:|---:|
+| New units | 734 | 656.460 |
+| New browsers | 284 | 1,033.862 |
+| Retained units | 1,860 | 1,303.735 |
+| Retained browsers, original 19 fresh processes | 262 | 719.647 |
+| Parent transport | 75 | 0.158 |
+| Parent native | 7 | 45.904 |
+| **Disjoint total** | **3,222** | — |
+
+**Zero failures, errors or pytest skips.** Actual raw identities/order, exits,
+source/runtime/guard integrity, frozen lock identities and owned scratch cleanup
+were reconciled; collection alone was not counted as passing. Parallel-band JUnit
+durations are not a wall-clock total. All seven configured static commands and the
+additional Add JavaScript syntax check exited zero. The roadmap-map subcheck did
+not run because `.devdocs` was absent; this is not a pytest skip.
+
+The earlier complete V3 candidate `f0c1c1bb…` genuinely executed all 3,222 cases:
+**3,185 PASS / 37 FAIL**, with no errors/skips. All 37 were pure navigation-fragment
+renders without routing context. A bounded two-template URL producer/consumer repair
+preserved every original assertion; the same 95 original cases then passed. The
+complete repaired source also passed supplementary **151**: 95 navigation, 32 entry,
+19 layout, four hover and one phone case. None supplies extra final credit or
+transfers V3's passes to V4. V3 RED and its 305-file seal remain immutable.
+
+Separate identical-probe tooltip evidence records **2 FAIL / 2 PASS → 4 PASS** with
+real hover, full text/all 92 glyphs in bounds, and mouseleave. Entry/refusal evidence
+records **30 PASS / 2 FAIL → 32 PASS**; those entry cases overlap the 284 new browsers.
+The tooltip probe is separate supplementary evidence, not four extra IDs within
+the 284. Earlier private 734/31 and published-base 262 comparison passes do not
+transfer. The retained 19 modules keep their original order, assertions and 262 IDs;
+earlier same-process failures remain historical evidence.
+
+An initial evidence reader held a missing directory that pytest creates lazily;
+the 75 transport cases do not request temporary fixtures. That original reader/HOLD
+is preserved. A separately reviewed, hash-pinned reader revalidated the same raw
+execution without rerunning tests or fabricating a directory. Exact namespace/type/
+symlink and retained-directory requirements remain. Independent final verification
+completed the supplemental audits and terminal drift check before returning PASS.
+
+### Preservation and limits
+
+All **435 original / 489 published-base test paths and modes** remain, with exactly
+two USER-approved blob corrections: the `/add` census exemption in `tests/test_nav.py`
+and obsolete `navMenu` diagnostic/explanation in `tests/e2e/test_component_load_guard.py`.
+Other **433 / 487 blobs** and all **185 original unchecked acceptance entries** remain
+exact. This is not an “all old blobs unchanged” claim or a waiver of that checklist.
+The previous 524 preference evidence files and their source/evidence fingerprints
+remain preserved. **PREF-STORE-1 remains unwired**: no preference pages, HTTP routes
+or consumers are enabled by Add media.
+
+Catalogs preserve **612 Italian / 385 Chinese** protected active-value records,
+including four/five original all-empty plural tuples counted by the recorded Babel
+rule. All **199 scoped messages per locale** are nonempty, nonfuzzy and compiled.
+Four real Italian/Chinese journeys at 320/1280 and eight original review/receipt
+screenshots were checked. This does not certify native-language quality or complete
+the wider localization backlog.
+
+Evidence under `.temp/feature-completion-20261116/`:
+`ADD_MEDIA_FINAL_CANDIDATE_V4.json`, `ADD_MEDIA_FINAL_RUNTIME_RECEIPT_V4_1.json`,
+`ADD_MEDIA_FINAL_EVIDENCE_MANIFEST_V4.json`, `ADD_MEDIA_FINAL_VERIFICATION_V4.md`
+and `ADD_MEDIA_SOURCE_PUBLICATION_V4.json`. The 427-file evidence seal has canonical
+fingerprint `9a405743d2ee425ce8a2a2a210f9a57917b601a319e7dd59f25ed2500ef2c3af`.
+
+This is bounded compatible-local **Python 3.14.8 / SQLite 3.53.4 / pytest 9.0.3 /
+Playwright 1.65.1 / native Chromium**, not full-suite, pinned Python 3.12/container,
+live-provider/account or release proof. `[skip ci]` is **not passing CI**. The source
+post-push remote check at **2026-11-17T17:19:48Z** confirmed `new-test` at `a1542204`
+and `main` unchanged at `43e244f542c787585187dfb862d64f5539878cae`. Held integration,
+Actions, deployment/release and household/graph activation remain untouched.
+This separate documentation successor records the source qualification; it claims
+no additional runtime execution on its own SHA. Earlier progress entries remain
+historical records, including the superseded Add Media planning note.
+
 ## 2026-11-16 — Unwired account-preference storage published
 
 **[`c010b07e`](https://github.com/sudo-rpaisley/shelf/commit/c010b07e431f87827f5a7214bb2e4d96979d7dc1)**
