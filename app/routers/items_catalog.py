@@ -16,6 +16,7 @@ from fastapi import APIRouter, Depends, Form, Query, Request
 from fastapi.responses import HTMLResponse, JSONResponse
 
 from app import i18n
+from app.add_media_types import AddDetails, CapturedAddIntent, DbAddResult
 from app.auth import require_role
 from app.config import BOOK_MEDIA_TYPES, HTTP_TIMEOUT, MEDIA_TYPES, MUSIC_MEDIA_TYPES, canonical_media_type
 from app.database import get_db, get_game_platforms, get_setting
@@ -30,6 +31,79 @@ from app.services.item_write import ItemValueError, insert_item, validated_locat
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api")
+
+
+def _selection_intent(intent, media_type, platform=None):
+    if (not isinstance(intent, CapturedAddIntent) or intent.media_type != media_type
+            or intent.mode not in {"add", "wishlist"}
+            or (media_type == "video_game" and (intent.platform or None) != platform)):
+        raise ItemValueError("The add intent changed. Preview the selection again.")
+
+
+def _selection_duplicate(db, row, intent):
+    promoted = intent is not None and intent.mode == "add" and item_write.promote_wishlisted(db, row["id"])
+    return DbAddResult("promoted" if promoted else "duplicate", row["id"], duplicate_title=row["title"])
+
+
+def _selection_result(item_id, mode):
+    restored = item_write.was_restored(item_id)  # before any ItemId conversion
+    return DbAddResult("restored" if restored else ("wishlisted" if mode == "wishlist" else "added"),
+                       item_id, restored)
+
+
+def _commit_book_selection(db, metadata, *, isbn13, media_type, source, hc_ids,
+                           intent: CapturedAddIntent, details: AddDetails = AddDetails()) -> DbAddResult:
+    """Tentative native save; caller holds BEGIN IMMEDIATE and owns the exit."""
+    _selection_intent(intent, media_type)
+    if media_type not in BOOK_MEDIA_TYPES:
+        raise ItemValueError("Choose a bibliographic format.")
+    location = validated_location_id(db, details.location_id)
+    existing = db.execute(
+        "SELECT id, title FROM items_live WHERE isbn = ? AND media_type = ?", (isbn13, media_type),
+    ).fetchone()
+    if existing:
+        return _selection_duplicate(db, existing, intent)
+    with tags_svc.default_tags(details.tags), item_write.default_reading_status(details.reading_status):
+        item_id = items_common._save_item_on_connection(
+            db, metadata, isbn13, media_type, location, source, hc_ids, owned=intent.mode == "add")
+    return _selection_result(item_id, intent.mode)
+
+
+def _commit_game_selection(db, metadata, *, platform=None, details: AddDetails = AddDetails(),
+                           intent: CapturedAddIntent | None = None) -> DbAddResult:
+    """Keep native title/platform identity; IGDB IDs/developers are not stored."""
+    if intent is not None:
+        _selection_intent(intent, "video_game", platform)
+    existing = db.execute(
+        "SELECT id, title FROM items_live WHERE title = ? AND media_type = 'video_game' AND platform IS ?",
+        (metadata["title"], platform),
+    ).fetchone()
+    if existing:
+        return _selection_duplicate(db, existing, intent)
+    wishlist = {"owned": 0, "wishlisted": True} if intent is not None and intent.mode == "wishlist" else {}
+    with tags_svc.default_tags(details.tags), item_write.default_reading_status(details.reading_status):
+        item_id = insert_item(
+            db, **wishlist, title=metadata["title"], description=metadata.get("description"),
+            media_type="video_game", publisher=metadata.get("publisher"), publish_year=metadata.get("publish_year"),
+            series_name=metadata.get("series_name"), platform=platform, location_id=details.location_id, source="igdb")
+    return _selection_result(item_id, intent.mode if intent is not None else "add")
+
+
+def _commit_dvd_selection(db, *, title, description="", publish_year=None,
+                          details: AddDetails = AddDetails(), intent: CapturedAddIntent | None = None) -> DbAddResult:
+    """Native movie title identity, with no new durable TMDb binding."""
+    if intent is not None:
+        _selection_intent(intent, "dvd")
+    existing = db.execute(
+        "SELECT id, title FROM items_live WHERE title = ? AND media_type = 'dvd'", (title,),
+    ).fetchone()
+    if existing:
+        return _selection_duplicate(db, existing, intent)
+    wishlist = {"owned": 0, "wishlisted": True} if intent is not None and intent.mode == "wishlist" else {}
+    with tags_svc.default_tags(details.tags), item_write.default_reading_status(details.reading_status):
+        item_id = insert_item(db, **wishlist, title=title, description=description or None, media_type="dvd",
+                              publish_year=publish_year, location_id=details.location_id, source="tmdb")
+    return _selection_result(item_id, intent.mode if intent is not None else "add")
 
 
 
@@ -126,33 +200,16 @@ async def add_game_from_search(
     existing = None
     item_id = None
     value_error = None
-    with get_db() as db:
-        db.execute("BEGIN IMMEDIATE")
-        existing = db.execute(
-            "SELECT id, title FROM items_live WHERE title = ? AND media_type = 'video_game' AND platform IS ?",
-            (metadata["title"], platform_val),
-        ).fetchone()
-        if existing is None:
-            # location_id is the funnel's to check (#54): insert_item raises
-            # ItemValueError and the card carries its message. Rendered after
-            # the block so nothing runs under the write.
-            try:
-                with tags_svc.default_tags(tags), \
-                     item_write.default_reading_status(reading_status):
-                    item_id = insert_item(
-                        db,
-                        title=metadata["title"],
-                        description=metadata.get("description"),
-                        media_type="video_game",
-                        publisher=metadata.get("publisher"),
-                        publish_year=metadata.get("publish_year"),
-                        series_name=metadata.get("series_name"),
-                        platform=platform_val,
-                        location_id=loc_id,
-                        source="igdb",
-                    )
-            except ItemValueError as e:
-                value_error = str(e)
+    try:
+        with get_db() as db:
+            db.execute("BEGIN IMMEDIATE")
+            result = _commit_game_selection(db, metadata, platform=platform_val,
+                                            details=AddDetails(loc_id, tags, reading_status))
+            item_id = result.item_id
+            if result.status == "duplicate":
+                existing = {"id": item_id, "title": result.duplicate_title}
+    except ItemValueError as e:
+        value_error = str(e)
 
     # _log_scan opens its own connection, so it must run outside the write
     # transaction above or it blocks on the lock that block still holds.
@@ -484,30 +541,16 @@ async def add_dvd_from_search(
     existing = None
     item_id = None
     value_error = None
-    with get_db() as db:
-        db.execute("BEGIN IMMEDIATE")
-        existing = db.execute(
-            "SELECT id, title FROM items_live WHERE title = ? AND media_type = 'dvd'",
-            (title,),
-        ).fetchone()
-        if existing is None:
-            # location_id is the funnel's to check (#54): insert_item raises
-            # ItemValueError and the card carries its message. Rendered after
-            # the block so nothing runs under the write.
-            try:
-                with tags_svc.default_tags(tags), \
-                     item_write.default_reading_status(reading_status):
-                    item_id = insert_item(
-                        db,
-                        title=title,
-                        description=description or None,
-                        media_type="dvd",
-                        publish_year=year,
-                        location_id=loc_id,
-                        source="tmdb",
-                    )
-            except ItemValueError as e:
-                value_error = str(e)
+    try:
+        with get_db() as db:
+            db.execute("BEGIN IMMEDIATE")
+            result = _commit_dvd_selection(db, title=title, description=description, publish_year=year,
+                                           details=AddDetails(loc_id, tags, reading_status))
+            item_id = result.item_id
+            if result.status == "duplicate":
+                existing = {"id": item_id, "title": result.duplicate_title}
+    except ItemValueError as e:
+        value_error = str(e)
 
     # _log_scan opens its own connection, so it must run outside the write
     # transaction above or it blocks on the lock that block still holds.

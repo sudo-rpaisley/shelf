@@ -368,12 +368,12 @@ def test_item_edit_js_loss_reports_cover_drop_with_typeof(live_server, browser, 
 
 
 def test_components_js_loss_on_base_shell_reports_and_toasts(live_server, browser, setup_admin):
-    """/browse: navMenu, accountMenu and accountModal are all live at
-    alpine:initialized (the disclosure menu is CSS-hidden above lg, not
-    removed from the DOM; the account menu and modal sit inside
-    `{% if user %}`) — one message naming all three, in DOM order, plus the
-    base shell's toast. accountMenu was missing from the guard's map until
-    H-4 (2026-09-23), so this read "navMenu, accountModal" before then."""
+    """/browse: accountMenu and accountModal are live at alpine:initialized.
+    Navigation now uses native disclosures, not an Alpine navMenu root.
+    The account menu and modal remain inside `{% if user %}` — one message
+    naming both live roots in DOM order, plus the base shell's toast.
+    accountMenu was missing from the guard's map until H-4 (2026-09-23);
+    the diagnostic must still name every live root owned by the lost script."""
     base = live_server["url"]
     ctx, pg = _login(browser, base, setup_admin)
     guard_msgs = _guard_messages(pg)
@@ -383,7 +383,7 @@ def test_components_js_loss_on_base_shell_reports_and_toasts(live_server, browse
     _settle(pg)
 
     msg = _only(guard_msgs)
-    assert "/static/js/components.js did not register navMenu, accountMenu, accountModal" in msg
+    assert "/static/js/components.js did not register accountMenu, accountModal" in msg
     assert "Alpine Expression Error" not in msg
 
     toast = pg.locator("#toast-container > div").first

@@ -1,0 +1,109 @@
+{
+  "provenance": {
+    "recorded": "2026-11-16",
+    "abridged_real": "Discogs releases 3935124, 8297774 and 18670711 are independently transcribed projections of parent CASSETTE_TRACK_RESEARCH.json and CASSETTE_RESEARCH.json. No live requests were made by this author. Omitted fields are not assertions of absence at the provider.",
+    "synthetic": "All search envelopes/ranking, empty/error responses, MusicBrainz UUIDs and recordings, format probes, Open Library books/keys, TMDb movies, IGDB games, UPC facts, credentials and hostile metadata are synthetic transport fixtures, not claims about live catalogues. The illustrative ISBN/UPC values have valid checksums; their attached metadata is invented.",
+    "identity_limit": "40-26156 is a catalogue query, not proof of a user's exact pressing. 4026156 is never a barcode or a Discogs release ID. No artwork responses are authorized."
+  },
+  "discogs_releases": {
+    "3935124": {
+      "id": 3935124, "title": "Hits Out Of Hell", "country": "UK", "released": "1984", "year": 1984,
+      "artists": [{"name": "Meat Loaf", "join": ""}],
+      "labels": [{"name": "Epic", "catno": "EPC 40-26156"}],
+      "formats": [{"name": "Cassette", "qty": "1", "descriptions": ["Compilation"]}],
+      "tracklist": [
+        {"position": "A1", "type_": "track", "title": "Bat Out Of Hell", "duration": "9:48"},
+        {"position": "A2", "type_": "track", "title": "Read 'Em And Weep", "duration": "5:25"},
+        {"position": "A3", "type_": "track", "title": "Midnight At The Lost And Found", "duration": "3:36"},
+        {"position": "A4", "type_": "track", "title": "Two Out Of Three Ain't Bad", "duration": "5:23"},
+        {"position": "A5", "type_": "track", "title": "Dead Ringer For Love", "duration": "4:21"},
+        {"position": "B1", "type_": "track", "title": "Modern Girl", "duration": "4:24"},
+        {"position": "B2", "type_": "track", "title": "I'm Gonna Love Her For Both Of Us", "duration": "7:09"},
+        {"position": "B3", "type_": "track", "title": "You Took The Words Right Out Of My Mouth (Hot Summer Night)", "duration": "3:40"},
+        {"position": "B4", "type_": "track", "title": "Razor's Edge", "duration": "4:07"},
+        {"position": "B5", "type_": "track", "title": "Paradise By The Dashboard Light", "duration": "8:28"}
+      ]
+    },
+    "8297774": {
+      "id": 8297774, "title": "Hits Out Of Hell", "country": "Europe", "released": "1984", "year": 1984,
+      "artists": [{"name": "Meat Loaf", "join": ""}],
+      "labels": [{"name": "Cleveland International Records", "catno": "40-26156"}, {"name": "Epic", "catno": "EPC 40-26156"}],
+      "formats": [{"name": "Cassette", "qty": "1", "descriptions": ["Compilation"]}],
+      "tracklist": [
+        {"position": "A1", "type_": "track", "title": "Bat Out Of Hell", "duration": "9:48"},
+        {"position": "A2", "type_": "track", "title": "Read 'Em And Weep", "duration": "5:25"},
+        {"position": "A3", "type_": "track", "title": "Midnight At The Lost And Found", "duration": "3:36"},
+        {"position": "A4", "type_": "track", "title": "Two Out Of Three Ain't Bad", "duration": "5:23"},
+        {"position": "A5", "type_": "track", "title": "Dead Ringer For Love", "duration": "4:23"},
+        {"position": "B1", "type_": "track", "title": "Modern Girl", "duration": "4:21"},
+        {"position": "B2", "type_": "track", "title": "I'm Gonna Love Her For Both Of Us", "duration": "7:09"},
+        {"position": "B3", "type_": "track", "title": "You Took The Words Right Out Of My Mouth (Hot Summer Night)", "duration": "4:12"},
+        {"position": "B4", "type_": "track", "title": "Razor's Edge", "duration": "4:07"},
+        {"position": "", "type_": "index", "title": "Paradise By The Dashboard Light", "duration": "8:28", "sub_tracks": [
+          {"position": "B5-I", "type_": "track", "title": "Paradise", "duration": ""},
+          {"position": "B5-II", "type_": "track", "title": "Let Me Sleep On It", "duration": ""},
+          {"position": "B5-III", "type_": "track", "title": "Praying For The End Of Time", "duration": ""}
+        ]}
+      ]
+    },
+    "18670711": {
+      "id": 18670711, "title": "Hits Out Of Hell", "country": "Canada", "released": "1995", "year": 1995,
+      "artists": [{"name": "Meat Loaf", "join": ""}],
+      "labels": [{"name": "Epic", "catno": "BT 57615"}, {"name": "Cleveland International Records", "catno": "BT 57615"}],
+      "formats": [{"name": "Cassette", "qty": "1", "descriptions": ["Compilation", "Reissue"], "text": "Dolby"}],
+      "tracklist": [
+        {"position": "A1", "type_": "track", "title": "Bat Out Of Hell", "duration": ""},
+        {"position": "A2", "type_": "track", "title": "Read 'Em And Weep", "duration": ""},
+        {"position": "A3", "type_": "track", "title": "Dead Ringer For Love", "duration": ""},
+        {"position": "A4", "type_": "track", "title": "Two Out Of Three Ain't Bad", "duration": ""},
+        {"position": "A5", "type_": "track", "title": "Midnight At The Lost And Found", "duration": ""},
+        {"position": "B1", "type_": "track", "title": "All Revved Up With No Place To Go", "duration": ""},
+        {"position": "B2", "type_": "track", "title": "I'm Gonna Love Her For Both Of Us", "duration": ""},
+        {"position": "B3", "type_": "track", "title": "You Took The Words Right Out Of My Mouth (Hot Summer Night)", "duration": ""},
+        {"position": "B4", "type_": "track", "title": "Razor's Edge", "duration": ""},
+        {"position": "B5", "type_": "track", "title": "Paradise By The Dashboard Light", "duration": ""}
+      ]
+    }
+  },
+  "musicbrainz_release": {
+    "id": "11111111-1111-4111-8111-111111111101",
+    "title": "Paper Lantern Sessions", "status": "Official", "date": "2001-02-03", "country": "IT", "barcode": "012345678905",
+    "artist-credit": [{"name": "Fixture Ensemble", "artist": {"name": "Fixture Ensemble"}}],
+    "label-info": [{"catalog-number": "SYN-MB-CAS-01", "label": {"name": "Fixture Label"}}],
+    "release-group": {"id": "22222222-2222-4222-8222-222222222201", "primary-type": "Album", "first-release-date": "2001"},
+    "media": [{"position": 1, "format": "Cassette", "track-count": 2, "tracks": [
+      {"position": 1, "number": "A1", "title": "Signal at Dawn", "length": 61000, "recording": {"id": "33333333-3333-4333-8333-333333333301", "title": "Signal at Dawn"}},
+      {"position": 2, "number": "B1", "title": "Quiet Platform", "length": 92000, "recording": {"id": "33333333-3333-4333-8333-333333333302", "title": "Quiet Platform"}}
+    ]}]
+  },
+  "openlibrary_search": {"numFound": 1, "docs": [{
+    "key": "/works/OL9990001W", "title": "The Synthetic Atlas", "author_name": ["Ada Fixture"],
+    "first_publish_year": 2005, "publisher": ["Fixture Press"], "isbn": ["9780306406157"],
+    "language": ["eng"], "number_of_pages_median": 123,
+    "editions": {"docs": [{"isbn": ["9780306406157"]}]}
+  }]},
+  "openlibrary_edition": {
+    "title": "The Synthetic Atlas", "subtitle": "An offline transport example", "publishers": ["Fixture Press"],
+    "publish_date": "2005", "number_of_pages": 123, "isbn_10": ["0306406152"], "isbn_13": ["9780306406157"],
+    "works": [{"key": "/works/OL9990001W"}], "languages": [{"key": "/languages/eng"}]
+  },
+  "openlibrary_work": {"description": "Synthetic description, not a real bibliographic claim.", "authors": [{"author": {"key": "/authors/OL9990001A"}}]},
+  "openlibrary_author": {"name": "Ada Fixture"},
+  "tmdb_search": {"page": 1, "total_results": 2, "results": [
+    {"id": 930001, "title": "Synthetic Cinema", "release_date": "2007-03-04", "overview": "First synthetic film, not the selected second result.", "poster_path": "/fixture-first.jpg"},
+    {"id": 930002, "title": "Synthetic Cinema: Second Cut", "release_date": "2011-05-06", "overview": "Second synthetic film, selected from the signed search snapshot.", "poster_path": "/fixture-second.jpg"}
+  ]},
+  "igdb_games": [{
+    "id": 920001, "name": "Synthetic Switch Quest", "first_release_date": 1262304000,
+    "platforms": [{"id": 130, "name": "Nintendo Switch"}],
+    "involved_companies": [
+      {"company": {"name": "Fixture Games"}, "publisher": true},
+      {"company": {"name": "Unpersisted Fixture Developer"}, "developer": true}
+    ],
+    "cover": {"image_id": "fixture-quest"}, "summary": "Synthetic game details from the exact selected IGDB ID.",
+    "franchises": [{"name": "Fixture Quest Series"}]
+  }],
+  "upc_lookup": {"code": "OK", "total": 1, "offset": 0, "items": [{
+    "ean": "0012345678905", "upc": "012345678905", "title": "Synthetic Retail Disc [DVD]", "brand": "Fixture Retail", "category": "Media > DVDs", "images": ["https://image.tmdb.org/t/p/w500/forbidden-artwork.jpg"]
+  }]}
+}

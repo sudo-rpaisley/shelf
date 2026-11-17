@@ -6,7 +6,7 @@
 msgid ""
 msgstr ""
 "Report-Msgid-Bugs-To: EMAIL@ADDRESS\n"
-"PO-Revision-Date: 2026-11-16 03:37+0000\n"
+"PO-Revision-Date: 2026-11-16 22:34+0000\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language: zh_Hans\n"
 "Language-Team: zh_Hans <LL@li.org>\n"
@@ -15,8 +15,41 @@ msgstr ""
 "Content-Type: text/plain; charset=utf-8\n"
 "Content-Transfer-Encoding: 8bit"
 
+#: app/add_media_http.py:30
+msgid "Submit each control once using the Add media form."
+msgstr "请使用“添加媒体”表单，每个控件的值仅提交一次。"
+
+#: app/add_media_http.py:31
+msgid "Submit the form without attachments or compression."
+msgstr "请提交不带附件且未经压缩的表单。"
+
+#: app/add_media_http.py:32
+msgid "The Add media form is too large."
+msgstr "“添加媒体”表单数据过大。"
+
+#: app/add_media_http.py:33
+msgid "The Add media address is too long."
+msgstr "“添加媒体”页面地址过长。"
+
+#: app/add_media_http.py:34
+msgid "Your session or account changed. Open Add media again before continuing."
+msgstr "你的会话或账号已更改。请重新打开“添加媒体”页面后再继续。"
+
+#: app/add_media_http.py:35
+msgid "This Add media address was not found."
+msgstr "未找到此“添加媒体”页面地址。"
+
+#: app/add_media_http.py:36
+msgid "Use the method shown on the Add media form."
+msgstr "请使用“添加媒体”表单上显示的方式。"
+
+#: app/add_media_http.py:37
+msgid "The request could not be completed. If you were saving, check your library before trying again."
+msgstr "无法完成请求。如果你正在保存，请先检查你的资料库，再决定是否重试。"
+
 #: app/browse_columns.py:62 app/services/audiobook_review.py:34
 #: app/services/library_catalog.py:50 app/services/metadata_review.py:34
+#: app/templates/add_media.html:11
 #: app/templates/fragments/item_editor_common_fields.html:16
 #: app/templates/fragments/music_matching.html:2 app/templates/music.html:5
 msgid "Title"
@@ -52,6 +85,7 @@ msgstr "价值"
 
 #: app/browse_columns.py:68 app/nav.py:49 app/services/audiobook_review.py:38
 #: app/services/metadata_review.py:38 app/templates/browse.html:50
+#: app/templates/fragments/add_media_review.html:52
 #: app/templates/fragments/item_editor_sections/books.html:3
 #: app/templates/fragments/item_editor_sections/books.html:7
 #: app/templates/fragments/manual_add_form.html:155
@@ -61,19 +95,22 @@ msgstr "系列"
 
 #: app/browse_columns.py:69 app/services/audiobook_review.py:36
 #: app/services/metadata_review.py:36
+#: app/templates/fragments/add_media_review.html:52
 #: app/templates/fragments/item_editor_common_fields.html:31
 #: app/templates/fragments/manual_add_form.html:96
 msgid "Publisher"
 msgstr "出版社"
 
-#: app/browse_columns.py:70
+#: app/browse_columns.py:70 app/templates/add_media.html:11
+#: app/templates/fragments/add_media_results.html:16
+#: app/templates/fragments/add_media_review.html:52
 #: app/templates/fragments/item_editor_common_fields.html:32
 #: app/templates/fragments/manual_add_form.html:99
 #: app/templates/reading_life.html:17 app/templates/reading_life.html:56
 msgid "Year"
 msgstr "年份"
 
-#: app/browse_columns.py:71
+#: app/browse_columns.py:71 app/templates/fragments/add_media_review.html:52
 #: app/templates/fragments/item_editor_sections/books.html:9
 msgid "Pages"
 msgstr "页数"
@@ -81,6 +118,7 @@ msgstr "页数"
 #: app/browse_columns.py:72 app/browse_filters.py:241
 #: app/services/audiobook_review.py:37 app/services/metadata_review.py:38
 #: app/templates/browse.html:66 app/templates/fragments/account_menu.html:116
+#: app/templates/fragments/add_media_review.html:52
 #: app/templates/fragments/item_editor_common_fields.html:36
 msgid "Language"
 msgstr "语言"
@@ -218,17 +256,17 @@ msgstr "在玩"
 msgid "Played"
 msgstr "已玩"
 
-#: app/config.py:60
+#: app/config.py:60 app/templates/add_media.html:63
 msgid "Want to"
 msgstr "想要"
 
 #: app/config.py:60 app/services/personal_library.py:18
-#: app/services/reading_life.py:30
+#: app/services/reading_life.py:30 app/templates/add_media.html:63
 msgid "In progress"
 msgstr "进行中"
 
 #: app/config.py:60 app/services/personal_library.py:19
-#: app/services/reading_life.py:31
+#: app/services/reading_life.py:31 app/templates/add_media.html:63
 msgid "Finished"
 msgstr "已完成"
 
@@ -245,10 +283,14 @@ msgid "Director"
 msgstr "导演"
 
 #: app/config.py:137 app/services/library_catalog.py:50
+#: app/templates/fragments/add_media_review.html:52
 msgid "Creator"
-msgstr ""
+msgstr "创作者"
 
-#: app/config.py:140 app/templates/fragments/music_matching.html:2
+#: app/config.py:140 app/templates/add_media.html:11
+#: app/templates/add_media.html:38
+#: app/templates/fragments/add_media_review.html:16
+#: app/templates/fragments/music_matching.html:2
 #: app/templates/fragments/music_matching.html:16
 #: app/templates/fragments/music_matching.html:74
 #: app/templates/fragments/music_title_search.html:22
@@ -419,6 +461,43 @@ msgstr ""
 msgid "Back to collection"
 msgstr ""
 
+#: app/routers/add_media.py:41
+msgid "The submitted form could not be read. Reload Add Media and try again."
+msgstr "无法读取提交的表单。请重新加载“添加媒体”页面后重试。"
+
+#: app/routers/add_media.py:42
+msgid "Check the selected format, method and entered values."
+msgstr "请检查所选格式、方式和输入的值。"
+
+#: app/routers/add_media.py:43
+msgid "Your session changed or expired. Reload Add Media before continuing."
+msgstr "你的会话已更改或过期。请重新加载“添加媒体”页面后再继续。"
+
+#: app/routers/add_media.py:44
+msgid "That preview expired or changed. Search and preview the selection again."
+msgstr "该预览已过期或发生变化。请重新搜索并预览所选结果。"
+
+#: app/routers/add_media.py:45
+msgid "The add intent changed. Search and preview the selection again."
+msgstr "添加操作的设置已更改。请重新搜索并预览所选结果。"
+
+#: app/routers/add_media.py:46 app/routers/music_matching.py:86
+#: app/routers/music_matching.py:289 app/routers/music_matching.py:444
+msgid "The selected format contradicts the provider's release details. Choose the correct pressing."
+msgstr "所选格式与数据提供方的发行详情相矛盾。请选择正确的具体发行版本。"
+
+#: app/routers/add_media.py:47
+msgid "Music matching is turned off. You can still add music manually."
+msgstr "音乐匹配已关闭。你仍可手动添加音乐。"
+
+#: app/routers/add_media.py:48
+msgid "The save outcome is unknown. Check your collection before submitting again."
+msgstr "保存结果未知。再次提交前，请先检查你的收藏。"
+
+#: app/routers/add_media.py:373
+msgid "Retail product facts only. Search by title explicitly or add manually."
+msgstr "仅含零售商品信息。请明确选择按标题搜索，或手动添加。"
+
 #: app/routers/api_tokens.py:63
 msgid "Give the token a name"
 msgstr "请为令牌命名"
@@ -575,51 +654,51 @@ msgstr ""
 msgid "Could not save that copy."
 msgstr ""
 
-#: app/routers/items.py:997
+#: app/routers/items.py:1006
 msgid "No items or updates specified"
 msgstr "未指定条目或更新内容"
 
-#: app/routers/items.py:1002 app/routers/tags.py:71 app/routers/tags.py:76
+#: app/routers/items.py:1011 app/routers/tags.py:71 app/routers/tags.py:76
 msgid "Invalid item IDs"
 msgstr "无效的条目 ID"
 
-#: app/routers/items.py:1007
+#: app/routers/items.py:1016
 msgid "No valid fields to update"
 msgstr "没有可更新的有效字段"
 
-#: app/routers/items.py:1013
+#: app/routers/items.py:1022
 msgid "Series name cannot be empty"
 msgstr "系列名称不能为空"
 
-#: app/routers/items_catalog.py:95
+#: app/routers/items_catalog.py:169
 msgid "Unrecognised game platform — pick one and try again"
 msgstr ""
 
-#: app/routers/items_catalog.py:112
+#: app/routers/items_catalog.py:186
 msgid "Failed to fetch game details from IGDB"
 msgstr ""
 
-#: app/routers/items_catalog.py:209
+#: app/routers/items_catalog.py:266
 msgid "Choose Add or Wishlist before adding music by hand."
 msgstr "手动添加音乐前，请选择添加或心愿单模式。"
 
-#: app/routers/items_catalog.py:289
+#: app/routers/items_catalog.py:346
 msgid "Unrecognised media type — pick one and try again"
 msgstr ""
 
-#: app/routers/items_catalog.py:297
+#: app/routers/items_catalog.py:354
 msgid "Invalid ISBN"
 msgstr ""
 
-#: app/routers/items_catalog.py:339
+#: app/routers/items_catalog.py:396
 msgid "Could not fetch metadata for this ISBN"
 msgstr ""
 
-#: app/routers/items_catalog.py:459
+#: app/routers/items_catalog.py:516
 msgid "Title is required"
 msgstr ""
 
-#: app/routers/items_catalog.py:467
+#: app/routers/items_catalog.py:524
 msgid "Invalid publish year"
 msgstr ""
 
@@ -761,72 +840,67 @@ msgstr "请先选择 Discogs 发行版本，再加载其公开详情。"
 msgid "Discogs returned a different release. Nothing was changed."
 msgstr "Discogs 返回了不同的发行版本。未作任何更改。"
 
-#: app/routers/music_matching.py:56
+#: app/routers/music_matching.py:61
 msgid "The release format contradicts this item's music format. Choose the correct pressing."
 msgstr "发行版本的格式与此条目的音乐格式相矛盾。请选择正确的具体发行版本。"
 
-#: app/routers/music_matching.py:74
+#: app/routers/music_matching.py:79
 msgid "The provider returned unreadable release details."
 msgstr "数据提供方返回的发行详情无法读取。"
 
-#: app/routers/music_matching.py:78
+#: app/routers/music_matching.py:83
 msgid "The provider returned a different release. Preview the exact release again."
 msgstr "数据提供方返回了不同的发行版本。请重新预览确切的发行版本。"
 
-#: app/routers/music_matching.py:81 app/routers/music_matching.py:224
-#: app/routers/music_matching.py:298
-msgid "The selected format contradicts the provider's release details. Choose the correct pressing."
-msgstr "所选格式与数据提供方的发行详情相矛盾。请选择正确的具体发行版本。"
-
-#: app/routers/music_matching.py:90
+#: app/routers/music_matching.py:95
 msgid "Choose a concrete Discogs release."
 msgstr "请选择 Discogs 上的具体发行版本。"
 
-#: app/routers/music_matching.py:103
+#: app/routers/music_matching.py:108
 msgid "This release is in Trash. Restore it from Trash instead of adding another item. No changes were saved."
 msgstr "此发行版本在回收站中。请从回收站恢复，而不是另行添加条目。未保存任何更改。"
 
-#: app/routers/music_matching.py:104
+#: app/routers/music_matching.py:109
 msgid "This release is already catalogued. Open the existing item instead. No changes were saved."
 msgstr "此发行版本已收录到目录中。请改为打开现有条目。未保存任何更改。"
 
-#: app/routers/music_matching.py:142
+#: app/routers/music_matching.py:147
 msgid "No matching release was found. Try fewer filters or paste a release/shop link."
 msgstr "未找到匹配的发行版本。请尝试减少筛选条件，或粘贴发行版本/商店链接。"
 
-#: app/routers/music_matching.py:143
+#: app/routers/music_matching.py:148
 msgid "Discogs could not complete this search. Try again shortly."
 msgstr "Discogs 未能完成此次搜索。请稍后重试。"
 
-#: app/routers/music_matching.py:144
+#: app/routers/music_matching.py:149
 msgid "MusicBrainz could not complete this search. Try again shortly."
 msgstr "MusicBrainz 未能完成此次搜索。请稍后重试。"
 
-#: app/routers/music_matching.py:160
-msgid "Choose MusicBrainz or Discogs as the release provider."
-msgstr "请选择 MusicBrainz 或 Discogs 作为发行版本的数据提供方。"
-
-#: app/routers/music_matching.py:162
-msgid "Choose a valid music format."
-msgstr "请选择有效的音乐格式。"
-
-#: app/routers/music_matching.py:180
+#: app/routers/music_matching.py:228
 msgid "Choose a concrete Discogs release ID, not a master or marketplace listing."
 msgstr "请选择 Discogs 具体发行版本的 ID，而不是主发行版本（master）或交易市场商品条目。"
 
-#: app/routers/music_matching.py:182
+#: app/routers/music_matching.py:230
 msgid "Choose an exact MusicBrainz release ID."
 msgstr "请选择确切的 MusicBrainz 发行版本 ID。"
 
-#: app/routers/music_matching.py:184 app/routers/music_matching.py:200
+#: app/routers/music_matching.py:232 app/routers/music_matching.py:257
 msgid "The release ID and link do not match."
 msgstr "发行版本 ID 与链接不匹配。"
 
-#: app/routers/music_matching.py:209
+#: app/routers/music_matching.py:271
 msgid "The Discogs release could not be read. Try again shortly."
 msgstr "无法读取该 Discogs 发行版本的信息。请稍后重试。"
 
-#: app/routers/music_matching.py:296
+#: app/routers/music_matching.py:325
+msgid "Choose MusicBrainz or Discogs as the release provider."
+msgstr "请选择 MusicBrainz 或 Discogs 作为发行版本的数据提供方。"
+
+#: app/routers/music_matching.py:327
+msgid "Choose a valid music format."
+msgstr "请选择有效的音乐格式。"
+
+#: app/routers/music_matching.py:442
 msgid "Choose a music format and a title before adding this item."
 msgstr "添加此条目前，请选择音乐格式和标题。"
 
@@ -1157,9 +1231,10 @@ msgid "Audible provider access is blocked. No applicable provider authorisation 
 msgstr ""
 
 #: app/services/audiobook_review.py:34 app/services/metadata_review.py:34
+#: app/templates/fragments/add_media_review.html:52
 #: app/templates/fragments/item_editor_common_fields.html:17
 msgid "Subtitle"
-msgstr ""
+msgstr "副标题"
 
 #: app/services/audiobook_review.py:34 app/services/metadata_review.py:34
 msgid "Authors"
@@ -1175,9 +1250,10 @@ msgid "Duration (minutes)"
 msgstr ""
 
 #: app/services/audiobook_review.py:36 app/services/metadata_review.py:35
+#: app/templates/add_media.html:11
 #: app/templates/fragments/item_editor_common_fields.html:68
 msgid "Description"
-msgstr ""
+msgstr "描述"
 
 #: app/services/audiobook_review.py:37 app/services/metadata_review.py:36
 msgid "Publication year"
@@ -1185,8 +1261,9 @@ msgstr ""
 
 #: app/services/audiobook_review.py:38 app/services/library_catalog.py:51
 #: app/services/metadata_review.py:39
+#: app/templates/fragments/add_media_review.html:52
 msgid "Series position"
-msgstr ""
+msgstr "系列序号"
 
 #: app/services/audiobook_review.py:53
 msgid "Audiobook not found."
@@ -1406,10 +1483,13 @@ msgstr ""
 msgid "Page count"
 msgstr ""
 
-#: app/services/metadata_review.py:40
+#: app/services/metadata_review.py:40 app/templates/add_media.html:9
+#: app/templates/add_media.html:148
+#: app/templates/fragments/add_media_manual.html:51
+#: app/templates/fragments/add_media_review.html:52
 #: app/templates/fragments/item_editor_common_fields.html:139
 msgid "ISBN"
-msgstr ""
+msgstr "ISBN"
 
 #: app/services/metadata_review.py:40
 msgid "ISBN-10"
@@ -1788,72 +1868,452 @@ msgstr ""
 msgid "No personal activity yet."
 msgstr ""
 
+#: app/templates/add_media.html:2 app/templates/add_media.html:77
+#: app/templates/fragments/media_navigation.html:19
+msgid "Add media"
+msgstr "添加媒体"
+
+#: app/templates/add_media.html:9 app/templates/add_media.html:148
+msgid "Title or keyword"
+msgstr "标题或关键词"
+
+#: app/templates/add_media.html:9 app/templates/add_media.html:149
+#: app/templates/fragments/add_media_manual.html:51
+msgid "Retail barcode"
+msgstr "零售条形码"
+
+#: app/templates/add_media.html:9 app/templates/add_media.html:149
+#: app/templates/fragments/add_media_results.html:16
+#: app/templates/fragments/add_media_review.html:16
+#: app/templates/fragments/music_matching.html:2
+#: app/templates/fragments/music_matching.html:16
+#: app/templates/fragments/music_matching.html:74 app/templates/music.html:5
+msgid "Catalogue number"
+msgstr "唱片编号"
+
+#: app/templates/add_media.html:9 app/templates/add_media.html:20
+msgid "Manual entry"
+msgstr "手动录入"
+
+#: app/templates/add_media.html:10
+msgid "Automatic (MusicBrainz first for music)"
+msgstr "自动（音乐优先使用 MusicBrainz）"
+
+#: app/templates/add_media.html:10
+msgid "MusicBrainz only"
+msgstr "仅使用 MusicBrainz"
+
+#: app/templates/add_media.html:10
+msgid "Discogs only"
+msgstr "仅使用 Discogs"
+
+#: app/templates/add_media.html:11
+#: app/templates/fragments/add_media_review.html:16
+#: app/templates/fragments/music_matching.html:74
+msgid "Label"
+msgstr "唱片公司"
+
+#: app/templates/add_media.html:11 app/templates/copy_locator.html:12
+#: app/templates/fragments/add_media_review.html:16
+#: app/templates/fragments/music_matching.html:2
+#: app/templates/fragments/music_matching.html:16
+#: app/templates/fragments/music_matching.html:49 app/templates/music.html:5
+#: app/templates/music.html:77
+msgid "Barcode"
+msgstr "条形码"
+
+#: app/templates/add_media.html:17
+#: app/templates/fragments/source_progress.html:72
+msgid "Not supplied"
+msgstr "未提供"
+
+#: app/templates/add_media.html:20
+msgid "MusicBrainz"
+msgstr "MusicBrainz"
+
+#: app/templates/add_media.html:20
+msgid "Discogs"
+msgstr "Discogs"
+
+#: app/templates/add_media.html:20
+msgid "Open Library"
+msgstr "Open Library"
+
+#: app/templates/add_media.html:20
+msgid "IGDB"
+msgstr "IGDB"
+
+#: app/templates/add_media.html:20
+msgid "TMDb"
+msgstr "TMDb"
+
+#: app/templates/add_media.html:20
+msgid "UPC Item DB"
+msgstr "UPC Item DB"
+
+#: app/templates/add_media.html:26 app/templates/add_media.html:117
+msgid "Add to collection"
+msgstr "加入收藏"
+
+#: app/templates/add_media.html:26 app/templates/add_media.html:118
+#: app/templates/browse.html:41
+msgid "Add to wishlist"
+msgstr "加入心愿单"
+
+#: app/templates/add_media.html:29
+msgid "Automatic provider"
+msgstr "自动选择数据提供方"
+
+#: app/templates/add_media.html:33
+msgid "Captured intent — these actions use the details below, not edits in the search form."
+msgstr "已记录的操作设置——这些操作使用以下详情，不采用搜索表单中的修改。"
+
+#: app/templates/add_media.html:36
+msgid "Method"
+msgstr "方式"
+
+#: app/templates/add_media.html:37
+msgid "Search text"
+msgstr "搜索文本"
+
+#: app/templates/add_media.html:38
+msgid "Title hint"
+msgstr "标题线索"
+
+#: app/templates/add_media.html:38
+msgid "Country or region"
+msgstr "国家或地区"
+
+#: app/templates/add_media.html:41
+#: app/templates/fragments/add_media_review.html:52
+msgid "Game platform"
+msgstr "游戏平台"
+
+#: app/templates/add_media.html:47
+msgid "Optional details for a new or restored item"
+msgstr "新建或恢复条目的可选详情"
+
+#: app/templates/add_media.html:50
+msgid "Location ID (optional)"
+msgstr "位置 ID（选填）"
+
+#: app/templates/add_media.html:52
+msgid "Use an existing location ID, or leave blank. The location is checked again when saving."
+msgstr "请输入已有的位置 ID，或留空。保存时会再次核对该位置。"
+
+#: app/templates/add_media.html:55
+msgid "Tags (optional)"
+msgstr "标签（选填）"
+
+#: app/templates/add_media.html:57
+msgid "Separate tags with semicolons."
+msgstr "请用分号分隔标签。"
+
+#: app/templates/add_media.html:61
+msgid "Status (optional)"
+msgstr "状态（选填）"
+
+#: app/templates/add_media.html:63
+msgid "No status"
+msgstr "无状态"
+
+#: app/templates/add_media.html:70
+msgid "These details do not overwrite an existing duplicate or an item promoted from your wishlist."
+msgstr "这些详情不会覆盖已有重复条目或从心愿单移入收藏的条目的原有详情。"
+
+#: app/templates/add_media.html:75
+msgid "Search details changed. The displayed preview, save and manual actions are disabled. Search or continue again to prepare new actions."
+msgstr "搜索详情已更改。当前显示的预览、保存和手动操作已禁用。请再次点击“搜索或继续”，以准备新的操作。"
+
+#: app/templates/add_media.html:78
+msgid "Choose Add or Wishlist, a concrete format and a search method. Search, compare, review and save here; no specialist page is required."
+msgstr "请选择加入收藏或心愿单、具体格式和搜索方式。你可以在此搜索、比较、确认并保存，无需前往专用页面。"
+
+#: app/templates/add_media.html:79
+msgid "This page shows text only and does not load or download artwork. You can add artwork later."
+msgstr "此页面仅显示文本，不加载或下载封面图片。你可以稍后添加封面图片。"
+
+#: app/templates/add_media.html:84
+msgid "Check this action"
+msgstr "检查此操作"
+
+#: app/templates/add_media.html:86
+msgid "The form could not be accepted. Review the fields or start a new search."
+msgstr "无法接受此表单。请检查各字段，或重新搜索。"
+
+#: app/templates/add_media.html:87
+msgid "Check the format, method, provider and field values. ISBNs and retail barcodes must have valid check digits; catalogue numbers are not barcodes."
+msgstr "请检查格式、方式、数据提供方和字段值。ISBN 和零售条形码的校验位必须有效；唱片编号不是条形码。"
+
+#: app/templates/add_media.html:88
+msgid "This form requires ordinary URL-encoded text, not an upload or attachment. Start a new search."
+msgstr "此表单只接受普通的 URL 编码文本，不接受文件上传或附件。请重新搜索。"
+
+#: app/templates/add_media.html:89
+msgid "The submitted form is too large. Shorten the details or start a new search."
+msgstr "提交的表单数据过大。请精简详情，或重新搜索。"
+
+#: app/templates/add_media.html:90
+msgid "The page address is too long. Open Add media again."
+msgstr "页面地址过长。请重新打开“添加媒体”页面。"
+
+#: app/templates/add_media.html:91
+msgid "Your sign-in or editing permission changed. Open Add media again before continuing."
+msgstr "你的登录状态或编辑权限已更改。请重新打开“添加媒体”页面后再继续。"
+
+#: app/templates/add_media.html:92
+msgid "This selection or review expired or changed. Search and preview again before saving."
+msgstr "所选结果或确认内容已过期或发生变化。请在保存前重新搜索并预览。"
+
+#: app/templates/add_media.html:93
+msgid "The captured Add or Wishlist details no longer match this action. Search and preview again."
+msgstr "已记录的“加入收藏或心愿单”详情与此操作不再匹配。请重新搜索并预览。"
+
+#: app/templates/add_media.html:94
+msgid "The provider release does not match the selected format. Choose the correct format and search again; the release will not be relabelled."
+msgstr "数据提供方的发行版本与所选格式不匹配。请选择正确格式并重新搜索；系统不会更改该发行版本的格式标记。"
+
+#: app/templates/add_media.html:95
+#: app/templates/fragments/add_media_receipt.html:12
+msgid "The save outcome is unknown. Check your library before submitting again; do not automatically retry this save."
+msgstr "保存结果未知。再次提交前，请先检查你的资料库；不要自动重试此次保存。"
+
+#: app/templates/add_media.html:96
+msgid "This action could not be completed. Review the details and start a new search."
+msgstr "无法完成此操作。请检查详情并重新搜索。"
+
+#: app/templates/add_media.html:98
+msgid "Review search details"
+msgstr "检查搜索详情"
+
+#: app/templates/add_media.html:98
+msgid "Start again"
+msgstr "重新开始"
+
+#: app/templates/add_media.html:103
+msgid "The item was saved, but follow-up activity could not be recorded. Check the saved item before submitting again."
+msgstr "条目已保存，但无法记录后续活动。再次提交前，请先检查已保存的条目。"
+
+#: app/templates/add_media.html:108
+msgid "Search or prepare manual entry"
+msgstr "搜索或准备手动录入"
+
+#: app/templates/add_media.html:114
+msgid "Add or Wishlist"
+msgstr "加入收藏或心愿单"
+
+#: app/templates/add_media.html:116
+msgid "Choose Add or Wishlist"
+msgstr "选择加入收藏或心愿单"
+
+#: app/templates/add_media.html:122
+msgid "Concrete format"
+msgstr "具体格式"
+
+#: app/templates/add_media.html:124
+msgid "Choose a format"
+msgstr "选择格式"
+
+#: app/templates/add_media.html:127
+msgid "A format is required. No automatic book search or format conversion is performed."
+msgstr "必须选择格式。系统不会自动搜索图书，也不会转换格式。"
+
+#: app/templates/add_media.html:130
+msgid "Search method"
+msgstr "搜索方式"
+
+#: app/templates/add_media.html:132
+msgid "Choose a method"
+msgstr "选择方式"
+
+#: app/templates/add_media.html:135
+msgid "ISBN is for book formats; catalogue number is for music. Manual entry does not contact a provider."
+msgstr "ISBN 用于图书格式；唱片编号用于音乐。手动录入不会联系数据提供方。"
+
+#: app/templates/add_media.html:138
+msgid "Music search provider"
+msgstr "音乐搜索数据提供方"
+
+#: app/templates/add_media.html:140
+msgid "Choose a provider"
+msgstr "选择数据提供方"
+
+#: app/templates/add_media.html:143
+msgid "For non-music formats choose Automatic. Automatic keeps MusicBrainz first, with Discogs fallback only for a successful empty cassette search with both title and artist. Discogs only searches Discogs directly, including catalogue-only searches, without a MusicBrainz fallback."
+msgstr "非音乐格式请选择“自动”。“自动”优先使用 MusicBrainz；仅当同时提供标题和艺术家的卡式磁带搜索成功完成但结果为空时，才会转而使用 Discogs。“仅使用 Discogs”会直接搜索 Discogs，也支持只按唱片编号搜索，不会转而使用 MusicBrainz。"
+
+#: app/templates/add_media.html:147 app/templates/add_media.html:150
+msgid "Title or identifier"
+msgstr "标题或标识符"
+
+#: app/templates/add_media.html:150
+msgid "Title (optional)"
+msgstr "标题（选填）"
+
+#: app/templates/add_media.html:155
+msgid "Use the selected method. Enter catalogue numbers as printed, with artist or title hints when known; a short numeric catalogue code is not a barcode or provider release ID. For manual entry, search text may be left blank."
+msgstr "请使用所选方式。唱片编号应按实物上印制的内容输入，并在已知时补充艺术家或标题线索；较短的纯数字唱片编号不是条形码，也不是数据提供方的发行版本 ID。手动录入时可将搜索文本留空。"
+
+#: app/templates/add_media.html:156
+msgid "Title, artist and title hint: up to 200 characters; catalogue number: 100; ISBN or retail barcode: 32."
+msgstr "标题、艺术家和标题线索：各最多 200 个字符；唱片编号：最多 100 个字符；ISBN 或零售条形码：最多 32 个字符。"
+
+#: app/templates/add_media.html:159
+msgid "Artist (music, optional)"
+msgstr "艺术家（音乐，选填）"
+
+#: app/templates/add_media.html:163
+msgid "Title hint (music identifiers, optional)"
+msgstr "标题线索（按音乐标识符搜索时使用，选填）"
+
+#: app/templates/add_media.html:167
+#: app/templates/fragments/add_media_manual.html:32
+msgid "Game platform (optional)"
+msgstr "游戏平台（选填）"
+
+#: app/templates/add_media.html:169
+#: app/templates/fragments/add_media_manual.html:34
+msgid "Any or unknown platform"
+msgstr "任意或未知平台"
+
+#: app/templates/add_media.html:172
+msgid "A platform can filter title search only when the provider supports it. Unsupported filters are refused, not silently applied."
+msgstr "只有在数据提供方支持时，才能用平台筛选按标题搜索的结果。不受支持的筛选条件会被拒绝，不会在未提示的情况下应用。"
+
+#: app/templates/add_media.html:175
+msgid "Country or region (music, optional)"
+msgstr "国家或地区（音乐，选填）"
+
+#: app/templates/add_media.html:177
+msgid "Automatic and MusicBrainz require a two-letter ASCII country code. Discogs also accepts a region name, up to 80 characters."
+msgstr "“自动”和 MusicBrainz 要求使用两个 ASCII 字母组成的国家代码。Discogs 也接受地区名称，最多 80 个字符。"
+
+#: app/templates/add_media.html:180
+msgid "TV series, digital video and magazines have no catalogue lookup here. Choose Manual entry and continue to enter known details without a provider search."
+msgstr "此处不提供电视剧、数字视频和杂志的目录查询。请选择“手动录入”并继续填写已知详情，无需向数据提供方搜索。"
+
+#: app/templates/add_media.html:181
+msgid "Music matching is turned off. Music can still be entered manually without claiming an exact pressing."
+msgstr "音乐匹配已关闭。你仍可手动录入音乐，但这并不表示已确认具体发行版本。"
+
+#: app/templates/add_media.html:182
+msgid "All controls are shown without JavaScript. Leave inapplicable refinements blank, use Automatic for non-music formats, and submit Search or continue after changing intent. Prepared actions below keep their own captured intent."
+msgstr "未启用 JavaScript 时会显示全部控件。请将不适用的筛选项留空，非音乐格式选择“自动”，更改操作设置后点击“搜索或继续”提交。下方已准备好的操作仍使用各自已记录的设置。"
+
+#: app/templates/add_media.html:183
+msgid "Search or continue"
+msgstr "搜索或继续"
+
+#: app/templates/add_media.html:184
+msgid "Only submitting this form starts a search. Typing or changing a choice does not contact providers."
+msgstr "只有提交此表单才会开始搜索。输入内容或更改选项不会联系数据提供方。"
+
+#: app/templates/add_media.html:191
+msgid "Search outcome"
+msgstr "搜索结果"
+
+#: app/templates/add_media.html:193
+msgid "This lookup requires a configured provider credential. Enter known details manually instead."
+msgstr "此查询需要先配置数据提供方凭据。请改为手动录入已知详情。"
+
+#: app/templates/add_media.html:194
+msgid "The provider rejected this request. This is not an empty catalogue result. You can enter details manually."
+msgstr "数据提供方拒绝了此次请求。这并不是目录查询结果为空。你可以手动录入详情。"
+
+#: app/templates/add_media.html:195
+msgid "The provider rate limit was reached. No automatic retry is made. You can search later or enter details manually."
+msgstr "已达到数据提供方的请求频率限制。系统不会自动重试。你可以稍后搜索，或手动录入详情。"
+
+#: app/templates/add_media.html:196
+msgid "The provider search could not be completed. This does not mean there are no matching editions. You can enter details manually."
+msgstr "无法完成数据提供方搜索。这并不表示没有匹配的版本。你可以手动录入详情。"
+
+#: app/templates/add_media.html:197
+msgid "The search timed out. No automatic retry is made. You can enter details manually or deliberately search again."
+msgstr "搜索已超时。系统不会自动重试。你可以手动录入详情，也可以主动重新搜索。"
+
+#: app/templates/add_media.html:198
+msgid "No matching releases were returned for this search. Check the printed facts or enter details manually."
+msgstr "此次搜索未返回匹配的发行版本。请核对实物上印制的信息，或手动录入详情。"
+
+#: app/templates/add_media.html:199
+msgid "Catalogue lookup is not supported for this format. Enter known details manually; no provider search is needed."
+msgstr "此格式不支持目录查询。请手动录入已知详情，无需向数据提供方搜索。"
+
+#: app/templates/add_media.html:200
+msgid "No usable results were returned, or the selected details could not be read. Refine the search explicitly or enter known details manually."
+msgstr "未返回可用结果，或无法读取所选详情。请明确调整搜索条件，或手动录入已知详情。"
+
+#: app/templates/add_media.html:202
+msgid "Use manual entry below"
+msgstr "使用下方的手动录入"
+
 #: app/templates/audiobook_metadata.html:2
 #: app/templates/audiobook_metadata.html:5
 msgid "Audiobook metadata"
 msgstr ""
 
-#: app/templates/base.html:85
+#: app/templates/base.html:93
 msgid "Keyboard shortcuts (?)"
 msgstr "键盘快捷键 (?)"
 
-#: app/templates/base.html:91
+#: app/templates/base.html:99
 msgid "Keyboard Shortcuts"
 msgstr "键盘快捷键"
 
-#: app/templates/base.html:92
+#: app/templates/base.html:100
 msgid "Close keyboard shortcuts"
 msgstr ""
 
-#: app/templates/base.html:98
+#: app/templates/base.html:106
 msgid "Global"
 msgstr "全局"
 
-#: app/templates/base.html:100
+#: app/templates/base.html:108
 msgid "Focus search"
 msgstr "定位到搜索框"
 
-#: app/templates/base.html:101
+#: app/templates/base.html:109
 msgid "Go to Scan"
 msgstr "前往扫码"
 
-#: app/templates/base.html:102
+#: app/templates/base.html:110
 msgid "Go to Browse"
 msgstr "前往浏览"
 
-#: app/templates/base.html:103
+#: app/templates/base.html:111
 msgid "Open command palette"
 msgstr "打开命令面板"
 
-#: app/templates/base.html:104
+#: app/templates/base.html:112
 msgid "Show shortcuts"
 msgstr "显示快捷键"
 
-#: app/templates/base.html:108
+#: app/templates/base.html:116
 msgid "Browse Page"
 msgstr "浏览页"
 
-#: app/templates/base.html:110
+#: app/templates/base.html:118
 msgid "Toggle grid / list view"
 msgstr "切换网格 / 列表视图"
 
-#: app/templates/base.html:111
+#: app/templates/base.html:119
 msgid "Toggle select mode"
 msgstr "开关选择模式"
 
-#: app/templates/base.html:112
+#: app/templates/base.html:120
 msgid "Toggle filters (mobile)"
 msgstr "显示/隐藏筛选（移动端）"
 
-#: app/templates/base.html:113 app/templates/fragments/item_grid.html:61
+#: app/templates/base.html:121 app/templates/fragments/item_grid.html:61
 msgid "Clear all filters"
 msgstr "清除全部筛选"
 
-#: app/templates/base.html:114
+#: app/templates/base.html:122
 msgid "Exit select / blur search"
 msgstr "退出选择 / 离开搜索框"
 
-#: app/templates/base.html:119
+#: app/templates/base.html:127
 msgid "Shortcuts are disabled when typing in inputs"
 msgstr "在输入框中打字时快捷键不生效"
 
@@ -1883,10 +2343,6 @@ msgstr "清除状态"
 #: app/templates/browse.html:40
 msgid "Wishlist..."
 msgstr "心愿单…"
-
-#: app/templates/browse.html:41
-msgid "Add to wishlist"
-msgstr "加入心愿单"
 
 #: app/templates/browse.html:42
 msgid "Remove from wishlist"
@@ -1980,6 +2436,7 @@ msgid "No location"
 msgstr ""
 
 #: app/templates/browse.html:235
+#: app/templates/fragments/add_media_receipt.html:18
 #: app/templates/fragments/filter_counts_oob.html:27
 #: app/templates/fragments/library_results.html:27
 #: app/templates/library.html:103
@@ -2067,14 +2524,6 @@ msgstr "副本 ID"
 #: app/templates/copy_locator.html:10
 msgid "Item ID"
 msgstr "条目 ID"
-
-#: app/templates/copy_locator.html:12
-#: app/templates/fragments/music_matching.html:2
-#: app/templates/fragments/music_matching.html:16
-#: app/templates/fragments/music_matching.html:49 app/templates/music.html:5
-#: app/templates/music.html:77
-msgid "Barcode"
-msgstr "条形码"
 
 #: app/templates/copy_locator.html:12
 msgid "No barcode recorded"
@@ -2742,9 +3191,10 @@ msgstr ""
 msgid "Not owned"
 msgstr ""
 
+#: app/templates/fragments/add_media_receipt.html:18
 #: app/templates/library.html:105
 msgid "Neither owned nor wishlisted"
-msgstr ""
+msgstr "未拥有，也不在心愿单中"
 
 #: app/templates/library.html:110
 msgid "Any wishlist state"
@@ -2826,12 +3276,8 @@ msgstr "用户名"
 msgid "Password"
 msgstr "密码"
 
-#: app/templates/fragments/music_matching.html:2
-#: app/templates/fragments/music_matching.html:16
-#: app/templates/fragments/music_matching.html:74 app/templates/music.html:5
-msgid "Catalogue number"
-msgstr "唱片编号"
-
+#: app/templates/fragments/add_media_results.html:16
+#: app/templates/fragments/add_media_review.html:16
 #: app/templates/fragments/music_matching.html:2
 #: app/templates/fragments/music_matching.html:74 app/templates/music.html:5
 msgid "Country"
@@ -2861,6 +3307,7 @@ msgstr "这些是可能的发行版本，并非对具体发行版本的自动识
 msgid "Release"
 msgstr "发行版本"
 
+#: app/templates/fragments/add_media_review.html:12
 #: app/templates/fragments/music_matching.html:46 app/templates/music.html:67
 msgid "View release"
 msgstr "查看发行版本"
@@ -2879,6 +3326,8 @@ msgstr "请核对差异"
 msgid "Preview details and artwork"
 msgstr "预览详情与封面"
 
+#: app/templates/fragments/add_media_results.html:33
+#: app/templates/fragments/add_media_review.html:86
 #: app/templates/fragments/music_discogs.html:169
 #: app/templates/fragments/music_matching.html:61
 #: app/templates/fragments/music_matching.html:138 app/templates/music.html:110
@@ -3932,9 +4381,10 @@ msgstr ""
 msgid "Add source"
 msgstr ""
 
+#: app/templates/fragments/add_media_results.html:15
 #: app/templates/sources.html:54
 msgid "Provider"
-msgstr ""
+msgstr "数据提供方"
 
 #: app/templates/sources.html:57
 msgid "LAN and localhost servers are supported. External library links may leave the server URL empty. Credentials and query strings must not be included in server URLs."
@@ -4052,6 +4502,300 @@ msgstr "最近使用"
 #: app/templates/fragments/account_menu.html:204
 msgid "Revoke"
 msgstr "撤销"
+
+#: app/templates/fragments/add_media_manual.html:3
+msgid "Enter known details manually"
+msgstr "手动录入已知详情"
+
+#: app/templates/fragments/add_media_manual.html:4
+msgid "No provider lookup is needed. A title is required; other details are optional. Manual entry does not claim an exact pressing, a provider identity or a track list."
+msgstr "无需向数据提供方查询。标题为必填项，其他详情可选填。手动录入不表示已确认具体发行版本、数据提供方标识或曲目列表。"
+
+#: app/templates/fragments/add_media_manual.html:10
+msgid "Manual save with this captured intent"
+msgstr "按已记录的操作设置手动保存"
+
+#: app/templates/fragments/add_media_manual.html:14
+msgid "Title (required)"
+msgstr "标题（必填）"
+
+#: app/templates/fragments/add_media_manual.html:18
+msgid "Creator or artist (optional)"
+msgstr "创作者或艺术家（选填）"
+
+#: app/templates/fragments/add_media_manual.html:22
+msgid "Publisher or label (optional)"
+msgstr "出版社或唱片公司（选填）"
+
+#: app/templates/fragments/add_media_manual.html:26
+msgid "Year (optional)"
+msgstr "年份（选填）"
+
+#: app/templates/fragments/add_media_manual.html:28
+msgid "Use four ASCII digits for a year from 0001 to 9999, or leave blank."
+msgstr "请用四位 ASCII 数字输入 0001 至 9999 之间的年份，或留空。"
+
+#: app/templates/fragments/add_media_manual.html:40
+msgid "Series (optional)"
+msgstr "系列（选填）"
+
+#: app/templates/fragments/add_media_manual.html:44
+msgid "Language code (optional)"
+msgstr "语言代码（选填）"
+
+#: app/templates/fragments/add_media_manual.html:48
+msgid "Identifier kind"
+msgstr "标识符类型"
+
+#: app/templates/fragments/add_media_manual.html:50
+msgid "Choose an identifier kind"
+msgstr "选择标识符类型"
+
+#: app/templates/fragments/add_media_manual.html:51
+msgid "No identifier"
+msgstr "无标识符"
+
+#: app/templates/fragments/add_media_manual.html:55
+msgid "Identifier (optional)"
+msgstr "标识符（选填）"
+
+#: app/templates/fragments/add_media_manual.html:59
+msgid "Choose No identifier and leave the identifier blank, or enter a valid ISBN or retail UPC/EAN with the corresponding kind. A catalogue number is neither; it is never inferred as an identifier or title."
+msgstr "请选择“无标识符”并将标识符留空，或选择相应类型并输入有效的 ISBN 或零售 UPC/EAN。唱片编号不属于这两类，系统不会将其推定为标识符或标题。"
+
+#: app/templates/fragments/add_media_manual.html:61
+msgid "This page does not load or download artwork. You can add artwork later. Without an identifier, repeated manual submissions may create separate items."
+msgstr "此页面不加载或下载封面图片。你可以稍后添加封面图片。未填写标识符时，多次手动提交可能会创建不同的条目。"
+
+#: app/templates/fragments/add_media_manual.html:62
+msgid "Save manual item to wishlist"
+msgstr "将手动录入的条目保存到心愿单"
+
+#: app/templates/fragments/add_media_manual.html:62
+msgid "Save manual item to collection"
+msgstr "将手动录入的条目保存到收藏"
+
+#: app/templates/fragments/add_media_receipt.html:3
+msgid "Save receipt"
+msgstr "保存回执"
+
+#: app/templates/fragments/add_media_receipt.html:5
+msgid "Added to your collection."
+msgstr "已加入你的收藏。"
+
+#: app/templates/fragments/add_media_receipt.html:6
+msgid "Added to your wishlist."
+msgstr "已加入你的心愿单。"
+
+#: app/templates/fragments/add_media_receipt.html:7
+msgid "The existing wishlist item was moved to your collection."
+msgstr "原有的心愿单条目已移入你的收藏。"
+
+#: app/templates/fragments/add_media_receipt.html:8
+msgid "The item was restored from Trash. Its stored details were retained."
+msgstr "条目已从回收站恢复，原有详情已保留。"
+
+#: app/templates/fragments/add_media_receipt.html:9
+msgid "This item is already in your library. This submission did not change the existing item."
+msgstr "你的资料库中已存在此条目。此次提交未更改已有条目。"
+
+#: app/templates/fragments/add_media_receipt.html:10
+msgid "The item was updated."
+msgstr "条目已更新。"
+
+#: app/templates/fragments/add_media_receipt.html:11
+msgid "This save was refused. Review the details and start a new search."
+msgstr "此次保存已被拒绝。请检查详情并重新搜索。"
+
+#: app/templates/fragments/add_media_receipt.html:16
+msgid "Stored title"
+msgstr "已保存的标题"
+
+#: app/templates/fragments/add_media_receipt.html:17
+msgid "Stored creator or artist"
+msgstr "已保存的创作者或艺术家"
+
+#: app/templates/fragments/add_media_receipt.html:18
+msgid "Stored collection state"
+msgstr "已保存的收藏状态"
+
+#: app/templates/fragments/add_media_receipt.html:18
+msgid "Wishlisted"
+msgstr "在心愿单中"
+
+#: app/templates/fragments/add_media_receipt.html:19
+msgid "Stored format"
+msgstr "已保存的格式"
+
+#: app/templates/fragments/add_media_receipt.html:20
+msgid "Stored source"
+msgstr "已保存的来源"
+
+#: app/templates/fragments/add_media_receipt.html:21
+msgid "Item reference"
+msgstr "条目编号"
+
+#: app/templates/fragments/add_media_receipt.html:23
+msgid "These facts describe the saved item, not every detail suggested by the provider. A duplicate receipt does not mean ownership changed."
+msgstr "这些信息描述的是已保存的条目，并不包含数据提供方建议的所有详情。回执提示条目已存在，并不表示其持有状态发生了变化。"
+
+#: app/templates/fragments/add_media_receipt.html:25
+msgid "Artwork could not be added. The saved item remains available; you can add artwork later."
+msgstr "无法添加封面图片。已保存的条目仍然可用；你可以稍后添加封面图片。"
+
+#: app/templates/fragments/add_media_receipt.html:26
+msgid "Add another item"
+msgstr "再添加一个条目"
+
+#: app/templates/fragments/add_media_results.html:2
+msgid "Compare search results"
+msgstr "比较搜索结果"
+
+#: app/templates/fragments/add_media_results.html:5
+#: app/templates/fragments/add_media_review.html:50
+msgid "Bibliographic results do not prove a particular audiobook recording, eBook vendor edition or digital holding. Check the edition before saving."
+msgstr "书目查询结果不能确认某个特定的有声书录音版本或电子书销售商版本，也不能证明持有某份数字资源。保存前请核对版本。"
+
+#: app/templates/fragments/add_media_results.html:6
+msgid "Movie title results do not establish a particular DVD or Blu-ray edition."
+msgstr "电影标题搜索结果不能确认特定的 DVD 或蓝光版本。"
+
+#: app/templates/fragments/add_media_results.html:8
+msgid "Compare the provider, country, year, label, catalogue number and format. A matching title or catalogue number alone does not prove an exact edition or pressing."
+msgstr "请比较数据提供方、国家或地区、年份、唱片公司、唱片编号和格式。仅凭标题或唱片编号相同，无法确认是否为完全相符的版本或具体发行版本。"
+
+#: app/templates/fragments/add_media_results.html:16
+msgid "Provider identifier"
+msgstr "数据提供方标识符"
+
+#: app/templates/fragments/add_media_results.html:16
+msgid "Creator or artist"
+msgstr "创作者或艺术家"
+
+#: app/templates/fragments/add_media_results.html:16
+msgid "Publisher or label"
+msgstr "出版社或唱片公司"
+
+#: app/templates/fragments/add_media_results.html:16
+#: app/templates/fragments/add_media_review.html:16
+msgid "Provider format"
+msgstr "数据提供方所列格式"
+
+#: app/templates/fragments/add_media_results.html:27
+msgid "Preview with this captured intent"
+msgstr "按已记录的操作设置预览"
+
+#: app/templates/fragments/add_media_results.html:29
+msgid "Preview this result"
+msgstr "预览此结果"
+
+#: app/templates/fragments/add_media_results.html:32
+msgid "This result has no usable selection identifier. Enter known details manually; no identifier will be invented."
+msgstr "此结果没有可用的选择标识符。请手动录入已知详情；系统不会凭空生成标识符。"
+
+#: app/templates/fragments/add_media_review.html:5
+msgid "Review before saving"
+msgstr "保存前确认"
+
+#: app/templates/fragments/add_media_review.html:7
+msgid "Selected provider"
+msgstr "所选数据提供方"
+
+#: app/templates/fragments/add_media_review.html:15
+msgid "Provider release identifier"
+msgstr "数据提供方发行版本标识符"
+
+#: app/templates/fragments/add_media_review.html:16
+#: app/templates/fragments/music_matching.html:74
+msgid "Release date"
+msgstr "发行日期"
+
+#: app/templates/fragments/add_media_review.html:16
+#: app/templates/fragments/music_matching.html:74
+msgid "Packaging"
+msgstr "包装"
+
+#: app/templates/fragments/add_media_review.html:22
+msgid "Identifier"
+msgstr "标识符"
+
+#: app/templates/fragments/add_media_review.html:25
+msgid "Genres and styles"
+msgstr "流派与风格"
+
+#: app/templates/fragments/add_media_review.html:26
+#: app/templates/fragments/music_discogs.html:71
+#: app/templates/fragments/music_matching.html:82
+msgid "Release notes"
+msgstr "发行说明"
+
+#: app/templates/fragments/add_media_review.html:28
+msgid "Discogs details and tracks are displayed live for comparison. Saving uses only the checked catalogue fields and exact pressing reference; Discogs tracks are not copied into the catalogue and no MusicBrainz identity is inferred."
+msgstr "Discogs 详情和曲目会实时显示，供你比较。保存时仅使用勾选的目录字段和具体发行版本的引用信息；不会将 Discogs 曲目复制到目录中，也不会据此推定 MusicBrainz 标识。"
+
+#: app/templates/fragments/add_media_review.html:30
+msgid "Saving attaches this exact MusicBrainz release and its track list. Only the checked catalogue fields below are used."
+msgstr "保存时会关联这个具体的 MusicBrainz 发行版本及其曲目列表。目录字段仅采用下方已勾选的内容。"
+
+#: app/templates/fragments/add_media_review.html:34
+#: app/templates/fragments/music_discogs.html:75
+#: app/templates/fragments/music_matching.html:86
+msgid "Track listing"
+msgstr "曲目列表"
+
+#: app/templates/fragments/add_media_review.html:34
+msgid "Tracks"
+msgstr "曲目"
+
+#: app/templates/fragments/add_media_review.html:40
+msgid "Duration (seconds)"
+msgstr "时长（秒）"
+
+#: app/templates/fragments/add_media_review.html:42
+#: app/templates/fragments/add_media_review.html:45
+msgid "No track details were supplied."
+msgstr "未提供曲目详情。"
+
+#: app/templates/fragments/add_media_review.html:49
+msgid "This is a confirmation of native catalogue fields, not a general metadata editor. To enter different known details, use manual entry below."
+msgstr "此处用于确认目录自身的字段，不是通用元数据编辑器。如需录入其他已知详情，请使用下方的手动录入。"
+
+#: app/templates/fragments/add_media_review.html:52
+msgid "ISBN-13"
+msgstr "ISBN-13"
+
+#: app/templates/fragments/add_media_review.html:57
+msgid "Game saves use native title, publisher, year, description, series and platform fields. A displayed provider ID or developer credit does not establish a stored provider binding or creator field."
+msgstr "保存游戏条目时，使用资料库自身的标题、出版社、年份、描述、系列和平台字段。界面显示的数据提供方 ID 或开发者署名，不代表已保存数据提供方绑定关系或创作者字段。"
+
+#: app/templates/fragments/add_media_review.html:58
+msgid "Movie saves use native title, description and year fields, not a durable provider ID or proof of a particular disc edition."
+msgstr "保存电影条目时，使用资料库自身的标题、描述和年份字段，并不建立持久的数据提供方 ID 关联，也不能确认特定的光盘版本。"
+
+#: app/templates/fragments/add_media_review.html:60
+msgid "No artwork is loaded or selected in this review. You can add artwork later."
+msgstr "此次确认未加载或选择任何封面图片。你可以稍后添加封面图片。"
+
+#: app/templates/fragments/add_media_review.html:66
+msgid "Save with this captured intent"
+msgstr "按已记录的操作设置保存"
+
+#: app/templates/fragments/add_media_review.html:70
+#: app/templates/fragments/music_matching.html:100
+msgid "Choose which catalogue fields to use"
+msgstr "选择要使用的目录字段"
+
+#: app/templates/fragments/add_media_review.html:82
+msgid "Save to wishlist"
+msgstr "保存到心愿单"
+
+#: app/templates/fragments/add_media_review.html:82
+msgid "Save to collection"
+msgstr "保存到收藏"
+
+#: app/templates/fragments/add_media_review.html:83
+msgid "Saving uses this signed review and captured intent. If the acknowledgement is lost, check your library before submitting again; a repeated submission is not guaranteed to be harmless."
+msgstr "保存时使用本次已签名的确认内容和已记录的操作设置。如果保存确认回执丢失，请在再次提交前检查你的资料库；不能保证重复提交不会造成影响。"
 
 #: app/templates/fragments/also_available_as.html:4
 msgid "Also available as:"
@@ -4963,27 +5707,27 @@ msgstr ""
 msgid "Primary navigation"
 msgstr ""
 
-#: app/templates/fragments/media_navigation.html:23
+#: app/templates/fragments/media_navigation.html:29
 msgid "Main menu"
 msgstr "主菜单"
 
-#: app/templates/fragments/media_navigation.html:26
+#: app/templates/fragments/media_navigation.html:32
 msgid "No navigation available."
 msgstr "没有可用的导航。"
 
-#: app/templates/fragments/media_navigation.html:31
+#: app/templates/fragments/media_navigation.html:37
 msgid "Browse media"
 msgstr ""
 
-#: app/templates/fragments/media_navigation.html:31
+#: app/templates/fragments/media_navigation.html:37
 msgid "Media"
 msgstr ""
 
-#: app/templates/fragments/media_navigation.html:45
+#: app/templates/fragments/media_navigation.html:51
 msgid "All items"
 msgstr ""
 
-#: app/templates/fragments/media_navigation.html:96
+#: app/templates/fragments/media_navigation.html:102
 msgid "Manage"
 msgstr ""
 
@@ -5079,16 +5823,6 @@ msgstr "加载最新详情"
 msgid "Load fresh details from the selected public Discogs release without changing your saved catalogue metadata."
 msgstr "从所选的公开 Discogs 发行版本加载最新详情，不会更改您已保存的目录元数据。"
 
-#: app/templates/fragments/music_discogs.html:71
-#: app/templates/fragments/music_matching.html:82
-msgid "Release notes"
-msgstr "发行说明"
-
-#: app/templates/fragments/music_discogs.html:75
-#: app/templates/fragments/music_matching.html:86
-msgid "Track listing"
-msgstr "曲目列表"
-
 #: app/templates/fragments/music_discogs.html:122
 msgid "The selected release can be read publicly without a token. A token is needed only for the optional Discogs search in this panel."
 msgstr "无需令牌即可读取所选发行版本的公开信息。只有此面板中的可选 Discogs 搜索需要令牌。"
@@ -5145,22 +5879,6 @@ msgstr "现有的确切 MusicBrainz 发行版本和曲目列表将保留。只�
 #: app/templates/fragments/music_matching.html:72
 msgid "Applying this match attaches this exact release and replaces its release details and track list. Only checked catalogue fields change."
 msgstr "应用此匹配会关联这一确切发行版本，并替换其发行详情和曲目列表。只有选中的目录字段会更改。"
-
-#: app/templates/fragments/music_matching.html:74
-msgid "Release date"
-msgstr "发行日期"
-
-#: app/templates/fragments/music_matching.html:74
-msgid "Label"
-msgstr "唱片公司"
-
-#: app/templates/fragments/music_matching.html:74
-msgid "Packaging"
-msgstr "包装"
-
-#: app/templates/fragments/music_matching.html:100
-msgid "Choose which catalogue fields to use"
-msgstr "选择要使用的目录字段"
 
 #: app/templates/fragments/music_matching.html:114
 msgid "Add without artwork"
@@ -5638,10 +6356,6 @@ msgstr ""
 
 #: app/templates/fragments/source_progress.html:72
 msgid "Remote playback/update timestamp:"
-msgstr ""
-
-#: app/templates/fragments/source_progress.html:72
-msgid "Not supplied"
 msgstr ""
 
 #: app/templates/fragments/source_progress.html:76

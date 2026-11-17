@@ -12,7 +12,13 @@
 <nav data-media-navigation aria-label="{{ _('Primary navigation')|forceescape }}" class="media-navigation bg-shelf-card border-b border-shelf-border sticky top-0 z-50">
     <div class="app-shell">
         <div class="media-navigation__bar">
-            <a href="/" class="text-lg font-bold text-shelf-accent2 tracking-tight media-navigation__brand"{% if request.url.path == '/' %} aria-current="page"{% endif %}>Shelf</a>
+            <div class="flex min-w-0 flex-wrap items-center gap-x-3 gap-y-1">
+                <a href="/" class="text-lg font-bold text-shelf-accent2 tracking-tight media-navigation__brand"{% if request.url.path == '/' %} aria-current="page"{% endif %}>Shelf</a>
+                {% if user and user.role in ('editor', 'admin') and add_media_entry_url is defined and add_media_entry_url %}
+                <a href="{{ add_media_entry_url }}" data-testid="add-media-entry"
+                   class="inline-flex items-center rounded-lg border border-shelf-border bg-shelf-card px-3 py-2 text-sm font-medium text-shelf-accent2 hover:bg-shelf-hover focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-shelf-accent">{{ _('Add media') }}</a>
+                {% endif %}
+            </div>
             <div class="media-navigation__main">
                 {% if media_navigation.primary %}
                 <a href="{{ media_navigation.primary.path }}" data-nav-primary="browse" data-nav-tab="browse" data-nav-menu-tab="browse"

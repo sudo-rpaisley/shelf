@@ -108,7 +108,7 @@
              4-digit collection overflowed a 320px viewport while a 1-digit one
              fitted. Wrapping makes the row count-independent instead of
              fitting only until the library grows. -->
-        <div class="flex flex-wrap items-center gap-3">
+        <div class="relative flex flex-wrap items-center gap-3">
             <h1 class="text-2xl font-bold whitespace-nowrap">{{ _('Collection') }} <span id="collection-count" class="text-shelf-muted text-lg font-normal">({{ filtered_total }})</span></h1>
             <!-- View toggle -->
             <div class="flex items-center shrink-0 bg-shelf-card border border-shelf-border rounded-lg overflow-hidden" data-testid="view-toggle">
@@ -122,7 +122,7 @@
                 </button>
             </div>
             <!-- Select mode -->
-            <div class="relative shrink-0">
+            <div class="shrink-0">
                 <button @click="toggleSelectMode()"
                         @mouseenter="maybeShowSelectTip()"
                         @mouseleave="showSelectTip = false"
@@ -131,8 +131,8 @@
                     <span x-text="selectModeLabel"></span>
                 </button>
                 <!-- First-use tooltip -->
-                <div x-show="showSelectTip" x-transition
-                     class="absolute top-full left-0 mt-2 w-48 bg-shelf-card border border-shelf-border rounded-lg p-2 shadow-xl z-50 text-xs text-shelf-muted">
+                <div x-show="showSelectTip" x-transition x-cloak
+                     class="absolute top-full right-0 mt-2 w-48 bg-shelf-card border border-shelf-border rounded-lg p-2 shadow-xl z-50 text-xs text-shelf-muted">
                     {{ _('Tap items to select them for bulk actions such as moving, type/status/series changes, tagging, or deleting.') }}
                 </div>
             </div>

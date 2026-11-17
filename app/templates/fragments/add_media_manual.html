@@ -1,0 +1,65 @@
+{% set manual = add.manual %}
+<section aria-labelledby="add-media-manual-heading" class="bg-shelf-card border border-shelf-border rounded-xl p-4 sm:p-6 space-y-4">
+    <h2 id="add-media-manual-heading" class="text-lg font-semibold">{{ _('Enter known details manually') }}</h2>
+    <p class="text-sm text-shelf-muted">{{ _('No provider lookup is needed. A title is required; other details are optional. Manual entry does not claim an exact pressing, a provider identity or a track list.') }}</p>
+    {{ captured_intent(add.intent) }}
+    <form method="post" action="{{ request.url_for('add_media_manual') }}" accept-charset="UTF-8" data-testid="add-media-manual" data-add-prepared class="space-y-4">
+        <input type="hidden" name="_csrf" value="{{ request.cookies.get('csrf_token', '') }}">
+        <input type="hidden" name="context" value="{{ add.intent_context }}">
+        <fieldset data-add-prepared-controls class="space-y-4">
+            <legend class="text-xs text-shelf-muted">{{ _('Manual save with this captured intent') }}</legend>
+            {{ action_intent(add.intent) }}
+            <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <div class="min-w-0 sm:col-span-2">
+                    <label for="add-media-manual-title" class="block text-sm text-shelf-muted">{{ _('Title (required)') }}</label>
+                    <input id="add-media-manual-title" name="title" required maxlength="200" value="{{ manual.get('title') or '' }}" class="{{ control_class }}">
+                </div>
+                <div class="min-w-0">
+                    <label for="add-media-manual-authors" class="block text-sm text-shelf-muted">{{ _('Creator or artist (optional)') }}</label>
+                    <input id="add-media-manual-authors" name="authors" maxlength="200" value="{{ manual.get('authors') or '' }}" class="{{ control_class }}">
+                </div>
+                <div class="min-w-0">
+                    <label for="add-media-manual-publisher" class="block text-sm text-shelf-muted">{{ _('Publisher or label (optional)') }}</label>
+                    <input id="add-media-manual-publisher" name="publisher" maxlength="200" value="{{ manual.get('publisher') or '' }}" class="{{ control_class }}">
+                </div>
+                <div class="min-w-0">
+                    <label for="add-media-manual-year" class="block text-sm text-shelf-muted">{{ _('Year (optional)') }}</label>
+                    <input id="add-media-manual-year" name="publish_year" type="text" inputmode="numeric" pattern="(?!0000)[0-9]{4}" minlength="4" maxlength="4" value="{{ manual.get('publish_year') or '' }}" aria-describedby="add-media-manual-year-help" class="{{ control_class }}">
+                    <p id="add-media-manual-year-help" class="text-xs text-shelf-muted mt-1">{{ _('Use four ASCII digits for a year from 0001 to 9999, or leave blank.') }}</p>
+                </div>
+                {% if add.intent.media_type == 'video_game' %}
+                <div class="min-w-0">
+                    <label for="add-media-manual-platform" class="block text-sm text-shelf-muted">{{ _('Game platform (optional)') }}</label>
+                    <select id="add-media-manual-platform" name="platform" class="{{ control_class }}">
+                        <option value="">{{ _('Any or unknown platform') }}</option>
+                        {% for key, label in add.platforms.items() %}<option value="{{ key }}"{% if manual.get('platform') == key %} selected{% endif %}>{{ label|e }}</option>{% endfor %}
+                    </select>
+                </div>
+                {% endif %}
+                <div class="min-w-0">
+                    <label for="add-media-manual-series" class="block text-sm text-shelf-muted">{{ _('Series (optional)') }}</label>
+                    <input id="add-media-manual-series" name="series_name" maxlength="200" value="{{ manual.get('series_name') or '' }}" class="{{ control_class }}">
+                </div>
+                <div class="min-w-0">
+                    <label for="add-media-manual-language" class="block text-sm text-shelf-muted">{{ _('Language code (optional)') }}</label>
+                    <input id="add-media-manual-language" name="language" maxlength="35" value="{{ manual.get('language') or '' }}" class="{{ control_class }}">
+                </div>
+                <div class="min-w-0">
+                    <label for="add-media-manual-identifier-kind" class="block text-sm text-shelf-muted">{{ _('Identifier kind') }}</label>
+                    <select id="add-media-manual-identifier-kind" name="identifier_kind" required class="{{ control_class }}" aria-describedby="add-media-manual-identifier-help">
+                        {% if manual.get('identifier_kind', 'none') not in ('none', 'isbn', 'barcode') %}<option value="" selected disabled>{{ _('Choose an identifier kind') }}</option>{% endif %}
+                        {% for key, label in [('none', _('No identifier')), ('isbn', _('ISBN')), ('barcode', _('Retail barcode'))] %}<option value="{{ key }}"{% if manual.get('identifier_kind', 'none') == key %} selected{% endif %}>{{ label }}</option>{% endfor %}
+                    </select>
+                </div>
+                <div class="min-w-0">
+                    <label for="add-media-manual-identifier" class="block text-sm text-shelf-muted">{{ _('Identifier (optional)') }}</label>
+                    <input id="add-media-manual-identifier" name="identifier" maxlength="32" value="{{ manual.get('identifier') or '' }}" aria-describedby="add-media-manual-identifier-help" class="{{ control_class }}">
+                </div>
+            </div>
+            <p id="add-media-manual-identifier-help" class="text-xs text-shelf-muted">{{ _('Choose No identifier and leave the identifier blank, or enter a valid ISBN or retail UPC/EAN with the corresponding kind. A catalogue number is neither; it is never inferred as an identifier or title.') }}</p>
+            {{ add_details('add-media-manual', add.intent, manual) }}
+            <p class="text-xs text-shelf-muted">{{ _('This page does not load or download artwork. You can add artwork later. Without an identifier, repeated manual submissions may create separate items.') }}</p>
+            <button type="submit" class="{{ button_class }}">{% if add.intent.mode == 'wishlist' %}{{ _('Save manual item to wishlist') }}{% else %}{{ _('Save manual item to collection') }}{% endif %}</button>
+        </fieldset>
+    </form>
+</section>

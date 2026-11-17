@@ -645,6 +645,11 @@ def test_every_top_level_page_is_reachable_from_the_nav():
 
     EXEMPT = {
         "/": "the brand link in base.html is the Home affordance",
+        "/add": (
+            "normal shell editor/admin Add Media entry outside NAV_TABS; guarded by "
+            "test_add_media_boundaries.py::test_native_shell_add_entry_reaches_real_canonical_add_get "
+            "and ::test_nav_census_metadata_control_still_rejects_an_unclassified_top_level_get"
+        ),
         "/login": "pre-auth",
         "/setup": "pre-auth, first run only",
         "/health": "machine endpoint, not a page",

@@ -1,0 +1,38 @@
+<section data-testid="add-media-results" aria-labelledby="add-media-results-heading" class="space-y-4">
+    <h2 id="add-media-results-heading" class="text-lg font-semibold">{{ _('Compare search results') }} (<bdi>{{ add.results|length }}</bdi>)</h2>
+    {% if add.intent %}
+    {{ captured_intent(add.intent) }}
+    {% if add.intent.media_type in book_types %}<p class="text-sm text-shelf-muted">{{ _('Bibliographic results do not prove a particular audiobook recording, eBook vendor edition or digital holding. Check the edition before saving.') }}</p>{% endif %}
+    {% if add.intent.media_type == 'dvd' %}<p class="text-sm text-shelf-muted">{{ _('Movie title results do not establish a particular DVD or Blu-ray edition.') }}</p>{% endif %}
+    {% endif %}
+    <p class="text-sm text-shelf-muted">{{ _('Compare the provider, country, year, label, catalogue number and format. A matching title or catalogue number alone does not prove an exact edition or pressing.') }}</p>
+    <ol class="grid grid-cols-1 lg:grid-cols-2 gap-4">
+        {% for result in add.results %}
+        <li class="min-w-0">
+            <article class="h-full bg-shelf-card border border-shelf-border rounded-xl p-4 space-y-3">
+                <h3 class="font-semibold">{{ fact(result.title) }}</h3>
+                <dl class="grid grid-cols-1 sm:grid-cols-2 gap-2 text-sm">
+                    <div class="min-w-0"><dt class="text-shelf-muted">{{ _('Provider') }}</dt><dd>{{ provider_name(result.provider) }}</dd></div>
+                    {% for value, label in [(result.identifier, _('Provider identifier')), (result.authors, _('Creator or artist')), (result.publish_year, _('Year')), (result.country, _('Country')), (result.label, _('Publisher or label')), (result.catalog_number, _('Catalogue number')), (result.format_summary, _('Provider format'))] %}
+                    <div class="min-w-0"><dt class="text-shelf-muted">{{ label }}</dt><dd>{{ fact(value) }}</dd></div>
+                    {% endfor %}
+                </dl>
+                {% if result.description %}<p class="text-sm whitespace-pre-wrap">{{ fact(result.description) }}</p>{% endif %}
+                {% if result.selection and add.intent_context and add.intent %}
+                <form method="post" action="{{ request.url_for('add_media_preview') }}" accept-charset="UTF-8" data-testid="add-media-preview" data-add-prepared class="space-y-3">
+                    <input type="hidden" name="_csrf" value="{{ request.cookies.get('csrf_token', '') }}">
+                    <input type="hidden" name="context" value="{{ add.intent_context }}">
+                    <input type="hidden" name="selection" value="{{ result.selection }}">
+                    <fieldset data-add-prepared-controls class="space-y-2">
+                        <legend class="text-xs text-shelf-muted">{{ _('Preview with this captured intent') }}</legend>
+                        {{ action_intent(add.intent, result.provider) }}
+                        <button type="submit" class="{{ button_class }}">{{ _('Preview this result') }}</button>
+                    </fieldset>
+                </form>
+                {% else %}<p class="text-sm text-shelf-warning">{{ _('This result has no usable selection identifier. Enter known details manually; no identifier will be invented.') }}</p>{% endif %}
+                {% if result.provider == 'discogs' %}<p class="text-xs text-shelf-muted"><a href="https://www.discogs.com" target="_blank" rel="noopener noreferrer" referrerpolicy="no-referrer" class="text-shelf-accent2 underline">{{ _('Data provided by Discogs') }}</a></p>{% endif %}
+            </article>
+        </li>
+        {% endfor %}
+    </ol>
+</section>

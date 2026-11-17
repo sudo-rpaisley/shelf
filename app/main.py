@@ -44,7 +44,7 @@ from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.requests import Request
 from starlette.responses import JSONResponse, Response, RedirectResponse
 
-from app import browse_columns, browse_filters, i18n
+from app import add_media_http, browse_columns, browse_filters, i18n
 from app.config import (
     COVERS_DIR,
     CREATOR_LABELS,
@@ -73,7 +73,25 @@ from app.routers import api_tokens as api_token_routes
 
 class SecurityHeadersMiddleware(BaseHTTPMiddleware):
     async def dispatch(self, request: Request, call_next) -> Response:
-        response = await call_next(request)
+        add_owned = add_media_http.owns(request.scope)
+        response = add_media_http.route_refusal(request.scope) if add_owned else None
+        add_failed = False
+        if response is None:
+            try:
+                response = await call_next(request)
+            except Exception:
+                if not add_owned:
+                    raise
+                # Do not echo provider exceptions or assume an interrupted save
+                # did not commit. Cancellation is deliberately not caught here.
+                response = add_media_http.error("outcome_unknown", 500)
+                add_failed = True
+        if add_failed:
+            # A failing log handler must not inherit a provider exception's
+            # context and disclose it through logging's stderr diagnostics.
+            logger.error("Add media request failed before response completion")
+        if add_owned:
+            response.headers["Cache-Control"] = "no-store"
         response.headers["X-Content-Type-Options"] = "nosniff"
         # Browsers ignore HSTS over http://, and behind a trusted TLS proxy the scheme is already https.
         if request.url.scheme == "https":
@@ -161,12 +179,18 @@ class CSRFMiddleware(BaseHTTPMiddleware):
 
     async def dispatch(self, request: Request, call_next) -> Response:
         path = request.url.path
+        add_owned = add_media_http.owns(request.scope)
 
         # Only validate state-mutating methods on authenticated paths
         if request.method not in _CSRF_METHODS:
             return await call_next(request)
-        if path in _SKIP_AUTH_PATHS or path.startswith(_SKIP_AUTH_PREFIXES):
+        if not add_owned and (path in _SKIP_AUTH_PATHS or path.startswith(_SKIP_AUTH_PREFIXES)):
             return await call_next(request)
+
+        if add_owned:
+            refusal = await add_media_http.preflight(request)
+            if refusal is not None:
+                return refusal
 
         cookie_token = request.cookies.get("csrf_token")
         if not cookie_token:
@@ -191,10 +215,12 @@ class CSRFMiddleware(BaseHTTPMiddleware):
         # We replay the body via a patched Request so the route handler can still
         # read the form data normally.
         submitted = request.headers.get("X-CSRF-Token")
-        body_bytes: bytes | None = None
+        body_bytes: bytes | None = request.state.add_media_body if add_owned else None
         if not submitted:
             content_type = request.headers.get("content-type", "")
-            if "application/x-www-form-urlencoded" in content_type or "multipart/form-data" in content_type:
+            if add_owned:
+                submitted = add_media_http.form(request).get("_csrf")
+            elif "application/x-www-form-urlencoded" in content_type or "multipart/form-data" in content_type:
                 # This small decision form has no uploads. Enforce its limit
                 # here as well as in the route: plain-form CSRF parsing must
                 # not buffer the entire body before the route can refuse it.
@@ -280,6 +306,7 @@ class AuthMiddleware(BaseHTTPMiddleware):
         from app.auth import get_current_user, should_refresh_token, set_auth_cookie, get_user_count
 
         path = request.url.path
+        add_owned = add_media_http.owns(request.scope)
 
         # The UI locale (app/i18n.py), set before call_next so the route and its
         # templates run in this context and read it. The browser's choice first,
@@ -291,12 +318,19 @@ class AuthMiddleware(BaseHTTPMiddleware):
             i18n.current_locale.set(i18n.resolve(None, accept_language))
 
         # Skip auth for static assets
-        if path.startswith(_SKIP_AUTH_PREFIXES):
+        if not add_owned and path.startswith(_SKIP_AUTH_PREFIXES):
             return await call_next(request)
 
         # /api/v1 answers machines: a bearer token or a cookie, and 401 JSON
         # rather than the /login redirect. A bearer is read nowhere else (G117).
-        if _is_v1(path):
+        if add_owned:
+            try:
+                user = get_current_user(request)
+            except (KeyError, TypeError, ValueError):
+                # Keep malformed signed legacy claims from escaping the native
+                # login boundary; operational errors still reach the scoped 500.
+                user = None
+        elif _is_v1(path):
             header = request.headers.get("authorization")
             if header is not None:
                 return await _bearer_dispatch(request, call_next, header)
@@ -328,6 +362,13 @@ class AuthMiddleware(BaseHTTPMiddleware):
                 if path != "/login":
                     return RedirectResponse(url="/login", status_code=303)
 
+        if add_owned and user and user.get("role") in {"editor", "admin"}:
+            from app import add_media_context
+            try:
+                request.state.add_media_actor = add_media_context.capture_actor(request, user)
+            except (KeyError, TypeError, ValueError):
+                return add_media_http.error("actor_changed", 401)
+
         response = await call_next(request)
 
         # Login/logout and account edits own their outgoing auth cookies. A
@@ -338,7 +379,7 @@ class AuthMiddleware(BaseHTTPMiddleware):
             for value in response.headers.getlist("set-cookie")
         )
         # Sliding expiry remains optional for otherwise ordinary responses.
-        if user and not auth_cookies_set:
+        if user and not auth_cookies_set and not add_owned:
             fresh_token = should_refresh_token(request, user)
             if fresh_token:
                 set_auth_cookie(request, response, fresh_token, request.cookies.get("csrf_token"))
@@ -367,7 +408,8 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
 
         # Only rate-limit API and auth endpoints
         path = request.url.path
-        if not (path.startswith(("/api/", "/share/")) or path in ("/login", "/setup")):
+        if not (path.startswith(("/api/", "/share/")) or path in ("/login", "/setup")
+                or add_media_http.owns(request.scope)):
             return await call_next(request)
 
         ip = get_client_ip(request)
@@ -376,7 +418,7 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
         # A bearer on /api/v1 draws on its own bucket, so a dashboard behind
         # the browser's proxy starves itself, not the UI. A refused bearer is
         # charged to the IP, so rotating random tokens escapes nothing.
-        token_key = self._token_key(request, path)
+        token_key = None if add_media_http.owns(request.scope) else self._token_key(request, path)
         if token_key:
             if len(self._recent(ip, now)) >= self.rpm:
                 return Response("Rate limit exceeded", status_code=429)
@@ -962,6 +1004,8 @@ app.include_router(cover_review.router)
 app.include_router(cover_review_actions.router)
 app.include_router(items_csv.router)
 app.include_router(items_catalog.router)
+from app.routers import add_media
+app.include_router(add_media.router)
 app.include_router(locations.router)
 app.include_router(location_order.router)
 app.include_router(platforms.router)

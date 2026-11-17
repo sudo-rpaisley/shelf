@@ -3,7 +3,7 @@
 msgid ""
 msgstr ""
 "Report-Msgid-Bugs-To: andrea@bergamasco.me\n"
-"PO-Revision-Date: 2026-11-16 03:37+0000\n"
+"PO-Revision-Date: 2026-11-16 22:34+0000\n"
 "Last-Translator: Andrea Bergamasco\n"
 "Language: it\n"
 "Language-Team: Italian\n"
@@ -12,8 +12,41 @@ msgstr ""
 "Content-Type: text/plain; charset=utf-8\n"
 "Content-Transfer-Encoding: 8bit"
 
+#: app/add_media_http.py:30
+msgid "Submit each control once using the Add media form."
+msgstr "Invia ciascun campo una sola volta tramite il modulo «Aggiungi contenuti»."
+
+#: app/add_media_http.py:31
+msgid "Submit the form without attachments or compression."
+msgstr "Invia il modulo senza allegati né compressione."
+
+#: app/add_media_http.py:32
+msgid "The Add media form is too large."
+msgstr "Il modulo «Aggiungi contenuti» è troppo grande."
+
+#: app/add_media_http.py:33
+msgid "The Add media address is too long."
+msgstr "L'indirizzo di «Aggiungi contenuti» è troppo lungo."
+
+#: app/add_media_http.py:34
+msgid "Your session or account changed. Open Add media again before continuing."
+msgstr "La tua sessione o il tuo account sono cambiati. Apri di nuovo «Aggiungi contenuti» prima di continuare."
+
+#: app/add_media_http.py:35
+msgid "This Add media address was not found."
+msgstr "Questo indirizzo di «Aggiungi contenuti» non è stato trovato."
+
+#: app/add_media_http.py:36
+msgid "Use the method shown on the Add media form."
+msgstr "Usa il metodo indicato nel modulo «Aggiungi contenuti»."
+
+#: app/add_media_http.py:37
+msgid "The request could not be completed. If you were saving, check your library before trying again."
+msgstr "Non è stato possibile completare la richiesta. Se stavi salvando, controlla la tua libreria prima di riprovare."
+
 #: app/browse_columns.py:62 app/services/audiobook_review.py:34
 #: app/services/library_catalog.py:50 app/services/metadata_review.py:34
+#: app/templates/add_media.html:11
 #: app/templates/fragments/item_editor_common_fields.html:16
 #: app/templates/fragments/music_matching.html:2 app/templates/music.html:5
 msgid "Title"
@@ -49,6 +82,7 @@ msgstr "Valore"
 
 #: app/browse_columns.py:68 app/nav.py:49 app/services/audiobook_review.py:38
 #: app/services/metadata_review.py:38 app/templates/browse.html:50
+#: app/templates/fragments/add_media_review.html:52
 #: app/templates/fragments/item_editor_sections/books.html:3
 #: app/templates/fragments/item_editor_sections/books.html:7
 #: app/templates/fragments/manual_add_form.html:155
@@ -58,19 +92,22 @@ msgstr "Serie"
 
 #: app/browse_columns.py:69 app/services/audiobook_review.py:36
 #: app/services/metadata_review.py:36
+#: app/templates/fragments/add_media_review.html:52
 #: app/templates/fragments/item_editor_common_fields.html:31
 #: app/templates/fragments/manual_add_form.html:96
 msgid "Publisher"
 msgstr "Editore"
 
-#: app/browse_columns.py:70
+#: app/browse_columns.py:70 app/templates/add_media.html:11
+#: app/templates/fragments/add_media_results.html:16
+#: app/templates/fragments/add_media_review.html:52
 #: app/templates/fragments/item_editor_common_fields.html:32
 #: app/templates/fragments/manual_add_form.html:99
 #: app/templates/reading_life.html:17 app/templates/reading_life.html:56
 msgid "Year"
 msgstr "Anno"
 
-#: app/browse_columns.py:71
+#: app/browse_columns.py:71 app/templates/fragments/add_media_review.html:52
 #: app/templates/fragments/item_editor_sections/books.html:9
 msgid "Pages"
 msgstr "Pagine"
@@ -78,6 +115,7 @@ msgstr "Pagine"
 #: app/browse_columns.py:72 app/browse_filters.py:241
 #: app/services/audiobook_review.py:37 app/services/metadata_review.py:38
 #: app/templates/browse.html:66 app/templates/fragments/account_menu.html:116
+#: app/templates/fragments/add_media_review.html:52
 #: app/templates/fragments/item_editor_common_fields.html:36
 msgid "Language"
 msgstr "Lingua"
@@ -215,17 +253,17 @@ msgstr "In gioco"
 msgid "Played"
 msgstr "Giocato"
 
-#: app/config.py:60
+#: app/config.py:60 app/templates/add_media.html:63
 msgid "Want to"
 msgstr "Da iniziare"
 
 #: app/config.py:60 app/services/personal_library.py:18
-#: app/services/reading_life.py:30
+#: app/services/reading_life.py:30 app/templates/add_media.html:63
 msgid "In progress"
 msgstr "In corso"
 
 #: app/config.py:60 app/services/personal_library.py:19
-#: app/services/reading_life.py:31
+#: app/services/reading_life.py:31 app/templates/add_media.html:63
 msgid "Finished"
 msgstr "Finito"
 
@@ -242,10 +280,14 @@ msgid "Director"
 msgstr "Regista"
 
 #: app/config.py:137 app/services/library_catalog.py:50
+#: app/templates/fragments/add_media_review.html:52
 msgid "Creator"
-msgstr ""
+msgstr "Autore"
 
-#: app/config.py:140 app/templates/fragments/music_matching.html:2
+#: app/config.py:140 app/templates/add_media.html:11
+#: app/templates/add_media.html:38
+#: app/templates/fragments/add_media_review.html:16
+#: app/templates/fragments/music_matching.html:2
 #: app/templates/fragments/music_matching.html:16
 #: app/templates/fragments/music_matching.html:74
 #: app/templates/fragments/music_title_search.html:22
@@ -416,6 +458,43 @@ msgstr ""
 msgid "Back to collection"
 msgstr "Torna alla collezione"
 
+#: app/routers/add_media.py:41
+msgid "The submitted form could not be read. Reload Add Media and try again."
+msgstr "Non è stato possibile leggere il modulo inviato. Ricarica «Aggiungi contenuti» e riprova."
+
+#: app/routers/add_media.py:42
+msgid "Check the selected format, method and entered values."
+msgstr "Controlla il formato selezionato, il metodo e i valori inseriti."
+
+#: app/routers/add_media.py:43
+msgid "Your session changed or expired. Reload Add Media before continuing."
+msgstr "La tua sessione è cambiata o è scaduta. Ricarica «Aggiungi contenuti» prima di continuare."
+
+#: app/routers/add_media.py:44
+msgid "That preview expired or changed. Search and preview the selection again."
+msgstr "L'anteprima è scaduta o è cambiata. Ripeti la ricerca e visualizza di nuovo l'anteprima della selezione."
+
+#: app/routers/add_media.py:45
+msgid "The add intent changed. Search and preview the selection again."
+msgstr "La scelta per l'aggiunta è cambiata. Ripeti la ricerca e visualizza di nuovo l'anteprima della selezione."
+
+#: app/routers/add_media.py:46 app/routers/music_matching.py:86
+#: app/routers/music_matching.py:289 app/routers/music_matching.py:444
+msgid "The selected format contradicts the provider's release details. Choose the correct pressing."
+msgstr "Il formato selezionato è in contrasto con i dettagli dell'edizione restituiti dal fornitore dei dati. Scegli l'edizione corretta."
+
+#: app/routers/add_media.py:47
+msgid "Music matching is turned off. You can still add music manually."
+msgstr "La ricerca di corrispondenze musicali è disattivata. Puoi comunque aggiungere musica manualmente."
+
+#: app/routers/add_media.py:48
+msgid "The save outcome is unknown. Check your collection before submitting again."
+msgstr "L'esito del salvataggio è sconosciuto. Controlla la tua collezione prima di inviare di nuovo."
+
+#: app/routers/add_media.py:373
+msgid "Retail product facts only. Search by title explicitly or add manually."
+msgstr "Solo dati sul prodotto commerciale. Avvia esplicitamente una ricerca per titolo oppure aggiungi l'elemento manualmente."
+
 #: app/routers/api_tokens.py:63
 msgid "Give the token a name"
 msgstr "Dai un nome al token"
@@ -572,51 +651,51 @@ msgstr "Impossibile aggiungere la copia."
 msgid "Could not save that copy."
 msgstr "Impossibile salvare la copia."
 
-#: app/routers/items.py:997
+#: app/routers/items.py:1006
 msgid "No items or updates specified"
 msgstr "Nessun elemento o modifica specificati"
 
-#: app/routers/items.py:1002 app/routers/tags.py:71 app/routers/tags.py:76
+#: app/routers/items.py:1011 app/routers/tags.py:71 app/routers/tags.py:76
 msgid "Invalid item IDs"
 msgstr "ID elemento non validi"
 
-#: app/routers/items.py:1007
+#: app/routers/items.py:1016
 msgid "No valid fields to update"
 msgstr "Nessun campo valido da aggiornare"
 
-#: app/routers/items.py:1013
+#: app/routers/items.py:1022
 msgid "Series name cannot be empty"
 msgstr "Il nome della serie non può essere vuoto"
 
-#: app/routers/items_catalog.py:95
+#: app/routers/items_catalog.py:169
 msgid "Unrecognised game platform — pick one and try again"
 msgstr "Piattaforma di gioco non riconosciuta: scegline una e riprova"
 
-#: app/routers/items_catalog.py:112
+#: app/routers/items_catalog.py:186
 msgid "Failed to fetch game details from IGDB"
 msgstr "Impossibile recuperare i dettagli del gioco da IGDB"
 
-#: app/routers/items_catalog.py:209
+#: app/routers/items_catalog.py:266
 msgid "Choose Add or Wishlist before adding music by hand."
 msgstr "Scegli Aggiungi o Lista dei desideri prima di aggiungere musica a mano."
 
-#: app/routers/items_catalog.py:289
+#: app/routers/items_catalog.py:346
 msgid "Unrecognised media type — pick one and try again"
 msgstr "Tipo di media non riconosciuto: scegline uno e riprova"
 
-#: app/routers/items_catalog.py:297
+#: app/routers/items_catalog.py:354
 msgid "Invalid ISBN"
 msgstr "ISBN non valido"
 
-#: app/routers/items_catalog.py:339
+#: app/routers/items_catalog.py:396
 msgid "Could not fetch metadata for this ISBN"
 msgstr "Impossibile recuperare i dati per questo ISBN"
 
-#: app/routers/items_catalog.py:459
+#: app/routers/items_catalog.py:516
 msgid "Title is required"
 msgstr "Il titolo è obbligatorio"
 
-#: app/routers/items_catalog.py:467
+#: app/routers/items_catalog.py:524
 msgid "Invalid publish year"
 msgstr "Anno di pubblicazione non valido"
 
@@ -758,72 +837,67 @@ msgstr "Seleziona un'edizione Discogs prima di caricarne i dettagli pubblici."
 msgid "Discogs returned a different release. Nothing was changed."
 msgstr "Discogs ha restituito un'edizione diversa. Non è stato modificato nulla."
 
-#: app/routers/music_matching.py:56
+#: app/routers/music_matching.py:61
 msgid "The release format contradicts this item's music format. Choose the correct pressing."
 msgstr "Il formato dell'edizione è in contrasto con il formato musicale di questo elemento. Scegli l'edizione corretta."
 
-#: app/routers/music_matching.py:74
+#: app/routers/music_matching.py:79
 msgid "The provider returned unreadable release details."
 msgstr "Il fornitore dei dati ha restituito dettagli dell'edizione illeggibili."
 
-#: app/routers/music_matching.py:78
+#: app/routers/music_matching.py:83
 msgid "The provider returned a different release. Preview the exact release again."
 msgstr "Il fornitore dei dati ha restituito un'edizione diversa. Visualizza di nuovo l'anteprima dell'edizione esatta."
 
-#: app/routers/music_matching.py:81 app/routers/music_matching.py:224
-#: app/routers/music_matching.py:298
-msgid "The selected format contradicts the provider's release details. Choose the correct pressing."
-msgstr "Il formato selezionato è in contrasto con i dettagli dell'edizione restituiti dal fornitore dei dati. Scegli l'edizione corretta."
-
-#: app/routers/music_matching.py:90
+#: app/routers/music_matching.py:95
 msgid "Choose a concrete Discogs release."
 msgstr "Scegli un'edizione specifica di Discogs."
 
-#: app/routers/music_matching.py:103
+#: app/routers/music_matching.py:108
 msgid "This release is in Trash. Restore it from Trash instead of adding another item. No changes were saved."
 msgstr "Questa edizione è nel Cestino. Ripristinala dal Cestino invece di aggiungere un altro elemento. Non è stata salvata alcuna modifica."
 
-#: app/routers/music_matching.py:104
+#: app/routers/music_matching.py:109
 msgid "This release is already catalogued. Open the existing item instead. No changes were saved."
 msgstr "Questa edizione è già catalogata. Apri invece l'elemento esistente. Non è stata salvata alcuna modifica."
 
-#: app/routers/music_matching.py:142
+#: app/routers/music_matching.py:147
 msgid "No matching release was found. Try fewer filters or paste a release/shop link."
 msgstr "Non è stata trovata alcuna edizione corrispondente. Prova a usare meno filtri oppure incolla un link a un'edizione o a un negozio."
 
-#: app/routers/music_matching.py:143
+#: app/routers/music_matching.py:148
 msgid "Discogs could not complete this search. Try again shortly."
 msgstr "Discogs non ha potuto completare questa ricerca. Riprova tra poco."
 
-#: app/routers/music_matching.py:144
+#: app/routers/music_matching.py:149
 msgid "MusicBrainz could not complete this search. Try again shortly."
 msgstr "MusicBrainz non ha potuto completare questa ricerca. Riprova tra poco."
 
-#: app/routers/music_matching.py:160
-msgid "Choose MusicBrainz or Discogs as the release provider."
-msgstr "Scegli MusicBrainz o Discogs come fornitore dei dati dell'edizione."
-
-#: app/routers/music_matching.py:162
-msgid "Choose a valid music format."
-msgstr "Scegli un formato musicale valido."
-
-#: app/routers/music_matching.py:180
+#: app/routers/music_matching.py:228
 msgid "Choose a concrete Discogs release ID, not a master or marketplace listing."
 msgstr "Scegli l'ID di un'edizione specifica di Discogs, non un master o un annuncio del marketplace."
 
-#: app/routers/music_matching.py:182
+#: app/routers/music_matching.py:230
 msgid "Choose an exact MusicBrainz release ID."
 msgstr "Scegli l'ID dell'edizione esatta di MusicBrainz."
 
-#: app/routers/music_matching.py:184 app/routers/music_matching.py:200
+#: app/routers/music_matching.py:232 app/routers/music_matching.py:257
 msgid "The release ID and link do not match."
 msgstr "L'ID dell'edizione e il link non corrispondono."
 
-#: app/routers/music_matching.py:209
+#: app/routers/music_matching.py:271
 msgid "The Discogs release could not be read. Try again shortly."
 msgstr "Non è stato possibile leggere i dati dell'edizione Discogs. Riprova tra poco."
 
-#: app/routers/music_matching.py:296
+#: app/routers/music_matching.py:325
+msgid "Choose MusicBrainz or Discogs as the release provider."
+msgstr "Scegli MusicBrainz o Discogs come fornitore dei dati dell'edizione."
+
+#: app/routers/music_matching.py:327
+msgid "Choose a valid music format."
+msgstr "Scegli un formato musicale valido."
+
+#: app/routers/music_matching.py:442
 msgid "Choose a music format and a title before adding this item."
 msgstr "Scegli un formato musicale e un titolo prima di aggiungere questo elemento."
 
@@ -1154,6 +1228,7 @@ msgid "Audible provider access is blocked. No applicable provider authorisation 
 msgstr ""
 
 #: app/services/audiobook_review.py:34 app/services/metadata_review.py:34
+#: app/templates/fragments/add_media_review.html:52
 #: app/templates/fragments/item_editor_common_fields.html:17
 msgid "Subtitle"
 msgstr "Sottotitolo"
@@ -1172,6 +1247,7 @@ msgid "Duration (minutes)"
 msgstr ""
 
 #: app/services/audiobook_review.py:36 app/services/metadata_review.py:35
+#: app/templates/add_media.html:11
 #: app/templates/fragments/item_editor_common_fields.html:68
 msgid "Description"
 msgstr "Descrizione"
@@ -1182,8 +1258,9 @@ msgstr ""
 
 #: app/services/audiobook_review.py:38 app/services/library_catalog.py:51
 #: app/services/metadata_review.py:39
+#: app/templates/fragments/add_media_review.html:52
 msgid "Series position"
-msgstr ""
+msgstr "Posizione nella serie"
 
 #: app/services/audiobook_review.py:53
 msgid "Audiobook not found."
@@ -1403,7 +1480,10 @@ msgstr ""
 msgid "Page count"
 msgstr ""
 
-#: app/services/metadata_review.py:40
+#: app/services/metadata_review.py:40 app/templates/add_media.html:9
+#: app/templates/add_media.html:148
+#: app/templates/fragments/add_media_manual.html:51
+#: app/templates/fragments/add_media_review.html:52
 #: app/templates/fragments/item_editor_common_fields.html:139
 msgid "ISBN"
 msgstr "ISBN"
@@ -1785,72 +1865,452 @@ msgstr ""
 msgid "No personal activity yet."
 msgstr ""
 
+#: app/templates/add_media.html:2 app/templates/add_media.html:77
+#: app/templates/fragments/media_navigation.html:19
+msgid "Add media"
+msgstr "Aggiungi contenuti"
+
+#: app/templates/add_media.html:9 app/templates/add_media.html:148
+msgid "Title or keyword"
+msgstr "Titolo o parola chiave"
+
+#: app/templates/add_media.html:9 app/templates/add_media.html:149
+#: app/templates/fragments/add_media_manual.html:51
+msgid "Retail barcode"
+msgstr "Codice a barre commerciale"
+
+#: app/templates/add_media.html:9 app/templates/add_media.html:149
+#: app/templates/fragments/add_media_results.html:16
+#: app/templates/fragments/add_media_review.html:16
+#: app/templates/fragments/music_matching.html:2
+#: app/templates/fragments/music_matching.html:16
+#: app/templates/fragments/music_matching.html:74 app/templates/music.html:5
+msgid "Catalogue number"
+msgstr "Numero di catalogo"
+
+#: app/templates/add_media.html:9 app/templates/add_media.html:20
+msgid "Manual entry"
+msgstr "Inserimento manuale"
+
+#: app/templates/add_media.html:10
+msgid "Automatic (MusicBrainz first for music)"
+msgstr "Automatico (prima MusicBrainz per la musica)"
+
+#: app/templates/add_media.html:10
+msgid "MusicBrainz only"
+msgstr "Solo MusicBrainz"
+
+#: app/templates/add_media.html:10
+msgid "Discogs only"
+msgstr "Solo Discogs"
+
+#: app/templates/add_media.html:11
+#: app/templates/fragments/add_media_review.html:16
+#: app/templates/fragments/music_matching.html:74
+msgid "Label"
+msgstr "Etichetta"
+
+#: app/templates/add_media.html:11 app/templates/copy_locator.html:12
+#: app/templates/fragments/add_media_review.html:16
+#: app/templates/fragments/music_matching.html:2
+#: app/templates/fragments/music_matching.html:16
+#: app/templates/fragments/music_matching.html:49 app/templates/music.html:5
+#: app/templates/music.html:77
+msgid "Barcode"
+msgstr "Codice a barre"
+
+#: app/templates/add_media.html:17
+#: app/templates/fragments/source_progress.html:72
+msgid "Not supplied"
+msgstr "Non fornito"
+
+#: app/templates/add_media.html:20
+msgid "MusicBrainz"
+msgstr "MusicBrainz"
+
+#: app/templates/add_media.html:20
+msgid "Discogs"
+msgstr "Discogs"
+
+#: app/templates/add_media.html:20
+msgid "Open Library"
+msgstr "Open Library"
+
+#: app/templates/add_media.html:20
+msgid "IGDB"
+msgstr "IGDB"
+
+#: app/templates/add_media.html:20
+msgid "TMDb"
+msgstr "TMDb"
+
+#: app/templates/add_media.html:20
+msgid "UPC Item DB"
+msgstr "UPC Item DB"
+
+#: app/templates/add_media.html:26 app/templates/add_media.html:117
+msgid "Add to collection"
+msgstr "Aggiungi alla collezione"
+
+#: app/templates/add_media.html:26 app/templates/add_media.html:118
+#: app/templates/browse.html:41
+msgid "Add to wishlist"
+msgstr "Aggiungi alla lista desideri"
+
+#: app/templates/add_media.html:29
+msgid "Automatic provider"
+msgstr "Selezione automatica del fornitore"
+
+#: app/templates/add_media.html:33
+msgid "Captured intent — these actions use the details below, not edits in the search form."
+msgstr "Scelta memorizzata — queste azioni usano i dettagli qui sotto, non le modifiche al modulo di ricerca."
+
+#: app/templates/add_media.html:36
+msgid "Method"
+msgstr "Metodo"
+
+#: app/templates/add_media.html:37
+msgid "Search text"
+msgstr "Testo di ricerca"
+
+#: app/templates/add_media.html:38
+msgid "Title hint"
+msgstr "Titolo indicativo"
+
+#: app/templates/add_media.html:38
+msgid "Country or region"
+msgstr "Paese o regione"
+
+#: app/templates/add_media.html:41
+#: app/templates/fragments/add_media_review.html:52
+msgid "Game platform"
+msgstr "Piattaforma di gioco"
+
+#: app/templates/add_media.html:47
+msgid "Optional details for a new or restored item"
+msgstr "Dettagli facoltativi per un elemento nuovo o ripristinato"
+
+#: app/templates/add_media.html:50
+msgid "Location ID (optional)"
+msgstr "ID della posizione (facoltativo)"
+
+#: app/templates/add_media.html:52
+msgid "Use an existing location ID, or leave blank. The location is checked again when saving."
+msgstr "Usa l'ID di una posizione esistente oppure lascia il campo vuoto. La posizione viene verificata di nuovo al salvataggio."
+
+#: app/templates/add_media.html:55
+msgid "Tags (optional)"
+msgstr "Tag (facoltativi)"
+
+#: app/templates/add_media.html:57
+msgid "Separate tags with semicolons."
+msgstr "Separa i tag con punti e virgola."
+
+#: app/templates/add_media.html:61
+msgid "Status (optional)"
+msgstr "Stato (facoltativo)"
+
+#: app/templates/add_media.html:63
+msgid "No status"
+msgstr "Nessuno stato"
+
+#: app/templates/add_media.html:70
+msgid "These details do not overwrite an existing duplicate or an item promoted from your wishlist."
+msgstr "Questi dettagli non sovrascrivono quelli di un duplicato già esistente o di un elemento spostato dalla lista desideri alla collezione."
+
+#: app/templates/add_media.html:75
+msgid "Search details changed. The displayed preview, save and manual actions are disabled. Search or continue again to prepare new actions."
+msgstr "I dettagli della ricerca sono cambiati. Le azioni visualizzate di anteprima, salvataggio e inserimento manuale sono disabilitate. Premi di nuovo «Cerca o continua» per preparare nuove azioni."
+
+#: app/templates/add_media.html:78
+msgid "Choose Add or Wishlist, a concrete format and a search method. Search, compare, review and save here; no specialist page is required."
+msgstr "Scegli la destinazione (collezione o lista desideri), un formato specifico e un metodo di ricerca. Cerca, confronta, verifica e salva qui, senza dover aprire una pagina dedicata."
+
+#: app/templates/add_media.html:79
+msgid "This page shows text only and does not load or download artwork. You can add artwork later."
+msgstr "Questa pagina mostra solo testo e non carica né scarica immagini di copertina. Potrai aggiungerle in seguito."
+
+#: app/templates/add_media.html:84
+msgid "Check this action"
+msgstr "Verifica questa azione"
+
+#: app/templates/add_media.html:86
+msgid "The form could not be accepted. Review the fields or start a new search."
+msgstr "Non è stato possibile accettare il modulo. Rivedi i campi o avvia una nuova ricerca."
+
+#: app/templates/add_media.html:87
+msgid "Check the format, method, provider and field values. ISBNs and retail barcodes must have valid check digits; catalogue numbers are not barcodes."
+msgstr "Controlla il formato, il metodo, il fornitore dei dati e i valori dei campi. Gli ISBN e i codici a barre commerciali devono avere cifre di controllo valide; i numeri di catalogo non sono codici a barre."
+
+#: app/templates/add_media.html:88
+msgid "This form requires ordinary URL-encoded text, not an upload or attachment. Start a new search."
+msgstr "Questo modulo richiede normale testo con codifica URL, non file caricati o allegati. Avvia una nuova ricerca."
+
+#: app/templates/add_media.html:89
+msgid "The submitted form is too large. Shorten the details or start a new search."
+msgstr "Il modulo inviato è troppo grande. Abbrevia i dettagli o avvia una nuova ricerca."
+
+#: app/templates/add_media.html:90
+msgid "The page address is too long. Open Add media again."
+msgstr "L'indirizzo della pagina è troppo lungo. Apri di nuovo «Aggiungi contenuti»."
+
+#: app/templates/add_media.html:91
+msgid "Your sign-in or editing permission changed. Open Add media again before continuing."
+msgstr "Sono cambiati lo stato di accesso o i permessi di modifica. Apri di nuovo «Aggiungi contenuti» prima di continuare."
+
+#: app/templates/add_media.html:92
+msgid "This selection or review expired or changed. Search and preview again before saving."
+msgstr "Questa selezione o verifica è scaduta o è cambiata. Ripeti la ricerca e l'anteprima prima di salvare."
+
+#: app/templates/add_media.html:93
+msgid "The captured Add or Wishlist details no longer match this action. Search and preview again."
+msgstr "I dettagli memorizzati per l'aggiunta alla collezione o alla lista desideri non corrispondono più a questa azione. Ripeti la ricerca e l'anteprima."
+
+#: app/templates/add_media.html:94
+msgid "The provider release does not match the selected format. Choose the correct format and search again; the release will not be relabelled."
+msgstr "L'edizione restituita dal fornitore dei dati non corrisponde al formato selezionato. Scegli il formato corretto e ripeti la ricerca; l'edizione non verrà riclassificata."
+
+#: app/templates/add_media.html:95
+#: app/templates/fragments/add_media_receipt.html:12
+msgid "The save outcome is unknown. Check your library before submitting again; do not automatically retry this save."
+msgstr "L'esito del salvataggio è sconosciuto. Controlla la tua libreria prima di inviare di nuovo; non ripetere automaticamente questo salvataggio."
+
+#: app/templates/add_media.html:96
+msgid "This action could not be completed. Review the details and start a new search."
+msgstr "Non è stato possibile completare questa azione. Rivedi i dettagli e avvia una nuova ricerca."
+
+#: app/templates/add_media.html:98
+msgid "Review search details"
+msgstr "Rivedi i dettagli della ricerca"
+
+#: app/templates/add_media.html:98
+msgid "Start again"
+msgstr "Ricomincia"
+
+#: app/templates/add_media.html:103
+msgid "The item was saved, but follow-up activity could not be recorded. Check the saved item before submitting again."
+msgstr "L'elemento è stato salvato, ma non è stato possibile registrare l'attività successiva. Controlla l'elemento salvato prima di inviare di nuovo."
+
+#: app/templates/add_media.html:108
+msgid "Search or prepare manual entry"
+msgstr "Cerca o prepara l'inserimento manuale"
+
+#: app/templates/add_media.html:114
+msgid "Add or Wishlist"
+msgstr "Collezione o lista desideri"
+
+#: app/templates/add_media.html:116
+msgid "Choose Add or Wishlist"
+msgstr "Scegli tra collezione e lista desideri"
+
+#: app/templates/add_media.html:122
+msgid "Concrete format"
+msgstr "Formato specifico"
+
+#: app/templates/add_media.html:124
+msgid "Choose a format"
+msgstr "Scegli un formato"
+
+#: app/templates/add_media.html:127
+msgid "A format is required. No automatic book search or format conversion is performed."
+msgstr "Il formato è obbligatorio. Non vengono eseguite ricerche automatiche di libri né conversioni di formato."
+
+#: app/templates/add_media.html:130
+msgid "Search method"
+msgstr "Metodo di ricerca"
+
+#: app/templates/add_media.html:132
+msgid "Choose a method"
+msgstr "Scegli un metodo"
+
+#: app/templates/add_media.html:135
+msgid "ISBN is for book formats; catalogue number is for music. Manual entry does not contact a provider."
+msgstr "L'ISBN si usa per i formati librari; il numero di catalogo si usa per la musica. L'inserimento manuale non contatta alcun fornitore di dati."
+
+#: app/templates/add_media.html:138
+msgid "Music search provider"
+msgstr "Fornitore per la ricerca musicale"
+
+#: app/templates/add_media.html:140
+msgid "Choose a provider"
+msgstr "Scegli un fornitore di dati"
+
+#: app/templates/add_media.html:143
+msgid "For non-music formats choose Automatic. Automatic keeps MusicBrainz first, with Discogs fallback only for a successful empty cassette search with both title and artist. Discogs only searches Discogs directly, including catalogue-only searches, without a MusicBrainz fallback."
+msgstr "Per i formati non musicali scegli Automatico. Automatico consulta prima MusicBrainz e ricorre a Discogs solo quando una ricerca di musicassette con titolo e artista si conclude correttamente ma senza risultati. Con Solo Discogs la ricerca avviene direttamente su Discogs, anche quando si usa solo il numero di catalogo, senza ricorrere a MusicBrainz."
+
+#: app/templates/add_media.html:147 app/templates/add_media.html:150
+msgid "Title or identifier"
+msgstr "Titolo o identificativo"
+
+#: app/templates/add_media.html:150
+msgid "Title (optional)"
+msgstr "Titolo (facoltativo)"
+
+#: app/templates/add_media.html:155
+msgid "Use the selected method. Enter catalogue numbers as printed, with artist or title hints when known; a short numeric catalogue code is not a barcode or provider release ID. For manual entry, search text may be left blank."
+msgstr "Usa il metodo selezionato. Inserisci i numeri di catalogo così come sono stampati, con l'artista o un titolo indicativo, se noti; un breve codice numerico di catalogo non è un codice a barre né un ID di edizione del fornitore dei dati. Per l'inserimento manuale puoi lasciare vuoto il testo di ricerca."
+
+#: app/templates/add_media.html:156
+msgid "Title, artist and title hint: up to 200 characters; catalogue number: 100; ISBN or retail barcode: 32."
+msgstr "Titolo, artista e titolo indicativo: fino a 200 caratteri; numero di catalogo: 100; ISBN o codice a barre commerciale: 32."
+
+#: app/templates/add_media.html:159
+msgid "Artist (music, optional)"
+msgstr "Artista (musica, facoltativo)"
+
+#: app/templates/add_media.html:163
+msgid "Title hint (music identifiers, optional)"
+msgstr "Titolo indicativo (identificativi musicali, facoltativo)"
+
+#: app/templates/add_media.html:167
+#: app/templates/fragments/add_media_manual.html:32
+msgid "Game platform (optional)"
+msgstr "Piattaforma di gioco (facoltativa)"
+
+#: app/templates/add_media.html:169
+#: app/templates/fragments/add_media_manual.html:34
+msgid "Any or unknown platform"
+msgstr "Piattaforma qualsiasi o sconosciuta"
+
+#: app/templates/add_media.html:172
+msgid "A platform can filter title search only when the provider supports it. Unsupported filters are refused, not silently applied."
+msgstr "La piattaforma può filtrare la ricerca per titolo solo se il fornitore dei dati lo consente. I filtri non supportati vengono rifiutati, non applicati senza avviso."
+
+#: app/templates/add_media.html:175
+msgid "Country or region (music, optional)"
+msgstr "Paese o regione (musica, facoltativo)"
+
+#: app/templates/add_media.html:177
+msgid "Automatic and MusicBrainz require a two-letter ASCII country code. Discogs also accepts a region name, up to 80 characters."
+msgstr "Automatico e MusicBrainz richiedono un codice paese di due lettere ASCII. Discogs accetta anche il nome di una regione, fino a 80 caratteri."
+
+#: app/templates/add_media.html:180
+msgid "TV series, digital video and magazines have no catalogue lookup here. Choose Manual entry and continue to enter known details without a provider search."
+msgstr "Qui non è disponibile la ricerca nei cataloghi per serie TV, video digitali e riviste. Scegli «Inserimento manuale» e continua per inserire i dettagli noti, senza una ricerca presso un fornitore di dati."
+
+#: app/templates/add_media.html:181
+msgid "Music matching is turned off. Music can still be entered manually without claiming an exact pressing."
+msgstr "La ricerca di corrispondenze musicali è disattivata. Puoi comunque inserire musica manualmente, senza attestare una stampa specifica."
+
+#: app/templates/add_media.html:182
+msgid "All controls are shown without JavaScript. Leave inapplicable refinements blank, use Automatic for non-music formats, and submit Search or continue after changing intent. Prepared actions below keep their own captured intent."
+msgstr "Senza JavaScript vengono mostrati tutti i controlli. Lascia vuoti i filtri non pertinenti, usa Automatico per i formati non musicali e premi «Cerca o continua» dopo aver modificato le scelte. Le azioni già preparate qui sotto mantengono la scelta memorizzata per ciascuna."
+
+#: app/templates/add_media.html:183
+msgid "Search or continue"
+msgstr "Cerca o continua"
+
+#: app/templates/add_media.html:184
+msgid "Only submitting this form starts a search. Typing or changing a choice does not contact providers."
+msgstr "La ricerca parte solo quando invii questo modulo. Durante la digitazione o la modifica delle scelte non vengono contattati i fornitori di dati."
+
+#: app/templates/add_media.html:191
+msgid "Search outcome"
+msgstr "Esito della ricerca"
+
+#: app/templates/add_media.html:193
+msgid "This lookup requires a configured provider credential. Enter known details manually instead."
+msgstr "Questa ricerca richiede credenziali configurate per il fornitore dei dati. Inserisci invece manualmente i dettagli noti."
+
+#: app/templates/add_media.html:194
+msgid "The provider rejected this request. This is not an empty catalogue result. You can enter details manually."
+msgstr "Il fornitore dei dati ha rifiutato la richiesta. Non si tratta di una ricerca nel catalogo conclusa senza risultati. Puoi inserire i dettagli manualmente."
+
+#: app/templates/add_media.html:195
+msgid "The provider rate limit was reached. No automatic retry is made. You can search later or enter details manually."
+msgstr "È stato raggiunto il limite di richieste del fornitore dei dati. Non viene effettuato alcun nuovo tentativo automatico. Puoi ripetere la ricerca più tardi oppure inserire i dettagli manualmente."
+
+#: app/templates/add_media.html:196
+msgid "The provider search could not be completed. This does not mean there are no matching editions. You can enter details manually."
+msgstr "Non è stato possibile completare la ricerca presso il fornitore dei dati. Questo non significa che non esistano edizioni corrispondenti. Puoi inserire i dettagli manualmente."
+
+#: app/templates/add_media.html:197
+msgid "The search timed out. No automatic retry is made. You can enter details manually or deliberately search again."
+msgstr "Il tempo di attesa per la ricerca è scaduto. Non viene effettuato alcun nuovo tentativo automatico. Puoi inserire i dettagli manualmente o scegliere di ripetere la ricerca."
+
+#: app/templates/add_media.html:198
+msgid "No matching releases were returned for this search. Check the printed facts or enter details manually."
+msgstr "La ricerca non ha restituito edizioni corrispondenti. Verifica i dati stampati sul prodotto oppure inserisci i dettagli manualmente."
+
+#: app/templates/add_media.html:199
+msgid "Catalogue lookup is not supported for this format. Enter known details manually; no provider search is needed."
+msgstr "La ricerca nel catalogo non è disponibile per questo formato. Inserisci manualmente i dettagli noti; non serve una ricerca presso un fornitore di dati."
+
+#: app/templates/add_media.html:200
+msgid "No usable results were returned, or the selected details could not be read. Refine the search explicitly or enter known details manually."
+msgstr "Non sono stati restituiti risultati utilizzabili, oppure non è stato possibile leggere i dettagli selezionati. Modifica i criteri e ripeti la ricerca, oppure inserisci manualmente i dettagli noti."
+
+#: app/templates/add_media.html:202
+msgid "Use manual entry below"
+msgstr "Usa l'inserimento manuale qui sotto"
+
 #: app/templates/audiobook_metadata.html:2
 #: app/templates/audiobook_metadata.html:5
 msgid "Audiobook metadata"
 msgstr ""
 
-#: app/templates/base.html:85
+#: app/templates/base.html:93
 msgid "Keyboard shortcuts (?)"
 msgstr "Scorciatoie da tastiera (?)"
 
-#: app/templates/base.html:91
+#: app/templates/base.html:99
 msgid "Keyboard Shortcuts"
 msgstr "Scorciatoie da tastiera"
 
-#: app/templates/base.html:92
+#: app/templates/base.html:100
 msgid "Close keyboard shortcuts"
 msgstr ""
 
-#: app/templates/base.html:98
+#: app/templates/base.html:106
 msgid "Global"
 msgstr "Globali"
 
-#: app/templates/base.html:100
+#: app/templates/base.html:108
 msgid "Focus search"
 msgstr "Vai alla ricerca"
 
-#: app/templates/base.html:101
+#: app/templates/base.html:109
 msgid "Go to Scan"
 msgstr "Vai a Scansiona"
 
-#: app/templates/base.html:102
+#: app/templates/base.html:110
 msgid "Go to Browse"
 msgstr "Vai a Sfoglia"
 
-#: app/templates/base.html:103
+#: app/templates/base.html:111
 msgid "Open command palette"
 msgstr "Apri la palette dei comandi"
 
-#: app/templates/base.html:104
+#: app/templates/base.html:112
 msgid "Show shortcuts"
 msgstr "Mostra scorciatoie"
 
-#: app/templates/base.html:108
+#: app/templates/base.html:116
 msgid "Browse Page"
 msgstr "Pagina Sfoglia"
 
-#: app/templates/base.html:110
+#: app/templates/base.html:118
 msgid "Toggle grid / list view"
 msgstr "Alterna griglia / elenco"
 
-#: app/templates/base.html:111
+#: app/templates/base.html:119
 msgid "Toggle select mode"
 msgstr "Attiva/disattiva selezione"
 
-#: app/templates/base.html:112
+#: app/templates/base.html:120
 msgid "Toggle filters (mobile)"
 msgstr "Mostra/nascondi filtri (mobile)"
 
-#: app/templates/base.html:113 app/templates/fragments/item_grid.html:61
+#: app/templates/base.html:121 app/templates/fragments/item_grid.html:61
 msgid "Clear all filters"
 msgstr "Azzera tutti i filtri"
 
-#: app/templates/base.html:114
+#: app/templates/base.html:122
 msgid "Exit select / blur search"
 msgstr "Esci dalla selezione / dalla ricerca"
 
-#: app/templates/base.html:119
+#: app/templates/base.html:127
 msgid "Shortcuts are disabled when typing in inputs"
 msgstr "Le scorciatoie sono disattivate mentre scrivi in un campo"
 
@@ -1880,10 +2340,6 @@ msgstr "Rimuovi stato"
 #: app/templates/browse.html:40
 msgid "Wishlist..."
 msgstr "Lista desideri..."
-
-#: app/templates/browse.html:41
-msgid "Add to wishlist"
-msgstr "Aggiungi alla lista desideri"
 
 #: app/templates/browse.html:42
 msgid "Remove from wishlist"
@@ -1977,6 +2433,7 @@ msgid "No location"
 msgstr "Nessuna posizione"
 
 #: app/templates/browse.html:235
+#: app/templates/fragments/add_media_receipt.html:18
 #: app/templates/fragments/filter_counts_oob.html:27
 #: app/templates/fragments/library_results.html:27
 #: app/templates/library.html:103
@@ -2064,14 +2521,6 @@ msgstr "ID copia"
 #: app/templates/copy_locator.html:10
 msgid "Item ID"
 msgstr "ID elemento"
-
-#: app/templates/copy_locator.html:12
-#: app/templates/fragments/music_matching.html:2
-#: app/templates/fragments/music_matching.html:16
-#: app/templates/fragments/music_matching.html:49 app/templates/music.html:5
-#: app/templates/music.html:77
-msgid "Barcode"
-msgstr "Codice a barre"
 
 #: app/templates/copy_locator.html:12
 msgid "No barcode recorded"
@@ -2740,9 +3189,10 @@ msgstr ""
 msgid "Not owned"
 msgstr ""
 
+#: app/templates/fragments/add_media_receipt.html:18
 #: app/templates/library.html:105
 msgid "Neither owned nor wishlisted"
-msgstr ""
+msgstr "Né posseduto né nella lista desideri"
 
 #: app/templates/library.html:110
 msgid "Any wishlist state"
@@ -2824,12 +3274,8 @@ msgstr "Nome utente"
 msgid "Password"
 msgstr "Password"
 
-#: app/templates/fragments/music_matching.html:2
-#: app/templates/fragments/music_matching.html:16
-#: app/templates/fragments/music_matching.html:74 app/templates/music.html:5
-msgid "Catalogue number"
-msgstr "Numero di catalogo"
-
+#: app/templates/fragments/add_media_results.html:16
+#: app/templates/fragments/add_media_review.html:16
 #: app/templates/fragments/music_matching.html:2
 #: app/templates/fragments/music_matching.html:74 app/templates/music.html:5
 msgid "Country"
@@ -2859,6 +3305,7 @@ msgstr "Queste sono possibili edizioni, non un'identificazione automatica dell'e
 msgid "Release"
 msgstr "Edizione"
 
+#: app/templates/fragments/add_media_review.html:12
 #: app/templates/fragments/music_matching.html:46 app/templates/music.html:67
 msgid "View release"
 msgstr "Visualizza edizione"
@@ -2877,6 +3324,8 @@ msgstr "Controlla le differenze"
 msgid "Preview details and artwork"
 msgstr "Anteprima di dettagli e copertine"
 
+#: app/templates/fragments/add_media_results.html:33
+#: app/templates/fragments/add_media_review.html:86
 #: app/templates/fragments/music_discogs.html:169
 #: app/templates/fragments/music_matching.html:61
 #: app/templates/fragments/music_matching.html:138 app/templates/music.html:110
@@ -3930,9 +4379,10 @@ msgstr ""
 msgid "Add source"
 msgstr ""
 
+#: app/templates/fragments/add_media_results.html:15
 #: app/templates/sources.html:54
 msgid "Provider"
-msgstr ""
+msgstr "Fornitore dei dati"
 
 #: app/templates/sources.html:57
 msgid "LAN and localhost servers are supported. External library links may leave the server URL empty. Credentials and query strings must not be included in server URLs."
@@ -4050,6 +4500,300 @@ msgstr "ultimo uso"
 #: app/templates/fragments/account_menu.html:204
 msgid "Revoke"
 msgstr "Revoca"
+
+#: app/templates/fragments/add_media_manual.html:3
+msgid "Enter known details manually"
+msgstr "Inserisci manualmente i dettagli noti"
+
+#: app/templates/fragments/add_media_manual.html:4
+msgid "No provider lookup is needed. A title is required; other details are optional. Manual entry does not claim an exact pressing, a provider identity or a track list."
+msgstr "Non serve una ricerca presso un fornitore di dati. Il titolo è obbligatorio; gli altri dettagli sono facoltativi. L'inserimento manuale non attesta una stampa specifica, un'identità nel catalogo di un fornitore o un elenco di tracce."
+
+#: app/templates/fragments/add_media_manual.html:10
+msgid "Manual save with this captured intent"
+msgstr "Salvataggio manuale con questa scelta memorizzata"
+
+#: app/templates/fragments/add_media_manual.html:14
+msgid "Title (required)"
+msgstr "Titolo (obbligatorio)"
+
+#: app/templates/fragments/add_media_manual.html:18
+msgid "Creator or artist (optional)"
+msgstr "Autore o artista (facoltativo)"
+
+#: app/templates/fragments/add_media_manual.html:22
+msgid "Publisher or label (optional)"
+msgstr "Editore o etichetta (facoltativo)"
+
+#: app/templates/fragments/add_media_manual.html:26
+msgid "Year (optional)"
+msgstr "Anno (facoltativo)"
+
+#: app/templates/fragments/add_media_manual.html:28
+msgid "Use four ASCII digits for a year from 0001 to 9999, or leave blank."
+msgstr "Usa quattro cifre ASCII per un anno da 0001 a 9999 oppure lascia il campo vuoto."
+
+#: app/templates/fragments/add_media_manual.html:40
+msgid "Series (optional)"
+msgstr "Serie (facoltativa)"
+
+#: app/templates/fragments/add_media_manual.html:44
+msgid "Language code (optional)"
+msgstr "Codice lingua (facoltativo)"
+
+#: app/templates/fragments/add_media_manual.html:48
+msgid "Identifier kind"
+msgstr "Tipo di identificativo"
+
+#: app/templates/fragments/add_media_manual.html:50
+msgid "Choose an identifier kind"
+msgstr "Scegli un tipo di identificativo"
+
+#: app/templates/fragments/add_media_manual.html:51
+msgid "No identifier"
+msgstr "Nessun identificativo"
+
+#: app/templates/fragments/add_media_manual.html:55
+msgid "Identifier (optional)"
+msgstr "Identificativo (facoltativo)"
+
+#: app/templates/fragments/add_media_manual.html:59
+msgid "Choose No identifier and leave the identifier blank, or enter a valid ISBN or retail UPC/EAN with the corresponding kind. A catalogue number is neither; it is never inferred as an identifier or title."
+msgstr "Scegli «Nessun identificativo» e lascia vuoto il campo dell'identificativo, oppure inserisci un ISBN o un codice a barre commerciale UPC/EAN valido, selezionando il tipo corrispondente. Un numero di catalogo non è né l'uno né l'altro e non viene mai interpretato come identificativo o titolo."
+
+#: app/templates/fragments/add_media_manual.html:61
+msgid "This page does not load or download artwork. You can add artwork later. Without an identifier, repeated manual submissions may create separate items."
+msgstr "Questa pagina non carica né scarica immagini di copertina. Potrai aggiungerle in seguito. Senza un identificativo, invii manuali ripetuti possono creare elementi distinti."
+
+#: app/templates/fragments/add_media_manual.html:62
+msgid "Save manual item to wishlist"
+msgstr "Salva l'elemento inserito manualmente nella lista desideri"
+
+#: app/templates/fragments/add_media_manual.html:62
+msgid "Save manual item to collection"
+msgstr "Salva l'elemento inserito manualmente nella collezione"
+
+#: app/templates/fragments/add_media_receipt.html:3
+msgid "Save receipt"
+msgstr "Conferma di salvataggio"
+
+#: app/templates/fragments/add_media_receipt.html:5
+msgid "Added to your collection."
+msgstr "Aggiunto alla tua collezione."
+
+#: app/templates/fragments/add_media_receipt.html:6
+msgid "Added to your wishlist."
+msgstr "Aggiunto alla tua lista desideri."
+
+#: app/templates/fragments/add_media_receipt.html:7
+msgid "The existing wishlist item was moved to your collection."
+msgstr "L'elemento già presente nella lista desideri è stato spostato nella tua collezione."
+
+#: app/templates/fragments/add_media_receipt.html:8
+msgid "The item was restored from Trash. Its stored details were retained."
+msgstr "L'elemento è stato ripristinato dal Cestino. I dettagli salvati sono stati conservati."
+
+#: app/templates/fragments/add_media_receipt.html:9
+msgid "This item is already in your library. This submission did not change the existing item."
+msgstr "Questo elemento è già nella tua libreria. Questo invio non ha modificato l'elemento esistente."
+
+#: app/templates/fragments/add_media_receipt.html:10
+msgid "The item was updated."
+msgstr "L'elemento è stato aggiornato."
+
+#: app/templates/fragments/add_media_receipt.html:11
+msgid "This save was refused. Review the details and start a new search."
+msgstr "Questo salvataggio è stato rifiutato. Rivedi i dettagli e avvia una nuova ricerca."
+
+#: app/templates/fragments/add_media_receipt.html:16
+msgid "Stored title"
+msgstr "Titolo salvato"
+
+#: app/templates/fragments/add_media_receipt.html:17
+msgid "Stored creator or artist"
+msgstr "Autore o artista salvato"
+
+#: app/templates/fragments/add_media_receipt.html:18
+msgid "Stored collection state"
+msgstr "Stato memorizzato nella raccolta"
+
+#: app/templates/fragments/add_media_receipt.html:18
+msgid "Wishlisted"
+msgstr "Nella lista desideri"
+
+#: app/templates/fragments/add_media_receipt.html:19
+msgid "Stored format"
+msgstr "Formato salvato"
+
+#: app/templates/fragments/add_media_receipt.html:20
+msgid "Stored source"
+msgstr "Fonte salvata"
+
+#: app/templates/fragments/add_media_receipt.html:21
+msgid "Item reference"
+msgstr "Riferimento dell'elemento"
+
+#: app/templates/fragments/add_media_receipt.html:23
+msgid "These facts describe the saved item, not every detail suggested by the provider. A duplicate receipt does not mean ownership changed."
+msgstr "Questi dati descrivono l'elemento salvato, non tutti i dettagli suggeriti dal fornitore dei dati. Una conferma relativa a un duplicato non indica un cambio di proprietà."
+
+#: app/templates/fragments/add_media_receipt.html:25
+msgid "Artwork could not be added. The saved item remains available; you can add artwork later."
+msgstr "Non è stato possibile aggiungere l'immagine di copertina. L'elemento salvato resta disponibile; potrai aggiungere l'immagine in seguito."
+
+#: app/templates/fragments/add_media_receipt.html:26
+msgid "Add another item"
+msgstr "Aggiungi un altro elemento"
+
+#: app/templates/fragments/add_media_results.html:2
+msgid "Compare search results"
+msgstr "Confronta i risultati della ricerca"
+
+#: app/templates/fragments/add_media_results.html:5
+#: app/templates/fragments/add_media_review.html:50
+msgid "Bibliographic results do not prove a particular audiobook recording, eBook vendor edition or digital holding. Check the edition before saving."
+msgstr "I risultati bibliografici non attestano una specifica registrazione di audiolibro, un'edizione eBook di un determinato venditore o il possesso di una copia digitale. Verifica l'edizione prima di salvare."
+
+#: app/templates/fragments/add_media_results.html:6
+msgid "Movie title results do not establish a particular DVD or Blu-ray edition."
+msgstr "I risultati della ricerca per titolo di un film non identificano una specifica edizione DVD o Blu-ray."
+
+#: app/templates/fragments/add_media_results.html:8
+msgid "Compare the provider, country, year, label, catalogue number and format. A matching title or catalogue number alone does not prove an exact edition or pressing."
+msgstr "Confronta il fornitore dei dati, il paese, l'anno, l'etichetta, il numero di catalogo e il formato. La sola corrispondenza del titolo o del numero di catalogo non identifica con certezza una specifica edizione o stampa."
+
+#: app/templates/fragments/add_media_results.html:16
+msgid "Provider identifier"
+msgstr "Identificativo nel catalogo del fornitore"
+
+#: app/templates/fragments/add_media_results.html:16
+msgid "Creator or artist"
+msgstr "Autore o artista"
+
+#: app/templates/fragments/add_media_results.html:16
+msgid "Publisher or label"
+msgstr "Editore o etichetta"
+
+#: app/templates/fragments/add_media_results.html:16
+#: app/templates/fragments/add_media_review.html:16
+msgid "Provider format"
+msgstr "Formato indicato dal fornitore"
+
+#: app/templates/fragments/add_media_results.html:27
+msgid "Preview with this captured intent"
+msgstr "Anteprima con questa scelta memorizzata"
+
+#: app/templates/fragments/add_media_results.html:29
+msgid "Preview this result"
+msgstr "Anteprima di questo risultato"
+
+#: app/templates/fragments/add_media_results.html:32
+msgid "This result has no usable selection identifier. Enter known details manually; no identifier will be invented."
+msgstr "Questo risultato non ha un identificativo di selezione utilizzabile. Inserisci manualmente i dettagli noti; non verrà inventato alcun identificativo."
+
+#: app/templates/fragments/add_media_review.html:5
+msgid "Review before saving"
+msgstr "Verifica prima di salvare"
+
+#: app/templates/fragments/add_media_review.html:7
+msgid "Selected provider"
+msgstr "Fornitore dei dati selezionato"
+
+#: app/templates/fragments/add_media_review.html:15
+msgid "Provider release identifier"
+msgstr "Identificativo dell'edizione nel catalogo del fornitore"
+
+#: app/templates/fragments/add_media_review.html:16
+#: app/templates/fragments/music_matching.html:74
+msgid "Release date"
+msgstr "Data di pubblicazione"
+
+#: app/templates/fragments/add_media_review.html:16
+#: app/templates/fragments/music_matching.html:74
+msgid "Packaging"
+msgstr "Confezione"
+
+#: app/templates/fragments/add_media_review.html:22
+msgid "Identifier"
+msgstr "Identificativo"
+
+#: app/templates/fragments/add_media_review.html:25
+msgid "Genres and styles"
+msgstr "Generi e stili"
+
+#: app/templates/fragments/add_media_review.html:26
+#: app/templates/fragments/music_discogs.html:71
+#: app/templates/fragments/music_matching.html:82
+msgid "Release notes"
+msgstr "Note sull'edizione"
+
+#: app/templates/fragments/add_media_review.html:28
+msgid "Discogs details and tracks are displayed live for comparison. Saving uses only the checked catalogue fields and exact pressing reference; Discogs tracks are not copied into the catalogue and no MusicBrainz identity is inferred."
+msgstr "I dettagli e le tracce di Discogs vengono mostrati in tempo reale per il confronto. Il salvataggio usa solo i campi del catalogo selezionati e il riferimento alla stampa specifica; le tracce di Discogs non vengono copiate nel catalogo e non viene dedotta alcuna identità MusicBrainz."
+
+#: app/templates/fragments/add_media_review.html:30
+msgid "Saving attaches this exact MusicBrainz release and its track list. Only the checked catalogue fields below are used."
+msgstr "Il salvataggio collega l'elemento a questa specifica edizione MusicBrainz e al relativo elenco delle tracce. Vengono usati solo i campi del catalogo selezionati qui sotto."
+
+#: app/templates/fragments/add_media_review.html:34
+#: app/templates/fragments/music_discogs.html:75
+#: app/templates/fragments/music_matching.html:86
+msgid "Track listing"
+msgstr "Elenco delle tracce"
+
+#: app/templates/fragments/add_media_review.html:34
+msgid "Tracks"
+msgstr "Tracce"
+
+#: app/templates/fragments/add_media_review.html:40
+msgid "Duration (seconds)"
+msgstr "Durata (secondi)"
+
+#: app/templates/fragments/add_media_review.html:42
+#: app/templates/fragments/add_media_review.html:45
+msgid "No track details were supplied."
+msgstr "Non sono stati forniti dettagli sulle tracce."
+
+#: app/templates/fragments/add_media_review.html:49
+msgid "This is a confirmation of native catalogue fields, not a general metadata editor. To enter different known details, use manual entry below."
+msgstr "Questa è una conferma dei campi nativi del catalogo, non un editor generale di metadati. Per inserire dettagli diversi che conosci, usa l'inserimento manuale qui sotto."
+
+#: app/templates/fragments/add_media_review.html:52
+msgid "ISBN-13"
+msgstr "ISBN-13"
+
+#: app/templates/fragments/add_media_review.html:57
+msgid "Game saves use native title, publisher, year, description, series and platform fields. A displayed provider ID or developer credit does not establish a stored provider binding or creator field."
+msgstr "Il salvataggio dei giochi usa i campi nativi per titolo, editore, anno, descrizione, serie e piattaforma. La visualizzazione di un ID del fornitore dei dati o del nome dello sviluppatore non implica che venga salvata un'associazione con il fornitore o compilato il campo autore."
+
+#: app/templates/fragments/add_media_review.html:58
+msgid "Movie saves use native title, description and year fields, not a durable provider ID or proof of a particular disc edition."
+msgstr "Il salvataggio dei film usa i campi nativi per titolo, descrizione e anno; non conserva un ID permanente del fornitore dei dati né attesta una specifica edizione su disco."
+
+#: app/templates/fragments/add_media_review.html:60
+msgid "No artwork is loaded or selected in this review. You can add artwork later."
+msgstr "In questa verifica non viene caricata né selezionata alcuna immagine di copertina. Potrai aggiungerla in seguito."
+
+#: app/templates/fragments/add_media_review.html:66
+msgid "Save with this captured intent"
+msgstr "Salva con questa scelta memorizzata"
+
+#: app/templates/fragments/add_media_review.html:70
+#: app/templates/fragments/music_matching.html:100
+msgid "Choose which catalogue fields to use"
+msgstr "Scegli quali campi del catalogo utilizzare"
+
+#: app/templates/fragments/add_media_review.html:82
+msgid "Save to wishlist"
+msgstr "Salva nella lista desideri"
+
+#: app/templates/fragments/add_media_review.html:82
+msgid "Save to collection"
+msgstr "Salva nella collezione"
+
+#: app/templates/fragments/add_media_review.html:83
+msgid "Saving uses this signed review and captured intent. If the acknowledgement is lost, check your library before submitting again; a repeated submission is not guaranteed to be harmless."
+msgstr "Il salvataggio usa questa verifica firmata e la scelta memorizzata. Se la conferma va persa, controlla la tua libreria prima di inviare di nuovo; non è garantito che ripetere l'invio sia senza conseguenze."
 
 #: app/templates/fragments/also_available_as.html:4
 msgid "Also available as:"
@@ -4966,27 +5710,27 @@ msgstr "Aggiungi alla collezione"
 msgid "Primary navigation"
 msgstr ""
 
-#: app/templates/fragments/media_navigation.html:23
+#: app/templates/fragments/media_navigation.html:29
 msgid "Main menu"
 msgstr "Menu principale"
 
-#: app/templates/fragments/media_navigation.html:26
+#: app/templates/fragments/media_navigation.html:32
 msgid "No navigation available."
 msgstr "Nessuna navigazione disponibile."
 
-#: app/templates/fragments/media_navigation.html:31
+#: app/templates/fragments/media_navigation.html:37
 msgid "Browse media"
 msgstr ""
 
-#: app/templates/fragments/media_navigation.html:31
+#: app/templates/fragments/media_navigation.html:37
 msgid "Media"
 msgstr ""
 
-#: app/templates/fragments/media_navigation.html:45
+#: app/templates/fragments/media_navigation.html:51
 msgid "All items"
 msgstr ""
 
-#: app/templates/fragments/media_navigation.html:96
+#: app/templates/fragments/media_navigation.html:102
 msgid "Manage"
 msgstr ""
 
@@ -5082,16 +5826,6 @@ msgstr "Carica dettagli aggiornati"
 msgid "Load fresh details from the selected public Discogs release without changing your saved catalogue metadata."
 msgstr "Carica i dettagli aggiornati dall'edizione pubblica di Discogs selezionata senza modificare i metadati salvati nel catalogo."
 
-#: app/templates/fragments/music_discogs.html:71
-#: app/templates/fragments/music_matching.html:82
-msgid "Release notes"
-msgstr "Note sull'edizione"
-
-#: app/templates/fragments/music_discogs.html:75
-#: app/templates/fragments/music_matching.html:86
-msgid "Track listing"
-msgstr "Elenco delle tracce"
-
 #: app/templates/fragments/music_discogs.html:122
 msgid "The selected release can be read publicly without a token. A token is needed only for the optional Discogs search in this panel."
 msgstr "L'edizione selezionata è consultabile pubblicamente senza token. Il token serve solo per la ricerca Discogs facoltativa in questo pannello."
@@ -5148,22 +5882,6 @@ msgstr "L'edizione esatta MusicBrainz e l'elenco delle tracce verranno mantenuti
 #: app/templates/fragments/music_matching.html:72
 msgid "Applying this match attaches this exact release and replaces its release details and track list. Only checked catalogue fields change."
 msgstr "Applicando questo abbinamento si collega questa edizione esatta e si sostituiscono i relativi dettagli e l'elenco delle tracce. Cambiano solo i campi del catalogo selezionati."
-
-#: app/templates/fragments/music_matching.html:74
-msgid "Release date"
-msgstr "Data di pubblicazione"
-
-#: app/templates/fragments/music_matching.html:74
-msgid "Label"
-msgstr "Etichetta"
-
-#: app/templates/fragments/music_matching.html:74
-msgid "Packaging"
-msgstr "Confezione"
-
-#: app/templates/fragments/music_matching.html:100
-msgid "Choose which catalogue fields to use"
-msgstr "Scegli quali campi del catalogo utilizzare"
 
 #: app/templates/fragments/music_matching.html:114
 msgid "Add without artwork"
@@ -5641,10 +6359,6 @@ msgstr ""
 
 #: app/templates/fragments/source_progress.html:72
 msgid "Remote playback/update timestamp:"
-msgstr ""
-
-#: app/templates/fragments/source_progress.html:72
-msgid "Not supplied"
 msgstr ""
 
 #: app/templates/fragments/source_progress.html:76

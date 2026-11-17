@@ -11,6 +11,7 @@ from starlette.responses import StreamingResponse
 from app import browse_filters
 from app import i18n
 from app import nav
+from app.add_media_types import AddDetails, CapturedAddIntent, DbAddResult, ManualValues
 from app.auth import require_role
 
 logger = logging.getLogger(__name__)
@@ -655,6 +656,40 @@ async def _scan_isbn_inner(request, isbn, media_type, location_id, platform, mod
 
 
 
+def _commit_manual_add(db, values: ManualValues, *, mode="add", details: AddDetails = AddDetails(),
+                       intent: CapturedAddIntent | None = None) -> DbAddResult:
+    """Native identifier duplicate/restore/promotion, on the owned writer lock."""
+    if intent is not None and (not isinstance(intent, CapturedAddIntent) or intent.mode != mode
+                               or intent.media_type != values.media_type or mode not in {"add", "wishlist"}):
+        raise ItemValueError("The add intent changed. Prepare the manual form again.")
+    existing = _find_duplicate_item(db, values.isbn13, values.upc_code, values.media_type)
+    if existing is None:
+        wishlist = {"owned": 0, "wishlisted": True} if mode == "wishlist" else {}
+        try:
+            with tags_svc.default_tags(details.tags), item_write.default_reading_status(details.reading_status):
+                item_id = insert_item(
+                    db, **wishlist, title=values.title, authors=values.authors,
+                    isbn=values.isbn13, upc=values.upc_code, media_type=values.media_type,
+                    publisher=values.publisher, publish_year=values.publish_year, platform=values.platform,
+                    series_name=values.series_name, location_id=details.location_id,
+                    language=values.language, source="manual")
+        except sqlite3.IntegrityError:
+            # Preserve the old race/old-barcode recovery seam. New-host errors
+            # escape the transaction, so failed default work cannot be committed.
+            if intent is not None:
+                raise
+            existing = _find_duplicate_item(db, values.isbn13, values.upc_code, values.media_type)
+            if existing is None:
+                raise
+    if existing:
+        promoted = mode != "wishlist" and item_write.promote_wishlisted(db, existing["id"])
+        return DbAddResult("promoted" if promoted else "duplicate", existing["id"],
+                           duplicate_title=existing["title"])
+    restored = item_write.was_restored(item_id)
+    return DbAddResult("restored" if restored else ("wishlisted" if mode == "wishlist" else "added"),
+                       item_id, restored)
+
+
 @router.post("/items/manual")
 async def manual_add(request: Request, _=Depends(require_role("editor"))):
     """Manually add an item with optional cover upload. Returns HTMX fragment."""
@@ -731,47 +766,21 @@ async def manual_add(request: Request, _=Depends(require_role("editor"))):
     # Rendered after the block so nothing runs under the write.
     value_error = None
     promoted = False
-    with get_db() as db:
-        # The duplicate guard and the insert (or the promotion below) share
-        # one write lock, taken before the guard reads (G18).
-        db.execute("BEGIN IMMEDIATE")
-        existing = _find_duplicate_item(db, isbn13, upc_code, media_type)
-        if existing is None:
-            # Wishlist intent rides the insert, not a second transaction: a
-            # restoring funnel has to be told it, and the demote this
-            # replaced also sat outside the lock above.
-            wishlist = {"owned": 0, "wishlisted": True} if mode == "wishlist" else {}
-            try:
-                with tags_svc.default_tags(form.get("tags") or ""), \
-                        item_write.default_reading_status(form.get("reading_status") or ""):
-                    item_id = insert_item(
-                        db,
-                        **wishlist,
-                        title=title,
-                        authors=form.get("authors"),
-                        isbn=isbn13,
-                        upc=upc_code,
-                        media_type=media_type,
-                        publisher=form.get("publisher"),
-                        publish_year=pub_year,
-                        platform=platform,
-                        series_name=series_name,
-                        location_id=location_id,
-                        language=language,
-                        source="manual",
-                    )
-            except ItemValueError as e:
-                value_error = str(e)
-            except sqlite3.IntegrityError:
-                # Lost a race with a concurrent add, or the barcode is on a row
-                # filed before the #20 re-file migration. Either way the user
-                # gets the duplicate card rather than a 500.
-                existing = _find_duplicate_item(db, isbn13, upc_code, media_type)
-                if existing is None:
-                    raise
-        # Adding a wishlisted item in Add mode is buying it (#125).
-        if existing and mode != "wishlist":
-            promoted = item_write.promote_wishlisted(db, existing["id"])
+    existing = None
+    try:
+        with get_db() as db:
+            # The duplicate guard and the mutation share this write lock.
+            db.execute("BEGIN IMMEDIATE")
+            result = _commit_manual_add(
+                db, ManualValues(title, form.get("authors"), media_type, isbn13, upc_code,
+                                 form.get("publisher"), pub_year, platform, series_name, language),
+                mode=mode, details=AddDetails(location_id, form.get("tags") or "", form.get("reading_status") or ""))
+            item_id = result.item_id
+            if result.status in {"duplicate", "promoted"}:
+                existing = {"id": item_id, "title": result.duplicate_title}
+                promoted = result.status == "promoted"
+    except ItemValueError as e:
+        value_error = str(e)
 
     if value_error:
         return templates.TemplateResponse(

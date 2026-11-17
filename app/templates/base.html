@@ -59,7 +59,15 @@
     {# One shared native disclosure tree; the account partial retains the
        original authorized nav_tabs. Bare template environments get an empty
        model rather than inventing policy or querying configuration. #}
-    {% with media_navigation=media_navigation|default({}) %}
+    {% set add_media_entry_url = none %}
+    {% if user and user.role in ('editor', 'admin') and request is defined
+          and request.url_for is defined and request.scope is defined and request.scope.get is defined %}
+        {% set add_media_url_provider = request.scope.get('router') or request.scope.get('app') %}
+        {% if add_media_url_provider is not none %}
+            {% set add_media_entry_url = request.url_for('add_media_page') %}
+        {% endif %}
+    {% endif %}
+    {% with media_navigation=media_navigation|default({}), add_media_entry_url=add_media_entry_url %}
     {% include "fragments/media_navigation.html" %}
     {% endwith %}
 

@@ -139,28 +139,36 @@ def _save_item(metadata: dict, isbn13: str, media_type: str, location_id: int | 
     demote it. It also closes the window where a crash between the two
     transactions left an owned row behind.
     """
-    extra = {} if owned else {"owned": 0, "wishlisted": True}
     with get_db() as db:
-        return insert_item(
-            db,
-            **extra,
-            title=metadata["title"],
-            subtitle=metadata.get("subtitle"),
-            authors=metadata.get("authors"),
-            isbn=isbn13,
-            media_type=media_type,
-            publisher=metadata.get("publisher"),
-            publish_year=metadata.get("publish_year"),
-            page_count=metadata.get("page_count"),
-            description=metadata.get("description"),
-            series_name=metadata.get("series_name"),
-            series_position=metadata.get("series_position"),
-            location_id=location_id,
-            source=source,
-            language=metadata.get("language"),
-            hardcover_book_id=hc_ids.get("hardcover_book_id"),
-            hardcover_edition_id=hc_ids.get("hardcover_edition_id"),
-        )
+        return _save_item_on_connection(db, metadata, isbn13, media_type, location_id,
+                                        source, hc_ids, owned=owned)
+
+
+def _save_item_on_connection(db, metadata: dict, isbn13: str, media_type: str,
+                             location_id: int | None, source: str, hc_ids: dict,
+                             *, owned: bool = True) -> int:
+    """The native book mapping, on a caller-owned transaction/connection."""
+    extra = {} if owned else {"owned": 0, "wishlisted": True}
+    return insert_item(
+        db,
+        **extra,
+        title=metadata["title"],
+        subtitle=metadata.get("subtitle"),
+        authors=metadata.get("authors"),
+        isbn=isbn13,
+        media_type=media_type,
+        publisher=metadata.get("publisher"),
+        publish_year=metadata.get("publish_year"),
+        page_count=metadata.get("page_count"),
+        description=metadata.get("description"),
+        series_name=metadata.get("series_name"),
+        series_position=metadata.get("series_position"),
+        location_id=location_id,
+        source=source,
+        language=metadata.get("language"),
+        hardcover_book_id=hc_ids.get("hardcover_book_id"),
+        hardcover_edition_id=hc_ids.get("hardcover_edition_id"),
+    )
 
 async def _fetch_preview_cover(isbn13: str, client: httpx.AsyncClient) -> str | None:
     """Try to grab an Amazon cover preview for manual-add fallback."""

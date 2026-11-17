@@ -1,0 +1,27 @@
+{% set receipt = add.receipt %}
+<section data-testid="add-media-receipt" aria-labelledby="add-media-receipt-heading" role="status" aria-live="polite" aria-atomic="true" class="bg-shelf-card border border-shelf-border rounded-xl p-4 sm:p-6 space-y-3">
+    <h2 id="add-media-receipt-heading" class="text-lg font-semibold">{{ _('Save receipt') }}</h2>
+    <p class="font-medium">
+        {% if receipt.status == 'added' %}{{ _('Added to your collection.') }}
+        {% elif receipt.status == 'wishlisted' %}{{ _('Added to your wishlist.') }}
+        {% elif receipt.status == 'promoted' %}{{ _('The existing wishlist item was moved to your collection.') }}
+        {% elif receipt.status == 'restored' %}{{ _('The item was restored from Trash. Its stored details were retained.') }}
+        {% elif receipt.status == 'duplicate' %}{{ _('This item is already in your library. This submission did not change the existing item.') }}
+        {% elif receipt.status == 'updated' %}{{ _('The item was updated.') }}
+        {% elif receipt.status == 'refused' %}{{ _('This save was refused. Review the details and start a new search.') }}
+        {% else %}{{ _('The save outcome is unknown. Check your library before submitting again; do not automatically retry this save.') }}{% endif %}
+    </p>
+    {% if receipt.status in ('added', 'wishlisted', 'promoted', 'restored', 'duplicate', 'updated') %}
+    <dl class="grid grid-cols-1 sm:grid-cols-2 gap-3 text-sm">
+        <div class="min-w-0"><dt class="text-shelf-muted">{{ _('Stored title') }}</dt><dd>{{ fact(receipt.title) }}</dd></div>
+        {% if receipt.authors %}<div class="min-w-0"><dt class="text-shelf-muted">{{ _('Stored creator or artist') }}</dt><dd>{{ fact(receipt.authors) }}</dd></div>{% endif %}
+        <div class="min-w-0"><dt class="text-shelf-muted">{{ _('Stored collection state') }}</dt><dd>{% if receipt.actual_mode == 'add' %}{{ _('Owned') }}{% elif receipt.actual_mode == 'wishlist' %}{{ _('Wishlisted') }}{% elif receipt.actual_mode is none %}{{ _('Neither owned nor wishlisted') }}{% endif %}</dd></div>
+        <div class="min-w-0"><dt class="text-shelf-muted">{{ _('Stored format') }}</dt><dd>{{ format_name(receipt.actual_media_type) }}</dd></div>
+        <div class="min-w-0"><dt class="text-shelf-muted">{{ _('Stored source') }}</dt><dd>{{ provider_name(receipt.source) }}</dd></div>
+        <div class="min-w-0"><dt class="text-shelf-muted">{{ _('Item reference') }}</dt><dd>{{ fact(receipt.item_id) }}</dd></div>
+    </dl>
+    <p class="text-xs text-shelf-muted">{{ _('These facts describe the saved item, not every detail suggested by the provider. A duplicate receipt does not mean ownership changed.') }}</p>
+    {% endif %}
+    {% if receipt.cover_warning %}<p class="text-sm text-shelf-warning">{{ _('Artwork could not be added. The saved item remains available; you can add artwork later.') }}</p>{% endif %}
+    <a href="{{ request.url_for('add_media_page') }}" class="inline-block text-sm text-shelf-accent2 underline">{{ _('Add another item') }}</a>
+</section>

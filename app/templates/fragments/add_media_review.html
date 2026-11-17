@@ -1,0 +1,87 @@
+{% set preview = add.preview %}
+{% set candidate = preview.candidate %}
+{% set review_music = preview.intent.media_type in music_types %}
+<section data-testid="add-media-review" aria-labelledby="add-media-review-heading" class="bg-shelf-card border border-shelf-border rounded-xl p-4 sm:p-6 space-y-4">
+    <h2 id="add-media-review-heading" class="text-lg font-semibold">{{ _('Review before saving') }}</h2>
+    {{ captured_intent(preview.intent) }}
+    <p class="text-sm"><span class="text-shelf-muted">{{ _('Selected provider') }}:</span> {{ provider_name(preview.provider) }}</p>
+    {% if review_music %}
+        {% set release = candidate.get('release', {}) %}
+        <h3 class="font-semibold">{{ fact(candidate.get('fields', {}).get('title') or release.get('title')) }}</h3>
+        {% if candidate.get('source_url') %}
+        <a href="{{ candidate.source_url }}" target="_blank" rel="noopener noreferrer" referrerpolicy="no-referrer" class="inline-block max-w-full text-sm text-shelf-accent2 underline break-words [overflow-wrap:anywhere]">{{ _('View release') }}</a>
+        {% endif %}
+        <dl class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 text-sm">
+            <div class="min-w-0"><dt class="text-shelf-muted">{{ _('Provider release identifier') }}</dt><dd>{{ fact(release.get('discogs_release_id') if preview.provider == 'discogs' else release.get('musicbrainz_release_id')) }}</dd></div>
+            {% for key, label in [('artist_credit', _('Artist')), ('release_date', _('Release date')), ('country', _('Country')), ('label', _('Label')), ('catalog_number', _('Catalogue number')), ('format_summary', _('Provider format')), ('barcode', _('Barcode')), ('packaging', _('Packaging'))] %}
+            <div class="min-w-0"><dt class="text-shelf-muted">{{ label }}</dt><dd>{{ fact(release.get(key)) }}</dd></div>
+            {% endfor %}
+        </dl>
+        {% if release.get('identifiers') %}
+        <dl class="grid grid-cols-1 sm:grid-cols-2 gap-2 text-sm">
+            {% for identifier in release.identifiers %}<div class="min-w-0"><dt class="text-shelf-muted">{{ _('Identifier') }} · {{ fact(identifier.get('identifier_type')) }}</dt><dd>{{ fact(identifier.get('value')) }}</dd></div>{% endfor %}
+        </dl>
+        {% endif %}
+        {% if release.get('genres') or release.get('styles') %}<p class="text-sm"><span class="text-shelf-muted">{{ _('Genres and styles') }}:</span> {{ fact((release.get('genres') or []) + (release.get('styles') or [])) }}</p>{% endif %}
+        {% if release.get('notes') %}<details class="text-sm"><summary class="cursor-pointer text-shelf-accent2">{{ _('Release notes') }}</summary><p class="mt-2 whitespace-pre-wrap">{{ fact(release.notes) }}</p></details>{% endif %}
+        {% if preview.provider == 'discogs' %}
+        <p class="text-sm text-shelf-warning">{{ _('Discogs details and tracks are displayed live for comparison. Saving uses only the checked catalogue fields and exact pressing reference; Discogs tracks are not copied into the catalogue and no MusicBrainz identity is inferred.') }}</p>
+        {% elif preview.provider == 'musicbrainz' %}
+        <p class="text-sm text-shelf-muted">{{ _('Saving attaches this exact MusicBrainz release and its track list. Only the checked catalogue fields below are used.') }}</p>
+        {% endif %}
+        {% for medium in release.get('media') or [] %}
+        <details open class="bg-shelf-bg border border-shelf-border rounded-lg p-3 space-y-2">
+            <summary class="cursor-pointer text-sm font-medium">{{ _('Track listing') }} · {{ fact(medium.get('format')) }} · {{ _('Tracks') }}: <bdi>{{ medium.get('track_count') or (medium.get('tracks') or [])|length }}</bdi></summary>
+            <ol class="space-y-2 text-sm">
+                {% for track in medium.get('tracks') or [] %}
+                <li class="flex flex-wrap gap-x-3 gap-y-1 min-w-0">
+                    <span class="text-shelf-muted">{{ fact(track.get('number') or track.get('position')) }}</span>
+                    <span class="min-w-0 flex-1">{{ fact(track.get('title')) }}{% if track.get('artist_credit') %} · {{ fact(track.artist_credit) }}{% endif %}</span>
+                    {% if track.get('duration_ms') is number %}<span class="text-shelf-muted">{{ _('Duration (seconds)') }}: <bdi>{{ (track.duration_ms / 1000)|round(0)|int }}</bdi></span>{% endif %}
+                </li>
+                {% else %}<li class="text-shelf-muted">{{ _('No track details were supplied.') }}</li>{% endfor %}
+            </ol>
+        </details>
+        {% else %}<p class="text-sm text-shelf-muted">{{ _('No track details were supplied.') }}</p>{% endfor %}
+    {% else %}
+        {% set metadata = candidate.get('metadata', {}) %}
+        <h3 class="font-semibold">{{ fact(metadata.get('title')) }}</h3>
+        <p class="text-sm text-shelf-muted">{{ _('This is a confirmation of native catalogue fields, not a general metadata editor. To enter different known details, use manual entry below.') }}</p>
+        {% if preview.intent.media_type in book_types %}<p class="text-sm text-shelf-muted">{{ _('Bibliographic results do not prove a particular audiobook recording, eBook vendor edition or digital holding. Check the edition before saving.') }}</p>{% endif %}
+        <dl class="grid grid-cols-1 sm:grid-cols-2 gap-3 text-sm">
+            {% for key, label in [('subtitle', _('Subtitle')), ('authors', _('Creator')), ('publisher', _('Publisher')), ('publish_year', _('Year')), ('page_count', _('Pages')), ('series_name', _('Series')), ('series_position', _('Series position')), ('language', _('Language')), ('platform', _('Game platform')), ('isbn13', _('ISBN-13')), ('isbn', _('ISBN'))] %}
+            {% if metadata.get(key) is not none and metadata.get(key) != '' %}<div class="min-w-0"><dt class="text-shelf-muted">{{ label }}</dt><dd>{{ fact(add.platforms.get(metadata[key], metadata[key]) if key == 'platform' else metadata[key]) }}</dd></div>{% endif %}
+            {% endfor %}
+        </dl>
+        {% if metadata.get('description') %}<p class="text-sm whitespace-pre-wrap">{{ fact(metadata.description) }}</p>{% endif %}
+        {% if preview.intent.media_type == 'video_game' %}<p class="text-xs text-shelf-muted">{{ _('Game saves use native title, publisher, year, description, series and platform fields. A displayed provider ID or developer credit does not establish a stored provider binding or creator field.') }}</p>{% endif %}
+        {% if preview.intent.media_type == 'dvd' %}<p class="text-xs text-shelf-muted">{{ _('Movie saves use native title, description and year fields, not a durable provider ID or proof of a particular disc edition.') }}</p>{% endif %}
+    {% endif %}
+    <p class="text-sm text-shelf-muted">{{ _('No artwork is loaded or selected in this review. You can add artwork later.') }}</p>
+    <form method="post" action="{{ request.url_for('add_media_save') }}" accept-charset="UTF-8" data-testid="add-media-save" data-add-prepared class="space-y-4">
+        <input type="hidden" name="_csrf" value="{{ request.cookies.get('csrf_token', '') }}">
+        <input type="hidden" name="context" value="{{ preview.context }}">
+        <input type="hidden" name="ticket" value="{{ preview.ticket }}">
+        <fieldset data-add-prepared-controls class="space-y-4 min-w-0 [&_fieldset]:min-w-0">
+            <legend class="text-xs text-shelf-muted">{{ _('Save with this captured intent') }}</legend>
+            {{ action_intent(preview.intent, preview.provider) }}
+            {% if review_music %}
+            <fieldset class="space-y-3">
+                <legend class="font-medium text-sm">{{ _('Choose which catalogue fields to use') }}</legend>
+                {% for key, label in field_labels.items() %}
+                {% if key in candidate.get('fields', {}) %}
+                <label class="flex items-start gap-3 text-sm">
+                    <input type="checkbox" name="fields" value="{{ key }}" checked class="mt-1 shrink-0">
+                    <span class="min-w-0"><span class="block font-medium">{{ label }}</span><span class="block whitespace-pre-wrap">{{ fact(candidate.fields[key]) }}</span></span>
+                </label>
+                {% endif %}
+                {% endfor %}
+            </fieldset>
+            {% endif %}
+            {{ add_details('add-media-save', preview.intent, {}) }}
+            <button type="submit" class="{{ button_class }}">{% if preview.intent.mode == 'wishlist' %}{{ _('Save to wishlist') }}{% else %}{{ _('Save to collection') }}{% endif %}</button>
+            <p class="text-xs text-shelf-muted">{{ _('Saving uses this signed review and captured intent. If the acknowledgement is lost, check your library before submitting again; a repeated submission is not guaranteed to be harmless.') }}</p>
+        </fieldset>
+    </form>
+    {% if preview.provider == 'discogs' %}<p class="text-xs text-shelf-muted"><a href="https://www.discogs.com" target="_blank" rel="noopener noreferrer" referrerpolicy="no-referrer" class="text-shelf-accent2 underline">{{ _('Data provided by Discogs') }}</a></p>{% endif %}
+</section>

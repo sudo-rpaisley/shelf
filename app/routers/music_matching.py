@@ -1,5 +1,7 @@
 """Music search, exact-release review and public shop-link previews."""
 
+from contextlib import nullcontext
+from dataclasses import asdict
 import re
 import sqlite3
 from pathlib import Path
@@ -10,6 +12,8 @@ from fastapi import APIRouter, Depends, Query, Request
 from fastapi.responses import HTMLResponse, RedirectResponse, Response
 
 from app import i18n
+from app import add_media_context as add_context
+from app.add_media_types import AddReceipt, CapturedAddActor, MusicPreview
 from app.auth import require_role
 from app.config import COVERS_DIR, HTTP_TIMEOUT, MEDIA_TYPES, MUSIC_MEDIA_TYPES
 from app.database import get_db, get_setting
@@ -17,6 +21,7 @@ from app.features import require_feature
 from app.http_body import BodyTooLarge, MUSIC_PREVIEW_FORM_BYTES, MUSIC_REVIEW_FORM_BYTES, bounded_body
 from app.services import cover_sync_policy, discogs, discogs_selection, item_write, manual_cover, music_artwork, music_catalog, music_matching, music_review, musicbrainz, shop_metadata
 from app.services.write_targets import UnknownLocationError, validated_location_id
+from app.services import tags as tags_svc
 
 router = APIRouter(prefix="/api/music", dependencies=[Depends(require_role("editor")), Depends(require_feature("music"))])
 
@@ -147,24 +152,67 @@ async def match_panel(request: Request, item_id: int = Query(0, ge=0, le=2**63 -
         return HTMLResponse(str(error), status_code=404)
 
 
-@router.post("/preview")
-async def preview(request: Request):
+class _ReviewOperationError(music_review.ReviewError):
+    """Keep detached legacy item context across the request-independent seam."""
+
+    def __init__(self, message, item):
+        super().__init__(message)
+        self.item = item
+
+
+def _check_add_actor(db, actor):
+    add_context.revalidate_actor(db, actor)
+    # A local, same-connection flag read: no cached resolver/log/second DB
+    # connection may run under the actual writer lock.
+    row = db.execute("SELECT value FROM settings WHERE key = 'feature.music'").fetchone()
+    if row and row["value"] == "0":
+        raise add_context.AddMediaError("music_disabled", 403)
+
+
+def _check_add_intent(intent, actor, user_id, item_id, provider=None, requested_format=None):
+    if not isinstance(actor, CapturedAddActor) or actor.id != user_id:
+        raise add_context.ActorChanged()
+    add_context.intent_dict(intent)
+    if (item_id or intent.media_type not in MUSIC_MEDIA_TYPES
+            or (provider is not None and (provider not in {"musicbrainz", "discogs"}
+                or intent.music_provider not in {"auto", provider}))
+            or (requested_format is not None and requested_format != intent.media_type)):
+        raise add_context.AddMediaError("intent_changed")
+
+
+def _check_add_format(release, intent):
+    if not isinstance(release, dict):
+        raise add_context.ProviderUnavailable("unresolved")
+    known = _release_formats(release)
+    if known and intent.media_type not in known:
+        raise add_context.AddMediaError("format_conflict")
+
+
+def _add_fields(release):
+    try:
+        fields = music_review.fields_for(release)
+    except (TypeError, ValueError, AttributeError):
+        raise add_context.ProviderUnavailable("unresolved") from None
+    if not isinstance(fields.get("title"), str) or not fields["title"].strip():
+        raise add_context.ProviderUnavailable("unresolved")
+    for key, value in fields.items():
+        if (key == "publish_year" and type(value) is not int) or (key != "publish_year" and not isinstance(value, str)):
+            raise add_context.ProviderUnavailable("unresolved")
+    return fields
+
+
+async def _preview_release_operation(*, user_id, item_id=0, release_id="", url="", provider=None,
+                                     requested_format="", intent=None, actor=None) -> MusicPreview:
+    """Native release lookup/review; the Add arm is textual and purpose-closed."""
     item = None
     try:
-        form = await _form(request, MUSIC_PREVIEW_FORM_BYTES)
-        if set(form) - {"item_id", "release_id", "url", "provider", "format", "_csrf"} or any(len(form.getlist(key)) != 1 for key in form):
-            raise music_review.ReviewError("Submit only the release/link preview form.")
-        provider = form.get("provider")
-        requested_format = str(form.get("format", ""))
-        if provider is not None and provider not in {"musicbrainz", "discogs"}:
-            raise music_review.ReviewError(i18n.gettext("Choose MusicBrainz or Discogs as the release provider."))
-        if requested_format and requested_format not in MUSIC_MEDIA_TYPES:
-            raise music_review.ReviewError(i18n.gettext("Choose a valid music format."))
-        item_id = int(form.get("item_id", "0"))
-        if not 0 <= item_id <= 2**63 - 1:
-            raise music_review.ReviewError("Music item not found.")
-        release_id, url = str(form.get("release_id", "")).strip(), str(form.get("url", "")).strip()
+        if intent is not None:
+            _check_add_intent(intent, actor, user_id, item_id, provider, requested_format)
+            if url or provider is None:
+                raise add_context.AddMediaError("intent_changed")
         with get_db() as db:
+            if intent is not None:
+                _check_add_actor(db, actor)
             item = _item(db, item_id)
             fingerprint = music_review.fingerprint(db, item_id)
             token = get_setting(db, "discogs_token")
@@ -185,16 +233,25 @@ async def preview(request: Request):
         if provider != "discogs" and mbid:
             async with httpx.AsyncClient(timeout=HTTP_TIMEOUT) as client:
                 answer = await musicbrainz.lookup_release(mbid, client)
+                if intent is not None:
+                    with get_db() as db:
+                        _check_add_actor(db, actor)
                 if not answer.found:
+                    if intent is not None:
+                        raise add_context.ProviderUnavailable(answer.outcome)
                     raise music_review.ReviewError("The MusicBrainz release could not be read. Try again shortly.")
                 release = answer.payload
+                if intent is not None:
+                    _check_add_format(release, intent)
                 _check_release(release, "musicbrainz", mbid, requested_format)
                 _check_item_format(item, release)
-                art = await music_artwork.release_candidates(release, client)
+                if intent is None:
+                    art = await music_artwork.release_candidates(release, client)
             candidates = [{"kind": "musicbrainz", "source_url": f"https://musicbrainz.org/release/{mbid}",
-                           "release": release, "fields": music_review.fields_for(release),
-                           "images": [image["url"] for image in art.payload[:12]] if art.found else [],
-                           "image_labels": [image["label"] for image in art.payload[:12]] if art.found else []}]
+                            "release": release, "fields": music_review.fields_for(release) if intent is None else _add_fields(release),
+                            **({"images": [image["url"] for image in art.payload[:12]] if art.found else [],
+                                "image_labels": [image["label"] for image in art.payload[:12]] if art.found else []}
+                               if intent is None else {})}]
         elif discogs_id:
             if provider is None and release_id:
                 raise music_review.ReviewError(i18n.gettext("The release ID and link do not match."))
@@ -205,14 +262,22 @@ async def preview(request: Request):
             async with httpx.AsyncClient(timeout=HTTP_TIMEOUT) as client:
                 lookup = discogs.lookup_public_release if provider == "discogs" else discogs.lookup_release
                 answer = await lookup(discogs_id, client, token=token or "")
+            if intent is not None:
+                with get_db() as db:
+                    _check_add_actor(db, actor)
             if not answer.found:
+                if intent is not None:
+                    raise add_context.ProviderUnavailable(answer.outcome)
                 raise music_review.ReviewError(i18n.gettext("The Discogs release could not be read. Try again shortly."))
+            if intent is not None:
+                _check_add_format(answer.payload, intent)
             _check_release(answer.payload, "discogs", discogs_id, requested_format)
             _check_item_format(item, answer.payload)
             candidates = [{"kind": "discogs", "source_url": f"https://www.discogs.com/release/{discogs_id}", "release": answer.payload,
-                            "fields": music_review.fields_for(answer.payload) if provider == "discogs" else {},
-                            "images": [image["url"] for image in answer.payload.get("images", [])],
-                            "image_labels": [image["label"] for image in answer.payload.get("images", [])]}]
+                             "fields": (music_review.fields_for(answer.payload) if intent is None else _add_fields(answer.payload)) if provider == "discogs" else {},
+                             **({"images": [image["url"] for image in answer.payload.get("images", [])],
+                                 "image_labels": [image["label"] for image in answer.payload.get("images", [])]}
+                                if intent is None else {})}]
         elif release_id or parsed.hostname in {"musicbrainz.org", "www.musicbrainz.org", "discogs.com", "www.discogs.com"}:
             raise music_review.ReviewError("Paste an exact release link, not an artist, release group, master or marketplace listing.")
         else:
@@ -224,13 +289,51 @@ async def preview(request: Request):
                 raise music_review.ReviewError(i18n.gettext("The selected format contradicts the provider's release details. Choose the correct pressing."))
             candidate["media_type"] = next(iter(known)) if len(known) == 1 else None
             candidate["keep_release"] = bool(current_release and current_release.get("musicbrainz_release_id") and candidate["kind"] == "shop")
-            candidate["ticket"] = music_review.sign(candidate, user_id=request.state.user["id"], item_id=item_id, fingerprint=fingerprint)
-            candidate["image_tickets"] = [music_review.sign({"kind": candidate["kind"], "images": [image]},
-                                                           user_id=request.state.user["id"], item_id=item_id, fingerprint=fingerprint,
-                                                           purpose="shelf-music-image-v1") for image in candidate.get("images", [])]
-        return _render(request, item=item, candidates=candidates)
+            if intent is not None:
+                with get_db() as db:
+                    _check_add_actor(db, actor)
+                candidate["release"] = {key: value for key, value in candidate["release"].items() if key != "images"}
+                candidate["add_media_intent"] = add_context.intent_dict(intent)
+                candidate["add_media_actor"] = asdict(actor)
+                try:
+                    candidate["ticket"] = music_review.sign(candidate, user_id=user_id, item_id=0,
+                                                           fingerprint="new", purpose=add_context.MUSIC_PURPOSE)
+                except music_review.ReviewError:
+                    raise add_context.AddMediaError("invalid_input", 422) from None
+            else:
+                candidate["ticket"] = music_review.sign(candidate, user_id=user_id, item_id=item_id, fingerprint=fingerprint)
+                candidate["image_tickets"] = [music_review.sign({"kind": candidate["kind"], "images": [image]},
+                                                               user_id=user_id, item_id=item_id, fingerprint=fingerprint,
+                                                               purpose="shelf-music-image-v1") for image in candidate.get("images", [])]
+        return MusicPreview(item, tuple(candidates))
+    except add_context.AddMediaError:
+        raise
     except (music_review.ReviewError, shop_metadata.ShopError, ValueError) as error:
-        return _render(request, item=item, error=str(error))
+        raise _ReviewOperationError(str(error), item) from error
+
+
+@router.post("/preview")
+async def preview(request: Request):
+    item = None
+    try:
+        form = await _form(request, MUSIC_PREVIEW_FORM_BYTES)
+        if set(form) - {"item_id", "release_id", "url", "provider", "format", "_csrf"} or any(len(form.getlist(key)) != 1 for key in form):
+            raise music_review.ReviewError("Submit only the release/link preview form.")
+        provider = form.get("provider")
+        requested_format = str(form.get("format", ""))
+        if provider is not None and provider not in {"musicbrainz", "discogs"}:
+            raise music_review.ReviewError(i18n.gettext("Choose MusicBrainz or Discogs as the release provider."))
+        if requested_format and requested_format not in MUSIC_MEDIA_TYPES:
+            raise music_review.ReviewError(i18n.gettext("Choose a valid music format."))
+        item_id = int(form.get("item_id", "0"))
+        if not 0 <= item_id <= 2**63 - 1:
+            raise music_review.ReviewError("Music item not found.")
+        release_id, url = str(form.get("release_id", "")).strip(), str(form.get("url", "")).strip()
+        result = await _preview_release_operation(user_id=request.state.user["id"], item_id=item_id,
+            release_id=release_id, url=url, provider=provider, requested_format=requested_format)
+        return _render(request, item=result.item, candidates=result.candidates)
+    except (music_review.ReviewError, shop_metadata.ShopError, ValueError) as error:
+        return _render(request, item=getattr(error, "item", item), error=str(error))
 
 
 @router.get("/preview-image")
@@ -257,32 +360,73 @@ async def preview_image(request: Request, ticket: str = Query(...), index: int =
         return Response(status_code=404)
 
 
-@router.post("/apply-match")
-async def apply_match(request: Request):
-    path = None
+def _add_candidate(ticket, actor, intent):
+    candidate = add_context.verify_host_ticket(ticket, actor=actor, purpose=add_context.MUSIC_PURPOSE)
+    if set(candidate) != {"kind", "source_url", "release", "fields", "media_type", "keep_release",
+                          "add_media_intent", "add_media_actor"}:
+        raise add_context.AddMediaError()
+    add_context.bound_actor(candidate["add_media_actor"], actor)
     try:
-        form = await _form(request, MUSIC_REVIEW_FORM_BYTES)
-        if set(form) - {"ticket", "item_id", "fields", "image", "media_type", "location_id", "owned", "_csrf"} or len(form.getlist("ticket")) != 1:
-            raise music_review.ReviewError("Submit only the match review form.")
-        for name in ("item_id", "image", "media_type", "location_id"):
-            if len(form.getlist(name)) > 1:
-                raise music_review.ReviewError("Submit each review control once.")
-        if (any(value not in {"0", "1"} for value in form.getlist("owned")) or len(form.getlist("owned")) > 2
-                or len(form.getlist("fields")) > len(music_review.FIELD_LABELS)):
-            raise music_review.ReviewError("Submit only the choices shown in the review.")
-        context_id = int(form.get("item_id", "0"))
-        if not 0 <= context_id <= 2**63 - 1:
-            raise music_review.ReviewError("Music item not found.")
+        signed_intent = add_context.intent_from_dict(candidate["add_media_intent"])
+    except add_context.AddMediaError:
+        raise add_context.AddMediaError() from None
+    if signed_intent != intent:
+        raise add_context.AddMediaError("intent_changed")
+    provider = candidate["kind"]
+    if not isinstance(provider, str):
+        raise add_context.AddMediaError()
+    _check_add_intent(intent, actor, actor.id, 0, provider, intent.media_type)
+    release = candidate["release"]
+    if not isinstance(release, dict) or "images" in release or candidate["keep_release"] is not False:
+        raise add_context.AddMediaError()
+    identifier = (music_matching.release_id(release.get("musicbrainz_release_id")) if provider == "musicbrainz"
+                  else discogs._public_release_id(release.get("discogs_release_id")))
+    source_url = (f"https://musicbrainz.org/release/{identifier}" if provider == "musicbrainz"
+                  else f"https://www.discogs.com/release/{identifier}")
+    if not identifier or source_url != candidate["source_url"] or candidate["fields"] != music_review.fields_for(release):
+        raise add_context.AddMediaError()
+    _check_release(release, provider, identifier)
+    _check_add_format(release, intent)
+    known = _release_formats(release)
+    if candidate["media_type"] != (next(iter(known)) if len(known) == 1 else None):
+        raise add_context.AddMediaError()
+    return candidate
+
+
+async def _apply_review_operation(*, user_id, ticket, context_item_id=None, fields: tuple = (), image=-1,
+                                  media_type="", location_id=None, owned: bool | None = None, intent=None,
+                                  tags="", reading_status="", actor=None) -> AddReceipt:
+    """Native selective apply; only the new arm accepts an Add-host ticket."""
+    path = None
+    item = None
+    transaction_finished = False
+    try:
+        if intent is not None:
+            _check_add_intent(intent, actor, user_id, context_item_id or 0)
+            if owned is not None or image != -1 or media_type != intent.media_type or reading_status:
+                raise add_context.AddMediaError("intent_changed")
         with get_db() as db:
-            item = _item(db, context_id)
-        review = music_review.verify(form["ticket"], user_id=request.state.user["id"])
+            if intent is not None:
+                _check_add_actor(db, actor)
+            item = _item(db, context_item_id or 0)
+        if intent is not None:
+            candidate = _add_candidate(ticket, actor, intent)
+            review = {"item": 0, "candidate": candidate, "fingerprint": "new"}
+        else:
+            review = music_review.verify(ticket, user_id=user_id)
         item_id, candidate = review["item"], review["candidate"]
-        if "item_id" in form and context_id != item_id:
+        if context_item_id is not None and context_item_id != item_id:
             raise music_review.ReviewError("That preview belongs to a different item.")
-        chosen = form.getlist("fields")
+        chosen = fields
         if any(field not in music_review.FIELD_LABELS or field not in candidate["fields"] for field in chosen):
+            if intent is not None:
+                raise add_context.AddMediaError("invalid_input", 422)
             raise music_review.ReviewError("Choose only the fields shown in the preview.")
+        if intent is not None and (len(chosen) > 6 or len(set(chosen)) != len(chosen)):
+            raise add_context.AddMediaError("invalid_input", 422)
         with get_db() as db:
+            if intent is not None:
+                _check_add_actor(db, actor)
             item = _item(db, item_id)
             if music_review.fingerprint(db, item_id) != review["fingerprint"]:
                 raise music_review.ReviewError("This item changed after the preview. Preview it again before applying anything.")
@@ -290,13 +434,15 @@ async def apply_match(request: Request):
             _refuse_release_duplicate(db, candidate, item_id)
         values = {field: candidate["fields"][field] for field in chosen}
         if not item_id:
-            kind = str(form.get("media_type", ""))
+            kind = str(media_type)
             known = _release_formats(candidate["release"])
             if kind not in MUSIC_MEDIA_TYPES or not values.get("title"):
+                if intent is not None:
+                    raise add_context.AddMediaError("invalid_input", 422)
                 raise music_review.ReviewError(i18n.gettext("Choose a music format and a title before adding this item."))
             if known and kind not in known:
                 raise music_review.ReviewError(i18n.gettext("The selected format contradicts the provider's release details. Choose the correct pressing."))
-        index = int(form.get("image", "-1"))
+        index = int(image)
         if index != -1:
             images = candidate.get("images", [])
             if not 0 <= index < len(images):
@@ -306,6 +452,8 @@ async def apply_match(request: Request):
                 raise music_review.ReviewError("The chosen image could not be downloaded. Nothing was changed; try keeping the existing artwork.")
         with get_db() as db:
             db.execute("BEGIN IMMEDIATE")
+            if intent is not None:
+                _check_add_actor(db, actor)
             item = _item(db, item_id)
             if music_review.fingerprint(db, item_id) != review["fingerprint"]:
                 raise music_review.ReviewError("This item changed while the artwork was loading. Preview it again.")
@@ -313,13 +461,15 @@ async def apply_match(request: Request):
             _refuse_release_duplicate(db, candidate, item_id)
             creating = not item_id
             if not item_id:
-                location = validated_location_id(db, int(form["location_id"]) if form.get("location_id") else None)
-                owned = form.get("owned", "1") == "1"
+                location = validated_location_id(db, int(location_id) if location_id else None)
+                ownership = intent.mode == "add" if intent is not None else (True if owned is None else owned)
                 # A conflicting barcode belongs to an existing item: refuse
                 # rather than silently replacing that item's local metadata.
-                item_id = item_write.insert_item(db, {**values, "media_type": kind, "location_id": location,
-                                                       "owned": int(owned), "wishlisted": not owned, "source": candidate["kind"]},
-                                                 restore_trashed=False)
+                with (tags_svc.default_tags(tags) if intent is not None else nullcontext()), \
+                        (item_write.default_reading_status(reading_status) if intent is not None else nullcontext()):
+                    item_id = item_write.insert_item(db, {**values, "media_type": kind, "location_id": location,
+                                                            "owned": int(ownership), "wishlisted": not ownership, "source": candidate["kind"]},
+                                                      restore_trashed=False)
             elif values:
                 item_write.update_item_fields(db, item_id, values)
             if candidate["kind"] == "musicbrainz":
@@ -340,13 +490,58 @@ async def apply_match(request: Request):
             if path:
                 item_write.update_item_fields(db, item_id, {"cover_path": path, "cover_edition_isbn": None, "cover_edition_language": None})
                 cover_sync_policy.block(db, item_id)
+            if intent is not None:
+                row = db.execute("SELECT * FROM items_live WHERE id = ?", (item_id,)).fetchone()
+                receipt = AddReceipt("added" if row["owned"] else "wishlisted", "add" if row["owned"] else "wishlist",
+                                     row["media_type"], row["id"], row["source"], row["title"], row["authors"], row["cover_path"])
+            transaction_finished = True
         path = None  # The new cover now belongs to the committed item.
-        if request.headers.get("HX-Request", "").lower() == "true":
-            return Response(headers={"HX-Redirect": f"/music/item/{item_id}"})
-        return RedirectResponse(f"/music/item/{item_id}", status_code=303)
+        return receipt if intent is not None else AddReceipt("added" if creating else "updated", item_id=item_id)
+    except add_context.AddMediaError:
+        raise
+    except item_write.ItemValueError as error:
+        if intent is not None:
+            if transaction_finished:
+                code, status = "outcome_unknown", 503
+            elif isinstance(error, item_write.IdentifierInTrash):
+                code, status = "stale_review", 409
+            else:
+                code, status = "invalid_input", 422
+            raise add_context.AddMediaError(code, status) from error
+        raise _ReviewOperationError(
+            "That barcode/release is already catalogued or a selected location is unavailable. No changes were saved.", item) from error
     except (music_review.ReviewError, UnknownLocationError, ValueError, sqlite3.IntegrityError, item_write.IdentifierInTrash) as error:
+        if intent is not None and transaction_finished:
+            raise add_context.AddMediaError("outcome_unknown", 503) from error
         message = str(error) if isinstance(error, music_review.ReviewError) else "That barcode/release is already catalogued or a selected location is unavailable. No changes were saved."
-        return _render(request, item=locals().get("item"), error=message)
+        raise _ReviewOperationError(message, item) from error
     finally:
         if path:
             (COVERS_DIR / Path(path).name).unlink(missing_ok=True)
+
+
+@router.post("/apply-match")
+async def apply_match(request: Request):
+    try:
+        form = await _form(request, MUSIC_REVIEW_FORM_BYTES)
+        if set(form) - {"ticket", "item_id", "fields", "image", "media_type", "location_id", "owned", "_csrf"} or len(form.getlist("ticket")) != 1:
+            raise music_review.ReviewError("Submit only the match review form.")
+        for name in ("item_id", "image", "media_type", "location_id"):
+            if len(form.getlist(name)) > 1:
+                raise music_review.ReviewError("Submit each review control once.")
+        if (any(value not in {"0", "1"} for value in form.getlist("owned")) or len(form.getlist("owned")) > 2
+                or len(form.getlist("fields")) > len(music_review.FIELD_LABELS)):
+            raise music_review.ReviewError("Submit only the choices shown in the review.")
+        context_id = int(form.get("item_id", "0"))
+        if not 0 <= context_id <= 2**63 - 1:
+            raise music_review.ReviewError("Music item not found.")
+        result = await _apply_review_operation(user_id=request.state.user["id"], ticket=form["ticket"],
+            context_item_id=context_id if "item_id" in form else None, fields=tuple(form.getlist("fields")),
+            image=form.get("image", "-1"), media_type=str(form.get("media_type", "")),
+            location_id=form.get("location_id"), owned=form.get("owned", "1") == "1")
+        if request.headers.get("HX-Request", "").lower() == "true":
+            return Response(headers={"HX-Redirect": f"/music/item/{result.item_id}"})
+        return RedirectResponse(f"/music/item/{result.item_id}", status_code=303)
+    except (music_review.ReviewError, UnknownLocationError, ValueError, sqlite3.IntegrityError, item_write.IdentifierInTrash) as error:
+        message = str(error) if isinstance(error, music_review.ReviewError) else "That barcode/release is already catalogued or a selected location is unavailable. No changes were saved."
+        return _render(request, item=getattr(error, "item", None), error=message)
