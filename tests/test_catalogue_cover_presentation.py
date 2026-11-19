@@ -98,7 +98,7 @@ def test_recent_heading_replaces_only_view_all_and_keeps_native_row_controls(hre
 
 
 @pytest.mark.parametrize("path", ("/library", "/api/library/search"))
-def test_library_keeps_scoped_holdings_creator_labels_and_prepared_artwork_with_common_covers(viewer_client, db, path):
+def test_library_is_cover_only_while_scoped_holdings_and_detail_metadata_remain_intact(viewer_client, db, path):
     paper, ebook, audio, sources, tag = _library_seed(db)
     response = viewer_client.get(path, params={"media_type": "ebook", "availability": "digital",
                                                "source": f"source:{sources[0]}"})
@@ -114,17 +114,33 @@ def test_library_keeps_scoped_holdings_creator_labels_and_prepared_artwork_with_
         stage = markup.one(within=member, **{"data-cover-presentation": "recent-v1"})
         assert markup.one("h3", within=stage).text == items[item_id]["title"]
         assert markup.one("p", within=stage).text == items[item_id]["authors"]
-        assert markup.one("p", within=member, **{"aria-label": "Author(s)"}).text == items[item_id]["authors"]
         assert markup.one("a", within=member, **{"class": "media-card__detail"}).attrs["href"] == f"/item/{item_id}?from=library"
-        assert tag in member.text and f"#{item_id}" in member.text
-    paper_node = markup.one(**{"data-library-member": str(paper)})
-    assert "2 physical copies" in paper_node.text and "Owned" in paper_node.text
-    assert {holding.attrs["data-holding-state"] for holding in markup.find("li", within=paper_node)} == {"available", "missing"}
-    digital = markup.one(**{"data-library-member": str(ebook)})
-    assert markup.one("a", within=digital, target="_blank").attrs["href"] == f"https://books.example.test/books/{ebook}"
-    assert "Last source sync failed; cached record retained." in markup.one(**{"data-library-member": str(audio)}).text
+        assert member.attrs["data-library-member-presentation"] == "cover-only-v1"
+        assert not markup.find("li", within=member) and not markup.find("a", within=member, target="_blank")
+        assert not markup.find("p", within=member, **{"class": "media-card__type"})
+        assert tag not in member.text and f"#{item_id}" not in member.text
+        assert tag in items[item_id]["tags"]
+    assert items[paper]["copy_count"] == 2 and items[paper]["owned"]
+    assert {holding["state"] for holding in items[paper]["holdings"]} == {"available", "missing"}
+    assert items[ebook]["wishlisted"] and not items[audio]["wishlisted"]
+    assert items[ebook]["holdings"][0]["url"] == f"https://books.example.test/books/{ebook}"
+    assert items[audio]["holdings"][0]["state"] == "unknown"
+    assert items[audio]["holdings"][0]["detail"] == "Last source sync failed; cached record retained."
+    assert items[audio]["holdings"][0]["last_seen"] == "2026-10-01T12:00:00Z"
+    assert items[audio]["holdings"][0]["action"] == "Listen"
     assert "private-failure-marker" not in response.text
     assert not markup.find("b") and not markup.find("i") and not markup.find("em") and not markup.find("u")
+    for item_id in (paper, ebook, audio):
+        detail = viewer_client.get(f"/item/{item_id}?from=library")
+        assert detail.status_code == 200
+        page = _Markup(detail.text)
+        assert items[item_id]["title"] in page.one("h1").text
+        assert items[item_id]["authors"] in page.one("main").text
+        assert tag in page.one("div", id="item-tags").text
+        availability = page.testid("available-here")
+        assert {node.attrs["data-availability-state"] for node in page.find("li", within=availability,
+                  **{"data-availability-item": str(item_id)})} == {holding["state"] for holding in items[item_id]["holdings"]}
+        assert "private-failure-marker" not in detail.text
 
 
 @pytest.mark.parametrize("path", ("/library", "/api/library/search"))

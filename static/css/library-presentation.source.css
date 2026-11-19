@@ -1,6 +1,5 @@
-/* Explicit Library presentation, never a new default for shared cards. The
-   direct link supports an old cached bundle; the same rules are also bundled.
-   Both page AND member markers are mandatory for every card formatting rule. */
+/* Library help/filter chrome only; common catalogue CSS owns cover-only tiles.
+   The direct link supports an older cached bundle as well as the bundled copy. */
 [data-library-presentation="phone-wrap-v1"] .library-phone-help > summary {
     min-block-size: 2.5rem;
     padding-block: 0.5rem;
@@ -26,42 +25,9 @@
     }
     [data-library-presentation="phone-wrap-v1"] .library-phone-saved { padding: 0.5rem 0.75rem; }
     [data-library-presentation="phone-wrap-v1"] #library-results > :not(:last-child) { margin-block-end: 0.5rem; }
-
-    /* A member establishes the sole wrapping boundary. Flex formatting on the
-       inner card would isolate following metadata from its floated artwork.
-       Keep the card a REAL block with its existing width/host/scale rules. */
-    [data-library-presentation="phone-wrap-v1"] [data-library-member-presentation="phone-wrap-v1"] {
-        display: flow-root;
-        overflow-wrap: anywhere;
-    }
-    [data-library-presentation="phone-wrap-v1"] [data-library-member-presentation="phone-wrap-v1"] > :not(:last-child) { margin-block-end: 0.25rem; }
-    [data-library-presentation="phone-wrap-v1"] [data-library-member-presentation="phone-wrap-v1"] .media-card { display: block; }
-    [data-library-presentation="phone-wrap-v1"] [data-library-member-presentation="phone-wrap-v1"] .media-artwork {
-        float: inline-start;
-        width: min(30%, 6rem);
-        margin-inline-end: 0.75rem;
-        margin-block-end: 0.5rem;
-    }
-    [data-library-presentation="phone-wrap-v1"] [data-library-member-presentation="phone-wrap-v1"] .media-card__title { margin-block-start: 0; }
-    [data-library-presentation="phone-wrap-v1"] [data-library-member-presentation="phone-wrap-v1"] .library-phone-facts > span:not(:last-child) { margin-inline-end: 0.5rem; }
-    /* Facts, badges and the honest unknown-availability text retain DOM order
-       while sharing available lines. Inline-block badges contribute their full
-       padded height, so they cannot paint over adjacent text. */
-    [data-library-presentation="phone-wrap-v1"] [data-library-member-presentation="phone-wrap-v1"] .library-phone-badges,
-    [data-library-presentation="phone-wrap-v1"] [data-library-member-presentation="phone-wrap-v1"] .library-phone-no-holdings { display: inline; }
-    [data-library-presentation="phone-wrap-v1"] [data-library-member-presentation="phone-wrap-v1"] .library-phone-badges > span {
-        display: inline-block;
-        margin-inline-end: 0.25rem;
-    }
-    [data-library-presentation="phone-wrap-v1"] [data-library-member-presentation="phone-wrap-v1"] > ul { clear: both; }
-    [data-library-presentation="phone-wrap-v1"] [data-library-member-presentation="phone-wrap-v1"]:focus-within {
-        outline: 2px solid var(--color-shelf-accent2, #818cf8);
-        outline-offset: 2px;
-        border-radius: 0.5rem;
-    }
 }
 
 @media print {
     [data-library-presentation="phone-wrap-v1"] [data-library-help="phone-wrap-v1"],
-    [data-library-presentation="phone-wrap-v1"] [data-library-member-presentation="phone-wrap-v1"] { break-inside: avoid; }
+    [data-library-member-presentation="cover-only-v1"] { break-inside: avoid; }
 }

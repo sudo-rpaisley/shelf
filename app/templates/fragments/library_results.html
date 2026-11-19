@@ -1,54 +1,18 @@
 {% set _library_phone_wrap = library_presentation_mode is defined and library_presentation_mode == 'phone-wrap-v1' %}
-{# This producer owns the same sizing contract in full pages and live fragments. #}
+{# Cover-only in full pages AND live fragments. Keep query/group/holding DTOs
+   intact; item pages own the full metadata, copies and source actions. #}
 {% set media_card_size_mode = 'shared-v2' %}
+{% set media_card_presentation = 'shelf-preview-v1' %}
 {% set _library_explanations_hosted = _library_phone_wrap and library_explanations_hosted is defined and library_explanations_hosted is sameas true %}
-{% macro state_label(state) -%}
-    {% if state == 'available' %}{{ _('Available')|forceescape }}{% elif state == 'lent' %}{{ _('Lent out')|forceescape }}{% elif state == 'missing' %}{{ _('Missing')|forceescape }}{% elif state == 'unavailable' %}{{ _('Unavailable')|forceescape }}{% else %}{{ _('Unknown')|forceescape }}{% endif %}
-{%- endmacro %}
 {% macro item_card(item) %}
-<div class="min-w-0 space-y-3" data-library-member="{{ item.id }}" data-matches="{{ 'true' if item.matches else 'false' }}"{% if _library_phone_wrap %} data-library-member-presentation="phone-wrap-v1"{% endif %}>
+<div class="min-w-0" data-library-member="{{ item.id }}" data-matches="{{ 'true' if item.matches else 'false' }}" data-library-member-presentation="cover-only-v1">
     {% set card = build_media_card(item, detail_href='/item/' ~ item.id ~ '?from=library') %}
     {% set validated_artwork_source = prepared_library_artwork.source_for(item.id, item.cover_path) if prepared_library_artwork is defined else none %}
     {% include "components/media_card.html" %}
-    <div class="min-w-0 space-y-1">
-        {% if item.subtitle %}<p class="text-sm text-shelf-muted break-words">{{ item.subtitle }}</p>{% endif %}
-        {% if item.authors %}<p class="text-sm break-words" aria-label="{{ _(creator_label(item.media_type))|forceescape }}">{{ item.authors }}</p>{% endif %}
-        {% if _library_phone_wrap %}
-        <p class="library-phone-facts text-xs text-shelf-muted"><span>#{{ item.id }}</span>
-            {% if item.series_key %}<span class="text-sm">{{ item.series_name }}{% if item.series_position is not none %} · {{ item.series_position }}{% endif %}</span>{% endif %}
-            <span class="{% if item.matches %}text-shelf-accent2{% else %}text-shelf-muted{% endif %}">{% if item.matches %}{{ _('Matches filters')|forceescape }}{% else %}{{ _('Other format — does not match filters')|forceescape }}{% endif %}</span>
-        </p>
-        {% else %}
-        <p class="text-xs text-shelf-muted">#{{ item.id }}</p>
-        {% if item.series_key %}<p class="text-sm">{{ item.series_name }}{% if item.series_position is not none %} · {{ item.series_position }}{% endif %}</p>{% endif %}
-        <p class="text-xs {% if item.matches %}text-shelf-accent2{% else %}text-shelf-muted{% endif %}">{% if item.matches %}{{ _('Matches filters')|forceescape }}{% else %}{{ _('Other format — does not match filters')|forceescape }}{% endif %}</p>
-        {% endif %}
-    </div>
-    <div class="flex flex-wrap gap-2 text-xs{% if _library_phone_wrap %} library-phone-badges{% endif %}">
-        {% if item.owned %}<span class="rounded bg-shelf-hover px-2 py-1">{{ _('Owned')|forceescape }}</span>{% endif %}
-        {% if item.wishlisted %}<span class="rounded bg-shelf-hover px-2 py-1">{{ _('Wishlist')|forceescape }}</span>{% endif %}
-        {% if item.copy_count %}<span class="rounded bg-shelf-hover px-2 py-1">{{ ngettext('%(count)s physical copy', '%(count)s physical copies', item.copy_count, count=item.copy_count)|forceescape }}</span>{% endif %}
-        {% for tag in item.tags %}<span class="rounded border border-shelf-border px-2 py-1">{{ tag }}</span>{% endfor %}
-    </div>
-    {% if item.holdings %}
-    <ul class="space-y-2 text-xs" aria-label="{{ _('Copies and sources')|forceescape }}">
-        {% for holding in item.holdings %}
-        <li class="rounded-lg bg-shelf-bg border border-shelf-border px-3 py-2" data-holding-source="{{ holding.source_key }}" data-holding-state="{{ holding.state }}">
-            <div class="flex flex-wrap items-center justify-between gap-2">
-                <span>{{ _('Physical copy')|forceescape if holding.kind == 'physical' else holding.source_name }}{% if holding.location %} · {{ holding.location }}{% endif %} · <strong>{{ state_label(holding.state) }}</strong></span>
-                {% if holding.url and holding.state in ('available', 'unknown') %}<a href="{{ holding.url }}" target="_blank" rel="noopener noreferrer" class="font-medium text-shelf-accent2 hover:underline">{{ _(holding.action or 'Open')|forceescape }}<span class="sr-only"> · {{ holding.source_name }}</span></a>{% endif %}
-            </div>
-            {# Escape the owned translation before interpolating raw metadata once. #}
-            {% if holding.last_seen %}<p class="text-shelf-muted mt-1">{{ (_('Last seen: %(when)s', when='%(when)s')|forceescape).replace('%(when)s', holding.last_seen) }}</p>{% endif %}
-            {% if holding.detail %}<p class="text-shelf-muted mt-1">{{ holding.detail }}</p>{% endif %}
-        </li>
-        {% endfor %}
-    </ul>
-    {% else %}<p class="text-xs text-shelf-muted{% if _library_phone_wrap %} library-phone-no-holdings{% endif %}">{{ _('No recorded holdings · availability unknown')|forceescape }}</p>{% endif %}
 </div>
 {% endmacro %}
 
-<section id="library-results" class="space-y-4" aria-label="{{ _('Library results')|forceescape }}" data-testid="library-results" data-item-size="density-v1">
+<section id="library-results" class="space-y-4" aria-label="{{ _('Library results')|forceescape }}" data-testid="library-results" data-item-size="density-v1" data-library-result-layout="cover-only-v1">
     <div class="flex flex-wrap items-center justify-between gap-3">
         <p class="text-sm" role="status" data-testid="library-counts" data-matching-count="{{ matching_count }}" data-group-count="{{ group_count }}">{{ ngettext('%(count)s matching item', '%(count)s matching items', matching_count, count=matching_count)|forceescape }} {{ _('in')|forceescape }} {{ ngettext('%(count)s group', '%(count)s groups', group_count, count=group_count)|forceescape }}</p>
         <nav aria-label="{{ _('Result view')|forceescape }}" class="flex flex-wrap gap-3 text-sm">
@@ -67,13 +31,13 @@
     {% if not _library_explanations_hosted %}<p class="text-xs text-shelf-muted">{{ _('Groups use explicit format links only. Every live edition is shown, including editions that do not match your filters.')|forceescape }}</p>{% endif %}
     <div class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4" data-item-grid="library">
         {% for group in groups %}
-        <article class="rounded-xl bg-shelf-card border border-shelf-border p-4 space-y-4" data-library-group="{{ group.id }}" data-member-ids="{{ group.member_ids|join(',') }}" data-matching-ids="{{ group.matching_ids|join(',') }}">
+        <article class="min-w-0" data-library-group="{{ group.id }}" data-member-ids="{{ group.member_ids|join(',') }}" data-matching-ids="{{ group.matching_ids|join(',') }}">
             {{ item_card(group.representative) }}
             {% if group.members|length > 1 %}
-            <details class="border-t border-shelf-border pt-3">
+            <details class="mt-2">
                 <summary class="cursor-pointer text-sm font-medium">{{ _('%(formats)s live editions · %(matches)s matching — show other formats', formats=group.members|length, matches=group.matching_count)|forceescape }}</summary>
                 <div class="mt-4 space-y-4">
-                    {% for member in group.members if member.id != group.representative.id %}<div class="border-t border-shelf-border pt-4">{{ item_card(member) }}</div>{% endfor %}
+                    {% for member in group.members if member.id != group.representative.id %}{{ item_card(member) }}{% endfor %}
                 </div>
             </details>
             {% endif %}
@@ -82,21 +46,16 @@
     </div>
     {% elif result_kind == 'items' and items %}
     <div class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4" data-item-grid="library">
-        {% for item in items %}<article class="rounded-xl bg-shelf-card border border-shelf-border p-4">{{ item_card(item) }}</article>{% endfor %}
+        {% for item in items %}<article class="min-w-0">{{ item_card(item) }}</article>{% endfor %}
     </div>
     {% elif result_kind == 'series' and series_results %}
     {% if not _library_explanations_hosted %}<p class="text-xs text-shelf-muted">{{ _('Series are grouped by their local names, preserving punctuation and scripts. No remote series lookup is needed.')|forceescape }}</p>{% endif %}
     <div class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4" data-item-grid="library">
         {% for series in series_results %}
-        <article class="rounded-xl bg-shelf-card border border-shelf-border p-4" data-library-series="{{ series.key }}">
-            <a href="{{ series.url }}" class="block space-y-3 hover:text-shelf-accent2" data-cover-link>
+        <article class="min-w-0" data-library-series="{{ series.key }}">
+            <a href="{{ series.url }}" class="media-card__detail" data-cover-link>
                 {% set validated_artwork_source = prepared_library_artwork.source_for(series.representative.id, series.representative.cover_path) if prepared_library_artwork is defined else none %}
-                {% with cover_item=series.representative %}{% include "components/catalogue_cover.html" %}{% endwith %}
-                <div>
-                    <h3 class="font-semibold break-words">{{ series.name }}</h3>
-                    <p class="text-sm text-shelf-muted">{{ ngettext('%(count)s matching item', '%(count)s matching items', series.item_count, count=series.item_count)|forceescape }} · {{ ngettext('%(count)s group', '%(count)s groups', series.group_count, count=series.group_count)|forceescape }}</p>
-                    <p class="text-xs text-shelf-accent2 mt-1">{{ _('Explore series')|forceescape }}</p>
-                </div>
+                {% with cover_item={'id': series.representative.id, 'title': series.name, 'authors': series.representative.authors|default(none), 'media_type': series.representative.media_type, 'cover_path': series.representative.cover_path}, cover_print='card' %}{% include "components/catalogue_cover.html" %}{% endwith %}
             </a>
         </article>
         {% endfor %}

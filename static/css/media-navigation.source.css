@@ -37,6 +37,11 @@
 }
 .media-navigation__primary { grid-column: 1; }
 .media-navigation__shell { grid-column: 2; min-inline-size: 0; }
+/* With Library as the primary destination there is no duplicate Browse column.
+   These scoped resets also defeat an older cached two-column/200% tree bundle. */
+.media-navigation__main[data-nav-layout="library-primary-v1"] { grid-template-columns: minmax(0, 1fr); }
+.media-navigation__main[data-nav-layout="library-primary-v1"] > .media-navigation__shell { grid-column: 1 / -1; }
+.media-navigation__main[data-nav-layout="library-primary-v1"] .media-navigation__tree { inline-size: 100%; margin-inline-start: 0; }
 /* The same primary anchor remains before/outside the native shell. Hide it
    only for the enhanced narrow closed state, never in the no-JS fallback. */
 .media-navigation[data-nav-enhanced="true"][data-nav-menu-open="false"] .media-navigation__primary { display: none; }
@@ -127,25 +132,6 @@
 .media-navigation__activity { display: flex; flex-wrap: wrap; align-items: start; gap: 0.125rem; max-inline-size: 100%; }
 .media-navigation__empty { padding: 0.625rem 0.875rem; color: var(--color-shelf-muted, #94a3b8); }
 .media-navigation__description { display: block; padding: 0 0.875rem 0.375rem; color: var(--color-shelf-muted, #94a3b8); font-size: 0.75rem; line-height: 1.5; }
-/* Unlike the ordinary menus, Explore is deliberately expanded IN FLOW. These
-   explicit resets also undo the actual previously published dropdown rules. */
-.media-navigation .media-navigation__top.media-navigation__quick .media-navigation__panel {
-    position: static;
-    inset: auto;
-    display: flex;
-    flex-wrap: wrap;
-    gap: 0.125rem;
-    inline-size: auto;
-    max-inline-size: 100%;
-    max-block-size: none;
-    overflow: visible;
-    margin: 0;
-    padding: 0;
-    border: 0;
-    border-radius: 0;
-    background: transparent;
-    box-shadow: none;
-}
 @media (prefers-reduced-motion: reduce) {
     .media-navigation__chevron { transition: none; }
 }
@@ -164,10 +150,6 @@
     .media-navigation__top, .media-navigation__family { position: relative; flex-shrink: 0; }
     .media-navigation__activity { align-items: center; flex-shrink: 0; }
     .media-navigation summary, .media-navigation__shell-button, .media-navigation__link { gap: 0.25rem; padding-inline: 0.5rem; }
-    .media-navigation__quick { flex-shrink: 1; min-inline-size: 0; max-inline-size: 100%; }
-    /* Native details exposes its summary and content as the two grid cells;
-       the links remain in flow and wrap when text is enlarged. */
-    .media-navigation__quick details { display: grid; grid-template-columns: auto minmax(0, 1fr); align-items: center; inline-size: max-content; max-inline-size: 100%; }
     .media-navigation__top + .media-navigation__top { border: 0; }
     .media-navigation__panel,
     .media-navigation__formats {
@@ -184,6 +166,9 @@
         box-shadow: 0 1rem 2.5rem rgb(0 0 0 / 35%);
     }
     .media-navigation__top:has([data-nav-group]) .media-navigation__panel { inset-inline-start: auto; inset-inline-end: 0; }
+    /* Explore uses the same downward panel, not a horizontal quick-link strip.
+       Keep a long authorised list reachable on shorter desktop windows. */
+    [data-nav-group="explore"] > .media-navigation__panel { max-block-size: calc(100dvh - 9rem); overflow-y: auto; }
     .media-navigation__formats {
         inset-block-start: 0;
         inset-inline-start: 100%;
@@ -197,7 +182,7 @@
 }
 /* At the desktop seam the real Account button retains its existing accessible
    name, visible avatar, 44px target and focus ring. Only its optional name/role
-   preview and redundant chevron give way to the immediately usable quick links. */
+   preview and redundant chevron give way to the top-level navigation controls. */
 @media (min-width: 64rem) and (max-width: 79.999rem) {
     .media-navigation__account [data-testid="account-menu-button"] > span + span,
     .media-navigation__account [data-testid="account-menu-button"] > svg { display: none; }

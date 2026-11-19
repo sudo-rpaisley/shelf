@@ -4,11 +4,16 @@
 {% macro chevron() -%}
 <svg class="media-navigation__chevron" aria-hidden="true" width="16" height="16" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="m6 9 6 6 6-6"/></svg>
 {%- endmacro %}
-{% macro tab_link(tab, label=none) -%}
-<a href="{{ tab.path }}" data-nav-tab="{{ tab.key }}" data-nav-menu-tab="{{ tab.key }}"
-   {% if request.url.path == tab.path %}aria-current="page"{% endif %}
-    class="media-navigation__link {% if request.url.path == tab.path %}bg-shelf-hover text-white{% else %}text-shelf-muted{% endif %}">{{ _(label if label is not none else tab.label)|forceescape }}</a>
+{% macro tab_link(tab, label=none, primary=false) -%}
+{% set current = request.url.path == (tab.path.split('?')[0] if primary else tab.path) %}
+<a href="{{ tab.path }}" data-nav-tab="{{ tab.key }}" data-nav-menu-tab="{{ tab.key }}"{% if primary %} data-nav-primary="browse"{% endif %}
+   {% if current %}aria-current="page"{% endif %}
+    class="media-navigation__link {% if current %}bg-shelf-hover text-white{% else %}text-shelf-muted{% endif %}">{{ _(label if label is not none else tab.label)|forceescape }}</a>
 {%- endmacro %}
+{# Library already owns the same mixed catalogue URL. Reuse that real menu link
+   for command search/the b shortcut instead of rendering a duplicate button.
+   A hidden/disabled Library retains the existing standalone Browse fallback. #}
+{% set _library_primary = media_navigation.primary and media_navigation.all_media %}
 {% set _add_media_entry = user is defined and user and user.role in ('editor', 'admin') and add_media_entry_url is defined and add_media_entry_url %}
 {% macro add_media_link() -%}
 <li><a href="{{ add_media_entry_url }}" data-testid="add-media-entry"
@@ -20,8 +25,8 @@
             <div class="flex min-w-0 flex-wrap items-center gap-x-3 gap-y-1">
                 <a href="/" class="text-lg font-bold text-shelf-accent2 tracking-tight media-navigation__brand"{% if request.url.path == '/' %} aria-current="page"{% endif %}>Shelf</a>
             </div>
-            <div class="media-navigation__main">
-                {% if media_navigation.primary %}
+            <div class="media-navigation__main"{% if _library_primary %} data-nav-layout="library-primary-v1"{% endif %}>
+                {% if media_navigation.primary and not _library_primary %}
                 <a href="{{ media_navigation.primary.path }}" data-nav-primary="browse" data-nav-tab="browse" data-nav-menu-tab="browse"
                    {% if request.url.path == media_navigation.primary.path.split('?')[0] %}aria-current="page"{% endif %}
                    class="media-navigation__link media-navigation__primary text-shelf-muted">{{ _(media_navigation.primary.label)|forceescape }}</a>
@@ -29,7 +34,7 @@
                 <details data-nav-disclosure data-nav-shell open class="media-navigation__shell">
                     <summary class="media-navigation__shell-toggle" data-testid="nav-menu-button">{{ _('Main menu')|forceescape }} {{ chevron() }}</summary>
                     <div class="media-navigation__tree" data-testid="nav-menu-panel">
-                        {% if not media_navigation.primary and not media_navigation.groups and not media_navigation.management and not _add_media_entry %}
+                        {% if not media_navigation.primary and not media_navigation.groups and not _add_media_entry %}
                         <p class="media-navigation__empty">{{ _('No navigation available.')|forceescape }}</p>
                         {% endif %}
                         {% if media_navigation.primary %}
@@ -38,7 +43,7 @@
                                 <summary class="media-navigation__browse-toggle" aria-label="{{ _('Browse media')|forceescape }}"><span>{{ _('Media')|forceescape }}</span>{{ chevron() }}</summary>
                                 <ul class="media-navigation__panel">
                                     {% if media_navigation.all_media %}
-                                    <li>{{ tab_link(media_navigation.all_media, 'Library') }}<span class="media-navigation__description">{{ _(media_navigation.all_media.label)|forceescape }}</span></li>
+                                    <li>{{ tab_link(media_navigation.all_media, 'Library', primary=true) }}<span class="media-navigation__description">{{ _(media_navigation.all_media.label)|forceescape }}</span></li>
                                     {% endif %}
                                     {% for family in media_navigation.families %}
                                     <li data-nav-family="{{ family.key }}" data-nav-hover class="media-navigation__family">
@@ -88,8 +93,8 @@
                             {% endfor %}
                         </div>
                         {% else %}
-                        <div class="media-navigation__top media-navigation__quick">
-                            <details data-nav-disclosure data-nav-group="{{ group.key }}" open>
+                        <div class="media-navigation__top" data-nav-hover>
+                            <details data-nav-disclosure data-nav-group="{{ group.key }}">
                                 <summary>{{ _(group.label)|forceescape }} {{ chevron() }}</summary>
                                 <ul class="media-navigation__panel">
                                     {% for tab in group.tabs %}
@@ -107,16 +112,6 @@
                             <details data-nav-disclosure data-nav-group="add">
                                 <summary>{{ _('Add / Scan')|forceescape }} {{ chevron() }}</summary>
                                 <ul class="media-navigation__panel">{{ add_media_link() }}</ul>
-                            </details>
-                        </div>
-                        {% endif %}
-                        {% if media_navigation.management %}
-                        <div class="media-navigation__top" data-nav-hover>
-                            <details data-nav-disclosure data-nav-group="manage">
-                                <summary>{{ _('Manage')|forceescape }} {{ chevron() }}</summary>
-                                <ul class="media-navigation__panel">
-                                    <li><a href="{{ media_navigation.management.path }}" data-nav-management="catalogue" class="media-navigation__link text-shelf-muted">{{ _(media_navigation.management.label)|forceescape }}</a></li>
-                                </ul>
                             </details>
                         </div>
                         {% endif %}

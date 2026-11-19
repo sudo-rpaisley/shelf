@@ -5,12 +5,18 @@ It is not a released feature or an upstream design commitment. **Back up your
 database, covers and external key files before trying it.** See
 [Backup and portability](#backup-and-portability) below.
 
-Use the primary **Browse** link for the mixed library, and its adjacent disclosure
-for family/format choices. **Manage → Catalogue management** (`/browse`) retains
-the original collection administration and bulk tools. Connected library also
+Use **Media → Library** for the mixed library, and the same Media menu for
+family/format choices. The redundant standalone Browse button is omitted when
+Library is available, and there is no separate Manage dropdown. The original
+collection administration and bulk tools remain available directly at `/browse`.
+Connected library also
 provides **Available here**, **Sources**, **Needs Attention** and **My Activity**.
 Shelf is still a catalogue and front door to other services, not a media server
 or player.
+
+**Explore** opens downward to its enabled destinations, including Series and
+Stats when available. It behaves like the Add / Scan dropdown,
+not an expanded strip across the navigation bar.
 
 ## Enable or hide the experiment
 
@@ -33,12 +39,13 @@ account-local, not a permissions boundary around the catalogue.
 
 ## Find editions in Library
 
-When Library is available, primary **Browse** opens
+When Library is available, **Media → Library** opens
 `/library?reset=1&view=items&sort=recent`: the complete mixed live catalogue as
 individual items, newest first. This resets the current Library view, not your
-saved-view records. If Library is disabled or hidden from navigation, primary
-Browse opens the original catalogue with newest-first sorting instead. Direct
-`/library` remains available when the feature is enabled, including its grouped
+saved-view records. If Library is disabled or hidden from navigation,
+the standalone Browse fallback opens the original catalogue with newest-first
+sorting instead. Command search and the **B** shortcut follow the same eligible
+destination. Direct `/library` remains available when the feature is enabled, including its grouped
 format and saved-view controls.
 
 Library searches the locally stored, live catalogue;
@@ -52,16 +59,19 @@ Unicode-aware and case-insensitive; it does not remove accents.
 Home's recent shelf shows up to **24** items in one horizontally scrollable row
 (up to eight without JavaScript). Swipe, scroll or use its previous/next buttons;
 the count describes the row's inventory, not simultaneously visible cards.
-Header **View all** and terminal **View more** open the complete mixed catalogue.
+The **Recently added** heading link and terminal **View more** open the complete
+mixed catalogue.
 Home reveals its title/creator overlay on cover hover or keyboard focus; open the
-item itself for complete metadata, including on touch devices. Home, local Music and
-Library reuse artwork cards that contain rather than crop the image; Library's
-full metadata is not shortened. Recent grouping is not yet configurable per
-account, and editing still opens the existing full-page form rather than a
+item itself for complete metadata, including on touch devices. Home, local Music
+and Library reuse artwork that contains rather than crops the image. Library's
+tiles show just the cover and title/creator hover caption, without outer panels,
+metadata rows, ownership badges or holding boxes. Open an item for its full details,
+physical copies and **Available here** source actions. Recent grouping is not yet
+configurable per account, and editing still opens the existing full-page form rather than a
 pop-out editor.
 
-On phones, Library artwork sits above naturally wrapping titles and metadata;
-the complete holdings and actions remain available and images keep their proportions.
+On phones, Library uses the same cover-only tiles. Keyboard focus also reveals
+the caption; tapping a cover opens the full item. Artwork keeps its proportions.
 Open **About this Library** for catalogue, item-size, cached-availability and
 grouping/series explanations. Search, presets and live controls stay outside Help.
 
@@ -85,9 +95,9 @@ one group. `related` and `adaptation` links do not join stacks, nor does a
 matching title on its own. A film adaptation therefore stays separate from the
 book. Trashed items are hidden and cannot bridge two live editions.
 
-The first card is a matching edition. Expand **show other formats** to see the
-full live stack. Nonmatching siblings are labelled **Other format — does not
-match filters**. **Individual items** shows only matching editions instead.
+The first cover is a matching edition. Expand **show other formats** to see the
+full live stack; its summary reports how many editions match. That stack can also
+contain nonmatching editions. **Individual items** shows only matching editions.
 Use an item's **Related Media** panel to manage explicit relationships.
 
 ### Filters and counts

@@ -51,7 +51,7 @@
             button.setAttribute('aria-controls', id);
             button.addEventListener('click', toggle);
             listening = true;
-            shell.insertBefore(button, tree); // summary stays first; Browse still precedes these same details
+            shell.insertBefore(button, tree); // Summary stays first; reuse the same tree, never clone it.
             shell.setAttribute('data-nav-shell-button', 'checking');
             shell.open = false;
             button.setAttribute('aria-expanded', 'false');
@@ -111,9 +111,6 @@
         const summary = details => details.querySelector(':scope > summary');
         const parentDisclosure = details => details.parentElement.closest('details[data-nav-disclosure]');
         const persistent = details => details === shell && desktop.matches;
-        // Explore is in-flow quick navigation, not a flyout or accordion peer.
-        // Its native open state belongs to the user, including across resizes.
-        const quick = details => details.getAttribute('data-nav-group') === 'explore';
         let shellButton = null;
         let processedShellOpen = shell.open;
         let lastOpenerFocus = null;
@@ -139,8 +136,7 @@
             // Reverse DOM order closes nested state too, so reopening a mobile
             // branch never resurrects a forgotten sideways desktop flyout.
             for (const candidate of disclosures.slice().reverse()) {
-                if (details.contains(candidate) && !persistent(candidate)
-                    && (!quick(candidate) || candidate === details)) {
+                if (details.contains(candidate) && !persistent(candidate)) {
                     hoverOpened.delete(candidate);
                     candidate.open = false;
                     sync(candidate);
@@ -162,7 +158,7 @@
             if (details.open) {
                 const parent = parentDisclosure(details);
                 for (const peer of disclosures) {
-                    if (!quick(details) && !quick(peer) && peer !== details
+                    if (peer !== details
                         && parentDisclosure(peer) === parent) close(peer);
                 }
                 if (details === shell && !desktop.matches && browse) browse.open = true;
@@ -205,7 +201,7 @@
                 const active = document.activeElement;
                 // A passing pointer must not close a keyboard user's branch
                 // while it contains focus. Hovering within that branch is fine.
-                const focusedPeer = disclosures.some(peer => peer.open && !persistent(peer) && !quick(peer)
+                const focusedPeer = disclosures.some(peer => peer.open && !persistent(peer)
                     && peer !== details && !peer.contains(details) && peer.contains(active));
                 if (!focusedPeer && !details.open) {
                     hoverOpened.add(details);
@@ -223,7 +219,7 @@
             if (event.key !== 'Escape') return;
             let details = event.target.closest('details[data-nav-disclosure]');
             while (details && (!details.open || persistent(details))) details = parentDisclosure(details);
-            if (!details) details = disclosures.find(candidate => candidate.open && !persistent(candidate) && !quick(candidate));
+            if (!details) details = disclosures.find(candidate => candidate.open && !persistent(candidate));
             if (!details) return;
             event.preventDefault();
             event.stopPropagation();
@@ -266,10 +262,11 @@
             processedShellOpen = shell.open;
             sync(shell);
             if (hadFocus) {
-                // An explicit empty nav context has no Browse/primary link.
-                // Keep focus visible on the existing brand, without inventing tabs.
+                // Library's primary link lives inside Media, which close(shell)
+                // just collapsed. Return to its visible opener, not a hidden link.
+                // Standalone Browse keeps focus; an empty model falls back to brand.
                 const target = desktop.matches
-                    ? (active === primary ? primary : desktopFocus())
+                    ? (primary && active === primary && !shell.contains(primary) ? primary : desktopFocus())
                     : opener(shell);
                 if (target) {
                     target.focus();

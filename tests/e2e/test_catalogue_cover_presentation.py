@@ -80,6 +80,26 @@ def test_catalogue_frames_and_caption_styling_match_recently_added_with_native_f
         expect(link).to_have_css("outline-style", "solid")
         assert stage.evaluate(_STYLE) == style, "Caption reveal must not resize the cover or change text size"
         expect(stage.locator("img")).to_have_css("object-fit", "contain")
+        if path.startswith("/library"):
+            member = stage.locator('xpath=ancestor::*[@data-library-member][1]')
+            expect(member).to_have_attribute("data-library-member-presentation", "cover-only-v1")
+            extras = member.evaluate("""node => {
+                const clone = node.cloneNode(true);
+                clone.querySelectorAll('[data-cover-presentation]').forEach(cover => cover.remove());
+                const wrappers = [];
+                for (let parent = node; parent && !parent.hasAttribute('data-item-grid'); parent = parent.parentElement) {
+                    const style = getComputedStyle(parent), box = parent.getBoundingClientRect();
+                    wrappers.push({padding:style.padding, border:style.borderWidth,
+                        background:style.backgroundColor, width:box.width, height:box.height});
+                }
+                return {outsideText:clone.textContent.trim(), wrappers};
+            }""")
+            assert extras["outsideText"] == "", "No metadata rows or holdings may remain around the cover"
+            for wrapper in extras["wrappers"]:
+                assert wrapper["padding"] == "0px" and wrapper["border"] == "0px"
+                assert wrapper["background"] == "rgba(0, 0, 0, 0)"
+                assert wrapper["width"] == pytest.approx(style["width"], abs=1)
+                assert wrapper["height"] == pytest.approx(style["height"], abs=1)
         assert page.evaluate("document.documentElement.scrollWidth <= document.documentElement.clientWidth")
         assert_page_clean(page)
     assert _domain_snapshot(server) == domain

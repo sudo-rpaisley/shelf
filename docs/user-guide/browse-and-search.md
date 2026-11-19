@@ -1,9 +1,16 @@
 # Browse & search
 
-The primary **Browse** link opens the mixed Library when that surface is enabled
-and visible. The catalogue-management Browse page retains its grid/list, filters,
-sorting and bulk tools described below; it remembers those choices between visits.
+Use **Media → Library** for the mixed catalogue. There is no separate Manage
+dropdown, or duplicate Browse button when Library is enabled and visible. The
+original Browse page remains available directly at `/browse`, with the grid/list,
+filters, sorting and bulk tools described below; it remembers those choices
+between visits. If Library is disabled or hidden,
+the standalone **Browse** link remains as the core-catalogue fallback.
 See [Connected library](connected-library.md) for mixed-format Library views.
+
+**Explore** opens a downward dropdown of its available destinations, such as
+Series and Stats. Its links are stacked below the label, not alongside it.
+On a small screen, open **Main menu** first.
 
 ## Commands
 
@@ -14,21 +21,24 @@ palette and returns focus. The shortcut leaves typing, composition and other ope
 dialogs alone.
 
 Typing does not contact a provider or run a catalogue query. Searching follows
-the same mixed Browse destination as your navigation, with the core Browse
+the same mixed Library destination as your navigation, with the core Browse
 fallback when Library is unavailable. The palette offers no edit, delete, sync or
 external-media launch commands, and no command history is saved. Destination
 pages retain their normal behaviour. Without JavaScript or native
 dialog support, use the normal navigation; the Commands disclosure explains this.
-If native dialog support is unavailable, the existing **Browse** link stays
-directly visible. Menus are not opened automatically.
+Without native dialog support, use **Media → Library** (open **Main menu** first
+on a small screen). When Library is unavailable, the Browse fallback stays directly
+visible. Menus are not opened automatically. The **B** shortcut uses the same
+Library-or-Browse destination.
 
 ## Views
 
 Catalogue covers reuse Recently added's rounded frame, proportional artwork and
-bottom-left title/creator caption on hover or keyboard link focus. Library keeps
-its full metadata, matching labels, copies and source holdings below the cover;
-Browse keeps selection, wishlist and lending badges. Detail/list screens use the
-same cover, while retaining their own metadata and controls.
+bottom-left title/creator caption on hover or keyboard link focus. Library tiles
+are cover-only, without an outer panel, format/creator rows, IDs, badges or holding
+boxes. Open an item for its complete metadata, copies and source actions. Browse
+keeps selection, wishlist and lending badges. Detail/list screens retain their own
+metadata and controls.
 
 **Item size** is in the shared top-right toolbar beside **Commands**. One native
 slider controls catalogue cover widths across Home, Browse (grid and list), all
@@ -47,7 +57,7 @@ JavaScript is needed to change size; without it the common 100% layout is usable
 Print/export artwork, public shares and provider/scanning/editor previews stay
 separate from this catalogue presentation setting.
 
-On phones, Library cards retain complete metadata below proportional artwork.
+On phones, Library uses the same cover-only tiles and hover/keyboard captions.
 **About this Library** holds explanations without hiding search, presets or live
 controls. **Filters and display** keeps its stable caption and a separate count of
 active filter/display options; that count is not the number of matching items.

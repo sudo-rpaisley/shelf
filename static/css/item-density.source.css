@@ -1,10 +1,11 @@
 /* One frame width for every browsing layout, not breakpoint-relative card
-   percentages. Real grid tracks/shelf slots reflow; text, order and page counts
-   do not change. Library's padded tiles add only their own border/padding. */
+   percentages. Library is cover-only: no extra padded metadata-tile budget.
+   Real tracks/slots reflow; text, order and page counts do not change. */
 @media screen {
-    [data-item-size="density-v1"] [data-item-grid="library"] {
-        --media-track-width: calc(var(--media-item-width) + 2rem + 2px);
+    [data-item-size="density-v1"][data-library-result-layout="cover-only-v1"] [data-item-grid="library"] {
+        --media-track-width: var(--media-item-width);
         --item-gap: 1rem;
+        align-items: start;
     }
     [data-item-size="density-v1"] [data-item-grid="music"] {
         --media-track-width: var(--media-item-width);
@@ -35,13 +36,6 @@
     }
     [data-item-size="density-v1"] [data-item-shelf="density-v1"] .media-shelf__view-more {
         min-height: max(44px, calc(var(--media-item-width) * 1.5));
-    }
-    /* A new full-width cover stage replaces the old phone-only 30% float.
-       Higher specificity also defeats that rule in an old cached bundle. */
-    [data-library-presentation="phone-wrap-v1"] [data-library-member-presentation="phone-wrap-v1"] .media-card[data-cover-size-card="catalogue-v2"] .media-artwork {
-        float: none;
-        width: 100%;
-        margin: 0;
     }
 }
 

@@ -10,6 +10,7 @@
     <summary class="cursor-pointer text-sm font-medium">{{ _('About this Library')|forceescape }}</summary>
     <div class="space-y-2 mt-2 text-xs text-shelf-muted">
         <p class="text-sm">{{ _('Your local catalogue, physical copies and synced digital holdings in one place.')|forceescape }}</p>
+        <p>{{ _('Hover or focus a cover for its title and creator. Open the item for full details, copies and sources.')|forceescape }}</p>
         <p>{{ _('Use Item size at the top right to change cover size across catalogue pages. Text stays readable; results per page are unchanged.')|forceescape }}</p>
         <p>{{ _('Availability uses local copies and cached source records, not a live connection check. All filters must match the same item; source and availability must match the same holding.')|forceescape }}</p>
         {% if result_kind == 'groups' and groups %}<p>{{ _('Groups use explicit format links only. Every live edition is shown, including editions that do not match your filters.')|forceescape }}</p>{% endif %}

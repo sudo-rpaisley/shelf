@@ -1636,6 +1636,28 @@ requires verified loaded-style/button readiness; failures retain the native open
 The existing desktop enhanced-and-open Summary rule remains distinct. The same
 authorised All-media anchor is presented as **Library**, with a noninteractive
 **All media** description and unchanged reset/items/recent destination.
+When that authorised Library entry exists, the redundant standalone Browse anchor
+is not rendered. The existing Library menu anchor owns `data-nav-primary="browse"`
+for command search and the B shortcut. The redundant Manage disclosure and its
+Catalogue management anchor are not rendered either: there is no hidden duplicate
+or relabelled Browse alias. Only the standalone fallback carries the browse tab
+marker when Library is hidden, disabled or unavailable. The model/registry and
+eligible destination URLs are unchanged; the legacy management payload remains
+compatible but does not contribute visible navigation or suppress its empty state.
+Direct `/browse` retains its normal permissions, catalogue administration and bulk
+tools, and account-menu destinations are unchanged.
+The `library-primary-v1` main wrapper uses a single narrow-screen column and resets
+the older cached tree's200% width/negative offset. Resizing focus returns a nested
+Library link to the visible Media opener rather than the newly collapsed branch.
+
+Explore uses the same initially closed native disclosure as Add / Scan.
+Its links form a vertical panel below the trigger on desktop and an in-flow list
+below it on narrow screens. The old quick-strip class, flex/grid panel overrides,
+forced-open attribute and JS peer/dismissal exemptions are removed. Existing
+hover, native Enter/Space/Tab, Escape, outside dismissal, focus ownership and resize
+handling now apply uniformly. A desktop height cap keeps long Explore lists
+scrollable. Its authorised destinations/visibility/model and the separate Store
+quick link are unchanged; no new menu renderer or parallel disclosure state.
 
 **The command palette is navigation, not an action interpreter.** The singleton
 `fragments/command_palette.html` sits outside the protected navbar and main page
@@ -1643,7 +1665,8 @@ root. Its external script loads after `app.js`, without changing Alpine's load
 order, and discovers only marked anchors in the already-authorised rendered
 navigation. A finite same-origin path/query schema rejects API, logout, token,
 provider-action and arbitrary destinations; it does not create a second role or
-feature registry. Catalogue search derives from the rendered primary Browse href,
+feature registry. Catalogue search derives from the rendered primary destination
+(Library's menu anchor, or the standalone Browse fallback),
 preserves its approved parameters and adds at most 200 characters of encoded `q`.
 No request happens while typing, and no preference or command history is stored.
 The native dialog owns its keys before legacy document handlers, respects editable
@@ -1654,8 +1677,10 @@ also supports an older Store-cached bundle; this adds no offline/private pages o
 new database, route or permission authority.
 If a present, complete palette lacks native `showModal`, its initializer marks the
 existing navbar `data-nav-palette-fallback="unavailable"`. One deliberate scoped
-CSS integration override keeps the same authorised primary Browse link visible,
-without changing disclosure state or adding an anchor. Absent/incomplete markup
+CSS integration override keeps the standalone Browse fallback visible when Library
+is unavailable. With Library present, users keep the native Main menu/Media/Library
+disclosures; a duplicate anchor is not recreated or exposed. The marker does not
+change disclosure state or add an anchor. Absent/incomplete markup
 is not classified as unsupported dialog capability. Successful later enhancement
 clears the owned marker; ordinary supported narrow-menu collapse is unchanged.
 
@@ -1671,8 +1696,9 @@ keyboard handlers. Without JS, the common 100% layout and native links remain.
 
 All explicit catalogue consumers use one requested frame width:
 `max(80px, min(10rem × factor, 100vw − 6rem))`. Shared phone headroom accounts for
-padded Library/detail tiles without giving each page a different cover width.
-Library/duplicate outer tracks add only their own border/padding. Auto-fill uses
+padded detail layouts without giving each page a different cover width.
+Library tracks equal the cover width, without an outer tile/padding budget;
+duplicate-review tracks retain their own border/padding. Auto-fill uses
 fixed requested tracks rather than stretching covers to breakpoint-relative
 columns. Home's two independent shelves use that same width for every real slot,
 including View more. The centered 5:8 stage keeps the original padding/border;
@@ -1729,15 +1755,17 @@ or native link focus. Shared-size cards and `catalogue_cover.html` consumers reu
 that macro, including Browse grid/list, Library items/groups/series, Music, Activity,
 Series, detail, duplicates, Arrange, related media, Trash and wrap-up/report lists.
 An optional caller slot retains Browse's selection/status badges without a second
-artwork renderer. Library retains its prepared validated artwork source, labelled
-creator metadata, matches, holdings, tags and native links. Missing artwork uses
+artwork renderer. Library retains its prepared validated artwork source and native
+item links; cover-only results do not render metadata/ownership/holding panels.
+Full metadata, matches, holdings and tags remain in the unchanged query DTOs;
+item-detail surfaces retain full metadata, copies and source actions. Missing artwork uses
 the same registry placeholder. Operational previews/public shares stay separate.
 Fixed print budgets do not consume the screen preference; wrap-up canvas inputs
 and export code are unchanged. The default unmarked card mode is unchanged.
 
-Home keeps its `shelf-preview-v1` card marker and suppresses separate type/metadata
-rows; shared-size cards retain their type and caller-owned metadata. There is no
-Details toggle. Complete escaped caption text remains in native link names.
+Home and Library use the same `shelf-preview-v1` presentation and suppress separate
+type/metadata rows; other shared-size consumers retain caller-owned metadata.
+There is no Details toggle. Complete escaped caption text remains in native link names.
 Recently added's existing heading now contains the former View all destination,
 inherits its typography and underlines on hover/focus/activation; its separate
 View all button is removed. Count, arrows, row IDs, buffer and terminal View more
@@ -1763,22 +1791,29 @@ retains totals/charts/breakdowns but no Recently Added (Last 30 Days) panel. Wit
 its last catalogue-cover list removed, Statistics no longer opts into the cover
 slider; Wrap-up still does. Navigation elsewhere remains unchanged.
 
-**Full Library pages explicitly opt into `phone-wrap-v1`.** The page and each
-member carry exact version markers; every card-formatting override requires both.
-Below 48rem, the real shared card remains a block inside a contained wrapping
-member. New `catalogue-v2` cards override the old phone-only 30% float: full common
-cover stages sit above complete metadata, not at a second percentage of the card.
-Titles, metadata, holdings, actions and recent order stay real, complete and in DOM
-order. The original float remains available only to older/unmarked markup.
+**Library results explicitly opt into `cover-only-v1`.** Both full pages and live
+fragments render borderless/unpadded hosts containing the exact Recently added
+card presentation: one cover and its title/creator hover/focus caption. Member
+identity/match attributes, group member/matching IDs, native edition disclosures,
+counts, filters, pagination, series drilldowns and validated artwork remain.
+Series names move into the representative cover's caption without changing its
+item/artwork binding or drilldown URL. Complete item metadata, copies, source
+actions and tags remain on item pages; query services/JSON projections are not
+reduced. New result/member markers avoid an old cached phone-float rule. The
+more-specific grid selector overrides the old padded-track width as well.
+
+Full-page `phone-wrap-v1` still scopes help, filters and header spacing, not card
+metadata. The obsolete floated-member/facts/badges/holdings CSS is removed from
+the owned Library stylesheet. Common catalogue CSS retains keyboard focus.
 
 The native **About this Library** disclosure hosts the applicable introductory,
 geometry, cached-availability, grouping and series explanations once. The only size
 control is in the shared shell, including `view=series` and its drilldowns. Help
 points to it instead of hosting a second panel. Only exact mode plus literal-True
 explanation ownership
-suppresses corresponding partial copies. Counts, notices, empty states and per-item
-availability stay outside Help. Search wraps before its input falls below 80px;
-no font reduction or ordering change implements this layout. Shared numeric browser
+suppresses corresponding partial copies. Counts, notices and empty states stay
+outside Help; per-item availability is on the detail page. Search wraps before its
+input falls below 80px; no font reduction or ordering change implements this layout. Shared numeric browser
 sizing is the separately described presentation preference, not a saved Library view.
 The Library-only stylesheet is both bundled and linked through the page head for
 older cached bundles, without extending Store precaching.
