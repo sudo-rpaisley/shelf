@@ -1,10 +1,10 @@
 {# card is a validated MediaCard; artwork comes from the immutable registry spec.
    Its adjacent title names the link. Neither artwork branch repeats that name. #}
-<span class="media-artwork" data-cover-shape="{{ card.artwork.shape }}" data-media-type="{{ card.media_type }}">
+<span class="media-artwork" data-cover-shape="{{ card.artwork.shape }}" data-media-type="{{ card.media_type }}"{% if catalogue_artwork|default(false) is sameas true %} data-cover-size-artwork="catalogue-v2"{% endif %}>
     {% if validated_artwork_source is defined and validated_artwork_source is not none %}
-    <img class="media-artwork__image" src="{{ validated_artwork_source.image_src }}" alt="" loading="lazy" decoding="async" data-cover-shape="{{ card.artwork.shape }}">
+    <img class="media-artwork__image" src="{{ validated_artwork_source.image_src }}" alt="" loading="lazy" decoding="async" data-cover-shape="{{ card.artwork.shape }}"{% if artwork_testid|default(none) %} data-testid="{{ artwork_testid }}"{% endif %}>
     {% elif card.cover_path %}
-    <img class="media-artwork__image" src="/{{ card.cover_path }}" alt="" loading="lazy" decoding="async">
+    <img class="media-artwork__image" src="/{{ card.cover_path }}" alt="" loading="lazy" decoding="async"{% if catalogue_artwork|default(false) is sameas true %} data-cover-shape="{{ card.artwork.shape }}"{% endif %}{% if artwork_testid|default(none) %} data-testid="{{ artwork_testid }}"{% endif %}>
     {% else %}
     <span class="media-artwork__placeholder" aria-hidden="true"></span>
     {% endif %}

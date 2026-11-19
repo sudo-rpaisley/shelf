@@ -42,11 +42,9 @@
         <div data-copy-id="{{ copy.copy_id }}" draggable="{{ 'true' if can_edit else 'false' }}"
              class="bg-shelf-card rounded-xl border border-shelf-border p-3 flex items-center gap-3" data-cover-size-row="catalogue-v2">
             {% if can_edit %}<span data-drag-handle class="text-shelf-muted cursor-move select-none" aria-hidden="true">⋮⋮</span>{% endif %}
-            {% if copy.cover_path %}
-            <img src="/{{ copy.cover_path }}" alt="" class="w-10 h-14 object-cover rounded-sm bg-shelf-bg shrink-0" data-cover-shape="{{ cover_shape(copy.media_type) }}" data-cover-size-artwork="catalogue-v2">
-            {% else %}
-            <div class="w-10 h-14 rounded-sm bg-shelf-bg shrink-0" data-cover-size-artwork="catalogue-v2" data-cover-shape="{{ cover_shape(copy.media_type) }}"></div>
-            {% endif %}
+            <a href="/item/{{ copy.item_id }}" class="media-card__detail" data-cover-link data-cover-size-slot="catalogue-v2">
+                {% with cover_item={'id': copy.item_id, 'title': copy.title, 'authors': copy.authors, 'media_type': copy.media_type, 'cover_path': copy.cover_path}, cover_print='location' %}{% include "components/catalogue_cover.html" %}{% endwith %}
+            </a>
             <div class="min-w-0 flex-1">
                 <a href="/item/{{ copy.item_id }}" class="font-medium hover:text-shelf-accent2">{{ copy.title }}</a>
                 <div class="text-sm text-shelf-muted truncate">

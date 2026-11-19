@@ -211,10 +211,9 @@
         <!-- Owned/wishlisted volumes -->
         <div class="flex gap-3 mt-4 overflow-x-auto pb-2">
             {% for item in s['items'] %}
-            <a href="/item/{{ item.id }}?from=series" class="shrink-0 w-20 group" title="{{ item.title }}" data-cover-size-slot="catalogue-v2">
+            <a href="/item/{{ item.id }}?from=series" class="shrink-0 w-20 group" title="{{ item.title }}" data-cover-size-slot="catalogue-v2" data-cover-link>
                 <div class="relative">
-                    {% with cover_item=item %}{% include "components/catalogue_cover.html" %}{% endwith %}
-                    <span class="media-card__sr-only">{{ item.title }}</span>
+                    {% with cover_item=item, cover_print='series' %}{% include "components/catalogue_cover.html" %}{% endwith %}
                     {% if item.series_position is not none %}
                     <span class="absolute top-1 left-1 bg-black/70 text-white text-[10px] px-1 rounded-sm">#{{ item.series_position|int if item.series_position == item.series_position|int else item.series_position }}</span>
                     {% endif %}
@@ -286,10 +285,9 @@
         <p class="text-sm text-shelf-muted mt-2">These books don't belong to a series yet. Open one and set a series on its edit page to move it into a series card.</p>
         <div class="flex gap-3 mt-4 overflow-x-auto pb-2">
             {% for item in unassigned_items %}
-            <a href="/item/{{ item.id }}?from=series" class="shrink-0 w-20 group" title="{{ item.title }}" data-cover-size-slot="catalogue-v2">
+            <a href="/item/{{ item.id }}?from=series" class="shrink-0 w-20 group" title="{{ item.title }}" data-cover-size-slot="catalogue-v2" data-cover-link>
                 <div class="relative">
-                    {% with cover_item=item %}{% include "components/catalogue_cover.html" %}{% endwith %}
-                    <span class="media-card__sr-only">{{ item.title }}</span>
+                    {% with cover_item=item, cover_print='series' %}{% include "components/catalogue_cover.html" %}{% endwith %}
                     {% if item.wishlisted %}
                     <span class="absolute bottom-1 left-1 bg-shelf-warning/90 text-black text-[9px] px-1 rounded-sm font-medium">Wishlist</span>
                     {% endif %}

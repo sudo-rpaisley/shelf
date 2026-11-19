@@ -282,7 +282,11 @@ def test_shared_frame_is_explicit_and_preserves_native_shapes_and_complete_metad
     assert artwork.attrs["data-cover-shape"] == card.artwork.shape
     assert len(artwork.find("img")) == int(covered)
     assert article.find("p", cls="media-card__creator")[0].text == card.creator_text
-    assert not article.find("div", cls="media-card__caption")
+    (caption,) = article.find("div", cls="media-card__caption")
+    assert caption.find("h3")[0].text == card.title
+    assert caption.find("p", cls="media-card__creator")[0].text == card.creator_text
+    assert article.find("p", cls="media-card__type"), "Shared cards keep their format metadata"
+    assert len(article.find("h3")) == len(article.find("p", cls="media-card__creator")) == 1
 
 
 def test_library_live_fragment_owns_the_same_layout_without_repeating_shell_controls(viewer_client):

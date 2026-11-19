@@ -103,6 +103,7 @@
         grid-template-columns: minmax(0, 1fr);
         align-content: center;
         place-items: center;
+        align-self: start;
         aspect-ratio: 5 / 8;
         inline-size: 100%;
         min-inline-size: 0;
@@ -125,19 +126,60 @@
         border-radius: 0.5rem;
         box-shadow: 0 0.5rem 1rem #0004;
     }
-    [data-cover-size-card="catalogue-v2"] .media-card__detail:is(:hover, :focus-visible) .media-card__art-stage {
+    [data-cover-link]:is(:hover, :focus-visible) [data-cover-presentation="recent-v1"] {
         border-color: var(--color-shelf-accent2, #818cf8);
         box-shadow: 0 0 0 1px var(--color-shelf-accent2, #818cf8);
     }
-    [data-cover-size-card="catalogue-v2"] .cover-card { aspect-ratio: 2 / 3; }
-    [data-cover-size-card="catalogue-v2"] .cover-card[data-cover-shape="square"] { aspect-ratio: 1 / 1; }
-    [data-cover-size-card="catalogue-v2"] .cover-card[data-cover-shape="cassette"] { aspect-ratio: 5 / 8; }
-    [data-cover-size-card="catalogue-v2"] .cover-card[data-cover-shape="game"] { aspect-ratio: 3 / 4; }
-    [data-cover-size-card="catalogue-v2"] .cover-card img { object-fit: contain; }
-    [data-cover-size-card="catalogue-v2"]:is(:hover, :focus-visible) [data-cover-size-caption] { opacity: 1; }
 
-    /* Compact/table/detail artwork uses the SAME inner artwork width, not a
-       producer-specific base. Its native shape determines height, once. */
+    /* Recently added is the presentation for every explicit catalogue consumer.
+       Opacity, not hidden/aria-hidden, retains full raw link names. The caption
+       overlaps actual artwork, including square art centered in a taller frame. */
+    [data-cover-presentation="recent-v1"] .media-artwork { width: 100%; }
+    [data-cover-presentation="recent-v1"] .media-card__caption {
+        position: absolute;
+        inset-inline: 0;
+        inset-block-end: 0;
+        padding: 1.25rem 0.625rem 0.625rem;
+        text-align: left;
+        color: #fff;
+        background: linear-gradient(to top, #080b12f5, #080b12c9 65%, transparent);
+        text-shadow: 0 1px 2px #000;
+        opacity: 0;
+        pointer-events: none;
+    }
+    [data-cover-presentation="recent-v1"]:hover .media-card__caption,
+    [data-cover-link]:is(:hover, :focus) [data-cover-presentation="recent-v1"] .media-card__caption { opacity: 1; }
+    [data-cover-link]:focus-visible {
+        outline: 2px solid var(--color-shelf-accent2, #818cf8);
+        outline-offset: 2px;
+        border-radius: 0.5rem;
+    }
+    [data-cover-presentation="recent-v1"] .media-card__caption .media-card__title {
+        display: -webkit-box;
+        -webkit-box-orient: vertical;
+        -webkit-line-clamp: 2;
+        line-clamp: 2;
+        margin: 0;
+        min-block-size: 0;
+        max-block-size: none;
+        overflow: hidden;
+        overflow-wrap: anywhere;
+        font-size: 0.875rem;
+        font-weight: 600;
+        line-height: 1.4;
+    }
+    [data-cover-presentation="recent-v1"] .media-card__caption .media-card__creator {
+        margin: 0.25rem 0 0;
+        color: #e2e8f0;
+        font-size: 0.75rem;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        line-height: 1.4;
+    }
+
+    /* Inner artwork markers remain available to list/detail consumers; every
+       producer now gets them through the common stage, not a local size base. */
     [data-cover-size-artwork="catalogue-v2"] {
         box-sizing: border-box;
         width: var(--media-artwork-width);
@@ -174,6 +216,11 @@
         min-width: var(--media-artwork-width);
         max-width: none; /* These tables already own their horizontal scrollers. */
     }
+    [data-col="cover"] [data-cover-size-stage="catalogue-v2"],
+    [data-cover-size-table-cell] [data-cover-size-stage="catalogue-v2"] {
+        min-width: var(--media-item-width);
+        max-width: none;
+    }
 }
 
 @media (max-width: 30rem) {
@@ -184,4 +231,19 @@
 
 @media print {
     .media-display-tools, [data-cover-size-panel], [data-cover-size-control] { display: none !important; }
+    /* Fixed producer print budgets, never the browser's screen preference.
+       Captions remain normal printable text for cover-only shared cards. Other
+       producers retain their separate title/metadata; the canvas data is untouched. */
+    [data-cover-presentation="recent-v1"] { width: 100%; max-width: 10rem; }
+    [data-cover-presentation="recent-v1"] .media-card__cover-preview { position: relative; }
+    [data-cover-presentation="recent-v1"] .media-card__caption { display: none; }
+    [data-cover-print="card"] .media-card__caption,
+    [data-cover-print="series"] .media-card__caption { display: block; }
+    [data-cover-print="detail"] { width: 12rem; max-width: 100%; }
+    [data-cover-print="music"] { width: 8rem; }
+    [data-cover-print="series"] { width: 5rem; }
+    [data-cover-print="list"] { width: 2rem; }
+    [data-cover-print="duplicate"] { width: 3rem; }
+    [data-cover-print="location"], [data-cover-print="trash"] { width: 2.5rem; }
+    [data-cover-print="report"] { width: 1.75rem; }
 }

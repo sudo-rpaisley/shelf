@@ -1677,7 +1677,8 @@ fixed requested tracks rather than stretching covers to breakpoint-relative
 columns. Home's two independent shelves use that same width for every real slot,
 including View more. The centered 5:8 stage keeps the original padding/border;
 inner registry ratios and contain remain unchanged. Explicit catalogue
-table/list/detail artwork uses the same inner width, not another local base.
+table/list/detail artwork uses this same frame as well as the same inner width,
+not another local base or thumbnail renderer.
 Fonts, text/actions, identity, order and results per page are not scaled.
 
 `density-v1` plus producer grid/shelf markers still own those layouts; exact
@@ -1721,12 +1722,27 @@ before the sole View more tile once, with no extra catalogue/API request or stor
 Inventory labels and overflow hints follow the materialized count; native fallback
 retains eight cards and ordinary links. Full metadata remains on the item page.
 
-Exact Home Recent/Continue `streaming-v1` and card `shelf-preview-v1` markers scope
-the row previews. Common catalogue CSS owns their shared stage geometry. Title and
-creator overlap the actual artwork at bottom-left on hover or native link focus;
-there is no Details toggle or media-type caption. Complete escaped text remains
-in the link's accessible name; Library/default cards retain their complete
-metadata. Continue merges the existing account-scoped six + six selections,
+Exact Home Recent/Continue `streaming-v1` markers scope row navigation, not cover
+presentation. `components/media_cover.html` owns the `recent-v1` catalogue cover:
+one padded stage, registry artwork and bottom-left title/creator caption on hover
+or native link focus. Shared-size cards and `catalogue_cover.html` consumers reuse
+that macro, including Browse grid/list, Library items/groups/series, Music, Activity,
+Series, detail, duplicates, Arrange, related media, Trash and wrap-up/report lists.
+An optional caller slot retains Browse's selection/status badges without a second
+artwork renderer. Library retains its prepared validated artwork source, labelled
+creator metadata, matches, holdings, tags and native links. Missing artwork uses
+the same registry placeholder. Operational previews/public shares stay separate.
+Fixed print budgets do not consume the screen preference; wrap-up canvas inputs
+and export code are unchanged. The default unmarked card mode is unchanged.
+
+Home keeps its `shelf-preview-v1` card marker and suppresses separate type/metadata
+rows; shared-size cards retain their type and caller-owned metadata. There is no
+Details toggle. Complete escaped caption text remains in native link names.
+Recently added's existing heading now contains the former View all destination,
+inherits its typography and underlines on hover/focus/activation; its separate
+View all button is removed. Count, arrows, row IDs, buffer and terminal View more
+are unchanged, including the Library-eligible versus Browse fallback destination.
+Continue merges the existing account-scoped six + six selections,
 in-progress first, deduplicated by catalogue ID within that row. Each row owns
 separate track/heading IDs and enhancement flags; Continue never consumes the
 Recent buffer. Header paging uses native nonanimated logical scrolling, guarded

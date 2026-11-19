@@ -1,9 +1,12 @@
 # Add media
 
-Editors and admins can open **Add media** beside **Shelf** in the navigation bar,
-or visit `/add`. Search, compare candidates, review details and save to your
-collection or wishlist on the same page. Viewers and visitors gain no editing
-permission through this entry. It remains available when Music is turned off.
+Editors and admins can open **Add / Scan → Add media** in the navigation bar,
+or visit `/add`. On smaller screens, open **Main menu** first. Search, compare
+candidates, review details and save to your collection or wishlist on the same
+page. Viewers and visitors gain no editing permission through this entry. It
+remains available when Music is turned off.
+Hiding the other Add / Scan tabs does not hide this entry. Store stays a separate
+quick destination. The dropdown and link also work without JavaScript.
 
 This is separate from searching your existing library. Opening the page, typing
 or changing a choice does not contact metadata providers.

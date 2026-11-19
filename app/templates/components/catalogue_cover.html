@@ -1,8 +1,5 @@
-{# Local catalogue artwork only: same stage as Home, preserving registry shape.
+{# Local catalogue artwork only. Producers keep native links and all metadata.
    Operational/provider previews and public shares do not use this component. #}
+{% from "components/media_cover.html" import media_cover with context %}
 {% set _catalogue_cover = build_media_card(cover_item) %}
-<div class="media-card__art-stage" data-cover-size-stage="catalogue-v2">
-    <div class="media-card__cover-preview">
-        {% with card=_catalogue_cover %}{% include "components/media_artwork.html" %}{% endwith %}
-    </div>
-</div>
+{{ media_cover(_catalogue_cover, artwork_source=validated_artwork_source|default(none), print_layout=cover_print|default('tile'), artwork_testid=cover_testid|default(none)) }}

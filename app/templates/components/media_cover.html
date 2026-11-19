@@ -1,0 +1,15 @@
+{# One catalogue cover, also used by Home's Recently added. Callers own links,
+   permissions, metadata and optional badges/selection controls, never geometry. #}
+{% macro media_cover(card, artwork_source=none, print_layout='card', artwork_testid=none) -%}
+{% set _title = card.title if card.title.strip() else _('Untitled item')|forceescape %}
+<div class="media-card__art-stage" data-cover-size-stage="catalogue-v2" data-cover-presentation="recent-v1" data-cover-print="{{ print_layout }}">
+    <div class="media-card__cover-preview">
+        {% with validated_artwork_source=artwork_source, catalogue_artwork=true %}{% include "components/media_artwork.html" %}{% endwith %}
+        <div class="media-card__caption">
+            <h3 class="media-card__title">{{ _title }}</h3>
+            {% if card.creator_text %}<p class="media-card__creator">{{ card.creator_text }}</p>{% endif %}
+        </div>
+        {% if caller is defined %}{{ caller() }}{% endif %}
+    </div>
+</div>
+{%- endmacro %}

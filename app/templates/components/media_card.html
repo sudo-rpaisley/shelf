@@ -1,27 +1,19 @@
 {# No Browse/Alpine state; links/cover_path are validated by the pure adapter. #}
+{% from "components/media_cover.html" import media_cover with context %}
 {% if card.title.strip() %}{% set card_title = card.title %}{% else %}{% set card_title = _('Untitled item')|forceescape %}{% endif %}
 {% set _shelf_preview = media_card_presentation|default('') == 'shelf-preview-v1' %}
 {% set _shared_size = media_card_size_mode|default('') == 'shared-v2' %}
 <article class="media-card" data-item-id="{{ card.id }}" data-media-type="{{ card.media_type }}"{% if _shelf_preview %} data-card-presentation="shelf-preview-v1"{% endif %}{% if _shelf_preview or _shared_size %} data-cover-size-card="catalogue-v2"{% endif %}>
-    <a class="media-card__detail" href="{{ card.detail_href }}">
+    <a class="media-card__detail" href="{{ card.detail_href }}"{% if _shelf_preview or _shared_size %} data-cover-link{% endif %}>
         {% if _shelf_preview or _shared_size %}
-        <div class="media-card__art-stage">
-            <div class="media-card__cover-preview">
-                {% include "components/media_artwork.html" %}
-                {% if _shelf_preview %}<div class="media-card__caption">
-                    <h3 class="media-card__title">{{ card_title }}</h3>
-                    {% if card.creator_text %}<p class="media-card__creator">{{ card.creator_text }}</p>{% endif %}
-                </div>{% endif %}
-            </div>
-        </div>
-        {% if not _shelf_preview %}<h3 class="media-card__title">{{ card_title }}</h3>{% endif %}
+        {{ media_cover(card, artwork_source=validated_artwork_source|default(none)) }}
         {% else %}
         {% include "components/media_artwork.html" %}
         <h3 class="media-card__title">{{ card_title }}</h3>
         {% endif %}
     </a>
     {% if not _shelf_preview %}
-    {% if card.creator_text %}<p class="media-card__creator">{{ card.creator_text }}</p>{% endif %}
+    {% if not _shared_size and card.creator_text %}<p class="media-card__creator">{{ card.creator_text }}</p>{% endif %}
     {% if card.media_type %}<p class="media-card__type">{% if card.media_type_label is not none %}{{ _(card.media_type_label)|forceescape }}{% else %}{{ card.media_type }}{% endif %}</p>{% endif %}
     {% endif %}
     {% if card.badges %}

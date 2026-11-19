@@ -10,7 +10,9 @@
     <div class="space-y-2 mb-3">
         {% for related in related_items %}
         <div class="flex items-center gap-3 bg-shelf-bg border border-shelf-border rounded-lg p-2" data-cover-size-row="catalogue-v2">
-            {% if related.cover_path %}<img src="/{{ related.cover_path }}" alt="" class="w-8 h-12 object-cover rounded-sm shrink-0" data-cover-shape="{{ cover_shape(related.media_type) }}" data-cover-size-artwork="catalogue-v2">{% endif %}
+            <a href="/item/{{ related.id }}{% if back.key %}?from={{ back.key }}{% endif %}" class="media-card__detail" data-cover-link data-cover-size-slot="catalogue-v2">
+                {% with cover_item=related, cover_print='list' %}{% include "components/catalogue_cover.html" %}{% endwith %}
+            </a>
             <div class="min-w-0 flex-1">
                 <a href="/item/{{ related.id }}{% if back.key %}?from={{ back.key }}{% endif %}" class="text-sm font-medium hover:text-shelf-accent2">{{ related.title }}</a>
                 <p class="text-xs text-shelf-muted">

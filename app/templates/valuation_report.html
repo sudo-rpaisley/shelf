@@ -90,9 +90,7 @@
                     {% for item in group['items'] %}
                     <tr class="hover:bg-shelf-hover/50">
                         <td class="px-3 py-1.5" data-cover-size-table-cell>
-                            {% if item.cover_path %}
-                            <img src="/{{ item.cover_path }}" alt="" class="w-7 rounded-xs" loading="lazy" data-cover-size-artwork="catalogue-v2" data-cover-shape="{{ cover_shape(item.media_type) }}">
-                            {% endif %}
+                            {% with cover_item=item, cover_print='report' %}{% include "components/catalogue_cover.html" %}{% endwith %}
                         </td>
                         <td class="px-3 py-1.5">{{ item.title }}{% if item.publish_year %} <span class="text-shelf-muted">({{ item.publish_year }})</span>{% endif %}</td>
                         <td class="px-3 py-1.5 text-shelf-muted">{{ item.authors or '' }}</td>

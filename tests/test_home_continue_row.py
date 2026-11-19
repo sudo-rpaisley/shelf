@@ -47,7 +47,10 @@ def test_one_continue_row_prioritizes_in_progress_deduplicates_and_preserves_pro
     buttons = markup.find("button", within=root)
     assert [node.attrs["data-recent-action"] for node in buttons] == ["previous", "next"]
     assert all(node.attrs["aria-controls"] == "home-continue-row" and "disabled" in node.attrs for node in buttons)
-    assert len(markup.find("a", within=root, href="/activity")) == 2
+    assert len(markup.find("a", within=root, href="/activity")) == 1
+    assert markup.one("a", within=track, **{"class": "media-shelf__view-more"}).attrs["href"] == "/activity"
+    actions = markup.one("div", within=root, **{"class": "recent-shelf__actions"})
+    assert not markup.find("a", within=actions)
     assert not markup.find("template", within=root) and not markup.find("details", within=root)
 
 
@@ -61,12 +64,13 @@ def test_both_inputs_can_supply_the_single_row_without_an_empty_second_panel(whi
     assert not markup.find("p", **{"class": "media-shelf__empty"})
 
 
-def test_empty_continue_has_one_explanation_and_native_activity_link():
+def test_empty_continue_has_one_explanation_without_a_duplicate_activity_shortcut():
     markup, _ = _render()
     assert [node.text.strip() for node in markup.find("h2")] == ["Continue"]
     assert len(markup.find("p", **{"class": "media-shelf__empty"})) == 1
     assert not markup.find("ul") and not markup.find("button")
-    assert len(markup.find("a", href="/activity")) == 1
+    assert not markup.find("a", href="/activity")
+    assert not markup.find("div", **{"class": "recent-shelf__actions"})
 
 
 @pytest.mark.parametrize("newstyle", (False, True))

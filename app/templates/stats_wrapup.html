@@ -66,15 +66,8 @@
     <ul class="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-6 gap-3" data-testid="wrapup-tiles" data-cover-size-grid="catalogue-v2">
         {% for tile in summary.tiles %}
         <li data-wrapup-tile data-cover="{{ '/' ~ tile.cover_path if tile.cover_path else '' }}" data-title="{{ tile.title }}">
-            <a href="/item/{{ tile.id }}?from=stats" class="block">
-                {# The box owns the shape, so a cover file that 404s leaves an empty
-                   tile rather than a collapsed broken image (qa-wrapups Obs 4). #}
-                <div class="w-full aspect-2/3 bg-shelf-hover rounded-sm overflow-hidden" data-cover-shape="{{ cover_shape(tile.media_type) }}" data-cover-size-artwork="catalogue-v2">
-                    {% if tile.cover_path %}
-                    <img src="/{{ tile.cover_path }}" alt="" class="w-full h-full object-cover" data-cover-shape="{{ cover_shape(tile.media_type) }}">
-                    {% endif %}
-                </div>
-                <span class="block text-xs mt-1 line-clamp-2">{{ tile.title }}</span>
+            <a href="/item/{{ tile.id }}?from=stats" class="block" data-cover-link>
+                {% with cover_item=tile, cover_print='card' %}{% include "components/catalogue_cover.html" %}{% endwith %}
             </a>
         </li>
         {% endfor %}

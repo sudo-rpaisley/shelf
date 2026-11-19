@@ -7,7 +7,7 @@
 {%- endmacro %}
 {% macro item_card(item) %}
 <div class="min-w-0 space-y-3" data-library-member="{{ item.id }}" data-matches="{{ 'true' if item.matches else 'false' }}"{% if _library_phone_wrap %} data-library-member-presentation="phone-wrap-v1"{% endif %}>
-    {% set card = build_media_card(item, detail_href='/item/' ~ item.id ~ '?from=library', creator_text='') %}
+    {% set card = build_media_card(item, detail_href='/item/' ~ item.id ~ '?from=library') %}
     {% set validated_artwork_source = prepared_library_artwork.source_for(item.id, item.cover_path) if prepared_library_artwork is defined else none %}
     {% include "components/media_card.html" %}
     <div class="min-w-0 space-y-1">
@@ -89,10 +89,9 @@
     <div class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4" data-item-grid="library">
         {% for series in series_results %}
         <article class="rounded-xl bg-shelf-card border border-shelf-border p-4" data-library-series="{{ series.key }}">
-            <a href="{{ series.url }}" class="block space-y-3 hover:text-shelf-accent2">
-                {% set card = build_media_card(series.representative) %}
+            <a href="{{ series.url }}" class="block space-y-3 hover:text-shelf-accent2" data-cover-link>
                 {% set validated_artwork_source = prepared_library_artwork.source_for(series.representative.id, series.representative.cover_path) if prepared_library_artwork is defined else none %}
-                <span class="media-card__art-stage" data-cover-size-stage="catalogue-v2"><span class="media-card__cover-preview">{% include "components/media_artwork.html" %}</span></span>
+                {% with cover_item=series.representative %}{% include "components/catalogue_cover.html" %}{% endwith %}
                 <div>
                     <h3 class="font-semibold break-words">{{ series.name }}</h3>
                     <p class="text-sm text-shelf-muted">{{ ngettext('%(count)s matching item', '%(count)s matching items', series.item_count, count=series.item_count)|forceescape }} · {{ ngettext('%(count)s group', '%(count)s groups', series.group_count, count=series.group_count)|forceescape }}</p>

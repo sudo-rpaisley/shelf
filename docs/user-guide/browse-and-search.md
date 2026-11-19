@@ -24,6 +24,12 @@ directly visible. Menus are not opened automatically.
 
 ## Views
 
+Catalogue covers reuse Recently added's rounded frame, proportional artwork and
+bottom-left title/creator caption on hover or keyboard link focus. Library keeps
+its full metadata, matching labels, copies and source holdings below the cover;
+Browse keeps selection, wishlist and lending badges. Detail/list screens use the
+same cover, while retaining their own metadata and controls.
+
 **Item size** is in the shared top-right toolbar beside **Commands**. One native
 slider controls catalogue cover widths across Home, Browse (grid and list), all
 Library views, local Music, Series, My Activity and catalogue detail/list pages.

@@ -29,11 +29,9 @@
                         Keep this record
                     </label>
                     <div class="flex gap-3" data-cover-size-row="catalogue-v2">
-                        {% if m.cover_path %}
-                        <img src="/{{ m.cover_path }}" alt="" class="w-12 h-16 object-cover rounded-sm bg-shelf-bg shrink-0" data-cover-shape="{{ cover_shape(m.media_type) }}" data-cover-size-artwork="catalogue-v2">
-                        {% else %}
-                        <div class="w-12 h-16 rounded-sm bg-shelf-bg shrink-0" data-cover-shape="{{ cover_shape(m.media_type) }}" data-cover-size-artwork="catalogue-v2"></div>
-                        {% endif %}
+                        <a href="/item/{{ m.id }}" class="media-card__detail" data-cover-link data-cover-size-slot="catalogue-v2">
+                            {% with cover_item=m, cover_print='duplicate' %}{% include "components/catalogue_cover.html" %}{% endwith %}
+                        </a>
                         <div class="min-w-0">
                             <a href="/item/{{ m.id }}" class="font-medium hover:text-shelf-accent2 break-words">{{ m.title }}</a>
                             {% if m.subtitle %}<div class="text-sm text-shelf-muted break-words">{{ m.subtitle }}</div>{% endif %}

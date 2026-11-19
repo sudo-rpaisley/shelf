@@ -7,17 +7,16 @@
             <h2 id="home-continue-heading">{{ _('Continue')|forceescape }}</h2>
             <p>{{ _('In progress and items from your list')|forceescape }}</p>
         </div>
+        {% if _continue_entries %}
         <div class="recent-shelf__actions" role="group" aria-label="{{ _('Continue navigation')|forceescape }}">
-            <a class="recent-shelf__all" href="/activity">{{ _('All my activity')|forceescape }} <span aria-hidden="true">→</span></a>
-            {% if _continue_entries %}
             <button type="button" data-recent-action="previous" aria-label="{{ _('Previous items to continue')|forceescape }}" aria-controls="home-continue-row" disabled>
                 <svg viewBox="0 0 20 20" aria-hidden="true" focusable="false"><path d="m12 5-5 5 5 5"/></svg>
             </button>
             <button type="button" data-recent-action="next" aria-label="{{ _('Next items to continue')|forceescape }}" aria-controls="home-continue-row" disabled>
                 <svg viewBox="0 0 20 20" aria-hidden="true" focusable="false"><path d="m8 5 5 5-5 5"/></svg>
             </button>
-            {% endif %}
         </div>
+        {% endif %}
     </header>
     {% if _continue_entries %}
     <ul id="home-continue-row" class="media-shelf__items" tabindex="0" aria-labelledby="home-continue-heading" data-item-shelf="density-v1">

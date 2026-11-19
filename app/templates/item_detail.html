@@ -20,11 +20,11 @@
             {# The width is declared here rather than left to the image, so the
                picker's controls below have a real budget to lay out inside. #}
             <div class="w-48 shrink-0" data-cover-size-column="catalogue-v2">
+                {% with cover_item=item, cover_print='detail' %}{% include "components/catalogue_cover.html" %}{% endwith %}
                 {% if item.cover_path %}
-                <img src="/{{ item.cover_path }}" alt="{{ item.title }}" class="w-48 rounded-lg shadow-lg" data-cover-size-artwork="catalogue-v2" data-cover-shape="{{ cover_shape(item.media_type) }}">
                 {% if item.cover_edition_language == "en" %}<p class="text-xs text-shelf-muted mt-2">{{ _('English cover from another edition') }}</p>{% endif %}
                 {% else %}
-                <div class="h-72 bg-shelf-hover rounded-lg flex flex-col items-center justify-center text-shelf-muted gap-2" data-cover-size-artwork="catalogue-v2" data-cover-shape="{{ cover_shape(item.media_type) }}" data-cover-size-placeholder>
+                <div class="mt-2 flex flex-col items-center text-shelf-muted gap-2">
                     <span>{{ _('No Cover') }}</span>
                     {# …and it keys on the ISBN because the route does: retry-cover
                        answers "No ISBN" without one, and the reload would hide that. #}

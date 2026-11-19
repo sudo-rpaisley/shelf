@@ -1,9 +1,10 @@
+{% from "components/media_cover.html" import media_cover with context %}
+{% set card = build_media_card(item) %}
 <div class="relative">
-<a href="/item/{{ item.id }}" class="group relative block" data-item-id="{{ item.id }}" data-cover-size-card="catalogue-v2" @click.prevent="openOrToggle({{ item.id }}, '/item/{{ item.id }}', $event)">
-    <div class="media-card__art-stage"><div class="media-card__cover-preview">
-    <div class="cover-card bg-shelf-card rounded-lg overflow-hidden border border-shelf-border group-hover:border-shelf-accent/50 transition-colors shadow-lg"
-         data-cover-shape="{{ cover_shape(item.media_type) }}"
-         :class="selectedIds.includes({{ item.id }}) ? 'ring-2 ring-shelf-accent' : ''">
+<a href="/item/{{ item.id }}" class="group relative block" data-item-id="{{ item.id }}" data-cover-size-card="catalogue-v2" data-cover-link
+   @click.prevent="openOrToggle({{ item.id }}, '/item/{{ item.id }}', $event)"
+   :class="selectedIds.includes({{ item.id }}) ? 'ring-2 ring-shelf-accent' : ''">
+    {% call media_cover(card) %}
         {% if item.wishlisted %}
         <div class="absolute top-2 right-2 z-10 px-1.5 py-0.5 rounded-sm text-[10px] font-medium bg-shelf-warning/90 text-black shadow-sm">{{ _('Wishlist') }}</div>
         {% elif item.lent_to and feature_on('lending') %}
@@ -29,23 +30,7 @@
                 <span x-show="selectedIds.includes({{ item.id }})">&#10003;</span>
             </div>
         </div>
-        {% if item.cover_path %}
-        <img src="/{{ item.cover_path }}" alt="{{ item.title }}" loading="lazy">
-        {% else %}
-        <div class="w-full h-full flex flex-col items-center justify-center p-4 text-center bg-linear-to-br from-shelf-card to-shelf-hover">
-            <p class="text-shelf-text text-sm font-medium leading-tight mb-1">{{ item.title[:60] }}</p>
-            {% if item.authors %}<p class="text-shelf-muted text-xs">{{ item.authors[:40] }}</p>{% endif %}
-        </div>
-        {% endif %}
-    </div>
-    <!-- Hover overlay with title -->
-    <div class="absolute inset-0 bg-linear-to-t from-black/80 via-transparent to-transparent rounded-lg opacity-0 group-hover:opacity-100 transition-opacity flex items-end p-3" data-cover-size-caption>
-        <div class="min-w-0">
-            <p class="text-white text-sm font-medium truncate">{{ item.title }}</p>
-            {% if item.authors %}<p class="text-gray-300 text-xs truncate">{{ item.authors }}</p>{% endif %}
-        </div>
-    </div>
-    </div></div>
+    {% endcall %}
 </a>
 {% if item.source == 'romm' %}
 {% if feature_on('romm') %}

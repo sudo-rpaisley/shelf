@@ -30,17 +30,20 @@ In-progress items come first; an item in both lists appears once. Status and
 available progress remain visible as badges. This is your account's activity,
 not the shared wishlist or another user's plans.
 
-Swipe, scroll or use the row's previous/next buttons. **All my activity** and the
-last **View more** tile open the full Activity page, where Continue and Up Next
-remain separate. An empty row shows one explanation instead of two empty panels.
+Swipe, scroll or use the row's previous/next buttons. **My Activity** in the main
+navigation and the last **View more** tile open the full Activity page, where
+Continue and Up Next remain separate. An empty row shows one explanation instead
+of two empty panels.
 All cards and links remain usable without JavaScript.
 
 ## Recently added
 
 Browse up to **24** recent additions in one horizontal row, newest first. Swipe,
 scroll, or use the previous/next buttons; nothing advances automatically. The
-count describes items in the row, not how many fit on screen. **View all** and the
-last **View more** tile open the complete collection.
+count describes items in the row, not how many fit on screen. Select the
+**Recently added** heading or the last **View more** tile to open the complete
+collection. The heading keeps its usual appearance and underlines on hover,
+keyboard focus or activation; there is no separate View all button.
 
 Artwork keeps its original proportions. Hover a cover, or focus its link with the
 keyboard, to reveal the title and artist/creator over the bottom-left of the image.
@@ -51,9 +54,11 @@ to read complete metadata, including on touch devices.
 The default **100%** keeps the normal cover size and sits at the slider's midpoint;
 the ends are **50%** and **200%**. Move the slider back to the center for 100%.
 The slider is at the top right, beside **Commands**, rather than inside Recently
-added. It uses the same cover width on other catalogue pages, including Browse,
-Library, Music, Series and My Activity. Narrow screens constrain large covers
-consistently; artwork keeps its original proportions.
+added. Other catalogue pages, including Browse, Library, Music, Series and My
+Activity, use the same framed cover and hover/focus caption, not just the same
+width. Their metadata, holdings, progress, selection badges and actions remain
+available. Narrow screens constrain large covers consistently; artwork keeps its
+original proportions.
 
 Your choice is saved for your account in this browser and shared across pages,
 reloads and other open tabs. Another account has its own choice; it does not sync
@@ -63,6 +68,6 @@ refresh the page before editing the saved size. Print/export artwork, public
 shares and scanning/cover-picker previews do not use this setting.
 
 Without JavaScript, the row shows up to eight recent items. Item links, hover/focus
-captions and **View all** still work.
+captions and the **Recently added** heading link still work.
 
 No new dashboard data is stored. The page is built from the existing catalogue, checkout and cover state each time it is opened.

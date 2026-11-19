@@ -5,12 +5,11 @@
 <div class="recent-shelf" data-recent-shelf="streaming-v1">
     <header class="recent-shelf__header">
         <div class="recent-shelf__heading">
-            <h2 id="home-recent-heading">{{ shelf.title }}</h2>
+            <h2 id="home-recent-heading">{% if shelf.view_more_href %}<a class="recent-shelf__title-link" href="{{ shelf.view_more_href }}">{{ shelf.title }}</a>{% else %}{{ shelf.title }}{% endif %}</h2>
             <p><span data-recent-count>{{ ngettext('%(count)s recent item', '%(count)s recent items', shelf.items|length, count=shelf.items|length)|forceescape }}</span> · {{ _('Across your collection')|forceescape }}</p>
         </div>
         {% if shelf.items %}
         <div class="recent-shelf__actions" role="group" aria-label="{{ _('Recently added navigation')|forceescape }}">
-            <a class="recent-shelf__all" href="{{ shelf.view_more_href }}">{{ _('View all')|forceescape }} <span aria-hidden="true">→</span></a>
             <button type="button" data-recent-action="previous" aria-label="{{ _('Previous recently added items')|forceescape }}" aria-controls="home-recent-row" disabled>
                 <svg viewBox="0 0 20 20" aria-hidden="true" focusable="false"><path d="m12 5-5 5 5 5"/></svg>
             </button>
@@ -35,6 +34,6 @@
         {% endfor %}
     </template>
     <p class="recent-shelf__help">{{ _('Swipe or scroll to explore.')|forceescape }}</p>
-    <noscript><p class="recent-shelf__help">{{ _('View all opens the complete collection without JavaScript.')|forceescape }}</p></noscript>
+    <noscript><p class="recent-shelf__help">{{ _('Select Recently added to open the complete collection without JavaScript.')|forceescape }}</p></noscript>
     {% endif %}
 </div>

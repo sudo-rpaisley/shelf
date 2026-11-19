@@ -34,6 +34,11 @@ appear until you turn it on under Settings → Features. With everything on:
 Shelf opens on **Home** — a read-only overview of your collection. Click
 **Shelf** in the menu bar to come back to it from anywhere.
 
+Editors and admins can open **Add / Scan → Add media** to search, review and add
+an item or enter known details manually. On small screens, open **Main menu**
+first. [Add media](add-media.md) is an action in that dropdown, not a separate tab
+beside the Shelf logo.
+
 | Tab | What it is |
 |---|---|
 | **Home** | Totals, what is lent out, missing covers, media-type mix, recent additions. Not a tab — the **Shelf** link in the menu bar. [Home](home.md) |

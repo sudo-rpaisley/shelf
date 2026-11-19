@@ -1,5 +1,5 @@
-/* Home's Recent and Continue rows explicitly opt in. Library and legacy/shared
-   card defaults stay intact; each row keeps its own marker and navigation. */
+/* Home row layout/navigation only. The common catalogue component/stylesheet
+   owns Recently added's cover presentation everywhere. Rows stay independent. */
 /* Enlarged text must not let parent dashboard content overflow an otherwise
    contained recent row. Keep normal 2/3/5-or-6 columns; reflow whole summary
    tiles at a readable rem floor rather than clipping or splitting the numbers. */
@@ -40,6 +40,18 @@
     line-height: 1.3;
     letter-spacing: -0.015em;
 }
+[data-recent-shelf="streaming-v1"] .recent-shelf__title-link {
+    color: inherit;
+    font: inherit;
+    text-decoration: none;
+    text-underline-offset: 0.15em;
+}
+[data-recent-shelf="streaming-v1"] .recent-shelf__title-link:is(:hover, :focus-visible, :active) { text-decoration: underline; }
+[data-recent-shelf="streaming-v1"] .recent-shelf__title-link:focus-visible {
+    outline: 2px solid var(--color-shelf-accent2, #818cf8);
+    outline-offset: 3px;
+    border-radius: 0.125rem;
+}
 :is([data-recent-shelf="streaming-v1"], [data-continue-shelf="streaming-v1"]) .recent-shelf__heading p {
     margin: 0.375rem 0 0;
     font-size: 0.75rem;
@@ -47,7 +59,6 @@
     color: var(--color-shelf-muted, #94a3b8);
 }
 :is([data-recent-shelf="streaming-v1"], [data-continue-shelf="streaming-v1"]) .recent-shelf__actions { display: flex; flex-wrap: wrap; align-items: center; gap: 0.5rem; min-inline-size: 0; }
-:is([data-recent-shelf="streaming-v1"], [data-continue-shelf="streaming-v1"]) .recent-shelf__all,
 :is([data-recent-shelf="streaming-v1"], [data-continue-shelf="streaming-v1"]) .recent-shelf__actions button {
     display: inline-flex;
     align-items: center;
@@ -58,15 +69,12 @@
     background: var(--color-shelf-card, #1a1d27);
     color: var(--color-shelf-text, #e2e8f0);
 }
-:is([data-recent-shelf="streaming-v1"], [data-continue-shelf="streaming-v1"]) .recent-shelf__all { gap: 0.5rem; padding: 0.5rem 0.875rem; min-inline-size: 80px; font-size: 0.875rem; }
 :is([data-recent-shelf="streaming-v1"], [data-continue-shelf="streaming-v1"]) .recent-shelf__actions button { inline-size: 2.75rem; padding: 0.5rem; cursor: pointer; }
 :is([data-recent-shelf="streaming-v1"], [data-continue-shelf="streaming-v1"]) .recent-shelf__actions svg { inline-size: 1.25rem; block-size: 1.25rem; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
 :is([data-recent-shelf="streaming-v1"], [data-continue-shelf="streaming-v1"]) .recent-shelf__actions:dir(rtl) svg { transform: scaleX(-1); }
 :is([data-recent-shelf="streaming-v1"], [data-continue-shelf="streaming-v1"]) .recent-shelf__actions :disabled,
 :is([data-recent-shelf="streaming-v1"], [data-continue-shelf="streaming-v1"]) .recent-shelf__actions [aria-disabled="true"] { opacity: 0.4; cursor: default; }
-:is([data-recent-shelf="streaming-v1"], [data-continue-shelf="streaming-v1"]) .recent-shelf__all:hover,
 :is([data-recent-shelf="streaming-v1"], [data-continue-shelf="streaming-v1"]) .recent-shelf__actions button:not(:disabled):not([aria-disabled="true"]):hover { border-color: var(--color-shelf-accent2, #818cf8); background: var(--color-shelf-hover, #242836); }
-:is([data-recent-shelf="streaming-v1"], [data-continue-shelf="streaming-v1"]) .recent-shelf__all:focus-visible,
 :is([data-recent-shelf="streaming-v1"], [data-continue-shelf="streaming-v1"]) .recent-shelf__actions button:focus-visible { outline: 2px solid var(--color-shelf-accent2, #818cf8); outline-offset: 3px; }
 
 /* No stretching to long credits. Every slot still has the existing
@@ -81,35 +89,4 @@
 }
 :is([data-recent-shelf="streaming-v1"], [data-continue-shelf="streaming-v1"]) .media-shelf__hint { font-size: 0.75rem; line-height: 1.5; }
 
-/* The common catalogue sizing stylesheet owns frame/artwork geometry and focus
-   outlines. Home owns only these row-specific hover/focus captions. */
-
-/* The caption overlaps the actual artwork, even for square covers centered in
-   the taller stage. Opacity keeps full raw text in the native link's accessible
-   name. No disclosure, metadata parsing or extra focus target is needed. */
-:is([data-recent-shelf="streaming-v1"], [data-continue-shelf="streaming-v1"]) [data-card-presentation="shelf-preview-v1"] .media-card__caption {
-    position: absolute;
-    inset-inline: 0;
-    inset-block-end: 0;
-    padding: 1.25rem 0.625rem 0.625rem;
-    text-align: left;
-    color: #fff;
-    background: linear-gradient(to top, #080b12f5, #080b12c9 65%, transparent);
-    text-shadow: 0 1px 2px #000;
-    opacity: 0;
-    pointer-events: none;
-}
-:is([data-recent-shelf="streaming-v1"], [data-continue-shelf="streaming-v1"]) [data-card-presentation="shelf-preview-v1"] .media-card__detail:hover .media-card__caption,
-:is([data-recent-shelf="streaming-v1"], [data-continue-shelf="streaming-v1"]) [data-card-presentation="shelf-preview-v1"] .media-card__detail:focus .media-card__caption { opacity: 1; }
-:is([data-recent-shelf="streaming-v1"], [data-continue-shelf="streaming-v1"]) [data-card-presentation="shelf-preview-v1"] .media-card__title {
-    display: -webkit-box;
-    -webkit-box-orient: vertical;
-    -webkit-line-clamp: 2;
-    line-clamp: 2;
-    margin: 0;
-    min-block-size: 0;
-    max-block-size: none;
-    overflow: hidden;
-}
-:is([data-recent-shelf="streaming-v1"], [data-continue-shelf="streaming-v1"]) [data-card-presentation="shelf-preview-v1"] .media-card__creator { margin: 0.25rem 0 0; color: #e2e8f0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; line-height: 1.4; }
 :is([data-recent-shelf="streaming-v1"], [data-continue-shelf="streaming-v1"]) .recent-shelf__help { margin: 0.5rem 0 0; font-size: 0.75rem; line-height: 1.5; color: var(--color-shelf-muted, #94a3b8); }

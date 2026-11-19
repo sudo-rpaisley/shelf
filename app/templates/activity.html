@@ -9,10 +9,8 @@
     {% if rows %}
     <div class="cover-grid" data-cover-size-grid="catalogue-v2">
         {% for item in rows %}
-        <a href="/item/{{ item.id }}#personal-library" class="group min-w-0">
-            {% with cover_item=item %}{% include "components/catalogue_cover.html" %}{% endwith %}
-            <p class="text-sm font-medium truncate mt-2">{{ item.title }}</p>
-            {% if item.authors %}<p class="text-xs text-shelf-muted truncate">{{ item.authors }}</p>{% endif %}
+        <a href="/item/{{ item.id }}#personal-library" class="group min-w-0" data-cover-link>
+            {% with cover_item=item, cover_print='card' %}{% include "components/catalogue_cover.html" %}{% endwith %}
             <p class="text-xs text-shelf-muted mt-1">
                 {{ _(personal_status_labels.get(item.status, 'No personal status')) }}
                 {% if item.progress is not none %} · {{ item.progress }}%{% endif %}
