@@ -1,4 +1,5 @@
 {% extends "base.html" %}
+{% set catalogue_cover_sizing = true %}
 {% from "fragments/personal_library.html" import event_details with context %}
 {% block title %}{{ _('My activity') }} — Shelf{% endblock %}
 {% macro item_section(testid, heading, description, rows, empty) %}
@@ -6,19 +7,10 @@
     <h2 class="text-lg font-semibold">{{ heading }}</h2>
     <p class="text-sm text-shelf-muted mt-1 mb-4">{{ description }}</p>
     {% if rows %}
-    <div class="cover-grid">
+    <div class="cover-grid" data-cover-size-grid="catalogue-v2">
         {% for item in rows %}
         <a href="/item/{{ item.id }}#personal-library" class="group min-w-0">
-            <div class="cover-card bg-shelf-card rounded-lg overflow-hidden border border-shelf-border group-hover:border-shelf-accent/50 transition-colors shadow-lg" data-cover-shape="{{ cover_shape(item.media_type) }}">
-                {% if item.cover_path %}
-                <img src="/{{ item.cover_path }}" alt="{{ item.title }}" loading="lazy">
-                {% else %}
-                <div class="w-full h-full flex flex-col items-center justify-center p-4 text-center bg-linear-to-br from-shelf-card to-shelf-hover">
-                    <p class="text-sm font-medium leading-tight">{{ item.title[:60] }}</p>
-                    {% if item.authors %}<p class="text-xs text-shelf-muted mt-1">{{ item.authors[:40] }}</p>{% endif %}
-                </div>
-                {% endif %}
-            </div>
+            {% with cover_item=item %}{% include "components/catalogue_cover.html" %}{% endwith %}
             <p class="text-sm font-medium truncate mt-2">{{ item.title }}</p>
             {% if item.authors %}<p class="text-xs text-shelf-muted truncate">{{ item.authors }}</p>{% endif %}
             <p class="text-xs text-shelf-muted mt-1">

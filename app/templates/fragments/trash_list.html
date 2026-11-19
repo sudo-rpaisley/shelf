@@ -52,7 +52,7 @@
     <div class="space-y-2 mb-6" data-testid="trash-items">
         {% for row in items %}
         <div class="flex flex-wrap items-center gap-3 bg-shelf-bg rounded-lg px-4 py-3" data-testid="trash-item-row-{{ row.id }}">
-            <div class="w-10 h-14 shrink-0" data-cover-shape="{{ cover_shape(row.media_type) }}">
+            <div class="w-10 h-14 shrink-0" data-cover-shape="{{ cover_shape(row.media_type) }}" data-cover-size-artwork="catalogue-v2">
                 {% if row.cover_path %}
                 <img src="/{{ row.cover_path }}" alt="" class="w-full h-full object-cover rounded-sm" data-cover-shape="{{ cover_shape(row.media_type) }}">
                 {% else %}

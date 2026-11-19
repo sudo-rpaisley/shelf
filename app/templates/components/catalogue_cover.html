@@ -1,0 +1,8 @@
+{# Local catalogue artwork only: same stage as Home, preserving registry shape.
+   Operational/provider previews and public shares do not use this component. #}
+{% set _catalogue_cover = build_media_card(cover_item) %}
+<div class="media-card__art-stage" data-cover-size-stage="catalogue-v2">
+    <div class="media-card__cover-preview">
+        {% with card=_catalogue_cover %}{% include "components/media_artwork.html" %}{% endwith %}
+    </div>
+</div>

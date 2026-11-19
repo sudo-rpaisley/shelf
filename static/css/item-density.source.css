@@ -1,68 +1,64 @@
-/* Whole-item sizing is opt-in at BOTH the producer and its layout container.
-   Legacy/unversioned cards keep cover-size.source.css's fixed-host contract.
-   Scale track pitch (track + gap), not just artwork or an inner card. auto-fill
-   preserves empty tracks, DOM order and the existing default column widths. */
-[data-item-size="density-v1"] [data-item-grid="library"] {
-    --item-base-columns: 1;
-    --item-gap: 1rem;
-    --item-minimum: 10rem;
+/* One frame width for every browsing layout, not breakpoint-relative card
+   percentages. Real grid tracks/shelf slots reflow; text, order and page counts
+   do not change. Library's padded tiles add only their own border/padding. */
+@media screen {
+    [data-item-size="density-v1"] [data-item-grid="library"] {
+        --media-track-width: calc(var(--media-item-width) + 2rem + 2px);
+        --item-gap: 1rem;
+    }
+    [data-item-size="density-v1"] [data-item-grid="music"] {
+        --media-track-width: var(--media-item-width);
+        --item-gap: 1.5rem;
+    }
+    [data-cover-size-grid="catalogue-v2"] {
+        --media-track-width: var(--media-item-width);
+        --item-gap: 1.25rem;
+    }
+    [data-cover-size-grid="catalogue-v2"][data-cover-size-grid-padding="member"] {
+        --media-track-width: calc(var(--media-item-width) + 1.5rem + 2px);
+    }
+    [data-item-size="density-v1"] [data-item-grid="library"],
+    [data-item-size="density-v1"] [data-item-grid="music"],
+    [data-cover-size-grid="catalogue-v2"] {
+        grid-template-columns: repeat(auto-fill, minmax(0, min(100%, var(--media-track-width))));
+        gap: var(--item-gap);
+    }
+    [data-item-size="density-v1"] [data-item-grid] > *,
+    [data-cover-size-grid="catalogue-v2"] > * {
+        min-inline-size: 0;
+        overflow-wrap: anywhere;
+    }
+    [data-item-size="density-v1"] [data-item-shelf="density-v1"] > .media-shelf__slot {
+        flex-basis: var(--media-item-width);
+        width: var(--media-item-width);
+        overflow-wrap: anywhere;
+    }
+    [data-item-size="density-v1"] [data-item-shelf="density-v1"] .media-shelf__view-more {
+        min-height: max(44px, calc(var(--media-item-width) * 1.5));
+    }
+    /* A new full-width cover stage replaces the old phone-only 30% float.
+       Higher specificity also defeats that rule in an old cached bundle. */
+    [data-library-presentation="phone-wrap-v1"] [data-library-member-presentation="phone-wrap-v1"] .media-card[data-cover-size-card="catalogue-v2"] .media-artwork {
+        float: none;
+        width: 100%;
+        margin: 0;
+    }
 }
 
-[data-item-size="density-v1"] [data-item-grid="music"] {
-    --item-base-columns: 2;
-    --item-gap: 1.5rem;
-    --item-minimum: 6rem;
-}
-
-[data-item-size="density-v1"] [data-item-grid="library"],
-[data-item-size="density-v1"] [data-item-grid="music"] {
-    grid-template-columns: repeat(auto-fill, minmax(min(100%, max(var(--item-minimum), calc((100% + var(--item-gap)) / var(--item-base-columns) * var(--media-cover-scale, 1) - var(--item-gap)))), 1fr));
-    gap: var(--item-gap);
-}
-
-/* The article/tile owns all metadata, holdings and expanded editions. Let long
-   unbroken values wrap at desktop as well as phone widths; never clip content. */
-[data-item-size="density-v1"] [data-item-grid="library"] > *,
-[data-item-size="density-v1"] [data-item-grid="music"] > * {
-    min-inline-size: 0;
-    overflow-wrap: anywhere;
-}
-
-/* Fill a newly sized item ONCE. Fonts, native artwork ratios/contain and the
-   independent phone-wrap-v1 float/member boundary remain unchanged. */
-[data-item-size="density-v1"] [data-item-grid="library"] .media-card,
-[data-item-size="density-v1"] [data-item-grid="music"] .media-card,
-[data-item-size="density-v1"] [data-item-shelf="density-v1"] > .media-shelf__slot > .media-card {
-    width: 100%;
-}
-
-/* All slots participate, including the terminal View more action. These are
-   real flex bases, not visual transforms: more complete items fit in the same
-   native horizontal scroller. Long text can still make a slot taller. */
-[data-item-size="density-v1"] [data-item-shelf="density-v1"] > .media-shelf__slot {
-    --item-slot-width: max(80px, 6rem, calc(10rem * var(--media-cover-scale, 1)));
-    flex-basis: var(--item-slot-width);
-    width: var(--item-slot-width);
-    overflow-wrap: anywhere;
-}
-
-[data-item-size="density-v1"] [data-item-shelf="density-v1"] .media-shelf__view-more {
-    min-height: calc(15rem * var(--media-cover-scale, 1));
-}
-
-@media (min-width: 40rem) {
-    [data-item-size="density-v1"] [data-item-grid="music"] { --item-base-columns: 3; }
-}
-
-@media (min-width: 48rem) {
-    [data-item-size="density-v1"] [data-item-grid="library"] { --item-base-columns: 2; }
-}
-
-@media (min-width: 64rem) {
-    [data-item-size="density-v1"] [data-item-grid="music"] { --item-base-columns: 4; }
-}
-
-@media (min-width: 80rem) {
-    [data-item-size="density-v1"] [data-item-grid="library"] { --item-base-columns: 3; }
-    [data-item-size="density-v1"] [data-item-grid="music"] { --item-base-columns: 5; }
+/* Do not let an older cached, preference-sensitive density bundle alter print.
+   No preference reset, script, storage write or exported-artwork mutation. */
+@media print {
+    [data-item-size="density-v1"] [data-item-grid="library"] {
+        grid-template-columns: minmax(0, 1fr);
+        gap: 1rem;
+    }
+    [data-item-size="density-v1"] [data-item-grid="music"] {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 1.5rem;
+    }
+    [data-item-size="density-v1"] [data-item-shelf="density-v1"] > .media-shelf__slot {
+        flex-basis: 10rem;
+        width: 10rem;
+    }
+    [data-item-size="density-v1"] [data-item-shelf="density-v1"] .media-shelf__view-more { min-height: 15rem; }
 }

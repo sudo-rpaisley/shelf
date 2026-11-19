@@ -1,5 +1,5 @@
-/* Live, document-only cover sizing. Native range keys and button activation are
- * left to the browser. No per-control handlers or retained detached DOM nodes. */
+/* Shared browser-local catalogue sizing, not server preferences or authentication.
+ * Native range keys/drag remain browser-owned. No catalogue or preference HTTP. */
 (function () {
     'use strict';
 
@@ -11,7 +11,6 @@
 
     const CONTROL = '[data-cover-size-control]';
     const INPUT = 'input[type="range"][data-cover-size-input]';
-    const ACTION = 'button[type="button"][data-cover-size-action]';
     // Equal native range positions on either side of the unchanged 100% size.
     // The upper half retains room to grow to 200%, without custom key handling.
     const percentages = [50, 60, 70, 80, 90, 100, 120, 140, 160, 180, 200];
@@ -19,6 +18,46 @@
     const enhanced = new WeakSet();
     let nextId = 0;
     let position = defaultPosition;
+    let appliedPosition = null;
+    let restorationDisabled = false;
+    let storage = null;
+    let storageUnavailable = false;
+    let status = '';
+    const view = document.defaultView;
+
+    // Capture the ORIGINAL server shell once, not a fragment, URL or input.
+    // Keep signed 63-bit account IDs as strings: Number could alias two owners.
+    const owner = (function () {
+        const shell = document.documentElement;
+        const account = typeof shell.getAttribute === 'function' ? shell.getAttribute('data-cover-size-account') : null;
+        const mount = typeof shell.getAttribute === 'function' ? shell.getAttribute('data-cover-size-mount') : null;
+        if (typeof account !== 'string' || !/^[1-9][0-9]{0,18}$/.test(account)
+            || (account.length === 19 && account > '9223372036854775807')
+            || typeof mount !== 'string' || mount.length > 1024
+            || (mount !== '' && !mount.startsWith('/')) || /[\u0000-\u001f\u007f?#\\]/.test(mount)) return null;
+        try {
+            // V1 belonged to an older, unpublished physical scale. Never adopt it.
+            return 'shelf.coverSize.v2:' + encodeURIComponent(mount) + ':u:' + account;
+        } catch (_) {
+            return null;
+        }
+    }());
+
+    function storedPosition(value) {
+        if (typeof value !== 'string' || value.length < 2 || value.length > 3
+            || !/^(50|60|70|80|90|100|120|140|160|180|200)$/.test(value)) return defaultPosition;
+        return percentages.indexOf(Number(value));
+    }
+
+    if (owner !== null && view) {
+        try {
+            storage = view.localStorage;
+            position = storedPosition(storage.getItem(owner));
+        } catch (_) {
+            storageUnavailable = true;
+        }
+    }
+    if (owner === null || storage === null || storageUnavailable) status = 'unavailable';
 
     function bounded(value) {
         if (typeof value !== 'number' || !Number.isFinite(value)) return defaultPosition;
@@ -35,10 +74,13 @@
     function sync() {
         position = bounded(position);
         const percentage = percentages[position];
-        // The sole CSS write: a finite, bounded unitless number. CSS applies it
-        // once to legacy cards or opted-in whole-item layout containers, never
-        // to artwork or fonts. CSS owns reflow and readable-size floors.
-        document.documentElement.style.setProperty('--media-cover-scale', String(percentage / 100));
+        // 100% remains the original Home size. CSS sizes a layout OR its artwork,
+        // never both, and never scales fonts, controls, printing or exports.
+        const changed = appliedPosition !== position;
+        if (changed) {
+            document.documentElement.style.setProperty('--media-cover-scale', String(percentage / 100));
+            appliedPosition = position;
+        }
         for (const root of document.querySelectorAll(CONTROL)) {
             const input = root.querySelector(INPUT);
             if (!input || input.closest(CONTROL) !== root) continue;
@@ -60,16 +102,19 @@
             input.step = '1';
             input.value = String(position);
             input.setAttribute('aria-valuetext', percentage + '%');
-            input.disabled = false;
+            input.disabled = restorationDisabled;
             if (output) output.value = percentage + '%';
-            for (const button of root.querySelectorAll(ACTION)) {
-                if (button.closest(CONTROL) !== root) continue;
-                const action = button.getAttribute('data-cover-size-action');
-                if (action === 'smaller') button.disabled = position === 0;
-                else if (action === 'larger') button.disabled = position === percentages.length - 1;
-                else if (action === 'reset') button.disabled = position === defaultPosition;
+            const message = root.querySelector('[data-cover-size-status]');
+            const state = restorationDisabled ? 'restored' : status;
+            if (message) {
+                message.textContent = state ? root.getAttribute('data-cover-size-' + state) || '' : '';
+                message.hidden = !message.textContent;
             }
             root.setAttribute('data-cover-size-enhanced', 'true');
+        }
+        // No account/key/value payload or synthetic native-input event.
+        if (changed && typeof document.dispatchEvent === 'function') {
+            document.dispatchEvent(new Event('shelf:cover-size-changed'));
         }
     }
 
@@ -80,25 +125,47 @@
 
     function rangeChanged(event) {
         const input = event.target;
-        if (event.defaultPrevented || !owned(input) || !input.matches(INPUT) || input.disabled) return;
-        position = bounded(input.valueAsNumber);
+        const root = owned(input);
+        if (restorationDisabled || event.defaultPrevented || event.isTrusted !== true || !root || !input.matches(INPUT)
+            || !enhanced.has(input) || root.querySelector(INPUT) !== input || input.disabled) return;
+        const next = bounded(input.valueAsNumber);
+        if (next === position) { sync(); return; }
+        position = next;
+        // Only an actual user change may write the captured key. State changes
+        // first, so the matching change event cannot retry a failed input write.
+        if (event.isTrusted === true && owner !== null && storage !== null) {
+            try {
+                storage.setItem(owner, String(percentages[position]));
+                storageUnavailable = false;
+                status = 'saved';
+            } catch (_) {
+                storageUnavailable = true;
+                status = 'unavailable';
+            }
+        }
         sync();
     }
 
     document.addEventListener('input', rangeChanged);
     document.addEventListener('change', rangeChanged);
-    document.addEventListener('click', function (event) {
-        if (event.defaultPrevented || !(event.target instanceof Element)) return;
-        const button = event.target.closest(ACTION);
-        if (!owned(button) || button.disabled) return;
-        const action = button.getAttribute('data-cover-size-action');
-        if (action === 'smaller') position = bounded(position - 1);
-        else if (action === 'larger') position = bounded(position + 1);
-        else if (action === 'reset') position = defaultPosition;
-        else return;
-        event.preventDefault();
-        sync();
-    });
+
+    if (view) {
+        view.addEventListener('storage', function (event) {
+            if (restorationDisabled || owner === null || storage === null || event.storageArea !== storage) return;
+            if (event.key !== owner && event.key !== null) return;
+            if (event.key === null && event.newValue !== null) return;
+            position = storedPosition(event.newValue);
+            status = storageUnavailable ? 'unavailable' : '';
+            sync(); // Never echo another tab's update back to storage.
+        });
+        view.addEventListener('pageshow', function (event) {
+            if (event.persisted !== true) return;
+            // A cached shell could belong to a previous login. Do not recapture
+            // cookies/identity or write until a real server navigation refreshes it.
+            restorationDisabled = true;
+            sync();
+        });
+    }
 
     // Scan the live document, not event.detail: OOB events can reference nodes
     // that have already been replaced. Delegation needs no HTMX re-processing.

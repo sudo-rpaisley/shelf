@@ -1,5 +1,11 @@
 <!DOCTYPE html>
-<html lang="{{ current_locale()|replace('_', '-') }}" class="dark">
+<html lang="{{ current_locale()|replace('_', '-') }}" class="dark"
+    {% if catalogue_cover_sizing|default(false) is sameas true
+          and user is defined and user and user.id is defined and request is defined
+          and request.scope is defined and request.scope.get is defined %}
+    data-cover-size-account="{{ user.id|forceescape }}"
+    data-cover-size-mount="{{ request.scope.get('root_path', '')|forceescape }}"
+    {% endif %}>
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -71,7 +77,16 @@
     {% include "fragments/media_navigation.html" %}
     {% endwith %}
 
-    {% if user %}{% include "fragments/command_palette.html" %}{% endif %}
+    {% if user %}
+    <div class="media-display-tools app-shell no-print" data-media-display-tools>
+        {% if catalogue_cover_sizing|default(false) is sameas true %}
+        {% with item_size_mode='density-v1', cover_size_description_id='global-cover-size-description' %}
+        {% include "fragments/cover_size_panel.html" %}
+        {% endwith %}
+        {% endif %}
+        {% include "fragments/command_palette.html" %}
+    </div>
+    {% endif %}
 
     {# Admin-only; `trash_nag` is injected by the TemplateResponse wrapper in
        app/main.py. Guarded so a hand-built environment without the key still

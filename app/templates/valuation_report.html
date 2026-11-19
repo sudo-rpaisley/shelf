@@ -1,4 +1,5 @@
 {% extends "base.html" %}
+{% set catalogue_cover_sizing = true %}
 {% block title %}Valuation Report — Shelf{% endblock %}
 {% block head %}
 <style>
@@ -88,9 +89,9 @@
                 <tbody class="divide-y divide-shelf-border">
                     {% for item in group['items'] %}
                     <tr class="hover:bg-shelf-hover/50">
-                        <td class="px-3 py-1.5">
+                        <td class="px-3 py-1.5" data-cover-size-table-cell>
                             {% if item.cover_path %}
-                            <img src="/{{ item.cover_path }}" alt="" class="w-7 rounded-xs" loading="lazy">
+                            <img src="/{{ item.cover_path }}" alt="" class="w-7 rounded-xs" loading="lazy" data-cover-size-artwork="catalogue-v2" data-cover-shape="{{ cover_shape(item.media_type) }}">
                             {% endif %}
                         </td>
                         <td class="px-3 py-1.5">{{ item.title }}{% if item.publish_year %} <span class="text-shelf-muted">({{ item.publish_year }})</span>{% endif %}</td>

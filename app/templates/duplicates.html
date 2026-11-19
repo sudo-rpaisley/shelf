@@ -1,4 +1,5 @@
 {% extends "base.html" %}
+{% set catalogue_cover_sizing = true %}
 {% block title %}Duplicates — Shelf{% endblock %}
 {% block head %}<script src="/static/js/duplicates.js" defer></script>{% endblock %}
 {% block content %}
@@ -19,7 +20,7 @@
         {% set group_index = kind ~ '-' ~ loop.index %}
         <article data-dup-group data-member-ids="{{ group.member_ids|join(',') }}"
                  class="bg-shelf-card rounded-xl border border-shelf-border p-4 space-y-3">
-            <div class="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
+            <div class="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3" data-cover-size-grid="catalogue-v2" data-cover-size-grid-padding="member">
                 {% for m in group.members %}
                 <div data-dup-member="{{ m.id }}" data-title="{{ m.title }}"
                      class="min-w-0 rounded-lg border border-shelf-border p-3 space-y-2">
@@ -27,11 +28,11 @@
                         <input type="radio" name="keep-{{ group_index }}" value="{{ m.id }}" data-dup-keep {% if loop.first %}checked{% endif %}>
                         Keep this record
                     </label>
-                    <div class="flex gap-3">
+                    <div class="flex gap-3" data-cover-size-row="catalogue-v2">
                         {% if m.cover_path %}
-                        <img src="/{{ m.cover_path }}" alt="" class="w-12 h-16 object-cover rounded-sm bg-shelf-bg shrink-0" data-cover-shape="{{ cover_shape(m.media_type) }}">
+                        <img src="/{{ m.cover_path }}" alt="" class="w-12 h-16 object-cover rounded-sm bg-shelf-bg shrink-0" data-cover-shape="{{ cover_shape(m.media_type) }}" data-cover-size-artwork="catalogue-v2">
                         {% else %}
-                        <div class="w-12 h-16 rounded-sm bg-shelf-bg shrink-0" data-cover-shape="{{ cover_shape(m.media_type) }}"></div>
+                        <div class="w-12 h-16 rounded-sm bg-shelf-bg shrink-0" data-cover-shape="{{ cover_shape(m.media_type) }}" data-cover-size-artwork="catalogue-v2"></div>
                         {% endif %}
                         <div class="min-w-0">
                             <a href="/item/{{ m.id }}" class="font-medium hover:text-shelf-accent2 break-words">{{ m.title }}</a>

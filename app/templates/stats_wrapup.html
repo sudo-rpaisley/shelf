@@ -1,4 +1,5 @@
 {% extends "base.html" %}
+{% set catalogue_cover_sizing = true %}
 {% block title %}{{ period.label }} Wrap-up — Shelf{% endblock %}
 {% block head %}
 <script src="/static/js/wrapup.js"></script>
@@ -62,13 +63,13 @@
 
     {% set tile_total = summary.finished_total if summary.showing == 'finished' else summary.added_total %}
     <h2 class="text-lg font-semibold mb-3">{% if summary.showing == 'finished' %}Finished{% else %}Added{% endif %} in {{ period.label }}{% if tile_total > summary.tiles|length %} <span class="text-sm text-shelf-muted font-normal" data-testid="wrapup-tiles-capped">latest {{ summary.tiles|length }} of {{ tile_total }}</span>{% endif %}</h2>
-    <ul class="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-6 gap-3" data-testid="wrapup-tiles">
+    <ul class="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-6 gap-3" data-testid="wrapup-tiles" data-cover-size-grid="catalogue-v2">
         {% for tile in summary.tiles %}
         <li data-wrapup-tile data-cover="{{ '/' ~ tile.cover_path if tile.cover_path else '' }}" data-title="{{ tile.title }}">
             <a href="/item/{{ tile.id }}?from=stats" class="block">
                 {# The box owns the shape, so a cover file that 404s leaves an empty
                    tile rather than a collapsed broken image (qa-wrapups Obs 4). #}
-                <div class="w-full aspect-2/3 bg-shelf-hover rounded-sm overflow-hidden" data-cover-shape="{{ cover_shape(tile.media_type) }}">
+                <div class="w-full aspect-2/3 bg-shelf-hover rounded-sm overflow-hidden" data-cover-shape="{{ cover_shape(tile.media_type) }}" data-cover-size-artwork="catalogue-v2">
                     {% if tile.cover_path %}
                     <img src="/{{ tile.cover_path }}" alt="" class="w-full h-full object-cover" data-cover-shape="{{ cover_shape(tile.media_type) }}">
                     {% endif %}

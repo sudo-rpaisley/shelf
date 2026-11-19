@@ -17,26 +17,6 @@
     [data-library-presentation="phone-wrap-v1"] .library-phone-heading > nav {
         gap: 0.25rem;
     }
-    [data-library-presentation="phone-wrap-v1"] [data-library-presentation-tools="phone-wrap-v1"] .cover-size-control {
-        gap: 0.25rem;
-    }
-    /* Group noninteractive label/output/note above the native range/buttons.
-       The actual input then button focus order is unchanged. Preserve every
-       80px floor; real flex wrapping handles narrower or enlarged text. */
-    [data-library-presentation="phone-wrap-v1"] [data-library-presentation-tools="phone-wrap-v1"] .cover-size-control__range { display: contents; }
-    [data-library-presentation="phone-wrap-v1"] [data-library-presentation-tools="phone-wrap-v1"] .cover-size-control__range > span { order: 1; }
-    [data-library-presentation="phone-wrap-v1"] [data-library-presentation-tools="phone-wrap-v1"] .cover-size-control__output { order: 2; }
-    [data-library-presentation="phone-wrap-v1"] [data-library-presentation-tools="phone-wrap-v1"] .cover-size-control__note {
-        order: 3;
-        flex: 1 1 auto;
-    }
-    [data-library-presentation="phone-wrap-v1"] [data-library-presentation-tools="phone-wrap-v1"] input[data-cover-size-input] {
-        order: 4;
-        flex: 1 1 80px;
-        width: 80px;
-    }
-    [data-library-presentation="phone-wrap-v1"] [data-library-presentation-tools="phone-wrap-v1"] .cover-size-control__choices { order: 5; gap: 0.25rem; }
-    [data-library-presentation="phone-wrap-v1"] [data-library-presentation-tools="phone-wrap-v1"] .cover-size-control > noscript { order: 6; flex-basis: 100%; }
     [data-library-presentation="phone-wrap-v1"] .library-phone-filters { padding: 0.5rem 0.75rem; }
     [data-library-presentation="phone-wrap-v1"] .library-phone-filters > :not(:last-child) { margin-block-end: 0.5rem; }
     [data-library-presentation="phone-wrap-v1"] .library-phone-search { flex-wrap: wrap; }

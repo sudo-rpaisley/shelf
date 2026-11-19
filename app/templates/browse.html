@@ -1,4 +1,5 @@
 {% extends "base.html" %}
+{% set catalogue_cover_sizing = true %}
 {% block title %}{{ _('Browse') }} — Shelf{% endblock %}
 {% block content %}
 <div x-data="browsePage" data-initial-query="{{ initial_query or '' }}" class="flex flex-col">

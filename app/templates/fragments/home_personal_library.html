@@ -1,30 +1,43 @@
-<section class="mb-8" data-testid="home-personal-library">
-    <div class="flex flex-wrap items-center justify-between gap-3 mb-4">
-        <h2 class="text-lg font-semibold">{{ _('Your library') }}</h2>
-        <a href="/activity" class="text-sm text-shelf-accent2 hover:underline">{{ _('All my activity') }}</a>
-    </div>
-    <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        {% for heading, entries in [(_('Continue'), home_activity.continue_items), (_('Up Next'), home_activity.up_next_items)] %}
-        <div class="bg-shelf-card border border-shelf-border rounded-lg p-5">
-            <h3 class="font-medium mb-3">{{ heading }}</h3>
-            {% if entries %}
-            <ul class="space-y-3">
-                {% for entry in entries %}
-                <li>
-                    <a href="/item/{{ entry.id }}?from=activity" class="flex items-center gap-3 min-w-0 group">
-                        {% if entry.cover_path %}<img src="/{{ entry.cover_path }}" alt="" loading="lazy" class="w-10 h-14 object-cover rounded-sm shrink-0" data-cover-shape="{{ cover_shape(entry.media_type) }}">{% endif %}
-                        <span class="min-w-0 flex-1">
-                            <span class="block truncate text-sm font-medium group-hover:text-shelf-accent2">{{ entry.title }}</span>
-                            <span class="block truncate text-xs text-shelf-muted">{{ media_type_labels.get(entry.media_type, entry.media_type) }}{% if entry.progress is not none %} · {{ entry.progress }}%{% endif %}</span>
-                        </span>
-                    </a>
-                </li>
-                {% endfor %}
-            </ul>
-            {% else %}
-            <p class="text-sm text-shelf-muted">{{ _('Open an item to set your personal status or add it to My List. Your plans are separate from the shared wishlist.') }}</p>
+{# Reuse the account-scoped six + six selection, with in-progress items first.
+   A listed item can occur in both inputs; catalogue identity appears only once. #}
+{% set _continue_entries = (home_activity.continue_items + home_activity.up_next_items)|unique(attribute='id')|list %}
+<section class="recent-shelf mb-8" data-testid="home-personal-library" data-continue-shelf="streaming-v1" aria-labelledby="home-continue-heading">
+    <header class="recent-shelf__header">
+        <div class="recent-shelf__heading">
+            <h2 id="home-continue-heading">{{ _('Continue')|forceescape }}</h2>
+            <p>{{ _('In progress and items from your list')|forceescape }}</p>
+        </div>
+        <div class="recent-shelf__actions" role="group" aria-label="{{ _('Continue navigation')|forceescape }}">
+            <a class="recent-shelf__all" href="/activity">{{ _('All my activity')|forceescape }} <span aria-hidden="true">→</span></a>
+            {% if _continue_entries %}
+            <button type="button" data-recent-action="previous" aria-label="{{ _('Previous items to continue')|forceescape }}" aria-controls="home-continue-row" disabled>
+                <svg viewBox="0 0 20 20" aria-hidden="true" focusable="false"><path d="m12 5-5 5 5 5"/></svg>
+            </button>
+            <button type="button" data-recent-action="next" aria-label="{{ _('Next items to continue')|forceescape }}" aria-controls="home-continue-row" disabled>
+                <svg viewBox="0 0 20 20" aria-hidden="true" focusable="false"><path d="m8 5 5 5-5 5"/></svg>
+            </button>
             {% endif %}
         </div>
+    </header>
+    {% if _continue_entries %}
+    <ul id="home-continue-row" class="media-shelf__items" tabindex="0" aria-labelledby="home-continue-heading" data-item-shelf="density-v1">
+        {% for entry in _continue_entries %}
+        <li class="media-shelf__slot">
+            {% set _status_badge = _('In progress') if entry.status == 'in_progress' else _('Up Next') %}
+            {% set _badges = (_status_badge, entry.progress|string ~ '%') if entry.progress is not none else (_status_badge,) %}
+            {% set card = build_media_card(entry, detail_href='/item/' ~ entry.id ~ '?from=activity', badges=_badges) %}
+            {% with media_card_presentation='shelf-preview-v1' %}{% include "components/media_card.html" %}{% endwith %}
+        </li>
         {% endfor %}
-    </div>
+        <li class="media-shelf__slot">
+            <a class="media-shelf__view-more" href="/activity">
+                <span>{{ _('View more')|forceescape }}</span>
+                <span class="media-card__sr-only"> — {{ _('Continue')|forceescape }}</span>
+            </a>
+        </li>
+    </ul>
+    <p class="recent-shelf__help">{{ _('Swipe or scroll to explore.')|forceescape }}</p>
+    {% else %}
+    <p class="media-shelf__empty">{{ _('Open an item to set your personal status or add it to My List. Your plans are separate from the shared wishlist.')|forceescape }}</p>
+    {% endif %}
 </section>

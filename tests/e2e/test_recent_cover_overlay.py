@@ -58,7 +58,7 @@ def test_recent_caption_is_hover_only_bottom_left_with_keyboard_equivalent(
 
 
 @pytest.mark.parametrize("width", (375, 1366))
-def test_native_size_range_centers_100_and_can_shrink_grow_and_reset(
+def test_slider_only_size_control_centers_100_and_can_shrink_grow_and_return(
     authed_page, live_server, request, width,
 ):
     _seed(live_server, f"centered-size-{width}", request)
@@ -67,6 +67,7 @@ def test_native_size_range_centers_100_and_can_shrink_grow_and_reset(
     slider = page.locator("[data-cover-size-input]")
     output = page.locator("[data-cover-size-output]")
     stage = recent.locator(".media-card__art-stage").first
+    expect(page.locator("[data-cover-size-control] button")).to_have_count(0)
     expect(slider).to_be_enabled()
     expect(slider).to_have_value("5")
     expect(slider).to_have_attribute("min", "0")
@@ -88,7 +89,8 @@ def test_native_size_range_centers_100_and_can_shrink_grow_and_reset(
     expect(slider).to_have_attribute("aria-valuetext", "200%")
     expect(output).to_have_text("200%")
     assert stage.bounding_box()["width"] > normal_width
-    page.locator('[data-cover-size-action="reset"]').click()
+    for _ in range(5):
+        slider.press("ArrowLeft")
     expect(slider).to_have_value("5")
     expect(output).to_have_text("100%")
     assert stage.bounding_box()["width"] == pytest.approx(normal_width, abs=1)

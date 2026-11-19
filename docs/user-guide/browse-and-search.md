@@ -24,20 +24,24 @@ directly visible. Menus are not opened automatically.
 
 ## Views
 
-On Home, Library's item/group views and Music's local collection, **Item size**
-changes the whole displayed item, including its text and details. Use the native
-slider, **Smaller**, **Larger** or **Reset**. Smaller items fit more across; larger
-items fit fewer. Home keeps a single horizontally scrolling shelf. The default
-is 100%; the smallest requested size is 50%. Readable minimums can stop shrinking,
-and some slider steps keep the same column count. Text sizes, artwork proportions,
-item order and results per page do not change. Every Library **Local series** view, including a series
-drilldown, omits these controls.
+**Item size** is in the shared top-right toolbar beside **Commands**. One native
+slider controls catalogue cover widths across Home, Browse (grid and list), all
+Library views, local Music, Series, My Activity and catalogue detail/list pages.
+Cards use a common base width, not different percentage bases on each page;
+smaller covers fit more across and large covers have a shared narrow-screen cap.
+The default is 100% at the slider's center, with 50% and 200% at its ends. Text
+sizes, artwork proportions, item order and results per page do not change.
 
-The choice is not saved: navigation or reload restores the default. No account
-preference or browser storage is written. JavaScript is needed to change it;
-without JavaScript the original card sizes remain usable.
+The choice is saved for your account in this browser, survives navigation/reload
+and updates other open tabs. It is not a server-side or cross-device preference.
+Other accounts and mounted Shelf instances use separate numeric storage keys.
+Blocked browser storage leaves current-page sizing usable with an explanation.
+After a cached Back/Forward restore, refresh before editing the saved value.
+JavaScript is needed to change size; without it the common 100% layout is usable.
+Print/export artwork, public shares and provider/scanning/editor previews stay
+separate from this catalogue presentation setting.
 
-On phones, Library cards wrap their complete metadata beside proportional artwork.
+On phones, Library cards retain complete metadata below proportional artwork.
 **About this Library** holds explanations without hiding search, presets or live
 controls. **Filters and display** keeps its stable caption and a separate count of
 active filter/display options; that count is not the number of matching items.

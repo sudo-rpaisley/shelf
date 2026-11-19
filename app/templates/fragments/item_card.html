@@ -1,5 +1,6 @@
 <div class="relative">
-<a href="/item/{{ item.id }}" class="group relative block" data-item-id="{{ item.id }}" @click.prevent="openOrToggle({{ item.id }}, '/item/{{ item.id }}', $event)">
+<a href="/item/{{ item.id }}" class="group relative block" data-item-id="{{ item.id }}" data-cover-size-card="catalogue-v2" @click.prevent="openOrToggle({{ item.id }}, '/item/{{ item.id }}', $event)">
+    <div class="media-card__art-stage"><div class="media-card__cover-preview">
     <div class="cover-card bg-shelf-card rounded-lg overflow-hidden border border-shelf-border group-hover:border-shelf-accent/50 transition-colors shadow-lg"
          data-cover-shape="{{ cover_shape(item.media_type) }}"
          :class="selectedIds.includes({{ item.id }}) ? 'ring-2 ring-shelf-accent' : ''">
@@ -38,12 +39,13 @@
         {% endif %}
     </div>
     <!-- Hover overlay with title -->
-    <div class="absolute inset-0 bg-linear-to-t from-black/80 via-transparent to-transparent rounded-lg opacity-0 group-hover:opacity-100 transition-opacity flex items-end p-3">
+    <div class="absolute inset-0 bg-linear-to-t from-black/80 via-transparent to-transparent rounded-lg opacity-0 group-hover:opacity-100 transition-opacity flex items-end p-3" data-cover-size-caption>
         <div class="min-w-0">
             <p class="text-white text-sm font-medium truncate">{{ item.title }}</p>
             {% if item.authors %}<p class="text-gray-300 text-xs truncate">{{ item.authors }}</p>{% endif %}
         </div>
     </div>
+    </div></div>
 </a>
 {% if item.source == 'romm' %}
 {% if feature_on('romm') %}

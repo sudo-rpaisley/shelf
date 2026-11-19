@@ -53,24 +53,29 @@ Home's recent shelf shows up to **24** items in one horizontally scrollable row
 (up to eight without JavaScript). Swipe, scroll or use its previous/next buttons;
 the count describes the row's inventory, not simultaneously visible cards.
 Header **View all** and terminal **View more** open the complete mixed catalogue.
-Home's compact title/credit previews have native **Details** for the complete
-text, usable with a keyboard, touch or JavaScript disabled. Home, local Music and
+Home reveals its title/creator overlay on cover hover or keyboard focus; open the
+item itself for complete metadata, including on touch devices. Home, local Music and
 Library reuse artwork cards that contain rather than crop the image; Library's
 full metadata is not shortened. Recent grouping is not yet configurable per
 account, and editing still opens the existing full-page form rather than a
 pop-out editor.
 
-On phones, Library artwork sits beside naturally wrapping titles and metadata;
+On phones, Library artwork sits above naturally wrapping titles and metadata;
 the complete holdings and actions remain available and images keep their proportions.
 Open **About this Library** for catalogue, item-size, cached-availability and
 grouping/series explanations. Search, presets and live controls stay outside Help.
 
-**Item size** changes the complete item footprint from 100% towards 50%, fitting
-more items across when space permits. Text stays readable and artwork keeps its
-proportions; item order and results per page stay the same. **Larger** fits fewer
-items and **Reset** restores the default. Reload or navigation also resets it;
-it is not an account preference. **Local series** has no item-size controls or
-geometry guidance, including after opening a series' grouped-format drilldown.
+**Item size**, beside **Commands** at the top right, uses one common cover-width
+scale across catalogue pages, including every **Local series** view and drilldown.
+The native slider runs from 50% to 200%, with 100% in the center. Move left to fit
+more items across or right for larger covers; narrow screens share the same cap.
+Text stays readable, artwork keeps its proportions, and item order and results
+per page stay the same. The choice is saved per account in this browser, survives
+navigation/reload and updates other open tabs, but does not sync between devices.
+If storage is blocked, sizing still works on the current page with an explanation.
+Refresh after a cached Back/Forward restore before editing the saved value.
+Printed/exported artwork, public shares and scanning/editor/provider previews are
+not resized by this setting. No catalogue or server preference data is written.
 
 ### Groups are equivalent formats, not adaptations
 
@@ -490,6 +495,12 @@ panel and **My Activity** (`/activity`, account menu → Personal):
   personal history event; an identical submission does not add another.
 - **Reset my activity for this item** clears your current state but keeps your
   personal history. Trash hides the item and its activity until restored.
+
+On Home, a single **Continue** cover row combines your In progress and My List /
+Up Next previews, with in-progress items first and duplicates shown once. It uses
+the Recently added card style and its own scroll controls. The full My Activity
+page retains the separate lists; combining their Home presentation does not change
+your saved status, list membership or history.
 
 The item panel starts with a compact summary. Open **Update my activity** to
 edit or reset it. Controls are temporarily disabled during Save or Reset, so a

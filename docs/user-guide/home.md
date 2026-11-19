@@ -10,11 +10,30 @@ Home shows:
   [cover review queue](items.md#the-review-queue) are excluded, so this
   agrees with the same figure on Settings;
 - the media types currently present in the collection;
-- a media-type breakdown;
 - recent additions;
-- direct links to Browse, Series and Statistics.
+- your combined Continue row when Connected Library is enabled.
 
-Editors and administrators also get a **Scan item** shortcut. Viewers see the same read-only overview without mutation controls.
+Use the main navigation and account menu for Library, My Activity, Browse,
+Add / Scan, Series, Sources and Statistics; Home does not repeat those shortcuts
+in its header or a Useful places panel.
+Scanning and adding items remain restricted to editors and administrators.
+
+The collection mix by media type and location is available on
+[Statistics](stats-and-valuation.md#stats), rather than repeated on Home.
+
+## Continue
+
+With Connected Library enabled, **Continue** combines your In progress and
+My List / Up Next items into one full-width, horizontally scrolling cover row,
+using the same cover sizing and hover/focus captions as Recently added.
+In-progress items come first; an item in both lists appears once. Status and
+available progress remain visible as badges. This is your account's activity,
+not the shared wishlist or another user's plans.
+
+Swipe, scroll or use the row's previous/next buttons. **All my activity** and the
+last **View more** tile open the full Activity page, where Continue and Up Next
+remain separate. An empty row shows one explanation instead of two empty panels.
+All cards and links remain usable without JavaScript.
 
 ## Recently added
 
@@ -30,8 +49,18 @@ to read complete metadata, including on touch devices.
 
 **Item size** fits more or fewer complete items across without shrinking text.
 The default **100%** keeps the normal cover size and sits at the slider's midpoint;
-the ends are **50%** and **200%**. **Reset** restores 100%. This setting lasts only
-for the current page.
+the ends are **50%** and **200%**. Move the slider back to the center for 100%.
+The slider is at the top right, beside **Commands**, rather than inside Recently
+added. It uses the same cover width on other catalogue pages, including Browse,
+Library, Music, Series and My Activity. Narrow screens constrain large covers
+consistently; artwork keeps its original proportions.
+
+Your choice is saved for your account in this browser and shared across pages,
+reloads and other open tabs. Another account has its own choice; it does not sync
+between devices. If browser storage is blocked, the control still works for the
+current page and says that it could not save. After a cached Back/Forward restore,
+refresh the page before editing the saved size. Print/export artwork, public
+shares and scanning/cover-picker previews do not use this setting.
 
 Without JavaScript, the row shows up to eight recent items. Item links, hover/focus
 captions and **View all** still work.

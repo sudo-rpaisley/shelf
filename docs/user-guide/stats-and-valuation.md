@@ -15,7 +15,9 @@ year (see [Wrap-ups](#wrap-ups)). The page shows:
 - **Top authors**
 - **Collection value over time** — the total from valuation runs, once you've done one
 - **By media type** and **by location** breakdowns
-- **Recently added** (last 30 days)
+
+Recent additions are shown on [Home](home.md#recently-added), not repeated on
+Statistics. Statistics focuses on totals, trends and collection breakdowns.
 
 Reading dates come from the item's status; imports from Goodreads /
 StoryGraph / Hardcover bring their dates with them, so the history chart

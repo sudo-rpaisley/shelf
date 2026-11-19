@@ -1,11 +1,14 @@
-/* Home-only, request-free enhancement. Native links and eight real
- * cards are usable before this script. No metadata parsing or card rendering. */
+/* Home-only, request-free shelf navigation. Continue is fully server rendered;
+ * Recently added has eight native cards plus its inert overflow buffer.
+ * No metadata parsing, card rendering or shared activity state. */
 (function () {
     'use strict';
     const installed = Symbol.for('shelf.recentShelf');
     if (document[installed]) return;
     document[installed] = true;
-    const ROOT = '[data-recent-shelf="streaming-v1"]';
+    const RECENT = '[data-recent-shelf="streaming-v1"]';
+    const CONTINUE = '[data-continue-shelf="streaming-v1"]';
+    const ROOT = RECENT + ', ' + CONTINUE;
     const ACTION = 'button[type="button"][data-recent-action]';
     const observed = new Set();
     let scheduled = false;
@@ -16,11 +19,17 @@
     }
 
     function trackFor(root) {
-        const track = root.querySelector('#home-recent-row');
+        const recent = root.matches(RECENT);
+        if (recent === root.matches(CONTINUE)) return null;
+        const track = root.querySelector(recent ? '#home-recent-row' : '#home-continue-row');
         return track && track.closest(ROOT) === root ? track : null;
     }
 
     function enhance(root, track) {
+        if (root.matches(CONTINUE)) {
+            root.setAttribute('data-continue-enhanced', 'true');
+            return true; // Its real cards are already present; never consume recent overflow.
+        }
         const template = root.querySelector('template[data-recent-overflow]');
         if (template) {
             const current = Array.from(track.querySelectorAll('.media-card'));
@@ -66,6 +75,7 @@
         const track = trackFor(root);
         if (!track || typeof track.scrollBy !== 'function' || !enhance(root, track)) {
             root.removeAttribute('data-recent-enhanced');
+            root.removeAttribute('data-continue-enhanced');
             for (const button of root.querySelectorAll(ACTION)) {
                 if (button.closest(ROOT) !== root) continue;
                 button.disabled = true;
@@ -104,10 +114,6 @@
 
     document.addEventListener('click', function (event) {
         if (!(event.target instanceof Element)) return;
-        // The sizing owner legitimately prevents its button click without
-        // emitting range events. Refresh layout even on that prevented click.
-        const sizing = event.target.closest('button[data-cover-size-action]');
-        if (sizing && sizing.closest('[data-cover-size-control]')) schedule();
         const button = event.target.closest(ACTION);
         const root = button && button.closest(ROOT);
         if (!owned(root) || event.defaultPrevented || event.button !== 0 || button.disabled) return;
@@ -129,6 +135,7 @@
         if (event.target instanceof Element && event.target.matches('[data-cover-size-input]')) schedule();
     });
     window.addEventListener('resize', schedule);
+    document.addEventListener('shelf:cover-size-changed', schedule);
     document.addEventListener('htmx:afterSwap', refreshAll);
     document.addEventListener('htmx:oobAfterSwap', refreshAll);
     if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', refreshAll, {once: true});

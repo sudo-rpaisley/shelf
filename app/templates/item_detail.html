@@ -1,4 +1,5 @@
 {% extends "base.html" %}
+{% set catalogue_cover_sizing = true %}
 {% block title %}{{ item.title }} — Shelf{% endblock %}
 {% block head %}
 {% if feature_on('romm') %}
@@ -18,12 +19,12 @@
             <!-- Cover -->
             {# The width is declared here rather than left to the image, so the
                picker's controls below have a real budget to lay out inside. #}
-            <div class="w-48 shrink-0">
+            <div class="w-48 shrink-0" data-cover-size-column="catalogue-v2">
                 {% if item.cover_path %}
-                <img src="/{{ item.cover_path }}" alt="{{ item.title }}" class="w-48 rounded-lg shadow-lg">
+                <img src="/{{ item.cover_path }}" alt="{{ item.title }}" class="w-48 rounded-lg shadow-lg" data-cover-size-artwork="catalogue-v2" data-cover-shape="{{ cover_shape(item.media_type) }}">
                 {% if item.cover_edition_language == "en" %}<p class="text-xs text-shelf-muted mt-2">{{ _('English cover from another edition') }}</p>{% endif %}
                 {% else %}
-                <div class="h-72 bg-shelf-hover rounded-lg flex flex-col items-center justify-center text-shelf-muted gap-2">
+                <div class="h-72 bg-shelf-hover rounded-lg flex flex-col items-center justify-center text-shelf-muted gap-2" data-cover-size-artwork="catalogue-v2" data-cover-shape="{{ cover_shape(item.media_type) }}" data-cover-size-placeholder>
                     <span>{{ _('No Cover') }}</span>
                     {# …and it keys on the ISBN because the route does: retry-cover
                        answers "No ISBN" without one, and the reload would hide that. #}

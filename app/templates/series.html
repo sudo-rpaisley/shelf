@@ -1,4 +1,5 @@
 {% extends "base.html" %}
+{% set catalogue_cover_sizing = true %}
 {% block title %}Series — Shelf{% endblock %}
 {% block content %}
 {% set can_edit = user and user.role in ('admin', 'editor') %}
@@ -210,15 +211,10 @@
         <!-- Owned/wishlisted volumes -->
         <div class="flex gap-3 mt-4 overflow-x-auto pb-2">
             {% for item in s['items'] %}
-            <a href="/item/{{ item.id }}?from=series" class="shrink-0 w-20 group" title="{{ item.title }}">
+            <a href="/item/{{ item.id }}?from=series" class="shrink-0 w-20 group" title="{{ item.title }}" data-cover-size-slot="catalogue-v2">
                 <div class="relative">
-                    {% if item.cover_path %}
-                    <img src="/{{ item.cover_path }}" alt="" class="w-20 h-30 object-cover rounded-lg border border-shelf-border group-hover:border-shelf-accent/50" style="height:120px" loading="lazy">
-                    {% else %}
-                    <div class="w-20 bg-shelf-hover rounded-lg border border-shelf-border flex items-center justify-center p-1" style="height:120px">
-                        <span class="text-[10px] text-shelf-muted text-center leading-tight">{{ item.title[:40] }}</span>
-                    </div>
-                    {% endif %}
+                    {% with cover_item=item %}{% include "components/catalogue_cover.html" %}{% endwith %}
+                    <span class="media-card__sr-only">{{ item.title }}</span>
                     {% if item.series_position is not none %}
                     <span class="absolute top-1 left-1 bg-black/70 text-white text-[10px] px-1 rounded-sm">#{{ item.series_position|int if item.series_position == item.series_position|int else item.series_position }}</span>
                     {% endif %}
@@ -290,15 +286,10 @@
         <p class="text-sm text-shelf-muted mt-2">These books don't belong to a series yet. Open one and set a series on its edit page to move it into a series card.</p>
         <div class="flex gap-3 mt-4 overflow-x-auto pb-2">
             {% for item in unassigned_items %}
-            <a href="/item/{{ item.id }}?from=series" class="shrink-0 w-20 group" title="{{ item.title }}">
+            <a href="/item/{{ item.id }}?from=series" class="shrink-0 w-20 group" title="{{ item.title }}" data-cover-size-slot="catalogue-v2">
                 <div class="relative">
-                    {% if item.cover_path %}
-                    <img src="/{{ item.cover_path }}" alt="" class="w-20 h-30 object-cover rounded-lg border border-shelf-border group-hover:border-shelf-accent/50" style="height:120px" loading="lazy">
-                    {% else %}
-                    <div class="w-20 bg-shelf-hover rounded-lg border border-shelf-border flex items-center justify-center p-1" style="height:120px">
-                        <span class="text-[10px] text-shelf-muted text-center leading-tight">{{ item.title[:40] }}</span>
-                    </div>
-                    {% endif %}
+                    {% with cover_item=item %}{% include "components/catalogue_cover.html" %}{% endwith %}
+                    <span class="media-card__sr-only">{{ item.title }}</span>
                     {% if item.wishlisted %}
                     <span class="absolute bottom-1 left-1 bg-shelf-warning/90 text-black text-[9px] px-1 rounded-sm font-medium">Wishlist</span>
                     {% endif %}

@@ -1,5 +1,7 @@
 {% extends "base.html" %}
+{% set catalogue_cover_sizing = true %}
 {% set item_size_mode = 'density-v1' %}
+{% set media_card_size_mode = 'shared-v2' %}
 {% block title %}Music — Shelf{% endblock %}
 {% block content %}
 {% set fact_labels = {'barcode': _('Barcode'), 'catalog_number': _('Catalogue number'), 'title': _('Title'), 'artist': _('Artist'), 'format': _('Format'), 'country': _('Country')} %}
@@ -121,7 +123,6 @@
     </div>
     {% endif %}
 
-    {% with cover_size_description_id='music-cover-size-description' %}{% include "fragments/cover_size_panel.html" %}{% endwith %}
     <section data-testid="music-local-items">
         <div class="flex items-center justify-between gap-4 mb-3">
             <h2 class="text-lg font-semibold">{{ _('Your music')|forceescape }}</h2>

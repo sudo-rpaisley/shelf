@@ -1,19 +1,17 @@
-{# Include inside a page's existing content root, outside filter/save forms.
-   Implicit native labels work without IDs; enhancement assigns collision-free
-   input/description IDs to each instance, including HTMX/OOB replacements.
-   This is live document state, not an account or browser preference. #}
+{# The signed-in shell owns the control, outside navigation/filter/save forms.
+   IDs are assigned once per live input, including HTMX/OOB replacements.
+   Only numeric sizing is saved, partitioned by server-rendered account/mount. #}
 {% set _item_density = item_size_mode|default('') == 'density-v1' %}
-<div class="cover-size-control" data-cover-size-control>
+<div class="cover-size-control" data-cover-size-control
+     data-cover-size-saved="{{ _('Saved for this account in this browser.')|forceescape }}"
+     data-cover-size-unavailable="{{ _('Browser storage is unavailable; size changes apply to this page only.')|forceescape }}"
+     data-cover-size-restored="{{ _('Refresh this page to change the saved size after returning with Back or Forward.')|forceescape }}">
     <label class="cover-size-control__range">
         <span>{{ (_('Item size') if _item_density else _('Cover size'))|forceescape }}</span>
         <input type="range" min="0" max="10" step="1" value="5" aria-valuetext="100%" disabled data-cover-size-input>
     </label>
     <output class="cover-size-control__output" aria-live="off" data-cover-size-output>100%</output>
-    <div class="cover-size-control__choices">
-        <button type="button" disabled data-cover-size-action="smaller">{{ _('Smaller')|forceescape }}</button>
-        <button type="button" disabled data-cover-size-action="larger">{{ _('Larger')|forceescape }}</button>
-        <button type="button" disabled data-cover-size-action="reset">{{ _('Reset')|forceescape }}</button>
-    </div>
-    <p class="cover-size-control__note">{{ _('This page only; not saved.')|forceescape }}</p>
+    <p class="cover-size-control__note media-card__sr-only">{{ _('One size across catalogue pages, for this account in this browser.')|forceescape }}</p>
+    <p class="cover-size-control__status" data-cover-size-status role="status" hidden></p>
     <noscript><p class="cover-size-control__note">{{ (_('Enable JavaScript to change item size.') if _item_density else _('Enable JavaScript to change cover size.'))|forceescape }}</p></noscript>
 </div>

@@ -7,7 +7,8 @@ separately gated; no test outcome is claimed by adding this file.
 import pytest
 
 from app.services.media_cards import build_media_card
-from tests.test_cover_size_control import _render, _run_script
+from tests.test_cover_size_control import _render
+from tests.test_shared_cover_size_setting import _run_script
 from tests.test_media_cards import _environment, _HTML
 
 
@@ -73,39 +74,32 @@ def test_unenhanced_range_places_the_default_in_the_middle_and_announces_percent
     assert float(attrs["value"]) == (float(attrs["min"]) + float(attrs["max"])) / 2
     assert attrs["aria-valuetext"] == "100%" and "disabled" in attrs
     assert "100%" in markup.text
+    assert not markup.tagged("button")
+    assert not any("data-cover-size-action" in node["attrs"] for node in markup.nodes)
 
 
-def test_shipped_sizing_script_maps_all_native_positions_and_resets_to_same_physical_size():
+def test_shipped_sizing_script_maps_all_slider_positions_without_button_handlers():
     result = _run_script("""
-        const initial = {scale: scale(), values: values(),
-            larger: action(doc.roots[0], 'larger').disabled,
-            reset: action(doc.roots[0], 'reset').disabled};
+        const initial = {scale: scale(), values: values()};
         const steps = [];
         for (let position = 0; position <= 10; position++) {
             const range = input(doc.roots[0]); range.valueAsNumber = position;
             emit('input', range);
             steps.push({scale: Number(scale()), values: values(),
-                labels: doc.roots.map(root => input(root).getAttribute('aria-valuetext')),
-                smaller: action(doc.roots[0], 'smaller').disabled,
-                larger: action(doc.roots[0], 'larger').disabled});
+                labels: doc.roots.map(root => input(root).getAttribute('aria-valuetext'))});
         }
-        emit('click', action(doc.roots[0], 'reset'));
-        const reset = {scale: scale(), values: values()};
-        emit('click', action(doc.roots[0], 'smaller'));
-        const smaller = scale();
-        emit('click', action(doc.roots[0], 'larger'));
-        console.log(JSON.stringify({initial, steps, reset, smaller, restored: scale()}));
-    """)
-    assert result["initial"] == {"scale": "1", "values": ["5", "5"], "larger": False, "reset": True}
+        input(doc.roots[0]).valueAsNumber = 5; emit('input', input(doc.roots[0]));
+        console.log(JSON.stringify({initial, steps, centered: {scale: scale(), values: values()},
+            clickHandlers: (listeners.click || []).length}));
+    """, before="for (const root of doc.roots) root.children = root.children.filter(child => child.tagName !== 'BUTTON');")
+    assert result["initial"] == {"scale": "1", "values": ["5", "5"]}
     for position, percentage in enumerate((50, 60, 70, 80, 90, 100, 120, 140, 160, 180, 200)):
         row = result["steps"][position]
         assert row["scale"] == percentage / 100
         assert row["values"] == [str(position)] * 2
         assert row["labels"] == [f"{percentage}%"] * 2
-        assert row["smaller"] is (position == 0)
-        assert row["larger"] is (position == 10)
-    assert result["reset"] == {"scale": "1", "values": ["5", "5"]}
-    assert result["smaller"] == "0.9" and result["restored"] == "1"
+    assert result["centered"] == {"scale": "1", "values": ["5", "5"]}
+    assert result["clickHandlers"] == 0
 
 
 def test_sizing_clamps_invalid_positions_and_resynchronizes_replaced_controls():
@@ -115,11 +109,13 @@ def test_sizing_clamps_invalid_positions_and_resynchronizes_replaced_controls():
             input(doc.roots[0]).valueAsNumber = value; emit('change', input(doc.roots[0]));
             observed.push({scale: scale(), values: values()});
         }
-        emit('click', action(doc.roots[0], 'reset'));
-        doc.roots.push(control()); emit('htmx:afterSwap', doc.roots[2]);
+        input(doc.roots[0]).valueAsNumber = 5; emit('change', input(doc.roots[0]));
+        const replacement = control();
+        replacement.children = replacement.children.filter(child => child.tagName !== 'BUTTON');
+        doc.roots.push(replacement); emit('htmx:afterSwap', doc.roots[2]);
         console.log(JSON.stringify({observed, values: values(),
             labels: doc.roots.map(root => input(root).getAttribute('aria-valuetext'))}));
-    """)
+    """, before="for (const root of doc.roots) root.children = root.children.filter(child => child.tagName !== 'BUTTON');")
     assert result["observed"] == [
         {"scale": "1", "values": ["5", "5"]}, {"scale": "1", "values": ["5", "5"]},
         {"scale": "0.5", "values": ["0", "0"]}, {"scale": "2", "values": ["10", "10"]},

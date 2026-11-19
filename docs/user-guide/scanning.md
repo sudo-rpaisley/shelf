@@ -213,17 +213,16 @@ anywhere else switches you to Add mode so the panel is there when you land.
 - The card's [default tags](#default-tags) and [default reading
   status](#default-reading-status) apply here too.
 
-Five ways in, all landing on the same panel:
+Four ways in, all landing on the same panel:
 
 1. The **Add by hand** button on the Scan page itself.
-2. **Add by hand** in Home's quick actions.
-3. The button on an empty **title search** — it carries what you typed
+2. The button on an empty **title search** — it carries what you typed
    through as the title. A provider *failure* deliberately does not offer it:
    a rejected key is not a missing book, and hand-typing what a working key
    would have fetched is the wrong repair.
-4. The button on the card you get when the scan box cannot read what you
+3. The button on the card you get when the scan box cannot read what you
    typed — which is what happens when you type a **title** into it.
-5. **Add another like this** on any item's page, which prefills the author,
+4. **Add another like this** on any item's page, which prefills the author,
    publisher, year, type, platform, series and location from that item.
 
 A scan that finds a valid barcode no provider knows still opens the same

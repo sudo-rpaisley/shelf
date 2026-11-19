@@ -1659,36 +1659,57 @@ without changing disclosure state or adding an anchor. Absent/incomplete markup
 is not classified as unsupported dialog capability. Successful later enhancement
 clears the owned marker; ordinary supported narrow-menu collapse is unchanged.
 
-**Item sizing is document-local, not a saved preference.** Home's recent shelf,
-Library's items/grouped-format cards and Music's local cards explicitly opt into
-`density-v1`. The native **Item size** range/buttons resize the complete Library
-article, Music tile or Home shelf slot, including metadata, holdings and actions.
-The layout fits more items across at smaller sizes, without shrinking fonts or
-changing results per page. Requested scale remains 50–100%, default 100%.
-Grid minimum tracks use `factor × (grid width + gap) / default columns − gap`,
-clamped to readable rem floors and available width; auto-fill stretches fitted
-tracks equally while preserving empty tracks. Ordinary default columns remain
-Library 1/2/3 and Music 2/3/4/5. Enlarged text may require fewer columns. Home
-keeps one native scrolling row; all slots, including View more, use
-`max(80px, 6rem, 10rem × factor)`. View more's minimum height also follows the
-factor; complete long text can still make a slot taller. Not every slider step
-crosses a layout threshold.
+**Item sizing is shared browser-local presentation, not server preferences.**
+The signed-in base shell owns one native slider in a normal-flow, end-aligned
+toolbar beside Commands, outside navigation, main and mutation/filter forms.
+Only literal-True catalogue-page opt-in exposes the control and storage owner;
+coverless/settings/operational pages retain Commands without an inapplicable slider.
+Home, Library and Music no longer include local copies. The eleven native
+positions map to 50/60/70/80/90/100/120/140/160/180/200%; the centered position5
+keeps the original Home 100% physical scale. There are no sizing buttons or custom
+keyboard handlers. Without JS, the common 100% layout and native links remain.
 
-Every density rule requires both an exact `data-item-size="density-v1"` parent
-and the corresponding Library/Music grid or Home shelf marker. The inner card
-fills its newly sized container once. Unversioned standalone components retain
-the earlier fixed-host cover-size contract and label. Artwork ratios, contain
-behaviour, fonts, item order, dataset and pagination remain unchanged. Every
-Library `view=series` page deliberately has no control: the
-series index uses direct thumbnails, while a selected-series drilldown uses
-grouped shared cards but keeps this same view-level boundary.
-External idempotent JS uses delegated input/click and HTMX/OOB listeners; inserted
-cards inherit the document scale. No requests, storage, cookies, URL parameters
-or account writes implement sizing; full navigation/reload resets to 100%.
-Without JS the labelled controls are disabled with an explanation. Direct CSS
-also handles older Store-cached bundles without extending Store precaching.
-Enlargement above the original size and account-owned persistence/CAS remain
-unfinished; administrative Browse and provider search results do not opt in.
+All explicit catalogue consumers use one requested frame width:
+`max(80px, min(10rem × factor, 100vw − 6rem))`. Shared phone headroom accounts for
+padded Library/detail tiles without giving each page a different cover width.
+Library/duplicate outer tracks add only their own border/padding. Auto-fill uses
+fixed requested tracks rather than stretching covers to breakpoint-relative
+columns. Home's two independent shelves use that same width for every real slot,
+including View more. The centered 5:8 stage keeps the original padding/border;
+inner registry ratios and contain remain unchanged. Explicit catalogue
+table/list/detail artwork uses the same inner width, not another local base.
+Fonts, text/actions, identity, order and results per page are not scaled.
+
+`density-v1` plus producer grid/shelf markers still own those layouts; exact
+`catalogue-v2` card/stage/grid/artwork/row/column markers cover Browse, Activity,
+Series, details and other catalogue lists. Full Library results and standalone
+search fragments own the same sizing mode, including series index/drilldowns.
+Unmarked components, public shares, operational scan/intake/editor/provider
+previews, logos and avatars do not consume the preference. Size-dependent CSS is
+screen-only; print resets neutralise older cached density rules. The independent
+wrap-up canvas/export algorithm and Store/service-worker sources are unchanged.
+
+The JS singleton captures positive signed-63-bit account ID text and trusted ASGI
+mount once from the original top-level server shell. Only a canonical numeric
+percentage is read/written at
+`shelf.coverSize.v2:<encoded mount>:u:<account id>` in same-origin localStorage.
+V1 belonged to an unpublished, superseded physical scale and is not migrated.
+Missing/invalid data defaults to100 without repair writes. Actual trusted native
+changes write only this captured key; duplicate input/change/no-op events do not
+write again. Getter/read/quota failures leave current-page sizing usable with
+truthful status. Only a successful write announces a save. Storage events for the
+current key/clear update the document without echo writes. Fragments, URL/input
+values and mutable later shell attributes cannot select another owner.
+HTMX/OOB replacements inherit state and singleton listeners. A value-free
+`shelf:cover-size-changed` event refreshes each Home row's independent navigation.
+
+This is not confidential account storage, cross-device sync or instant revocation
+of already-open documents. A BFCache restoration latches editing/persistence off
+until a real server refresh; the stale shell never recaptures identity. No account
+API, native preference store/CAS, database, cookie, URL, schema, auth or navigation
+membership change implements sizing. Rendering, JS/native-browser/storage/layout,
+cached-asset, print and build qualification of this source follow-up remain pending;
+historical results for older candidates do not qualify it.
 
 **Home's recent row progressively expands from eight to 24.** Only `index` calls
 the existing dashboard summary with `recent_limit=24`: one summary invocation and
@@ -1698,43 +1719,51 @@ partitioned into eight real SSR cards and at most sixteen inert template cards,
 outside the inner shelf. Enhancement validates and moves those existing nodes
 before the sole View more tile once, with no extra catalogue/API request or store.
 Inventory labels and overflow hints follow the materialized count; native fallback
-retains eight cards, ordinary links and full Details.
+retains eight cards and ordinary links. Full metadata remains on the item page.
 
-Exact Home `streaming-v1` and card `shelf-preview-v1` markers scope the compact
-preview styles. A centered 5:8 stage preserves each inner artwork's registry ratio
-and contain behaviour. Two-line titles and single-line credits/types are previews
-only: adjacent native Details exposes complete escaped text, outside the item
-anchor. Library/default cards keep complete metadata. Header paging uses native,
-nonanimated logical scrolling, guarded edge controls that retain focus, and layout
-refresh after sizing buttons, range input, resize, scrolling and HTMX/OOB swaps.
+Exact Home Recent/Continue `streaming-v1` and card `shelf-preview-v1` markers scope
+the row previews. Common catalogue CSS owns their shared stage geometry. Title and
+creator overlap the actual artwork at bottom-left on hover or native link focus;
+there is no Details toggle or media-type caption. Complete escaped text remains
+in the link's accessible name; Library/default cards retain their complete
+metadata. Continue merges the existing account-scoped six + six selections,
+in-progress first, deduplicated by catalogue ID within that row. Each row owns
+separate track/heading IDs and enhancement flags; Continue never consumes the
+Recent buffer. Header paging uses native nonanimated logical scrolling, guarded
+edge controls that retain focus, and refresh after shared size changes, range
+input, resize, scrolling and HTMX/OOB swaps.
 Disconnected observed roots are released. Direct Home-only CSS also supports an
-older cached bundle; neither new asset extends Store precaching. No account
-preference, route, source access or database write implements this refinement.
+older cached bundle; neither new asset extends Store precaching. No new catalogue
+route, source access or database write implements these row refinements.
 
 Home's parent summary also explicitly opts into `reflow-v1`: normal two/three/
 five-or-six column targets remain, but a rem floor lets enlarged counter text use
 fewer whole tiles without splitting numbers or reducing fonts. Its lending-off
 last tile stops spanning two tracks when only one fits. This Home-only geometry
-is separate from media-preview styling. Collection-mix labels wrap independently
-of their counts, including unknown stored type names; values and links are unchanged.
+is separate from media-preview styling. Collection mix is confined to Statistics;
+Home retains its summary/type count, Continue and Recently added rows, without
+Useful places or the duplicated six-button header shortcut strip. Statistics
+retains totals/charts/breakdowns but no Recently Added (Last 30 Days) panel. With
+its last catalogue-cover list removed, Statistics no longer opts into the cover
+slider; Wrap-up still does. Navigation elsewhere remains unchanged.
 
 **Full Library pages explicitly opt into `phone-wrap-v1`.** The page and each
 member carry exact version markers; every card-formatting override requires both.
-Below 48rem, the real shared card becomes a block inside a contained wrapping
-member. Its parent gets its width from the opted-in whole-item layout. Artwork is
-30% of the already-sized card, capped at 6rem, with native ratios and contain;
-scale is not applied again. Titles, metadata, holdings, actions and recent order
-remain real, complete and in DOM order. Default shared cards and unversioned
-standalone HTML search fragments keep their original full-width artwork.
+Below 48rem, the real shared card remains a block inside a contained wrapping
+member. New `catalogue-v2` cards override the old phone-only 30% float: full common
+cover stages sit above complete metadata, not at a second percentage of the card.
+Titles, metadata, holdings, actions and recent order stay real, complete and in DOM
+order. The original float remains available only to older/unmarked markup.
 
 The native **About this Library** disclosure hosts the applicable introductory,
-geometry, cached-availability, grouping and series explanations once. Live controls
-are beside, not inside, Help; the single geometry paragraph remains inside its
-labelled cover panel. Every `view=series`, including drilldowns, omits that panel
-and geometry advice. Only exact mode plus literal-True explanation ownership
+geometry, cached-availability, grouping and series explanations once. The only size
+control is in the shared shell, including `view=series` and its drilldowns. Help
+points to it instead of hosting a second panel. Only exact mode plus literal-True
+explanation ownership
 suppresses corresponding partial copies. Counts, notices, empty states and per-item
 availability stay outside Help. Search wraps before its input falls below 80px;
-no font reduction, ordering change or saved preference implements this layout.
+no font reduction or ordering change implements this layout. Shared numeric browser
+sizing is the separately described presentation preference, not a saved Library view.
 The Library-only stylesheet is both bundled and linked through the page head for
 older cached bundles, without extending Store precaching.
 

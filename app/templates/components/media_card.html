@@ -1,18 +1,20 @@
 {# No Browse/Alpine state; links/cover_path are validated by the pure adapter. #}
 {% if card.title.strip() %}{% set card_title = card.title %}{% else %}{% set card_title = _('Untitled item')|forceescape %}{% endif %}
 {% set _shelf_preview = media_card_presentation|default('') == 'shelf-preview-v1' %}
-<article class="media-card" data-item-id="{{ card.id }}" data-media-type="{{ card.media_type }}"{% if _shelf_preview %} data-card-presentation="shelf-preview-v1"{% endif %}>
+{% set _shared_size = media_card_size_mode|default('') == 'shared-v2' %}
+<article class="media-card" data-item-id="{{ card.id }}" data-media-type="{{ card.media_type }}"{% if _shelf_preview %} data-card-presentation="shelf-preview-v1"{% endif %}{% if _shelf_preview or _shared_size %} data-cover-size-card="catalogue-v2"{% endif %}>
     <a class="media-card__detail" href="{{ card.detail_href }}">
-        {% if _shelf_preview %}
+        {% if _shelf_preview or _shared_size %}
         <div class="media-card__art-stage">
             <div class="media-card__cover-preview">
                 {% include "components/media_artwork.html" %}
-                <div class="media-card__caption">
+                {% if _shelf_preview %}<div class="media-card__caption">
                     <h3 class="media-card__title">{{ card_title }}</h3>
                     {% if card.creator_text %}<p class="media-card__creator">{{ card.creator_text }}</p>{% endif %}
-                </div>
+                </div>{% endif %}
             </div>
         </div>
+        {% if not _shelf_preview %}<h3 class="media-card__title">{{ card_title }}</h3>{% endif %}
         {% else %}
         {% include "components/media_artwork.html" %}
         <h3 class="media-card__title">{{ card_title }}</h3>

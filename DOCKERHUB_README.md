@@ -110,7 +110,7 @@ key material.
 - **USB/Bluetooth scanner support** — works with any scanner that sends Enter after the barcode
 - **Photo intake** — bulk-add from a photo of your shelves; a vision model (Anthropic API, any OpenAI-compatible endpoint, or fully local Ollama) reads the spines and you confirm before import. Rows typed DVD or Video Game are looked up on TMDb or IGDB at confirm, on an exact title match
 - **Title search** — search Open Library, TMDb, or IGDB by title when you don't have a barcode; music titles continue to Music for artist/format matching or manual entry
-- **Add by hand** — a title is the only field required, for anything no lookup can find: a self-published book, a burned CD, a niche import, something you made yourself. Every media type, no barcode needed, and reachable from Home, from an empty title search, from a mistyped barcode, and from any item's page
+- **Add by hand** — a title is the only field required, for anything no lookup can find: a self-published book, a burned CD, a niche import, something you made yourself. Every media type, no barcode needed, and reachable from Scan, from an empty title search, from a mistyped barcode, and from any item's page
 - **Cascading metadata lookup** — Open Library, Hardcover, Google Books, and more
 - **Cover art pipeline** — automatically fetches covers from multiple sources, with manual upload or a pasted image URL as a fallback, plus a cover review queue for everything the automatic sweep cannot reach (discs, games, music) with a remembered "not available" verdict
 - **Store Mode (offline PWA)** — scan in a bookstore with no signal and get an instant Owned / On wishlist / Not in library verdict; unknown books queue on-device and land on your wishlist when back online
@@ -138,7 +138,8 @@ key material.
 ### Collection Management
 - Choose your features — pick Minimal, Standard or Everything in the setup wizard, then turn any optional part (Lending, Sharing, Valuation, Price alerts, Release radar, Collector tools, the integrations, …) on or off in Settings → Features; data is kept while a feature is off
 - Homelab integration — read-only API tokens and a `/api/v1/stats` document for Homepage, Homarr and Home Assistant dashboards
-- Home overview — totals, what is lent out, missing covers, a media-type breakdown and recent additions, with Browse kept for searching and bulk editing
+- Home overview — totals, what is lent out, missing covers and recent additions, with Browse kept for searching and bulk editing; collection breakdowns live on Statistics
+- Shared item size — one top-right slider beside Commands keeps catalogue covers consistent across pages, saved per account in this browser; print/export artwork and operational previews stay separate
 - Filter and search by media type, location, status (read, watched, played), ownership, lending status, source (which sync, provider or import an item arrived from), custom tags, and author — every author on an item page is a link to everything by that person, co-authors and translators each counted on their own
 - Shelf Fill — keep one shelf selected and scan item after item onto it; Arrange drags the copies on a shelf into the order they really sit in, or sorts them by title, creator, series, release or issue
 - Physical copies — own two of something and track them apart: add a copy on the item page, give each its own location, condition, acquired date, source, price, provenance and barcode, and remove one when it goes. Removing the copy marked primary promotes the next one and the item's location follows it. With Collector tools, assign each copy a generated barcode, print the codes on Avery label sheets, scan a label in any Scan mode to act on that exact copy, and find records filed twice and merge them, keeping every copy
@@ -146,7 +147,7 @@ key material.
 - Reading tracking — want-to-read, reading, and read with start/finish dates, and a default status for a scanning session
 - Series tracking — grouped by series with position numbers, gap detection, and one-click "add missing volumes to wishlist" via Hardcover; series synopses, plus rename/merge/disband from the series card
 - Release radar — watch a series and Shelf checks Hardcover daily for newly announced volumes, lists them on an Upcoming releases page, and sends a daily ntfy/webhook digest
-- Stats dashboard — books read per year, collection growth, top authors, and value-over-time charts
+- Stats dashboard — media-type and location breakdowns, books read per year, collection growth, top authors, and value-over-time charts
 - Locations — organize by room, shelf, or any system you like, and nest them: a shelf inside a bookcase inside a room
 - Checkout system — lend to borrowers and track who has what, with overdue badges and an optional daily reminder digest (ntfy/webhook)
 - Wishlist — a list of what you want, alongside your catalog; an item can also be neither owned nor wished for, keeping its reading history
