@@ -23,13 +23,17 @@ scroll, or use the previous/next buttons; nothing advances automatically. The
 count describes items in the row, not how many fit on screen. **View all** and the
 last **View more** tile open the complete collection.
 
-Artwork keeps its original proportions. Short previews show two title lines and
-one creator line; open an item's **Details** to read its complete title, credits
-and type with a keyboard or touch. **Item size** fits more or fewer complete items
-across without shrinking text; **Reset** restores the default. This setting lasts
-only for the current page.
+Artwork keeps its original proportions. Hover a cover, or focus its link with the
+keyboard, to reveal the title and artist/creator over the bottom-left of the image.
+There is no separate Details toggle or media-type caption. Open the item itself
+to read complete metadata, including on touch devices.
 
-Without JavaScript, the row shows up to eight recent items. Item links,
-**Details** and **View all** still work.
+**Item size** fits more or fewer complete items across without shrinking text.
+The default **100%** keeps the normal cover size and sits at the slider's midpoint;
+the ends are **50%** and **200%**. **Reset** restores 100%. This setting lasts only
+for the current page.
+
+Without JavaScript, the row shows up to eight recent items. Item links, hover/focus
+captions and **View all** still work.
 
 No new dashboard data is stored. The page is built from the existing catalogue, checkout and cover state each time it is opened.

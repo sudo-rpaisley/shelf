@@ -6,7 +6,7 @@
 <div class="cover-size-control" data-cover-size-control>
     <label class="cover-size-control__range">
         <span>{{ (_('Item size') if _item_density else _('Cover size'))|forceescape }}</span>
-        <input type="range" min="50" max="100" step="10" value="100" disabled data-cover-size-input>
+        <input type="range" min="0" max="10" step="1" value="5" aria-valuetext="100%" disabled data-cover-size-input>
     </label>
     <output class="cover-size-control__output" aria-live="off" data-cover-size-output>100%</output>
     <div class="cover-size-control__choices">

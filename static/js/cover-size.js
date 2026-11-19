@@ -12,13 +12,17 @@
     const CONTROL = '[data-cover-size-control]';
     const INPUT = 'input[type="range"][data-cover-size-input]';
     const ACTION = 'button[type="button"][data-cover-size-action]';
+    // Equal native range positions on either side of the unchanged 100% size.
+    // The upper half retains room to grow to 200%, without custom key handling.
+    const percentages = [50, 60, 70, 80, 90, 100, 120, 140, 160, 180, 200];
+    const defaultPosition = 5;
     const enhanced = new WeakSet();
     let nextId = 0;
-    let percentage = 100;
+    let position = defaultPosition;
 
     function bounded(value) {
-        if (typeof value !== 'number' || !Number.isFinite(value)) return 100;
-        return Math.max(50, Math.min(100, 50 + Math.round((value - 50) / 10) * 10));
+        if (typeof value !== 'number' || !Number.isFinite(value)) return defaultPosition;
+        return Math.max(0, Math.min(percentages.length - 1, Math.round(value)));
     }
 
     function uniqueId() {
@@ -29,7 +33,8 @@
     }
 
     function sync() {
-        percentage = bounded(percentage);
+        position = bounded(position);
+        const percentage = percentages[position];
         // The sole CSS write: a finite, bounded unitless number. CSS applies it
         // once to legacy cards or opted-in whole-item layout containers, never
         // to artwork or fonts. CSS owns reflow and readable-size floors.
@@ -50,17 +55,19 @@
                 if (output) output.htmlFor = input.id;
                 enhanced.add(input);
             }
-            input.min = '50';
-            input.max = '100';
-            input.step = '10';
-            input.value = String(percentage);
+            input.min = '0';
+            input.max = String(percentages.length - 1);
+            input.step = '1';
+            input.value = String(position);
+            input.setAttribute('aria-valuetext', percentage + '%');
             input.disabled = false;
             if (output) output.value = percentage + '%';
             for (const button of root.querySelectorAll(ACTION)) {
                 if (button.closest(CONTROL) !== root) continue;
                 const action = button.getAttribute('data-cover-size-action');
-                if (action === 'smaller') button.disabled = percentage === 50;
-                else if (action === 'larger' || action === 'reset') button.disabled = percentage === 100;
+                if (action === 'smaller') button.disabled = position === 0;
+                else if (action === 'larger') button.disabled = position === percentages.length - 1;
+                else if (action === 'reset') button.disabled = position === defaultPosition;
             }
             root.setAttribute('data-cover-size-enhanced', 'true');
         }
@@ -74,7 +81,7 @@
     function rangeChanged(event) {
         const input = event.target;
         if (event.defaultPrevented || !owned(input) || !input.matches(INPUT) || input.disabled) return;
-        percentage = bounded(input.valueAsNumber);
+        position = bounded(input.valueAsNumber);
         sync();
     }
 
@@ -85,9 +92,9 @@
         const button = event.target.closest(ACTION);
         if (!owned(button) || button.disabled) return;
         const action = button.getAttribute('data-cover-size-action');
-        if (action === 'smaller') percentage = bounded(percentage - 10);
-        else if (action === 'larger') percentage = bounded(percentage + 10);
-        else if (action === 'reset') percentage = 100;
+        if (action === 'smaller') position = bounded(position - 1);
+        else if (action === 'larger') position = bounded(position + 1);
+        else if (action === 'reset') position = defaultPosition;
         else return;
         event.preventDefault();
         sync();

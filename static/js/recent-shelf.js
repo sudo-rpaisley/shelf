@@ -1,4 +1,4 @@
-/* Home-only, request-free enhancement. Native links/details and eight real
+/* Home-only, request-free enhancement. Native links and eight real
  * cards are usable before this script. No metadata parsing or card rendering. */
 (function () {
     'use strict';

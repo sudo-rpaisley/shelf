@@ -3,11 +3,25 @@
 {% set _shelf_preview = media_card_presentation|default('') == 'shelf-preview-v1' %}
 <article class="media-card" data-item-id="{{ card.id }}" data-media-type="{{ card.media_type }}"{% if _shelf_preview %} data-card-presentation="shelf-preview-v1"{% endif %}>
     <a class="media-card__detail" href="{{ card.detail_href }}">
-        {% if _shelf_preview %}<span class="media-card__art-stage">{% include "components/media_artwork.html" %}</span>{% else %}{% include "components/media_artwork.html" %}{% endif %}
+        {% if _shelf_preview %}
+        <div class="media-card__art-stage">
+            <div class="media-card__cover-preview">
+                {% include "components/media_artwork.html" %}
+                <div class="media-card__caption">
+                    <h3 class="media-card__title">{{ card_title }}</h3>
+                    {% if card.creator_text %}<p class="media-card__creator">{{ card.creator_text }}</p>{% endif %}
+                </div>
+            </div>
+        </div>
+        {% else %}
+        {% include "components/media_artwork.html" %}
         <h3 class="media-card__title">{{ card_title }}</h3>
+        {% endif %}
     </a>
+    {% if not _shelf_preview %}
     {% if card.creator_text %}<p class="media-card__creator">{{ card.creator_text }}</p>{% endif %}
     {% if card.media_type %}<p class="media-card__type">{% if card.media_type_label is not none %}{{ _(card.media_type_label)|forceescape }}{% else %}{{ card.media_type }}{% endif %}</p>{% endif %}
+    {% endif %}
     {% if card.badges %}
     <div class="media-card__badges">
         {% for badge in card.badges %}<span class="media-card__badge">{{ badge }}</span>{% endfor %}
@@ -15,15 +29,5 @@
     {% endif %}
     {% if card.edit_href %}
     <a class="media-card__edit" href="{{ card.edit_href }}">{{ _('Edit')|forceescape }}<span class="media-card__sr-only"> — {{ card_title }}</span></a>
-    {% endif %}
-    {% if _shelf_preview %}
-    <details class="media-card__full-details">
-        <summary>{{ _('Details')|forceescape }}<span class="media-card__sr-only"> — {{ card_title }}</span></summary>
-        <div class="media-card__full-text">
-            <p data-card-full-title>{{ card_title }}</p>
-            {% if card.creator_text %}<p data-card-full-creator>{{ card.creator_text }}</p>{% endif %}
-            {% if card.media_type %}<p data-card-full-type>{% if card.media_type_label is not none %}{{ _(card.media_type_label)|forceescape }}{% else %}{{ card.media_type }}{% endif %}</p>{% endif %}
-        </div>
-    </details>
     {% endif %}
 </article>
