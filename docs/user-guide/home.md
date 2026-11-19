@@ -19,6 +19,9 @@ in its header or a Useful places panel.
 **Explore** opens downward to Series, Stats and other available destinations;
 on small screens, open **Main menu** first.
 Scanning and adding items remain restricted to editors and administrators.
+**Add / Scan** opens one workspace for search, full manual entry, scan actions,
+Photo Intake and ordered Shelf Fill; Store remains a separate offline destination.
+See [Add / Scan](add-media.md).
 
 The collection mix by media type and location is available on
 [Statistics](stats-and-valuation.md#stats), rather than repeated on Home.
@@ -55,8 +58,11 @@ to read complete metadata, including on touch devices.
 **Item size** fits more or fewer complete items across without shrinking text.
 The default **100%** keeps the normal cover size and sits at the slider's midpoint;
 the ends are **50%** and **200%**. Move the slider back to the center for 100%.
-The slider is at the top right, beside **Commands**, rather than inside Recently
-added. Other catalogue pages, including Browse, Library, Music, Series and My
+The slider sits on the same line as the **Home** heading at the right, with the
+description below. On narrow screens it wraps beneath the heading rather than
+squeezing the controls. It is not inside Recently added. **Commands** is the
+small round ⌘ button just above **?** at the bottom left. Other catalogue
+pages, including Browse, Library, Music, Series and My
 Activity, use the same framed cover and hover/focus caption, not just the same
 width. Library tiles show only that cover; open an item for metadata, holdings
 and source actions. Other pages retain their own progress, selection badges and

@@ -7,13 +7,26 @@
     // marked anchor actually exists in the authorized navigation. Exact page
     // paths exclude API/token/logout, provider actions and mutation subpaths.
     var pages = new Set([
-        '/browse', '/library', '/scan', '/intake', '/shelf-fill', '/store',
+        '/browse', '/library', '/add', '/scan', '/intake', '/shelf-fill', '/store',
         '/series', '/music', '/periodicals', '/discover', '/stats', '/activity',
         '/reading-life', '/account/source-progress', '/sources',
         '/source-migrations', '/needs-attention', '/trash', '/labels', '/audits',
         '/duplicates', '/settings', '/logs'
     ]);
-    var navSelector = 'a[href][data-nav-primary],a[href][data-nav-tab],a[href][data-nav-family-link],a[href][data-nav-format],a[href][data-nav-management]';
+    var navSelector = 'a[href][data-nav-primary],a[href][data-nav-tab],a[href][data-nav-family-link],a[href][data-nav-format],a[href][data-nav-management],a[href][data-nav-workspace="add"]';
+
+    function namedAddPath() {
+        var anchor = document.querySelector('[data-media-navigation] a[data-testid="add-media-entry"][data-nav-workspace="add"]');
+        if (!anchor) return null;
+        try {
+            var raw = anchor.getAttribute('href'), url = new URL(raw, window.location.origin);
+            // The server's one named page URL may carry a trusted ASGI mount.
+            // This grants neither arbitrary /add subpaths nor action parameters.
+            if (url.origin !== window.location.origin || url.username || url.password || url.search || url.hash ||
+                /[\\\s%]/.test(raw) || !/^(?:\/[A-Za-z0-9_-]+)*\/add$/.test(url.pathname)) return null;
+            return url.pathname;
+        } catch (error) { return null; }
+    }
 
     function bounded(value) { return Array.from(value.trim()).slice(0, 200).join(''); }
 
@@ -25,7 +38,7 @@
             var url = new URL(raw, window.location.origin);
             var rawPath = raw.replace(/^https?:\/\/[^/]+/i, '').split(/[?#]/)[0];
             if (url.origin !== window.location.origin || url.username || url.password || url.hash ||
-                rawPath !== url.pathname || !pages.has(url.pathname) || url.search.length > 4096) return null;
+                rawPath !== url.pathname || (!pages.has(url.pathname) && url.pathname !== namedAddPath()) || url.search.length > 4096) return null;
             var seen = new Set();
             for (var pair of url.searchParams) {
                 var key = pair[0], value = pair[1];

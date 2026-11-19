@@ -17,12 +17,19 @@ function shelfFillPage() {
         scanLoading: false,
         scanResult: false,
         scanner: false,
+        cameraStarting: false,
+        cameraStopping: false,
+        cameraGeneration: 0,
         isZxingFallback: false,
         lastScanned: '',
         lastScanTime: 0,
 
         init() {
             var self = this;
+            window.addEventListener('pagehide', function () { self.stopCamera(); });
+            document.addEventListener('visibilitychange', function () {
+                if (document.visibilityState === 'hidden') self.stopCamera();
+            });
             var form = document.getElementById('shelf-fill-form');
             if (form) {
                 form.addEventListener('htmx:beforeRequest', function (e) {
@@ -45,51 +52,78 @@ function shelfFillPage() {
         },
 
         async startCamera() {
+            if (this.cameraActive || this.cameraStarting || this.cameraStopping) return;
             if (!this.location) {
                 showToast('Choose a shelf location first', 'error');
                 return;
             }
+            var generation = ++this.cameraGeneration, scanner = null, pending = null;
             try {
                 this.cameraActive = true;
                 this.scanPaused = false;
                 this.scanResult = false;
-                this.scanner = window.createBarcodeScanner({
+                scanner = window.createBarcodeScanner({
                     html5ElId: 'shelf-fill-camera-reader',
                     videoEl: 'shelf-fill-zxing-video',
                     html5Config: {fps: 10, qrbox: {width: 280, height: 100}, aspectRatio: 1.5},
-                    onDecode: (decodedText) => this.onScan(decodedText)
+                    onDecode: (decodedText) => {
+                        if (this.cameraActive && generation === this.cameraGeneration) this.onScan(decodedText);
+                    }
                 });
-                this.isZxingFallback = this.scanner.engine === 'zxing';
-                await this.$nextTick();
-                await this.scanner.start();
+                this.scanner = scanner;
+                this.isZxingFallback = scanner.engine === 'zxing';
+                pending = this.$nextTick().then(() => {
+                    if (this.cameraActive && generation === this.cameraGeneration) return scanner.start();
+                });
+                this.cameraStarting = pending;
+                await pending;
             } catch (err) {
+                if (scanner) await scanner.stop();
+                if (generation !== this.cameraGeneration) return;
                 this.scanner = false;
                 this.cameraActive = false;
                 showToast('Camera access failed. Check browser permissions and HTTPS.', 'error');
+            } finally {
+                if (this.cameraStarting === pending) this.cameraStarting = false;
             }
         },
 
         async stopCamera() {
-            if (this.scanner) {
-                await this.scanner.stop();
-                this.scanner = false;
-            }
+            ++this.cameraGeneration;
+            var scanner = this.scanner, pending = this.cameraStarting;
+            this.scanner = false;
             this.cameraActive = false;
             this.scanPaused = false;
             this.scanLoading = false;
             this.scanResult = false;
+            if (!scanner) return this.cameraStopping || undefined;
+            document.querySelectorAll('#shelf-fill-camera-reader video, #shelf-fill-zxing-video').forEach(function (video) {
+                if (video.srcObject) video.srcObject.getTracks().forEach(function (track) { track.stop(); });
+            });
+            var stopping = Promise.resolve(pending).catch(function () {}).then(function () { return scanner.stop(); });
+            this.cameraStopping = stopping;
+            await stopping;
+            if (this.cameraStopping === stopping) this.cameraStopping = false;
         },
 
         async resumeScanning() {
+            if (!this.scanner || !this.cameraActive || this.cameraStarting || this.cameraStopping) return;
+            var generation = this.cameraGeneration;
             this.scanResult = false;
             this.scanLoading = false;
             this.lastScanned = '';
-            try { if (this.scanner) await this.scanner.resume(); } catch (err) {}
-            this.scanPaused = false;
+            try {
+                var pending = this.scanner.resume();
+                this.cameraStarting = pending;
+                await pending;
+            } catch (err) {}
+            finally { if (this.cameraStarting === pending) this.cameraStarting = false; }
+            if (generation === this.cameraGeneration) this.scanPaused = false;
         },
 
         async onScan(code) {
             if (this.scanPaused || !this.location) return;
+            var generation = this.cameraGeneration;
             var now = Date.now();
             if (code === this.lastScanned && now - this.lastScanTime < 3000) return;
             this.lastScanned = code;
@@ -97,8 +131,6 @@ function shelfFillPage() {
             this.scanPaused = true;
             this.scanLoading = true;
             this.scanResult = false;
-            try { if (this.scanner) await this.scanner.pause(); } catch (err) {}
-
             var form = document.getElementById('shelf-fill-form');
             var formData = new FormData(form);
             formData.set('isbn', code);
@@ -106,6 +138,8 @@ function shelfFillPage() {
             formData.set('media_type', this.mediaType);
             formData.set('platform', this.platform);
             formData.set('tags', (document.getElementById('default-tags') || {}).value || '');
+            try { if (this.scanner) await this.scanner.pause(); } catch (err) {}
+            if (generation !== this.cameraGeneration) return;
             try {
                 var resp = await fetch('/api/shelf-fill/scan', {
                     method: 'POST',
@@ -117,6 +151,7 @@ function shelfFillPage() {
                 var results = document.getElementById('shelf-fill-results');
                 results.insertAdjacentHTML('afterbegin', html);
                 if (results.firstElementChild) htmx.process(results.firstElementChild);
+                if (generation !== this.cameraGeneration) return;
 
                 var tmp = document.createElement('div');
                 tmp.innerHTML = html;
@@ -130,6 +165,7 @@ function shelfFillPage() {
                     code: code
                 };
             } catch (err) {
+                if (generation !== this.cameraGeneration) return;
                 this.scanResult = {title: 'Scan failed', label: 'error', code: code};
             }
             this.scanLoading = false;

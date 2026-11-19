@@ -1,9 +1,15 @@
-{% extends "base.html" %}
-{% block title %}{{ _('Add media') }} — Shelf{% endblock %}
-{% block head %}
+{% extends "add_scan_base.html" %}
+{% block title %}{{ _('Add / Scan') }} — Shelf{% endblock %}
+{% block workspace_head %}
 <script src="{{ request.url_for('static', path='js/add-media.js') }}" defer></script>
+<script src="{{ request.url_for('static', path='vendor/html5-qrcode-2.3.8.min.js') }}" defer></script>
+<script src="{{ request.url_for('static', path='vendor/zxing-browser-0.1.5.min.js') }}" defer></script>
+<script src="{{ request.url_for('static', path='js/scanner-engine.js') }}" defer></script>
+<script src="{{ request.url_for('static', path='js/intake-capture.js') }}" defer></script>
+<script src="{{ request.url_for('static', path='js/add-manual.js') }}" defer></script>
+<script src="{{ request.url_for('static', path='js/add-camera.js') }}" defer></script>
 {% endblock %}
-{% block content %}
+{% block workspace_content %}
 {% set music_types = ('vinyl', 'cassette', 'cd', 'digital_music') %}
 {% set book_types = ('book', 'audiobook', 'ebook', 'comic', 'manga') %}
 {% set method_labels = {'title': _('Title or keyword'), 'isbn': _('ISBN'), 'barcode': _('Retail barcode'), 'catalog_number': _('Catalogue number'), 'manual': _('Manual entry')} %}
@@ -47,9 +53,11 @@
     <legend class="font-medium text-sm">{{ _('Optional details for a new or restored item') }}</legend>
     <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
         <div class="min-w-0">
-            <label for="{{ prefix }}-location" class="block text-sm text-shelf-muted">{{ _('Location ID (optional)') }}</label>
-            <input id="{{ prefix }}-location" name="location_id" type="text" inputmode="numeric" pattern="[1-9][0-9]{0,18}" maxlength="19" value="{{ values.get('location_id') or '' }}" aria-describedby="{{ prefix }}-location-help" class="{{ control_class }}">
-            <p id="{{ prefix }}-location-help" class="text-xs text-shelf-muted mt-1">{{ _('Use an existing location ID, or leave blank. The location is checked again when saving.') }}</p>
+            <label for="{{ prefix }}-location" class="block text-sm text-shelf-muted">{{ _('Location (optional)') }}</label>
+            <select id="{{ prefix }}-location" name="location_id" class="{{ control_class }}">
+                <option value="">{{ _('No location') }}</option>
+                {% for loc in add.locations %}<option value="{{ loc.id }}"{% if values.get('location_id')|string == loc.id|string %} selected{% endif %}>{{ loc.name }}</option>{% endfor %}
+            </select>
         </div>
         <div class="min-w-0">
             <label for="{{ prefix }}-tags" class="block text-sm text-shelf-muted">{{ _('Tags (optional)') }}</label>
@@ -73,11 +81,10 @@
 
 <div class="page-layout space-y-6 [overflow-wrap:anywhere]" data-testid="add-media"
      data-invalidated-message="{{ _('Search details changed. The displayed preview, save and manual actions are disabled. Search or continue again to prepare new actions.') }}">
-    <header class="space-y-2">
-        <h1 class="text-2xl font-bold">{{ _('Add media') }}</h1>
+    <div class="space-y-2">
         <p class="text-sm text-shelf-muted">{{ _('Choose Add or Wishlist, a concrete format and a search method. Search, compare, review and save here; no specialist page is required.') }}</p>
-        <p class="text-sm text-shelf-muted">{{ _('This page shows text only and does not load or download artwork. You can add artwork later.') }}</p>
-    </header>
+        <p class="text-sm text-shelf-muted"><a href="#add-media-manual-heading" class="text-shelf-accent2 underline">{{ _('Add by hand instead') }}</a> · {{ _('Cameras only open when requested. Barcode lookup fills the search field; it never submits it.') }}</p>
+    </div>
 
     {% if add.error_code %}
     <section id="add-media-error" data-testid="add-media-error" role="alert" aria-live="assertive" aria-atomic="true" tabindex="-1" autofocus class="rounded-xl border border-shelf-error/40 bg-shelf-card p-4 space-y-2">
@@ -85,7 +92,7 @@
         <p class="text-sm">
             {% if add.error_code == 'invalid_form' %}{{ _('The form could not be accepted. Review the fields or start a new search.') }}
             {% elif add.error_code == 'invalid_input' %}{{ _('Check the format, method, provider and field values. ISBNs and retail barcodes must have valid check digits; catalogue numbers are not barcodes.') }}
-            {% elif add.error_code == 'unsupported_media_type' %}{{ _('This form requires ordinary URL-encoded text, not an upload or attachment. Start a new search.') }}
+            {% elif add.error_code == 'unsupported_media_type' %}{{ _('Only manual entry accepts an image upload. Use the form shown without compression.') }}
             {% elif add.error_code == 'body_too_large' %}{{ _('The submitted form is too large. Shorten the details or start a new search.') }}
             {% elif add.error_code == 'query_too_large' %}{{ _('The page address is too long. Open Add media again.') }}
             {% elif add.error_code == 'actor_changed' %}{{ _('Your sign-in or editing permission changed. Open Add media again before continuing.') }}
@@ -105,7 +112,7 @@
     {% if add.receipt %}{% include "fragments/add_media_receipt.html" %}{% endif %}
 
     <section aria-labelledby="add-media-search-heading" class="bg-shelf-card border border-shelf-border rounded-xl p-4 sm:p-6 space-y-4">
-        <h2 id="add-media-search-heading" class="text-lg font-semibold">{{ _('Search or prepare manual entry') }}</h2>
+        <h2 id="add-media-search-heading" class="text-lg font-semibold">{{ _('Find an item') }}</h2>
         <form method="post" action="{{ request.url_for('add_media_search') }}" accept-charset="UTF-8" data-testid="add-media-search" class="space-y-4">
             <input type="hidden" name="_csrf" value="{{ request.cookies.get('csrf_token', '') }}">
             <input type="hidden" name="context" value="{{ add.context }}">
@@ -134,6 +141,25 @@
                     </select>
                     <p id="add-media-method-help" class="text-xs text-shelf-muted mt-1">{{ _('ISBN is for book formats; catalogue number is for music. Manual entry does not contact a provider.') }}</p>
                 </div>
+            </div>
+            <div class="min-w-0">
+                <label for="add-media-query" data-add-query-label
+                       data-default-label="{{ _('Title or identifier') }}"
+                       data-title-label="{{ _('Title or keyword') }}" data-isbn-label="{{ _('ISBN') }}"
+                       data-barcode-label="{{ _('Retail barcode') }}" data-catalog-number-label="{{ _('Catalogue number') }}"
+                       data-manual-label="{{ _('Title (optional)') }}" class="block text-sm font-medium text-shelf-muted">{{ _('Title or identifier') }}</label>
+                <div class="add-field-camera">
+                    <input id="add-media-query" name="q" type="text" maxlength="200" value="{{ add.input.get('q', '') }}" aria-describedby="add-media-query-help add-media-query-limits" class="{{ control_class }}">
+                    <button type="button" hidden data-add-camera="barcode" data-camera-target="add-media-query" data-camera-method="add-media-method" aria-label="{{ _('Scan a barcode into the search field') }}" title="{{ _('Scan a barcode') }}" class="add-camera-button">
+                        <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 7V4h4m8 0h4v3M4 17v3h4m8 0h4v-3M7 8v8m3-8v8m4-8v8m3-8v8"/></svg>
+                    </button>
+                </div>
+                <p id="add-media-query-help" class="text-xs text-shelf-muted mt-1">{{ _('Use the selected method. Enter catalogue numbers as printed; a short numeric catalogue code is not a barcode or provider release ID. Camera capture fills a barcode for review, without searching or saving.') }}</p>
+                <p id="add-media-query-limits" class="text-xs text-shelf-muted mt-1">{{ _('Title, artist and title hint: up to 200 characters; catalogue number: 100; ISBN or retail barcode: 32.') }}</p>
+            </div>
+            <details class="add-advanced" data-testid="add-search-advanced"{% if add.input.get('artist') or add.input.get('title_hint') or add.input.get('platform') or add.input.get('country') or add.input.get('provider') != 'auto' %} open{% endif %}>
+                <summary>{{ _('Advanced search options') }}</summary>
+                <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div class="min-w-0" data-add-provider>
                     <label for="add-media-provider" class="block text-sm font-medium text-shelf-muted">{{ _('Music search provider') }}</label>
                     <select id="add-media-provider" name="provider" required class="{{ control_class }}" aria-describedby="add-media-provider-help">
@@ -141,19 +167,6 @@
                         {% for key, label in policy_labels.items() %}<option value="{{ key }}"{% if add.input.get('provider') == key %} selected{% endif %}>{{ label }}</option>{% endfor %}
                     </select>
                     <p id="add-media-provider-help" class="text-xs text-shelf-muted mt-1">{{ _('For non-music formats choose Automatic. Automatic keeps MusicBrainz first, with Discogs fallback only for a successful empty cassette search with both title and artist. Discogs only searches Discogs directly, including catalogue-only searches, without a MusicBrainz fallback.') }}</p>
-                </div>
-                <div class="min-w-0 sm:col-span-2">
-                    <label for="add-media-query" data-add-query-label
-                           data-default-label="{{ _('Title or identifier') }}"
-                           data-title-label="{{ _('Title or keyword') }}" data-isbn-label="{{ _('ISBN') }}"
-                           data-barcode-label="{{ _('Retail barcode') }}" data-catalog-number-label="{{ _('Catalogue number') }}"
-                           data-manual-label="{{ _('Title (optional)') }}" class="block text-sm font-medium text-shelf-muted">{{ _('Title or identifier') }}</label>
-                    {# The native form can change methods without JavaScript.
-                       Keep the overall text bound here; the server enforces
-                       method-specific bounds, which the enhancement mirrors. #}
-                    <input id="add-media-query" name="q" type="text" maxlength="200" value="{{ add.input.get('q', '') }}" aria-describedby="add-media-query-help add-media-query-limits" class="{{ control_class }}">
-                    <p id="add-media-query-help" class="text-xs text-shelf-muted mt-1">{{ _('Use the selected method. Enter catalogue numbers as printed, with artist or title hints when known; a short numeric catalogue code is not a barcode or provider release ID. For manual entry, search text may be left blank.') }}</p>
-                    <p id="add-media-query-limits" class="text-xs text-shelf-muted mt-1">{{ _('Title, artist and title hint: up to 200 characters; catalogue number: 100; ISBN or retail barcode: 32.') }}</p>
                 </div>
                 <div class="min-w-0" data-add-types="vinyl cassette cd digital_music" data-add-methods="title barcode catalog_number">
                     <label for="add-media-artist" class="block text-sm font-medium text-shelf-muted">{{ _('Artist (music, optional)') }}</label>
@@ -176,7 +189,8 @@
                     <input id="add-media-country" name="country" maxlength="80" value="{{ add.input.get('country', '') }}" aria-describedby="add-media-country-help" class="{{ control_class }}">
                     <p id="add-media-country-help" class="text-xs text-shelf-muted mt-1">{{ _('Automatic and MusicBrainz require a two-letter ASCII country code. Discogs also accepts a region name, up to 80 characters.') }}</p>
                 </div>
-            </div>
+                </div>
+            </details>
             <p class="text-sm text-shelf-muted" data-add-types="tv_series digital_video magazine">{{ _('TV series, digital video and magazines have no catalogue lookup here. Choose Manual entry and continue to enter known details without a provider search.') }}</p>
             {% if not add.music_enabled %}<p class="text-sm text-shelf-warning">{{ _('Music matching is turned off. Music can still be entered manually without claiming an exact pressing.') }}</p>{% endif %}
             <noscript><p class="text-sm text-shelf-muted">{{ _('All controls are shown without JavaScript. Leave inapplicable refinements blank, use Automatic for non-music formats, and submit Search or continue after changing intent. Prepared actions below keep their own captured intent.') }}</p></noscript>
@@ -204,6 +218,7 @@
     {% endif %}
     {% if add.results %}{% include "fragments/add_media_results.html" %}{% endif %}
     {% if add.preview %}{% include "fragments/add_media_review.html" %}{% endif %}
-    {% if add.manual is not none and add.intent_context and add.intent %}{% include "fragments/add_media_manual.html" %}{% endif %}
+    {% if add.manual is not none %}{% include "fragments/add_media_manual.html" %}{% endif %}
 </div>
+{% include "fragments/add_camera_dialog.html" %}
 {% endblock %}

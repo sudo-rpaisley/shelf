@@ -6,25 +6,28 @@ Transport/CSRF/namespace policy and registration belong to the parent HTTP hook.
 """
 
 import asyncio
-from dataclasses import asdict
+from dataclasses import asdict, replace
 from html import escape
 import math
 import re
+from urllib.parse import urlsplit
 
 import httpx
 from fastapi import APIRouter, Depends, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
 
 from app import add_media_context as context
+from app import add_manual_fields, add_scan_workspace
 from app import i18n
 from app.add_media_types import AddDetails, AddReceipt, CapturedAddActor, ManualValues
 from app.auth import require_role
 from app.config import BOOK_MEDIA_TYPES, HTTP_TIMEOUT, MEDIA_TYPES, MUSIC_MEDIA_TYPES, STATUS_MEDIA_TYPES
 from app.database import get_db, get_game_platforms, get_setting
-from app.features import feature_enabled
+from app.features import feature_enabled, require_feature
 from app.routers import items, items_catalog, items_common
 from app.routers import music_matching as music_routes
 from app.services import discogs, igdb, lists, music_matching, music_review, openlibrary, tmdb, upc, upcitemdb
+from app.services import covers, manual_cover
 from app.services.item_write import ItemValueError
 
 router = APIRouter(prefix="/add", dependencies=[Depends(require_role("editor"))])
@@ -36,7 +39,8 @@ _BOOK_KEYS = {"title", "subtitle", "authors", "publisher", "publish_year", "page
 _GAME_KEYS = {"title", "description", "publisher", "publish_year", "series_name", "media_type", "platform"}
 _DVD_KEYS = {"title", "description", "publish_year", "media_type"}
 _MANUAL_KEYS = ("title", "authors", "publisher", "publish_year", "platform", "series_name", "language",
-                "identifier_kind", "identifier", "location_id", "tags", "reading_status")
+                 "identifier_kind", "identifier", "location_id", "tags", "reading_status", "mode", "media_type",
+                 "isbn", "upc", "cover_url", *add_manual_fields.EXTRA_FIELDS)
 _ERROR_TEXT = {
     "invalid_form": i18n.N_("The submitted form could not be read. Reload Add Media and try again."),
     "invalid_input": i18n.N_("Check the selected format, method and entered values."),
@@ -93,14 +97,22 @@ def _render(request, actor, *, intent=None, inputs=None, results=(), preview=Non
     _revalidate(actor)
     with get_db() as db:
         platforms = get_game_platforms(db)
+        locations = db.execute("SELECT id, name FROM locations ORDER BY sort_order, name").fetchall()
+    inputs = inputs if inputs is not None else _input(intent)
+    if manual is None:
+        manual = _manual_prefill(intent) if intent is not None else {
+            **{key: "" for key in _MANUAL_KEYS}, "identifier_kind": "none",
+            "mode": inputs.get("mode", "add"), "media_type": inputs.get("media_type", ""),
+        }
     add = {
-        "input": inputs if inputs is not None else _input(intent),
+        "input": inputs,
         "context": context.sign_context(actor), "intent": intent,
         "intent_context": context.sign_context(actor, intent) if intent is not None else "",
         "results": tuple(results), "preview": preview, "manual": manual, "receipt": receipt,
         "error_code": error_code, "provider_outcome": provider_outcome, "host_warning": host_warning,
         "media_types": MEDIA_TYPES, "platforms": platforms, "music_enabled": feature_enabled("music"),
         "status_types": STATUS_MEDIA_TYPES,
+        "locations": locations,
     }
     return request.app.state.templates.TemplateResponse(
         request, "add_media.html", {"add": add}, status_code=status_code, headers={"Cache-Control": "no-store"})
@@ -191,7 +203,8 @@ def _manual_prefill(intent, metadata=None):
         values["authors"] = intent.artist
     if intent.method in {"isbn", "barcode"}:
         values.update(identifier_kind=intent.method, identifier=intent.query)
-    for key in ("title", "authors", "publisher", "publish_year", "series_name", "language"):
+    values.update(mode=intent.mode, media_type=intent.media_type)
+    for key in ("title", "authors", "publisher", "publish_year", "series_name", "language", *add_manual_fields.EXTRA_FIELDS):
         if metadata and metadata.get(key) is not None:
             values[key] = str(metadata[key])
     return values
@@ -207,7 +220,7 @@ def _manual_values(data, intent):
     year = data.get("publish_year", "")
     if year and (not re.fullmatch(r"[0-9]{4}", year) or int(year) == 0):
         raise context.AddMediaError("invalid_input", 422)
-    kind, identifier = data.get("identifier_kind", ""), data.get("identifier", "")
+    kind, identifier = data.get("identifier_kind", "none"), data.get("identifier", "")
     isbn13 = barcode = None
     if kind == "none":
         if identifier:
@@ -218,9 +231,20 @@ def _manual_values(data, intent):
         barcode = upc.normalize_upc(context.strict_barcode(identifier))
     else:
         raise context.AddMediaError("invalid_input", 422)
+    if data.get("isbn"):
+        explicit_isbn = context.strict_isbn(data["isbn"])
+        if isbn13 and isbn13 != explicit_isbn:
+            raise context.AddMediaError("invalid_input", 422)
+        isbn13 = explicit_isbn
+    if data.get("upc"):
+        explicit_barcode = upc.normalize_upc(context.strict_barcode(data["upc"]))
+        if barcode and barcode != explicit_barcode:
+            raise context.AddMediaError("invalid_input", 422)
+        barcode = explicit_barcode
+    extras = add_manual_fields.extra_values(data, intent.media_type)
     return ManualValues(values["title"].strip(), values["authors"] or None, intent.media_type, isbn13, barcode,
                         values["publisher"] or None, int(year) if year else None, platform or None,
-                        values["series_name"] or None, language or None)
+                        values["series_name"] or None, language or None, extras)
 
 
 def _summary(row, *, music=False):
@@ -547,13 +571,35 @@ async def add_media_page(request: Request):
     try:
         actor = _entry(request)
         query = request.query_params
-        if set(query) - {"mode", "media_type", "receipt"} or any(len(query.getlist(key)) != 1 for key in query):
+        if set(query) - {"mode", "media_type", "receipt", "tool", "scan_mode"} or any(len(query.getlist(key)) != 1 for key in query):
             raise context.AddMediaError("invalid_form", 400)
         if "receipt" in query:
             if len(query) != 1:
                 raise context.AddMediaError("invalid_form", 400)
             actor, receipt, warning = _receipt(query["receipt"], actor)
             return _render(request, actor, receipt=receipt, host_warning=warning)
+        tool = query.get("tool", "add")
+        if tool not in add_scan_workspace.TOOLS or ("scan_mode" in query and tool != "scan"):
+            raise context.AddMediaError("invalid_input", 422)
+        if tool != "add":
+            if set(query) - {"tool", "scan_mode"}:
+                raise context.AddMediaError("invalid_form", 400)
+            if tool == "scan":
+                mode = query.get("scan_mode", "")
+                if mode and mode not in add_scan_workspace.SCAN_MODES:
+                    raise context.AddMediaError("invalid_input", 422)
+                ctx, template = add_scan_workspace.scan_context(mode=mode), "scan.html"
+                if mode and ctx["seed_mode"] != mode:
+                    raise context.AddMediaError("invalid_input", 422)
+            elif tool == "photo":
+                await require_feature("intake")(request)
+                ctx, template = add_scan_workspace.photo_context(), "intake.html"
+            else:
+                await require_feature("shelf_fill")(request)
+                ctx, template = add_scan_workspace.shelf_context(), "shelf_fill.html"
+            _revalidate(actor)
+            return request.app.state.templates.TemplateResponse(
+                request, template, ctx, headers={"Cache-Control": "no-store"})
         inputs = _input()
         inputs.update({key: query[key] for key in ("mode", "media_type") if key in query})
         if inputs["mode"] not in {"add", "wishlist"} or ("media_type" in query and inputs["media_type"] not in MEDIA_TYPES):
@@ -697,17 +743,65 @@ async def add_media_manual(request: Request):
     committed = False
     try:
         data, actor, intent = await _submitted(request)
-        if intent is None:
-            raise context.AddMediaError("intent_changed")
         manual = {key: data.get(key, "") for key in _MANUAL_KEYS}
+        if intent is None:
+            intent = _intent({"mode": data.get("mode", ""), "media_type": data.get("media_type", ""),
+                              "method": "manual", "provider": "auto", "q": "",
+                              "platform": data.get("platform", "")})
+            _platform(intent)
+        elif any(key in data and data[key] != getattr(intent, key) for key in ("mode", "media_type")):
+            raise context.AddMediaError("intent_changed")
         values = _manual_values(data, intent)
         details = _details(data, intent.media_type)
+        content = getattr(request.state, "add_media_cover", None)
+        cover_url = _text(data.get("cover_url", ""), 2048).strip()
+        if content is not None and (not isinstance(content, bytes) or not covers.validate_uploaded_cover(content)):
+            raise context.AddMediaError("invalid_input", 422)
+        if content is not None and cover_url:
+            raise context.AddMediaError("invalid_input", 422)
+        if cover_url:
+            try:
+                parsed = urlsplit(cover_url)
+                if parsed.scheme != "https" or not parsed.hostname or parsed.username is not None or parsed.password is not None or parsed.fragment:
+                    raise ValueError
+                parsed.port
+            except ValueError:
+                raise context.AddMediaError("invalid_input", 422) from None
+        # Validate the same native values before optional image I/O, then again
+        # in the real writer transaction. No provider identity or arbitrary keys.
+        with get_db() as db:
+            context.revalidate_actor(db, actor)
+            items.item_write.validate_item_fields(db, {"media_type": values.media_type,
+                "location_id": details.location_id, "platform": values.platform,
+                **add_manual_fields.extra_dict(values.extra_fields)})
+        if cover_url:
+            content = await manual_cover.fetch_content(cover_url)
+            _revalidate(actor)
+        cover_warning = bool(cover_url and content is None)
         with get_db() as db:
             db.execute("BEGIN IMMEDIATE")
             context.revalidate_actor(db, actor)
             result = items._commit_manual_add(db, values, mode=intent.mode, details=details, intent=intent)
             receipt = _stored_receipt(db, result)
             committed = True
+        if content is not None and result.status not in {"duplicate", "promoted"}:
+            with get_db() as db:
+                db.execute("BEGIN IMMEDIATE")
+                context.revalidate_actor(db, actor)
+                if db.execute("SELECT id FROM items_live WHERE id = ?", (result.item_id,)).fetchone():
+                    try:
+                        path = covers.save_uploaded_cover(result.item_id, content, unique=True)
+                    except OSError:
+                        path = None
+                    if path:
+                        db.execute("UPDATE items SET cover_path = ?, cover_edition_isbn = NULL, cover_edition_language = NULL WHERE id = ?",
+                                   (path, result.item_id))
+                        receipt = replace(receipt, cover_path=path)
+                    else:
+                        cover_warning = True
+                else:
+                    cover_warning = True
+        receipt = replace(receipt, cover_warning=cover_warning)
         return _finish(request, actor, intent, receipt, log_code=values.isbn13 or values.upc_code or "")
     except (context.AddMediaError, music_review.ReviewError) as error:
         if committed and not isinstance(error, context.ActorChanged):

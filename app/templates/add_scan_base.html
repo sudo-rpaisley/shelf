@@ -1,0 +1,30 @@
+{% extends "base.html" %}
+{% block title %}{{ _('Add / Scan') }} — Shelf{% endblock %}
+{% block head %}
+<link rel="stylesheet" href="{{ request.url_for('static', path='css/add-workspace.source.css') }}">
+{% block workspace_head %}{% endblock %}
+{% endblock %}
+{% block content %}
+{% set workspace_tool = workspace_tool|default('add') %}
+{% set workspace_url = add_media_entry_url|default(none) %}
+{% set tool_visibility = namespace(scan=false, photo=false, shelf=false) %}
+{% for tab in nav_tabs|default([]) %}
+    {% if tab.key == 'scan' %}{% set tool_visibility.scan = true %}{% endif %}
+    {% if tab.key == 'intake' %}{% set tool_visibility.photo = true %}{% endif %}
+    {% if tab.key == 'shelf-fill' %}{% set tool_visibility.shelf = true %}{% endif %}
+{% endfor %}
+<div class="page-layout add-workspace" data-add-scan-workspace data-tool="{{ workspace_tool }}">
+    <header class="space-y-2 mb-6">
+        <h1 class="text-2xl font-bold">{{ _('Add / Scan') }}</h1>
+        <p class="text-sm text-shelf-muted">{{ _('Search or enter an item, scan barcodes, recognize shelf photos, or file items in shelf order.') }}</p>
+        <nav class="add-workspace__tools" aria-label="{{ _('Add and scan tools') }}">
+            {% if workspace_url %}<a href="{{ workspace_url }}"{% if workspace_tool == 'add' %} aria-current="page"{% endif %}>{{ _('Search / Manual') }}</a>{% endif %}
+            {% if tool_visibility.scan or workspace_tool == 'scan' %}<a href="{{ workspace_url ~ '?tool=scan' if workspace_url else '/scan' }}"{% if workspace_tool == 'scan' %} aria-current="page"{% endif %}>{{ _('Scan actions') }}</a>{% endif %}
+            {% if tool_visibility.photo or workspace_tool == 'photo' %}<a href="{{ workspace_url ~ '?tool=photo' if workspace_url else '/intake' }}"{% if workspace_tool == 'photo' %} aria-current="page"{% endif %}>{{ _('Photo Intake') }}</a>{% endif %}
+            {% if tool_visibility.shelf or workspace_tool == 'shelf' %}<a href="{{ workspace_url ~ '?tool=shelf' if workspace_url else '/shelf-fill' }}"{% if workspace_tool == 'shelf' %} aria-current="page"{% endif %}>{{ _('Shelf Fill') }}</a>{% endif %}
+        </nav>
+    </header>
+    {# Only this selected page's block exists: no hidden scan roots, requests or cameras. #}
+    {% block workspace_content %}{% endblock %}
+</div>
+{% endblock %}

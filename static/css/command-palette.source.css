@@ -1,11 +1,22 @@
-/* Independently linkable; no generated bundle needed.
-   The launcher is in flow, not another fixed control beside the existing ?. */
+/* Independently linkable; no generated bundle needed. Enhanced Commands sits
+   above the existing ?, while the unavailable-capability fallback stays in flow. */
 .command-palette {
     display: flex;
     justify-content: flex-end;
     padding-block: 0.5rem;
 }
 .command-palette [hidden] { display: none; }
+/* Match the existing help button's 2rem circle and 1rem physical-left inset.
+   A transparent 2.75rem hit area surrounds it; the 0.75rem visual gap keeps
+   both hit areas and the focus outline clear of the unchanged help control. */
+.command-palette[data-command-palette-enhanced="true"] {
+    position: fixed;
+    left: calc(1rem - 0.375rem);
+    bottom: calc(1rem + 2rem + 0.75rem - 0.375rem);
+    z-index: 40;
+    inline-size: 2.75rem;
+    padding: 0;
+}
 /* Deliberate shared-shell exception: unavailable palette capability preserves
    the SAME direct Browse fallback without opening navigation. Match its closed
    enhanced state and exceed the nav hide rule's specificity, not !important.
@@ -13,7 +24,6 @@
 .media-navigation[data-nav-enhanced="true"][data-nav-menu-open="false"][data-nav-palette-fallback="unavailable"]:not([hidden]):not([inert]):not([aria-hidden="true"]) .media-navigation__primary:not([hidden]):not([inert]):not([aria-hidden="true"]) { display: flex; }
 .command-palette__fallback { max-inline-size: 36rem; }
 .command-palette__fallback summary { cursor: pointer; }
-.command-palette__launch,
 .command-palette__close,
 .command-palette__fallback summary {
     min-inline-size: 5rem;
@@ -25,6 +35,47 @@
     color: var(--color-shelf-text, #e2e8f0);
     font: inherit;
     overflow-wrap: anywhere;
+}
+.command-palette__launch {
+    box-sizing: border-box;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    flex: none;
+    inline-size: 2.75rem;
+    block-size: 2.75rem;
+    min-inline-size: 2.75rem;
+    min-block-size: 2.75rem;
+    padding: 0.375rem;
+    border: 0;
+    border-radius: 9999px;
+    background: transparent;
+    color: var(--color-shelf-muted, #94a3b8);
+    font: inherit;
+    line-height: 1;
+    cursor: pointer;
+}
+.command-palette__launch-icon {
+    box-sizing: border-box;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    flex: none;
+    inline-size: 2rem;
+    block-size: 2rem;
+    border: 1px solid var(--color-shelf-border, #2d3148);
+    border-radius: 9999px;
+    background: var(--color-shelf-card, #1a1d27);
+    box-shadow: 0 10px 15px -3px #0001, 0 4px 6px -4px #0001;
+    transition: color 150ms, border-color 150ms;
+}
+.command-palette__launch-icon svg { inline-size: 1rem; block-size: 1rem; }
+.command-palette__launch:hover .command-palette__launch-icon {
+    color: var(--color-shelf-accent2, #818cf8);
+    border-color: var(--color-shelf-accent, #6366f1);
+}
+@media (prefers-reduced-motion: reduce) {
+    .command-palette__launch-icon { transition: none; }
 }
 .command-palette__dialog {
     display: none;

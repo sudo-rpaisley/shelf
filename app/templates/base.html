@@ -62,6 +62,16 @@
     <!-- Loading bar -->
     <div id="htmx-indicator" class="fixed top-0 left-0 h-0.5 bg-shelf-accent z-100 transition-all duration-300" style="width:0;opacity:0"></div>
 
+    {# One canonical sizing panel; a page may choose a normal-flow heading slot
+       instead of the default toolbar, without copying controls or their IDs. #}
+    {% macro catalogue_size_control() -%}
+        {% if user and catalogue_cover_sizing|default(false) is sameas true %}
+        {% with item_size_mode='density-v1', cover_size_description_id='global-cover-size-description' %}
+        {% include "fragments/cover_size_panel.html" %}
+        {% endwith %}
+        {% endif %}
+    {%- endmacro %}
+
     {# One shared native disclosure tree; the account partial retains the
        original authorized nav_tabs. Bare template environments get an empty
        model rather than inventing policy or querying configuration. #}
@@ -79,11 +89,7 @@
 
     {% if user %}
     <div class="media-display-tools app-shell no-print" data-media-display-tools>
-        {% if catalogue_cover_sizing|default(false) is sameas true %}
-        {% with item_size_mode='density-v1', cover_size_description_id='global-cover-size-description' %}
-        {% include "fragments/cover_size_panel.html" %}
-        {% endwith %}
-        {% endif %}
+        {% block catalogue_size_toolbar %}{{ catalogue_size_control() }}{% endblock %}
         {% include "fragments/command_palette.html" %}
     </div>
     {% endif %}

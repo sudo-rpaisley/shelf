@@ -3,9 +3,9 @@
 from fastapi import APIRouter, Depends, Form, Request
 
 from app.auth import require_role
+from app import add_scan_workspace
 from app.features import require_feature
-from app.config import MEDIA_TYPES
-from app.database import get_db, get_game_platforms
+from app.database import get_db
 from app.routers import items, items_common, items_scan_modes
 from app.services import item_copies, locations as location_svc
 from app.services.item_write import update_item_fields
@@ -183,17 +183,10 @@ def _render_error(request: Request, raw: str, message: str):
 @router.get("/shelf-fill")
 async def shelf_fill_page(request: Request, _=Depends(require_role("editor")),
                           __=Depends(require_feature("shelf_fill"))):
-    with get_db() as db:
-        locations = location_svc.location_tree(db)
-        game_platforms = get_game_platforms(db)
     return request.app.state.templates.TemplateResponse(
         request,
         "shelf_fill.html",
-        {
-            "locations": locations,
-            "media_types": MEDIA_TYPES,
-            "game_platforms": game_platforms,
-        },
+        add_scan_workspace.shelf_context(),
     )
 
 

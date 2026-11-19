@@ -7,10 +7,17 @@
 <link rel="stylesheet" href="/static/css/recent-shelf.source.css">
 <script defer src="/static/js/recent-shelf.js"></script>
 {% endblock %}
+{# Home places the shell's single sizing panel beside its page heading. #}
+{% block catalogue_size_toolbar %}{% endblock %}
 {% block content %}
 <div data-item-size="density-v1">
     <div class="mb-8" data-testid="home-header">
-        <h1 class="text-2xl font-bold">Home</h1>
+        <div class="home-header__row" data-home-header-row>
+            <h1 class="text-2xl font-bold">Home</h1>
+            {% if user %}
+            <div class="home-header__tools no-print" data-home-header-tools>{{ catalogue_size_control() }}</div>
+            {% endif %}
+        </div>
         <p class="text-sm text-shelf-muted mt-1">A quick view of your collection. {% if feature_on('connected_library') %}{{ _('Open Library to find every format and source, or Browse to organise catalogue records.') }}{% else %}Use Browse when you want to search, filter or organise it.{% endif %}</p>
     </div>
 

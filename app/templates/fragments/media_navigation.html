@@ -16,8 +16,10 @@
 {% set _library_primary = media_navigation.primary and media_navigation.all_media %}
 {% set _add_media_entry = user is defined and user and user.role in ('editor', 'admin') and add_media_entry_url is defined and add_media_entry_url %}
 {% macro add_media_link() -%}
-<li><a href="{{ add_media_entry_url }}" data-testid="add-media-entry"
-       class="media-navigation__link text-shelf-accent2">{{ _('Add media')|forceescape }}</a></li>
+{% set workspace_path = add_media_entry_url.path if add_media_entry_url.path is defined else '/add' %}
+<a href="{{ add_media_entry_url }}" data-testid="add-media-entry" data-nav-workspace="add"
+   {% if request.url.path in (workspace_path, '/scan', '/intake', '/shelf-fill') %}aria-current="page"{% endif %}
+   class="media-navigation__link text-shelf-accent2">{{ _('Add / Scan')|forceescape }}</a>
 {%- endmacro %}
 <nav data-media-navigation aria-label="{{ _('Primary navigation')|forceescape }}" class="media-navigation bg-shelf-card border-b border-shelf-border sticky top-0 z-50">
     <div class="app-shell">
@@ -71,16 +73,17 @@
                         {% for group in media_navigation.groups %}
                         {% if group.key == 'add' %}
                         {% set add_group.rendered = true %}
-                        {# Registry actions and the separate Store quick link come
-                           only from this payload. Add media keeps its named URL. #}
+                        {# One canonical workspace replaces its legacy tool links.
+                           Keep the original group as a bare-renderer fallback. #}
                         {% set actions = group.tabs | rejectattr('key', 'equalto', 'store') | list %}
                         <div class="media-navigation__activity">
-                            {% if actions or _add_media_entry %}
+                            {% if _add_media_entry %}
+                            {{ add_media_link() }}
+                            {% elif actions %}
                             <div class="media-navigation__top" data-nav-hover>
                                 <details data-nav-disclosure data-nav-group="{{ group.key }}">
                                     <summary>{{ _(group.label)|forceescape }} {{ chevron() }}</summary>
                                     <ul class="media-navigation__panel">
-                                        {% if _add_media_entry %}{{ add_media_link() }}{% endif %}
                                         {% for tab in actions %}
                                         <li>{{ tab_link(tab) }}</li>
                                         {% endfor %}
@@ -105,15 +108,9 @@
                         </div>
                         {% endif %}
                         {% endfor %}
-                        {# Add is a named-route action, not a hideable NAV_TABS member.
-                           Keep one native dropdown when every Add tab is hidden. #}
+                        {# Hiding legacy tool tabs does not hide core manual Add. #}
                         {% if _add_media_entry and not add_group.rendered %}
-                        <div class="media-navigation__top" data-nav-hover>
-                            <details data-nav-disclosure data-nav-group="add">
-                                <summary>{{ _('Add / Scan')|forceescape }} {{ chevron() }}</summary>
-                                <ul class="media-navigation__panel">{{ add_media_link() }}</ul>
-                            </details>
-                        </div>
+                        {{ add_media_link() }}
                         {% endif %}
                     </div>
                 </details>

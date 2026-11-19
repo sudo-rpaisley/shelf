@@ -1650,7 +1650,8 @@ The `library-primary-v1` main wrapper uses a single narrow-screen column and res
 the older cached tree's200% width/negative offset. Resizing focus returns a nested
 Library link to the visible Media opener rather than the newly collapsed branch.
 
-Explore uses the same initially closed native disclosure as Add / Scan.
+Explore uses an initially closed native disclosure. Add / Scan is now one direct
+workspace link rather than a dropdown containing duplicate tool destinations.
 Its links form a vertical panel below the trigger on desktop and an in-flow list
 below it on narrow screens. The old quick-strip class, flex/grid panel overrides,
 forced-open attribute and JS peer/dismissal exemptions are removed. Existing
@@ -1658,6 +1659,47 @@ hover, native Enter/Space/Tab, Escape, outside dismissal, focus ownership and re
 handling now apply uniformly. A desktop height cap keeps long Explore lists
 scrollable. Its authorised destinations/visibility/model and the separate Store
 quick link are unchanged; no new menu renderer or parallel disclosure state.
+
+**Unified Add / Scan renders only the selected tool.** `add_scan_base.html`
+wraps the existing Add, Scan, Photo Intake and Shelf Fill templates. Canonical
+`/add` query selection is finite (`tool=scan|photo|shelf`, with an optional finite
+`scan_mode` for Scan); `/scan`, `/intake` and `/shelf-fill` retain their original
+dependencies, deep links and mutation APIs as shared-shell views. Read-only
+contexts live in `app/add_scan_workspace.py`; default Add contains no hidden
+Alpine scan roots that load histories/audits or start a camera. The shell derives
+tool links from the existing authorised nav tabs, including feature/config/manual
+visibility; selected deep links remain visible without rewriting that registry.
+Store/offline caching and personal/shared catalogue boundaries are unchanged.
+
+The signed Add search/selection/review/receipt pipeline remains explicit-submit.
+Its immediately available manual form accepts either an actor-only context plus
+an explicit mode/format, or an existing bound intent whose mode/format cannot be
+changed. `app/add_manual_fields.py` shares the closed, bounded advanced metadata
+parser with the compatible manual API. Provider identities, source associations,
+copy IDs and historical/personal records are not editable template metadata.
+Native duplicate/promotion/restore rules remain in the existing write funnel.
+
+Only `/add/manual` adds multipart image transport: one bounded image plus bounded
+UTF-8 text, closed temporary files, duplicate/unknown-control refusal and a
+327680-byte text-form cap (plus the existing 10 MiB image bound for multipart).
+Search/preview/save keep their original text-only schemas/caps. The original
+entry actor is captured before body awaits and revalidated after optional safe
+public-image fetch and under each writer lock, without extending its deadline.
+Artwork validation precedes insertion; explicit artwork attaches after the item
+transaction, skips duplicate/promoted rows and uses a unique uploaded filename.
+An image-fetch/write failure is distinct from item success/unknown outcome.
+
+`add-camera.js` reuses `createBarcodeScanner` and `createPhotoCapture` for contextual
+barcode-to-field and cover-file capture, not operational submissions. No camera
+opens on initialization; decode never submits a form. The native dialog gates
+retired callbacks, retains pending engine ownership through late acquisition,
+stops on close/page exit/hidden visibility and restores focus. Cover previews use
+revoked local object URLs; file selection/no-JS and mobile capture remain.
+`add-manual.js` handles applicability and explicit finite copy-template lookup,
+without preference storage or copying identity/history. Continuous Scan/Shelf
+Fill keep their operational actions/results and gate late camera frames on a
+generation; Photo Intake retains its existing recognition/tiling/cost workflow.
+These are source implementation contracts, not a runtime/camera qualification.
 
 **The command palette is navigation, not an action interpreter.** The singleton
 `fragments/command_palette.html` sits outside the protected navbar and main page
@@ -1669,12 +1711,23 @@ feature registry. Catalogue search derives from the rendered primary destination
 (Library's menu anchor, or the standalone Browse fallback),
 preserves its approved parameters and adds at most 200 characters of encoded `q`.
 No request happens while typing, and no preference or command history is stored.
+The single marked Add / Scan link permits only its native `/add` GET page (or
+the exact named page under a trusted mount), not tool/action/receipt parameters
+or POST endpoints. Other palette behavior and the round launcher are unchanged.
 The native dialog owns its keys before legacy document handlers, respects editable
 fields, IME and other modal surfaces, and restores focus when closed. Missing
 JavaScript or native dialog support leaves an explanatory native disclosure and
 the ordinary navigation intact. Its directly linked, non-precached stylesheet
 also supports an older Store-cached bundle; this adds no offline/private pages or
 new database, route or permission authority.
+The enhanced Commands launcher is a 2rem command-icon circle above the existing
+bottom-left help button, with a transparent 2.75rem click target and visible focus
+ring. Its translated accessible name and tooltip remain Commands; the icon is
+decorative. Only the already-enhanced host is fixed, removing the former toolbar
+button footprint without moving/cloning the dialog or changing palette JS.
+The no-JS/unsupported-dialog native explanation remains in flow. Close, query,
+native modal/keyboard lifecycle, print hiding and the existing help control are
+unchanged. Explicit launcher resets also override an older cached text-button rule.
 If a present, complete palette lacks native `showModal`, its initializer marks the
 existing navbar `data-nav-palette-fallback="unavailable"`. One deliberate scoped
 CSS integration override keeps the standalone Browse fallback visible when Library
@@ -1685,11 +1738,18 @@ is not classified as unsupported dialog capability. Successful later enhancement
 clears the owned marker; ordinary supported narrow-menu collapse is unchanged.
 
 **Item sizing is shared browser-local presentation, not server preferences.**
-The signed-in base shell owns one native slider in a normal-flow, end-aligned
-toolbar beside Commands, outside navigation, main and mutation/filter forms.
+The signed-in base shell owns one native slider through `catalogue_size_control`.
+The default normal-flow, end-aligned toolbar remains outside navigation, main and
+mutation/filter forms. Home suppresses only that toolbar slot and invokes the same
+macro in its heading row, inside main but outside forms/navigation. Title and the
+first slider line align, with status/explanation text below and natural wrapping
+on narrow screens or enlarged text; no offsets, DOM relocation or duplicate IDs.
+Its description remains below the row. Other pages keep the default placement.
+Print hides the tools and restores the ordinary Home heading layout. The separate
+Commands launcher stays above the bottom-left help button after enhancement.
 Only literal-True catalogue-page opt-in exposes the control and storage owner;
 coverless/settings/operational pages retain Commands without an inapplicable slider.
-Home, Library and Music no longer include local copies. The eleven native
+Home, Library and Music have no local control copies. The eleven native
 positions map to 50/60/70/80/90/100/120/140/160/180/200%; the centered position5
 keeps the original Home 100% physical scale. There are no sizing buttons or custom
 keyboard handlers. Without JS, the common 100% layout and native links remain.

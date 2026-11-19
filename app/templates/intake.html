@@ -1,8 +1,9 @@
-{% extends "base.html" %}
-{% block title %}Photo Intake — Shelf{% endblock %}
-{% block content %}
+{% extends "add_scan_base.html" %}
+{% set workspace_tool = 'photo' %}
+{% block title %}{{ _('Photo Intake — Add / Scan') }} — Shelf{% endblock %}
+{% block workspace_content %}
 <div class="page-layout" x-data="intakePage" id="intake-page" data-creator-labels='{{ translated_creator_labels() | tojson }}'>
-    <h1 class="text-2xl font-bold mb-1">Photo Intake</h1>
+    <h2 class="text-xl font-bold mb-1">{{ _('Photo Intake') }}</h2>
     <p class="text-sm text-shelf-muted mb-6">Photograph books on a shelf, in a stack, or face-up &mdash; front cover is fine. The vision model reads spines and recognizes covers; a readable back-cover barcode gives exact-edition metadata. Review the list, then confirm.</p>
 
     {% if not vision_provider %}

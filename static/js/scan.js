@@ -36,6 +36,9 @@ function scanPage() {
         scanLoading: false,
         scanResult: false,
         scanner: false,
+        cameraStarting: false,
+        cameraStopping: false,
+        cameraGeneration: 0,
         lastScanned: '',
         lastScanTime: 0,
         // The open audit session's id ('' when none), mirrored to
@@ -100,6 +103,9 @@ function scanPage() {
         },
 
         setMode(m) {
+            if (!this.modes.some(function (option) { return option.id === m; })) return;
+            // An action change must not reinterpret a frame already in flight.
+            this.stopCamera();
             this.mode = m;
             localStorage.setItem('shelf_scan_mode', m);
             this.loadRecentScans(m);
@@ -148,6 +154,13 @@ function scanPage() {
         // Client-side validation before form submit
         init() {
             var self = this;
+            window.addEventListener('pagehide', function () { self.stopCamera(); });
+            document.addEventListener('visibilitychange', function () {
+                if (document.visibilityState === 'hidden') self.stopCamera();
+            });
+            document.addEventListener('shelf:camera-open', function (event) {
+                if (self.cameraActive || self.cameraStarting || self.cameraStopping) event.detail.waitUntil(self.stopCamera());
+            });
 
             // Lending off (or any feature whose scan_modes the registry
             // disabled) removes its modes from the row. Read through the
@@ -165,9 +178,9 @@ function scanPage() {
             // root. A seeded mode wins over the stored one; the code is
             // put in the input and never submitted. Absent or empty is fine.
             var seedEl = document.querySelector('[data-seed-mode]');
-            if (seedEl && seedEl.dataset.seedMode === 'add') {
-                this.mode = 'add';
-                try { localStorage.setItem('shelf_scan_mode', 'add'); } catch (err) { /* private mode */ }
+            if (seedEl && this.modes.some(function (m) { return m.id === seedEl.dataset.seedMode; })) {
+                this.mode = seedEl.dataset.seedMode;
+                try { localStorage.setItem('shelf_scan_mode', this.mode); } catch (err) { /* private mode */ }
             }
             var codeEl = document.querySelector('[data-seed-code]');
             var seedCode = codeEl ? (codeEl.dataset.seedCode || '') : '';
@@ -332,27 +345,37 @@ function scanPage() {
         },
 
         async startCamera() {
+            if (this.cameraActive || this.cameraStarting || this.cameraStopping) return;
+            var generation = ++this.cameraGeneration;
+            var scanner = null, pending = null;
             try {
                 this.cameraActive = true;
                 this.scanPaused = false;
                 this.scanResult = false;
 
-                this.scanner = window.createBarcodeScanner({
+                scanner = window.createBarcodeScanner({
                     html5ElId: 'camera-reader',
                     videoEl: 'zxing-video',
                     html5Config: { fps: 10, qrbox: { width: 280, height: 100 }, aspectRatio: 1.5 },
-                    onDecode: (decodedText) => this.onScan(decodedText)
+                    onDecode: (decodedText) => {
+                        if (this.cameraActive && generation === this.cameraGeneration) this.onScan(decodedText);
+                    }
                 });
-                this.isZxingFallback = this.scanner.engine === 'zxing';
+                this.scanner = scanner;
+                this.isZxingFallback = scanner.engine === 'zxing';
                 this.scanLoading = this.isZxingFallback;
 
                 // Let the paired x-show containers settle before the engine
                 // grabs its target element.
-                await this.$nextTick();
-
-                await this.scanner.start();
-                this.scanLoading = false;
+                pending = this.$nextTick().then(() => {
+                    if (this.cameraActive && generation === this.cameraGeneration) return scanner.start();
+                });
+                this.cameraStarting = pending;
+                await pending;
+                if (generation === this.cameraGeneration) this.scanLoading = false;
             } catch (err) {
+                if (scanner) await scanner.stop();
+                if (generation !== this.cameraGeneration) return;
                 this.scanner = false;
                 this.cameraActive = false;
                 this.scanLoading = false;
@@ -361,31 +384,49 @@ function scanPage() {
                 } else {
                     showToast('Camera access denied. Check browser permissions for this site.', 'error');
                 }
+            } finally {
+                if (this.cameraStarting === pending) this.cameraStarting = false;
             }
         },
 
         async stopCamera() {
-            if (this.scanner) {
-                await this.scanner.stop();
-                this.scanner = false;
-            }
+            ++this.cameraGeneration;
+            var scanner = this.scanner, pending = this.cameraStarting;
+            this.scanner = false;
             this.cameraActive = false;
             this.scanPaused = false;
             this.scanResult = false;
+            this.scanLoading = false;
+            if (!scanner) return this.cameraStopping || undefined;
+            // Retain the engine until acquisition/resume settles. Calling its
+            // stop during start can discard html5-qrcode's only live handle.
+            document.querySelectorAll('#camera-reader video, #zxing-video').forEach(function (video) {
+                if (video.srcObject) video.srcObject.getTracks().forEach(function (track) { track.stop(); });
+            });
+            var stopping = Promise.resolve(pending).catch(function () {}).then(function () { return scanner.stop(); });
+            this.cameraStopping = stopping;
+            await stopping;
+            if (this.cameraStopping === stopping) this.cameraStopping = false;
         },
 
         async resumeScanning() {
+            if (!this.scanner || !this.cameraActive || this.cameraStarting || this.cameraStopping) return;
+            var generation = this.cameraGeneration;
             this.scanResult = false;
             this.scanLoading = false;
             this.lastScanned = '';
             try {
-                if (this.scanner) await this.scanner.resume();
+                var pending = this.scanner.resume();
+                this.cameraStarting = pending;
+                await pending;
             } catch (err) {}
-            this.scanPaused = false;
+            finally { if (this.cameraStarting === pending) this.cameraStarting = false; }
+            if (generation === this.cameraGeneration) this.scanPaused = false;
         },
 
         async onScan(code) {
             if (this.scanPaused) return;
+            var generation = this.cameraGeneration, scanMode = this.mode;
 
             // Client-side validation
             if (this.mode === 'lend' && !this.borrowerId) {
@@ -406,9 +447,15 @@ function scanPage() {
             this.scanPaused = true;
             this.scanLoading = true;
             this.scanResult = false;
+            var form = document.querySelector('form[hx-post="/api/scan"]');
+            var formData = new FormData(form);
+            formData.set('isbn', code);
+            formData.set('mode', scanMode);
+            if (scanMode === 'lend') formData.set('borrower_id', this.borrowerId);
             if (this.scanner) {
                 try { await this.scanner.pause(); } catch(e) {}
             }
+            if (generation !== this.cameraGeneration) return;
 
             // Beep
             try {
@@ -424,20 +471,20 @@ function scanPage() {
             } catch(e) {}
 
             // Submit scan via fetch so we can capture the result
-            var form = document.querySelector('form[hx-post="/api/scan"]');
-            var formData = new FormData(form);
-            formData.set('isbn', code);
-            formData.set('mode', this.mode);
-            if (this.mode === 'lend') formData.set('borrower_id', this.borrowerId);
             try {
                 var resp = await fetch('/api/scan', { method: 'POST', headers: { 'X-CSRF-Token': window.csrfToken() }, body: formData });
                 if (!resp.ok) throw new Error('HTTP ' + resp.status);
                 var html = await resp.text();
+                // A submitted action is never retried/cancelled as if refused.
+                // Its server history remains authoritative after an action switch.
+                if (scanMode !== this.mode) return;
 
                 // Insert result into the scan results list
                 var results = document.getElementById('scan-results');
                 results.insertAdjacentHTML('afterbegin', html);
                 htmx.process(results.firstElementChild);
+                if (results.firstElementChild) results.firstElementChild.dispatchEvent(new CustomEvent('shelf:scan-result', {bubbles: true}));
+                if (generation !== this.cameraGeneration) return;
 
                 // Parse the result to show in overlay. scanCardOutcome (app.js)
                 // reads the card's own data-scan-* attributes; it is the same
@@ -453,14 +500,7 @@ function scanPage() {
                 // a second unresolved choice and swap the card out from
                 // under the user.
                 if (outcome && (outcome.status === 'legacy_ambiguous' || outcome.status === 'legacy_incomplete')) {
-                    if (this.scanner) {
-                        try { await this.scanner.stop(); } catch (e) {}
-                        this.scanner = false;
-                    }
-                    this.cameraActive = false;
-                    this.scanPaused = false;
-                    this.scanLoading = false;
-                    this.scanResult = false;
+                    await this.stopCamera();
                     showToast(outcome.status === 'legacy_ambiguous' ? 'Choose the matching book below' : 'Type the five digits below', 'warning');
                     return;
                 }
@@ -480,6 +520,7 @@ function scanPage() {
                 // the strip's counts (the typed path does this on afterSwap).
                 if (this.mode === 'inventory' && this.auditId) this.refreshAudit();
             } catch (err) {
+                if (generation !== this.cameraGeneration) return;
                 this.scanResult = { ok: false, warn: false, info: false, label: 'error', title: 'Scan failed', isbn: code };
             }
             this.scanLoading = false;

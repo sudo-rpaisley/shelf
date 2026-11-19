@@ -146,6 +146,34 @@ async def download(item_id: int, url: str, *, unique: bool = False, caa: bool = 
 
 
 async def _download(item_id: int, url: str, *, unique: bool, caa: bool) -> str | None:
+    content = await _read_content(url, caa=caa)
+    if content is None:
+        return None
+    COVERS_DIR.mkdir(parents=True, exist_ok=True)
+    filename = f"{item_id}-{uuid4().hex}.jpg" if unique else f"{item_id}.jpg"
+    try:
+        (COVERS_DIR / filename).write_bytes(content)
+    except OSError:
+        if unique:
+            try:
+                (COVERS_DIR / filename).unlink(missing_ok=True)
+            except OSError:
+                logger.warning("Could not remove incomplete artwork file", exc_info=True)
+        logger.warning("Could not save downloaded artwork", exc_info=True)
+        return None
+    return f"covers/{filename}"
+
+
+async def fetch_content(url: str) -> bytes | None:
+    """Read a bounded public image without writing; caller revalidates before save."""
+    try:
+        async with asyncio.timeout(35):
+            return await _read_content(url, caa=False)
+    except (TimeoutError, httpx.HTTPError, httpx.InvalidURL, OSError, ValueError):
+        return None
+
+
+async def _read_content(url: str, *, caa: bool) -> bytes | None:
     current = (url or "").strip()
     for _ in range(_MAX_REDIRECTS + 1):
         result = await _fetch_once(current)
@@ -165,19 +193,5 @@ async def _download(item_id: int, url: str, *, unique: bool, caa: bool) -> str |
         if len(content) < covers.MIN_COVER_SIZE or not covers._looks_like_image(content):
             return None
 
-        COVERS_DIR.mkdir(parents=True, exist_ok=True)
-        # Explicit artwork choices use a fresh URL: a browser/PWA may have the
-        # old filename cached, and a stale review must not overwrite that file.
-        filename = f"{item_id}-{uuid4().hex}.jpg" if unique else f"{item_id}.jpg"
-        try:
-            (COVERS_DIR / filename).write_bytes(content)
-        except OSError:
-            if unique:
-                try:
-                    (COVERS_DIR / filename).unlink(missing_ok=True)
-                except OSError:
-                    logger.warning("Could not remove incomplete artwork file", exc_info=True)
-            logger.warning("Could not save downloaded artwork", exc_info=True)
-            return None
-        return f"covers/{filename}"
+        return content
     return None

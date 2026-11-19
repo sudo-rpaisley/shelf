@@ -27,11 +27,11 @@
         {% if manual_host == 'panel' %}
         <form hx-post="/api/items/manual" hx-target="#scan-results" hx-swap="afterbegin"
               hx-include="#scan-mode, #default-tags, #default-reading-status" enctype="multipart/form-data"
-              class="space-y-3">
+              data-manual-entry class="space-y-3">
         {% else %}
         <form hx-post="/api/items/manual" hx-target="closest .scan-result" hx-swap="outerHTML"
               hx-include="#default-tags, #default-reading-status" enctype="multipart/form-data"
-              class="border-t border-shelf-border pt-3 space-y-3">
+              data-manual-entry class="border-t border-shelf-border pt-3 space-y-3">
         {% endif %}
             {% if manual_host == 'panel' %}
             {# Both are the user's to choose here, so both are visible. The
@@ -92,8 +92,11 @@
                        class="bg-shelf-bg border border-shelf-border rounded-lg px-3 py-2 text-sm text-shelf-text focus:ring-2 focus:ring-shelf-accent outline-hidden">
                 {% endif %}
             </div>
+            <details class="add-advanced">
+                <summary>{{ _('Advanced options') }}</summary>
+                <div class="space-y-3">
             <div class="grid grid-cols-2 gap-3">
-                <input type="text" name="publisher" placeholder="{{ _('Publisher') }}"
+                <input type="text" name="publisher" placeholder="{{ _('Publisher') }}" aria-label="{{ _('Publisher') }}"
                        {%- if manual_host == 'panel' %} value="{{ manual_prefill.publisher if manual_prefill else '' }}"{% endif %}
                        class="bg-shelf-bg border border-shelf-border rounded-lg px-3 py-2 text-sm text-shelf-text focus:ring-2 focus:ring-shelf-accent outline-hidden">
                 <input type="number" name="publish_year" placeholder="{{ _('Year') }}"
@@ -171,14 +174,23 @@
                     {% endfor %}
                 </select>
             </div>
-            <div>
-                <label class="text-xs text-shelf-muted">{{ _('Cover image (optional)') }}</label>
-                <input type="file" name="cover" accept="image/*"
+            {% include "fragments/manual_add_advanced_fields.html" %}
+            <label class="block text-sm text-shelf-muted">{{ _('Separate UPC / EAN (optional)') }}<input name="upc" maxlength="32" class="block w-full bg-shelf-bg border border-shelf-border rounded-lg px-3 py-2 text-sm"></label>
+                </div>
+            </details>
+            <div data-artwork-input>
+                <label class="block text-xs text-shelf-muted">{{ _('Cover image (optional)') }}
+                <input type="file" name="cover" accept="image/*" data-cover-input
                        class="block w-full text-sm text-shelf-muted file:mr-3 file:py-1.5 file:px-3 file:rounded-lg file:border-0 file:text-sm file:bg-shelf-hover file:text-shelf-text hover:file:bg-shelf-border mt-1">
+                </label>
+                <button type="button" hidden data-add-camera="photo" class="add-camera-button mt-2">{{ _('Take photo') }}</button>
+                <button type="button" hidden data-clear-cover class="text-sm text-shelf-muted underline">{{ _('Remove selected image') }}</button>
+                <img hidden data-cover-preview alt="{{ _('Selected cover preview') }}" class="add-artwork-preview">
+                <p data-cover-status role="status" class="text-xs text-shelf-muted mt-1"></p>
             </div>
             <div class="flex gap-2">
                 <button type="submit" class="px-4 py-1.5 bg-shelf-accent text-white rounded-lg text-sm hover:bg-shelf-accent2 transition-colors">
-                    {{ _('Add to Collection') }}
+                    {{ _('Save manual item') }}
                 </button>
                 {# Card only. "Skip" means "don't add this scanned miss", and
                    it sets showForm = false — on the panel that would hide the

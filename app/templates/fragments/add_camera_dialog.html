@@ -1,0 +1,23 @@
+<p data-add-camera-notice role="status" aria-live="polite" class="text-sm text-shelf-muted mt-2"></p>
+<dialog id="add-camera-dialog" data-add-camera-dialog class="add-camera-dialog" aria-labelledby="add-camera-title" aria-describedby="add-camera-help"
+        data-barcode-title="{{ _('Scan a barcode') }}" data-photo-title="{{ _('Photograph a cover') }}"
+        data-starting="{{ _('Opening camera…') }}" data-ready="{{ _('Camera ready.') }}"
+        data-failed="{{ _('Camera unavailable. Check permissions and HTTPS, or type the barcode / choose an image file instead.') }}"
+        data-invalid-code="{{ _('Use a retail ISBN / UPC / EAN here. Copy labels and collection actions belong under Scan actions.') }}"
+        data-wrong-format="{{ _('This is an ISBN. Choose a book format before using it.') }}"
+        data-filled="{{ _('Barcode captured. Review the format, method and value, then submit when ready. Nothing has been searched or saved.') }}"
+        data-image-invalid="{{ _('Choose a JPEG, PNG, GIF or WebP image up to 10 MiB.') }}"
+        data-image-selected="{{ _('Image selected. It will be uploaded only when you save.') }}"
+        data-image-removed="{{ _('Selected image removed.') }}"
+        data-closing="{{ _('The scan camera is closing. Choose Take photo again when it has stopped.') }}">
+    <div class="flex items-center justify-between gap-4 mb-3">
+        <h2 id="add-camera-title" class="text-lg font-semibold"></h2>
+        <button type="button" data-camera-close autofocus class="add-camera-button" aria-label="{{ _('Close camera') }}">{{ _('Close') }}</button>
+    </div>
+    <p id="add-camera-help" class="text-sm text-shelf-muted mb-3">{{ _('Barcode capture only fills the field. A cover photo only selects an image. Neither starts a search, recognition or save.') }}</p>
+    <div id="add-camera-reader" data-camera-reader hidden></div>
+    <video id="add-camera-barcode-video" data-camera-barcode-video autoplay muted playsinline hidden></video>
+    <video id="add-camera-photo-video" data-camera-photo-video autoplay muted playsinline hidden></video>
+    <p data-camera-status role="status" aria-live="polite" class="text-sm text-shelf-muted mt-3"></p>
+    <button type="button" data-camera-grab hidden disabled class="rounded-lg px-4 py-2 bg-shelf-accent text-white text-sm mt-3">{{ _('Use this photo') }}</button>
+</dialog>

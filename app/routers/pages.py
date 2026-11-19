@@ -4,6 +4,7 @@ from fastapi import APIRouter, Depends, Query, Request
 from fastapi.responses import RedirectResponse
 
 from app import browse_filters, features, nav
+from app import add_scan_workspace
 from app.auth import require_role
 from app.features import require_feature
 from app.config import (
@@ -27,7 +28,7 @@ from app.database import get_db, get_setting, get_game_platforms, get_reading_hi
 from app.routers import items_common
 from app.routers.items_common import SORT_OPTIONS
 from app.routers.series import find_gaps
-from app.services import item_copies, item_template, item_write
+from app.services import item_copies, item_write
 from app.services import locations as location_svc
 from app.services.home_dashboard import dashboard_summary
 
@@ -206,47 +207,10 @@ async def scan(
     malformed, zero, negative and nonexistent ids all mean the same thing: no
     prefill, a normal 200 page. Never a 404.
     """
-    try:
-        candidate = int(from_)
-    except (TypeError, ValueError):
-        candidate = 0
-
-    # An audit report's Add link seeds Add mode and the code. Honoured only
-    # as a pair: mode exactly "add" and a code of at most 64 characters.
-    seed_mode, seed_code = ("add", code) if mode == "add" and len(code) <= 64 else ("", "")
-
-    with get_db() as db:
-        locations = db.execute(
-            "SELECT * FROM locations ORDER BY sort_order, name"
-        ).fetchall()
-        game_platforms = get_game_platforms(db)
-        borrowers = db.execute(
-            "SELECT * FROM borrowers ORDER BY name"
-        ).fetchall()
-        # The same field set the copy-template endpoint serves the in-form
-        # picker, read through the one helper both share.
-        #
-        # NULL columns are normalized to "" here rather than in the helper:
-        # the endpoint serves JSON, where `null` is the honest answer and the
-        # picker's JS skips it (`applyTemplate`). A template has no such
-        # guard — Jinja renders None as the text "None", which reached the
-        # Series and Publisher inputs and made the Year input unparseable.
-        manual_prefill = {
-            name: ("" if value is None else value)
-            for name, value in (
-                (item_template.copyable_fields(db, candidate) if candidate > 0 else None)
-                or {}
-            ).items()
-        }
     return request.app.state.templates.TemplateResponse(
         request,
         "scan.html",
-        {"media_types": MEDIA_TYPES, "game_platforms": game_platforms,
-         "locations": locations, "borrowers": borrowers,
-         "manual_open": add == "manual", "manual_prefill": manual_prefill,
-         "off_scan_modes": features.disabled_scan_modes(),
-         "seed_mode": seed_mode, "seed_code": seed_code,
-         "status_label_sets": _status_label_sets()},
+        add_scan_workspace.scan_context(add=add, from_=from_, mode=mode, code=code),
     )
 
 
@@ -254,28 +218,17 @@ def _status_label_sets():
     """The Scan card's default-status words per media type: `auto` gets the
     neutral set, and every status-capable type its own. The keys other than
     `auto` are the types the control is enabled for."""
-    def words(labels):
-        return [labels.want, labels.doing, labels.done]
-    sets = {t: words(status_labels(t)) for t in sorted(STATUS_MEDIA_TYPES)}
-    return {"auto": words(status_labels(None)), **sets}
+    return add_scan_workspace.status_label_sets()
 
 
 @router.get("/intake")
 async def intake(request: Request, _=Depends(require_role("editor")),
                  __=Depends(require_feature("intake"))):
     """Shelf-photo bulk intake page."""
-    from app.database import get_all_settings
-    with get_db() as db:
-        locations = db.execute(
-            "SELECT * FROM locations ORDER BY sort_order, name"
-        ).fetchall()
-        app_settings = get_all_settings(db)
-    provider = app_settings.get("vision_provider") or ""
     return request.app.state.templates.TemplateResponse(
         request,
         "intake.html",
-        {"locations": locations, "vision_provider": provider,
-         "media_types": MEDIA_TYPES},
+        add_scan_workspace.photo_context(),
     )
 
 

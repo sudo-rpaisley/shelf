@@ -1,12 +1,16 @@
-# Add media
+# Add / Scan
 
-Editors and admins can open **Add / Scan → Add media** in the navigation bar,
+Editors and admins can open **Add / Scan** in the navigation bar,
 or visit `/add`. On smaller screens, open **Main menu** first. Search, compare
 candidates, review details and save to your collection or wishlist on the same
 page. Viewers and visitors gain no editing permission through this entry. It
 remains available when Music is turned off.
-Hiding the other Add / Scan tabs does not hide this entry. Store stays a separate
-quick destination. The dropdown and link also work without JavaScript.
+One workspace contains **Search / Manual**, **Scan actions**, **Photo Intake** and
+**Shelf Fill**. Only the selected tool is opened; ordinary Add does not start a
+scan session, recognition or a camera. Optional tools retain their existing
+feature, configuration and navigation-visibility rules. Hiding their old tabs
+does not hide core manual Add. **Store** stays separate for offline use. The
+workspace links and search/manual forms also work without JavaScript.
 
 This is separate from searching your existing library. Opening the page, typing
 or changing a choice does not contact metadata providers.
@@ -15,20 +19,31 @@ or changing a choice does not contact metadata providers.
 
 1. Choose **Add to collection** or **Add to wishlist**.
 2. Choose a concrete format and search method. Enter the title or identifier,
-   with the applicable artist, title hint, country or game platform if known.
+   with the applicable artist, title hint, country or game platform under
+   **Advanced search options** if known. Closing the dropdown retains its values.
 3. Choose **Search or continue**. Compare the candidate's provider, format,
    country, year, publisher or label and catalogue number with your item.
 4. Choose **Preview this result**, then review the actual edition or pressing.
    For music, choose which supplied catalogue fields to use; a new item needs
    Title selected. Non-music review is not a selective metadata editor.
-5. Check optional location, tags and status where offered, then save. Location
-   uses an existing numeric Location ID, not a location-name picker.
+5. Check optional location, tags and status where offered, then save. Choose an
+   existing location from the picker; it is checked again when saving.
 6. Read the **Save receipt** and check the saved item in your library. It describes
    stored state, not a promise that every provider fact replaced an existing item.
 
 Search and preview do not add catalogue items. These are ordinary full-page forms
 and also work without JavaScript. No artwork is loaded or selected in the review;
-you can add artwork later from the item page.
+manual entry can attach a cover explicitly, or you can add artwork later.
+
+### Barcode camera next to search
+
+Choose the barcode button at the end of the search field to open the camera.
+It fills a retail barcode and the corresponding ISBN/barcode method for review,
+then stops. It does **not** search, add, lend or move anything. Choose a concrete
+format and submit **Search or continue** yourself. An ISBN does not convert a
+selected music or screen format into a book. Copy labels and operational scans
+belong under **Scan actions**, not this lookup button. Camera access requires
+HTTPS and permission; typing the identifier remains available if it fails.
 
 ## Choose the right input
 
@@ -77,11 +92,38 @@ When Music is disabled, use honest manual entry rather than provider matching.
 
 ## Manual entry and existing items
 
-Choose Manual entry followed by Search or continue, or **Enter known details
-manually** after a search/preview. Check prefills and enter the real title and
-known details. Choose No identifier and leave Identifier blank when none is
-known; never invent a barcode or provider identity. Repeating an identifier-free
-manual save can create separate items.
+Use **Add by hand instead** or the manual form below search immediately; no
+preparation search is necessary. Choose Add/Wishlist, a concrete format and a
+title. Creator and cover are optional. You can also choose Manual entry followed
+by Search or continue, or use the form after a search/preview; that form retains
+its displayed captured intent.
+
+**Advanced options** exposes publisher/label, year, subtitle, description, notes,
+ISBN and a separate UPC/EAN, series/position, pages, language, game platform,
+audiobook narrator/duration/ASIN, value, location, tags, status and progress dates.
+Both identifiers are checked independently. Leave unknown identifiers blank;
+never invent a barcode or provider identity. Closed advanced controls keep their
+values. With JavaScript, fields for other formats are disabled without clearing
+them; without JavaScript, leave those inapplicable fields blank.
+
+The optional **Copy** picker finds an existing item after an explicit **Find**
+and copies only its existing template subset: creator, publisher, year, format
+where editable, platform, series and location. It does not copy title, identifiers,
+artwork, notes, value, provider IDs, personal activity or history.
+
+**Take photo** next to Cover opens mobile capture or a desktop viewfinder. A
+selected/captured image previews locally and is uploaded only on **Save manual
+item**; it does not run recognition. Ordinary file selection works without the
+camera or JavaScript. JPEG, PNG, GIF and WebP are accepted up to 10 MiB. An
+alternative public HTTPS image URL is under Advanced options; use a file or a
+URL, not both. The URL is downloaded only on explicit Save with public-address
+and redirect checks. A cover failure can still leave a successfully saved item:
+read the warning receipt rather than submitting it again.
+
+Repeating an identifier-free manual save can create separate items. Duplicates
+and wishlist promotions keep their stored metadata/artwork; restoring by an
+identifier keeps stored metadata, copies and history. An explicitly supplied
+cover may replace restored artwork, as with the existing manual flow.
 
 Native duplicates, wishlist promotion and identifier-based restoration are
 different outcomes. Music release-review saves do not promote or restore an
@@ -103,13 +145,22 @@ use its new form. Leave inapplicable refinements blank and use Automatic for
 non-music formats.
 
 Expired/stale reviews need a fresh search and preview. If sign-in or editing
-permission changes, open Add media again. The optional script manages field
-applicability and invalidation only: no typing lookup, offline save queue or
-Add-host localStorage preferences are introduced.
+permission changes, open Add / Scan again. Optional scripts manage field
+applicability, invalidation, explicitly requested copy lookup and local capture;
+there is no typing lookup, offline save queue or new Add-host preference storage.
 
-## Existing tools remain
+## Scan actions, Photo Intake and Shelf Fill
 
-`/scan`, existing APIs and specialist Music routes remain available. Scan retains
-Add, Wishlist, Lend, Return, Move, Inventory, Lookup and Quick Rate. See
-[Scanning](scanning.md), [Music](music.md) and
-[Wishlist and Store Mode](wishlist-and-store-mode.md) for their separate workflows.
+**Scan actions** keeps all eight actions in its action dropdown: Add, Wishlist,
+Lend, Return, Move, Inventory, Lookup and Quick Rate. Unlike the search-field
+camera, this is the continuous operational scanner: scans perform the selected
+action. Check that action, borrower and location first. Copy labels, audit
+sessions, legacy barcode choices, default tags/status and recent results remain.
+
+**Photo Intake** keeps explicit Read Photo, resolution/tiling/cost choices, review
+and final confirmation. Taking a cover photo is not this recognition workflow.
+**Shelf Fill** keeps physical shelf selection and ordered positions. See
+[Scanning](scanning.md), [Photo Intake](photo-intake.md), [Shelf Fill](shelf-fill.md)
+and [Music](music.md). `/scan`, `/intake`, `/shelf-fill`, their deep links and APIs
+remain compatible views of the same workspace. Store stays outside it; see
+[Wishlist and Store Mode](wishlist-and-store-mode.md).

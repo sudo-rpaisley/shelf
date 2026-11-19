@@ -15,8 +15,10 @@ Shelf is still a catalogue and front door to other services, not a media server
 or player.
 
 **Explore** opens downward to its enabled destinations, including Series and
-Stats when available. It behaves like the Add / Scan dropdown,
-not an expanded strip across the navigation bar.
+Stats when available, not an expanded strip across the navigation bar.
+**Add / Scan** instead opens one workspace containing search/manual entry,
+operational scans, Photo Intake and Shelf Fill. Their permission/feature gates
+remain, and Store keeps its separate offline destination.
 
 ## Enable or hide the experiment
 
@@ -75,8 +77,9 @@ the caption; tapping a cover opens the full item. Artwork keeps its proportions.
 Open **About this Library** for catalogue, item-size, cached-availability and
 grouping/series explanations. Search, presets and live controls stay outside Help.
 
-**Item size**, beside **Commands** at the top right, uses one common cover-width
+**Item size**, at the top right, uses one common cover-width
 scale across catalogue pages, including every **Local series** view and drilldown.
+On Home it aligns with the **Home** heading, wrapping below it on narrow screens.
 The native slider runs from 50% to 200%, with 100% in the center. Move left to fit
 more items across or right for larger covers; narrow screens share the same cap.
 Text stays readable, artwork keeps its proportions, and item order and results
@@ -86,6 +89,8 @@ If storage is blocked, sizing still works on the current page with an explanatio
 Refresh after a cached Back/Forward restore before editing the saved value.
 Printed/exported artwork, public shares and scanning/editor/provider previews are
 not resized by this setting. No catalogue or server preference data is written.
+**Commands** is the small round ⌘ button just above **?** at the bottom left;
+Ctrl+K / ⌘K opens the same palette.
 
 ### Groups are equivalent formats, not adaptations
 

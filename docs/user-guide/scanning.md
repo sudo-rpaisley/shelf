@@ -1,8 +1,14 @@
 # Scanning
 
-The **Scan** tab is where items enter Shelf and where most day-to-day actions
-happen. One barcode field, one mode selector, and a strip of recent scans —
-plus title search and **Add by hand** for the things a barcode cannot reach.
+Open **Add / Scan → Scan actions** for operational barcode scanning. The shared
+workspace also contains full **Search / Manual**, **Photo Intake** and **Shelf
+Fill**; Store stays separate for offline use. Existing `/scan` links still open
+the Scan actions view. It keeps the barcode field, action dropdown and recent
+scans, plus its compatible title-search and Add by hand entry paths.
+
+The barcode button beside **Search / Manual**'s search field is different: it
+only fills that field and method, without submitting anything. Here, each camera
+scan performs the action selected below. See [Add / Scan](add-media.md).
 
 ## Input methods
 
@@ -11,7 +17,8 @@ for the device — ZXing on iOS Safari, html5-qrcode everywhere else — and
 reads EAN-13, EAN-8, UPC-A, UPC-E and Code 128 copy labels
 ([Copy labels](labels.md)). Requires HTTPS (the default, or a TLS reverse proxy in front) and a
 one-time camera permission. Hold steady about 10–15 cm away; the viewfinder
-beeps and fills the field on a read.
+beeps, performs the selected action and pauses on its result. Use **Scan Next**
+to continue. Changing action stops this camera; opening the page does not start it.
 
 **USB or Bluetooth barcode scanner.** Any scanner that types the barcode and
 sends Enter (the default for nearly all of them) works: click into the
@@ -38,7 +45,8 @@ device last left in one of them opens in **Add**.
 | **Lookup** | Read-only: tells you whether the item is in your library (and where, and whether it's lent out). Changes nothing |
 | **Quick Rate** | Marks the item finished with today's date — Watched for a disc, Played for a game, Read otherwise |
 
-The Scan tab is for editors and admins; viewers don't see it.
+The workspace's editing and scan tools are for editors and admins; viewers do not
+gain editing permission through the merged entry.
 
 ### Scanning an item that is in Trash
 
@@ -192,9 +200,16 @@ fields and ownership choices before saving.
 
 ## Add by hand
 
-Nothing needs a barcode. **Add by hand** is a panel on the Scan page, below
-title search, and a title is the only field it requires. Everything else is
-optional and editable afterwards from the item page.
+Nothing needs a barcode. The primary **Search / Manual** view offers full manual
+entry immediately, with an explicit concrete format and title. **Advanced
+options** holds the optional item metadata; Cover has file and photo capture.
+Its identifiers, artwork and captured Add/Wishlist rules are described in
+[Add / Scan](add-media.md#manual-entry-and-existing-items).
+
+The compatible **Add by hand** panel below Scan actions' title search and manual
+forms on failed-scan cards remain. Their optional advanced metadata uses the same
+validation and persistence. The panel retains its existing device-format defaults
+and copy-from behavior; the main manual form never silently chooses Book.
 
 Open it with the **Add by hand** button, or go straight to `/scan?add=manual`.
 It is available in **Add** and **Wishlist** modes; arriving by the link from

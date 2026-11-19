@@ -11,11 +11,15 @@ See [Connected library](connected-library.md) for mixed-format Library views.
 **Explore** opens a downward dropdown of its available destinations, such as
 Series and Stats. Its links are stacked below the label, not alongside it.
 On a small screen, open **Main menu** first.
+**Add / Scan** is one workspace link, not separate Add, Scan, Intake and Shelf Fill
+navigation entries. Its manual form and advanced options are described in
+[Add / Scan](add-media.md); offline Store remains separate.
 
 ## Commands
 
-Use **Commands** above the page, or **Ctrl+K** / **⌘K**, to find a destination from
-your available navigation or search the catalogue. Type up to 200 characters,
+Use the small round **Commands** (⌘) button just above **?** at the bottom left,
+or **Ctrl+K** / **⌘K**, to find a destination from your available navigation or
+search the catalogue. Type up to 200 characters,
 use the arrow keys to choose, then Enter to follow the link. Escape closes the
 palette and returns focus. The shortcut leaves typing, composition and other open
 dialogs alone.
@@ -30,6 +34,8 @@ Without native dialog support, use **Media → Library** (open **Main menu** fir
 on a small screen). When Library is unavailable, the Browse fallback stays directly
 visible. Menus are not opened automatically. The **B** shortcut uses the same
 Library-or-Browse destination.
+Commands can also open the available **Add / Scan** workspace. This is navigation
+only; it never submits a search, opens a camera or performs a scan action.
 
 ## Views
 
@@ -40,7 +46,8 @@ boxes. Open an item for its complete metadata, copies and source actions. Browse
 keeps selection, wishlist and lending badges. Detail/list screens retain their own
 metadata and controls.
 
-**Item size** is in the shared top-right toolbar beside **Commands**. One native
+**Item size** is at the top right; on Home it shares the **Home** heading row
+and wraps below the heading when space is limited. One native
 slider controls catalogue cover widths across Home, Browse (grid and list), all
 Library views, local Music, Series, My Activity and catalogue detail/list pages.
 Cards use a common base width, not different percentage bases on each page;

@@ -1,12 +1,13 @@
-{% extends "base.html" %}
-{% block title %}Shelf Fill — Shelf{% endblock %}
-{% block head %}
+{% extends "add_scan_base.html" %}
+{% set workspace_tool = 'shelf' %}
+{% block title %}{{ _('Shelf Fill — Add / Scan') }} — Shelf{% endblock %}
+{% block workspace_head %}
 <script src="/static/vendor/html5-qrcode-2.3.8.min.js"></script>
 <script src="/static/vendor/zxing-browser-0.1.5.min.js"></script>
 {% endblock %}
-{% block content %}
+{% block workspace_content %}
 <div class="page-layout" x-data="shelfFillPage">
-    <h1 class="text-2xl font-bold mb-1">Shelf Fill</h1>
+    <h2 class="text-xl font-bold mb-1">{{ _('Shelf Fill') }}</h2>
     <p class="text-sm text-shelf-muted mb-6">Choose the physical shelf once, then scan items onto it in the order they sit there — each scan takes the next position on that shelf. Pick a different shelf and its numbering starts again. Items already catalogued move without a fresh metadata lookup; unknown barcodes go through Shelf's normal Add pipeline first. Reorder any shelf later on its <span class="text-shelf-text">Arrange</span> page.</p>
 
     <div class="workspace-layout" data-testid="shelf-fill-workspace">

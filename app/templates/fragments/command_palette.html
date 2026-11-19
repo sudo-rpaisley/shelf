@@ -7,7 +7,13 @@
         <p>{{ _('Use the primary navigation above to browse destinations. Command search needs JavaScript and native dialog support.')|forceescape }}</p>
     </details>
     <button type="button" class="command-palette__launch" data-command-palette-launcher
-            aria-haspopup="dialog" aria-controls="command-palette-dialog" aria-expanded="false" hidden>{{ _('Commands')|forceescape }}</button>
+            aria-label="{{ _('Commands')|forceescape }}" title="{{ _('Commands')|forceescape }}"
+            aria-keyshortcuts="Control+K Meta+K"
+            aria-haspopup="dialog" aria-controls="command-palette-dialog" aria-expanded="false" hidden>
+        <span class="command-palette__launch-icon" aria-hidden="true">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" focusable="false"><path stroke-linecap="round" stroke-linejoin="round" d="M18 8a3 3 0 1 0-3-3v14a3 3 0 1 0 3-3H6a3 3 0 1 0 3 3V5a3 3 0 1 0-3 3Z"/></svg>
+        </span>
+    </button>
     <dialog id="command-palette-dialog" class="command-palette__dialog" data-command-palette-dialog
             aria-labelledby="command-palette-title" aria-describedby="command-palette-hint"
             data-search-label="{{ _('Search catalogue for “{query}”')|forceescape }}"

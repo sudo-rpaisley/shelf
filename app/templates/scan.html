@@ -1,29 +1,27 @@
-{% extends "base.html" %}
-{% block title %}Scan — Shelf{% endblock %}
-{% block head %}
+{% extends "add_scan_base.html" %}
+{% set workspace_tool = 'scan' %}
+{% block title %}{{ _('Scan actions — Add / Scan') }} — Shelf{% endblock %}
+{% block workspace_head %}
 <script src="/static/vendor/html5-qrcode-2.3.8.min.js"></script>
 <script src="/static/vendor/zxing-browser-0.1.5.min.js"></script>
+<script src="/static/js/intake-capture.js"></script>
+<script src="/static/js/add-manual.js" defer></script>
+<script src="/static/js/add-camera.js" defer></script>
 {% endblock %}
-{% block content %}
+{% block workspace_content %}
 <div class="page-layout" x-data="scanPage" data-off-modes="{{ off_scan_modes }}"
      {% if seed_mode %}data-seed-mode="{{ seed_mode }}"{% endif %}{% if seed_code %} data-seed-code="{{ seed_code }}"{% endif %}
      data-status-labels='{{ status_label_sets | tojson }}'>
 
-    <!-- Mode Switcher -->
-    <div class="flex flex-wrap gap-2 mb-4">
-        <template x-for="m in modes" :key="m.id">
-            <button @click="setMode(m.id)" type="button"
-                    :class="mode === m.id
-                        ? 'bg-shelf-accent text-white border-shelf-accent'
-                        : 'bg-shelf-card text-shelf-muted border-shelf-border hover:text-shelf-text hover:border-shelf-accent/50'"
-                    class="border rounded-lg px-3 py-1.5 text-sm transition-colors"
-                    x-text="m.label">
-            </button>
-        </template>
+    <div class="mb-4 max-w-md">
+        <label for="scan-action" class="block text-sm font-medium text-shelf-muted mb-1">{{ _('Scan action') }}</label>
+        <select id="scan-action" x-model="mode" @change="setMode(mode)" class="w-full bg-shelf-bg border border-shelf-border rounded-lg px-3 py-2 text-shelf-text">
+            <template x-for="m in modes" :key="m.id"><option :value="m.id" x-text="m.label"></option></template>
+        </select>
     </div>
 
     <!-- Mode heading + description -->
-    <h1 class="text-2xl font-bold mb-1" x-text="modeConfig.heading"></h1>
+    <h2 class="text-xl font-bold mb-1" x-text="modeConfig.heading"></h2>
     <p class="text-sm text-shelf-muted mb-6" x-text="modeConfig.description"></p>
 
     <!-- Inventory: the audit strip. Outside the scan form, so it adds no field
@@ -311,4 +309,5 @@
 <script src="/static/js/scanner-engine.js"></script>
 <script src="/static/js/scan.js"></script>
 <script src="/static/js/tag-suggest.js"></script>
+{% include "fragments/add_camera_dialog.html" %}
 {% endblock %}

@@ -547,6 +547,10 @@ document.addEventListener('alpine:init', function () {
                     return o.value === value;
                 })) return;
                 this.mediaType = value;
+                if (sel) {
+                    sel.value = value;
+                    sel.dispatchEvent(new Event('change', {bubbles: true}));
+                }
             },
             onCopyInput() {
                 var self = this;

@@ -1,0 +1,23 @@
+{# Optional editable metadata, shared by native manual entry and scan misses.
+   Labels wrap controls so several cards never create duplicate IDs. #}
+{% set manual_values = manual_values|default({}) %}
+{% set advanced_control = control_class|default('block w-full min-w-0 mt-1 bg-shelf-bg border border-shelf-border rounded-lg px-3 py-2 text-sm text-shelf-text') %}
+<div class="grid grid-cols-1 sm:grid-cols-2 gap-4" data-manual-extra-fields>
+    <label class="block text-sm text-shelf-muted">{{ _('Subtitle') }}<input name="subtitle" maxlength="200" value="{{ manual_values.get('subtitle') or '' }}" class="{{ advanced_control }}"></label>
+    <label class="block text-sm text-shelf-muted">{{ _('Pages') }}<input name="page_count" type="number" min="0" max="999999999" step="1" value="{{ manual_values.get('page_count', '') }}" class="{{ advanced_control }}"></label>
+    <label class="block text-sm text-shelf-muted">{{ _('Series position') }}<input name="series_position" type="number" step="any" min="-1000000000000" max="1000000000000" value="{{ manual_values.get('series_position', '') }}" class="{{ advanced_control }}"></label>
+    <label class="block text-sm text-shelf-muted">{{ _('Value') }}<input name="manual_value" type="number" min="0" max="1000000000000" step="0.01" value="{{ manual_values.get('manual_value', '') }}" class="{{ advanced_control }}"></label>
+</div>
+<fieldset data-manual-types="audiobook" class="grid grid-cols-1 sm:grid-cols-3 gap-4">
+    <legend class="text-sm font-medium mb-2">{{ _('Audiobook details') }}</legend>
+    <label class="block text-sm text-shelf-muted">{{ _('Narrator') }}<input name="narrator" maxlength="200" value="{{ manual_values.get('narrator') or '' }}" class="{{ advanced_control }}"></label>
+    <label class="block text-sm text-shelf-muted">{{ _('Duration (minutes)') }}<input name="duration_mins" type="number" min="0" max="999999999" step="1" value="{{ manual_values.get('duration_mins', '') }}" class="{{ advanced_control }}"></label>
+    <label class="block text-sm text-shelf-muted">{{ _('ASIN') }}<input name="asin" maxlength="10" value="{{ manual_values.get('asin') or '' }}" class="{{ advanced_control }}"></label>
+</fieldset>
+<fieldset data-manual-types="book audiobook ebook comic manga dvd digital_video tv_series video_game" class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+    <legend class="text-sm font-medium mb-2">{{ _('Progress dates (optional)') }}</legend>
+    <label class="block text-sm text-shelf-muted">{{ _('Date started') }}<input name="date_started" type="date" value="{{ manual_values.get('date_started') or '' }}" class="{{ advanced_control }}"></label>
+    <label class="block text-sm text-shelf-muted">{{ _('Date finished') }}<input name="date_finished" type="date" value="{{ manual_values.get('date_finished') or '' }}" class="{{ advanced_control }}"></label>
+</fieldset>
+<label class="block text-sm text-shelf-muted">{{ _('Description') }}<textarea name="description" rows="4" maxlength="10000" class="{{ advanced_control }}">{{ manual_values.get('description') or '' }}</textarea></label>
+<label class="block text-sm text-shelf-muted">{{ _('Notes') }}<textarea name="notes" rows="3" maxlength="10000" class="{{ advanced_control }}">{{ manual_values.get('notes') or '' }}</textarea></label>

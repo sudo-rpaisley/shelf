@@ -32,6 +32,31 @@
 .media-display-tools > .command-palette { padding-block: 0; }
 .cover-size-panel { position: relative; min-inline-size: 0; max-inline-size: 100%; }
 
+/* Home chooses the same shell-owned panel in its actual heading row. Match the
+   first slider line, not later saved/storage/no-JS messages, and wrap naturally
+   when title + controls cannot fit. No offsets or second preference control. */
+.home-header__row {
+    --home-heading-row-min: max(44px, 2rem);
+    display: flex;
+    flex-wrap: wrap;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 0.5rem 1.25rem;
+}
+.home-header__row > h1 {
+    display: flex;
+    align-items: center;
+    min-inline-size: 0;
+    min-block-size: var(--home-heading-row-min);
+}
+.home-header__tools {
+    flex: 0 1 auto;
+    min-inline-size: 0;
+    max-inline-size: 100%;
+    margin-inline-start: auto;
+}
+.home-header__tools .cover-size-control__range { min-block-size: var(--home-heading-row-min); }
+
 .cover-size-control {
     position: relative;
     display: flex;
@@ -230,7 +255,9 @@
 }
 
 @media print {
-    .media-display-tools, [data-cover-size-panel], [data-cover-size-control] { display: none !important; }
+    .media-display-tools, .home-header__tools, [data-cover-size-panel], [data-cover-size-control] { display: none !important; }
+    .home-header__row, .home-header__row > h1 { display: block; }
+    .home-header__row > h1 { min-block-size: 0; }
     /* Fixed producer print budgets, never the browser's screen preference.
        Captions remain normal printable text for cover-only shared cards. Other
        producers retain their separate title/metadata; the canvas data is untouched. */

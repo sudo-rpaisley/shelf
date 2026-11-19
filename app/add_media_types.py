@@ -73,6 +73,7 @@ class ManualValues:
     platform: str | None = None
     series_name: str | None = None
     language: str | None = None
+    extra_fields: tuple[tuple[str, str | int | float], ...] = ()
 
 
 @dataclass(frozen=True, slots=True)

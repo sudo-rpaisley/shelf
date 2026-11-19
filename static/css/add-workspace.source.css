@@ -1,0 +1,20 @@
+/* Loaded by the online workspace, independently of an older cached app.css. */
+.add-workspace { min-width: 0; }
+.add-workspace__tools { display: flex; flex-wrap: wrap; gap: .5rem; padding-top: .5rem; }
+.add-workspace__tools a { border: 1px solid var(--color-shelf-border, #2d3348); border-radius: .5rem; padding: .5rem .75rem; font-size: .875rem; }
+.add-workspace__tools a[aria-current="page"] { color: var(--color-shelf-accent2, #a78bfa); border-color: currentColor; }
+.add-field-camera { display: flex; align-items: stretch; gap: .5rem; min-width: 0; }
+.add-field-camera > input { flex: 1 1 0%; min-width: 0; }
+.add-camera-button { flex: 0 0 auto; align-self: center; min-width: 2.75rem; min-height: 2.75rem; border: 1px solid var(--color-shelf-border, #2d3348); border-radius: .5rem; padding: .5rem; }
+.add-camera-button svg { width: 1.25rem; height: 1.25rem; margin: auto; }
+.add-advanced { border: 1px solid var(--color-shelf-border, #2d3348); border-radius: .75rem; padding: .75rem; }
+.add-advanced > summary { cursor: pointer; font-size: .875rem; font-weight: 600; }
+.add-advanced[open] > summary { margin-bottom: 1rem; }
+.add-artwork-preview { display: block; max-width: 10rem; max-height: 12rem; object-fit: contain; margin-top: .75rem; }
+.add-workspace [hidden] { display: none !important; }
+.add-camera-dialog { width: min(36rem, calc(100vw - 2rem)); max-height: calc(100dvh - 2rem); overflow: auto; color: inherit; background: var(--color-shelf-card, #1a1d2b); border: 1px solid var(--color-shelf-border, #2d3348); border-radius: .75rem; padding: 1rem; }
+.add-camera-dialog::backdrop { background: rgb(0 0 0 / .75); }
+.add-camera-dialog video { display: block; width: 100%; max-height: 60dvh; background: black; }
+.add-workspace :is(a, button, summary):focus-visible,
+.add-camera-dialog button:focus-visible { outline: 2px solid var(--color-shelf-accent2, #a78bfa); outline-offset: 3px; }
+@media print { .add-workspace__tools, .add-camera-button, .add-camera-dialog { display: none; } }

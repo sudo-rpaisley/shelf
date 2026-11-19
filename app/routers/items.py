@@ -11,6 +11,7 @@ from starlette.responses import StreamingResponse
 from app import browse_filters
 from app import i18n
 from app import nav
+from app import add_manual_fields
 from app.add_media_types import AddDetails, CapturedAddIntent, DbAddResult, ManualValues
 from app.auth import require_role
 
@@ -672,7 +673,7 @@ def _commit_manual_add(db, values: ManualValues, *, mode="add", details: AddDeta
                     isbn=values.isbn13, upc=values.upc_code, media_type=values.media_type,
                     publisher=values.publisher, publish_year=values.publish_year, platform=values.platform,
                     series_name=values.series_name, location_id=details.location_id,
-                    language=values.language, source="manual")
+                    language=values.language, source="manual", **add_manual_fields.extra_dict(values.extra_fields))
         except sqlite3.IntegrityError:
             # Preserve the old race/old-barcode recovery seam. New-host errors
             # escape the transaction, so failed default work cannot be committed.
@@ -771,9 +772,16 @@ async def manual_add(request: Request, _=Depends(require_role("editor"))):
         with get_db() as db:
             # The duplicate guard and the mutation share this write lock.
             db.execute("BEGIN IMMEDIATE")
+            extras = add_manual_fields.extra_values(form, media_type)
+            secondary_upc = (form.get("upc") or "").strip()
+            if secondary_upc:
+                valid, secondary_upc = upc_svc.canonical_retail_barcode(secondary_upc)
+                if not valid or (upc_code and secondary_upc != upc_code):
+                    raise ItemValueError("Invalid or conflicting retail barcode")
+                upc_code = secondary_upc
             result = _commit_manual_add(
                 db, ManualValues(title, form.get("authors"), media_type, isbn13, upc_code,
-                                 form.get("publisher"), pub_year, platform, series_name, language),
+                                 form.get("publisher"), pub_year, platform, series_name, language, extras),
                 mode=mode, details=AddDetails(location_id, form.get("tags") or "", form.get("reading_status") or ""))
             item_id = result.item_id
             if result.status in {"duplicate", "promoted"}:
@@ -818,7 +826,7 @@ async def manual_add(request: Request, _=Depends(require_role("editor"))):
     try:
         cover_file = form.get("cover")
         if cover_file and hasattr(cover_file, "read"):
-            content = await cover_file.read()
+            content = await cover_file.read(covers.MAX_COVER_SIZE + 1)
             if content and len(content) > 100:
                 cover_path = covers.save_uploaded_cover(item_id, content)
 
@@ -1555,4 +1563,3 @@ async def test_igdb_key(request: Request, _=Depends(require_role("admin"))):
         return {"ok": False, "message": "Both Client ID and Client Secret are required"}
     async with httpx.AsyncClient(timeout=HTTP_TIMEOUT) as client:
         return await igdb.test_credentials(client_id, client_secret, client)
-
