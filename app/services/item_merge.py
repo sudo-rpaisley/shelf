@@ -168,8 +168,8 @@ def reparent_children(db, keep_id: int, other_id: int) -> None:
     Must run before the caller deletes the ``other_id`` row. Safe to call
     when the merged row has no children.
 
-    **What is deliberately not moved, and why.** ``romm_records``,
-    ``komga_records``, ``periodical_issues`` and the ``music_*`` tables each
+    **What is deliberately not moved, and why.** ``periodical_issues`` and the
+    ``music_*`` tables each
     key a single item by design — a row there describes *this* item's
     external record or its track list, not a fact about the work that should
     survive onto another row. They are left to the cascade. So is
@@ -198,6 +198,11 @@ def reparent_children(db, keep_id: int, other_id: int) -> None:
     # A connected source describes availability, not catalogue identity. Its
     # instance-scoped external key stays unchanged when duplicate items merge.
     db.execute("UPDATE source_records SET item_id = ? WHERE item_id = ?", (keep_id, other_id))
+    # These tables are keyed by remote identity, not by item_id. A user-confirmed
+    # merge must keep every binding or the next rescan imports the losing ID as
+    # a new catalogue item again. No remote ID, library or platform is rewritten.
+    db.execute("UPDATE komga_records SET item_id = ? WHERE item_id = ?", (keep_id, other_id))
+    db.execute("UPDATE romm_records SET item_id = ? WHERE item_id = ?", (keep_id, other_id))
     db.execute(
         "INSERT OR IGNORE INTO cover_sync_blocks (item_id, blocked, created_at) "
         "SELECT ?, blocked, created_at FROM cover_sync_blocks WHERE item_id = ?", (keep_id, other_id),

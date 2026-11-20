@@ -14,7 +14,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from app.services import metadata_policy
+from app.services import import_bindings, metadata_policy
 from app.services.item_write import insert_item
 
 
@@ -55,7 +55,7 @@ def _existing_record(db, romm_id: str):
     A primary key means at most one record, so no live-first ordering.
     """
     return db.execute(
-        "SELECT rr.*, i.source, i.deleted_at FROM romm_records rr "
+        "SELECT rr.*, i.source, i.media_type, i.deleted_at FROM romm_records rr "
         "JOIN items i ON i.id = rr.item_id WHERE rr.romm_id = ?",
         (romm_id,),
     ).fetchone()
@@ -88,6 +88,12 @@ def persist_candidate(db, candidate: dict[str, Any]) -> dict[str, Any]:
     source_key = f"romm:{romm_id}"
     metadata_policy.begin_write(db)
     existing = _existing_record(db, romm_id)
+    recovered = False
+    if existing is None:
+        previous = import_bindings.previous_item(db, "romm", romm_id)
+        if previous is not None:
+            existing = {**dict(previous), "item_id": previous["id"]}
+            recovered = True
     if existing is not None and existing["deleted_at"] is not None:
         # Skipped before any write. RomM rows carry no ISBN or UPC, so the
         # funnel could never refuse one — this matcher skip IS the fix. The
@@ -95,10 +101,13 @@ def persist_candidate(db, candidate: dict[str, Any]) -> dict[str, Any]:
         # counting the action (claude-R3).
         return {"item_id": existing["item_id"], "action": "in_trash"}
     if existing is not None and existing["source"] != "romm":
-        raise RomMPersistenceError(
-            "RomM identity is attached to a non-RomM catalogue item; "
-            "resolve that link explicitly before syncing"
-        )
+        previous = import_bindings.previous_item(db, "romm", romm_id)
+        if (existing["media_type"] != "video_game" or previous is None
+                or previous["id"] != existing["item_id"]):
+            raise RomMPersistenceError(
+                "RomM identity is attached to a non-RomM catalogue item without "
+                "a compatible prior import; resolve that link explicitly before syncing"
+            )
 
     platform = ensure_platform(
         db,
@@ -108,12 +117,17 @@ def persist_candidate(db, candidate: dict[str, Any]) -> dict[str, Any]:
     fields = _fields(candidate, platform)
 
     if existing is not None:
-        metadata_policy.refresh_metadata(db, existing["item_id"], source_key, fields)
-        db.execute(
-            "UPDATE romm_records SET platform_id = ?, updated_at = datetime('now') "
-            "WHERE romm_id = ?",
-            (romm_platform_id, romm_id),
-        )
+        metadata_policy.refresh_metadata(db, existing["item_id"], source_key, fields,
+                                         fill_only=existing["source"] != "romm")
+        if recovered:
+            db.execute("INSERT INTO romm_records (romm_id, item_id, platform_id) VALUES (?, ?, ?)",
+                       (romm_id, existing["item_id"], romm_platform_id))
+        else:
+            db.execute(
+                "UPDATE romm_records SET platform_id = ?, updated_at = datetime('now') "
+                "WHERE romm_id = ?",
+                (romm_platform_id, romm_id),
+            )
         return {"item_id": existing["item_id"], "action": "updated"}
 
     # restore_trashed=False for class consistency with the other sync

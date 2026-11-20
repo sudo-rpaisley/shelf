@@ -9,11 +9,19 @@
      data-cover-size-unverified="{{ _('Sign-in could not be confirmed; size changes apply to this page only. Retry saving when connected.')|forceescape }}"
      data-cover-size-changed="{{ _('This sign-in has changed; size changes apply to this page only.')|forceescape }}"
      data-cover-size-unsaved="{{ _('Size changed on this page; move the slider again to save for this account.')|forceescape }}">
-    <label class="cover-size-control__range">
-        <span>{{ (_('Item size') if _item_density else _('Cover size'))|forceescape }}</span>
-        <input type="range" min="0" max="10" step="1" value="5" aria-valuetext="100%" disabled data-cover-size-input>
-    </label>
-    <output class="cover-size-control__output" aria-live="off" data-cover-size-output>100%</output>
+    <div class="cover-size-control__range">
+        <span class="cover-size-control__icon" data-cover-size-icon="smaller" aria-hidden="true" title="{{ _('Smaller covers')|forceescape }}">
+            <svg viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><rect x="8" y="8" width="9" height="13" rx="1.5"/><path d="M10.5 13h4"/></svg>
+        </span>
+        <label class="cover-size-control__slider">
+            <span class="cover-size-control__text">{{ (_('Item size') if _item_density else _('Cover size'))|forceescape }}</span>
+            <input type="range" min="0" max="10" step="1" value="5" aria-valuetext="100%" disabled data-cover-size-input>
+        </label>
+        <span class="cover-size-control__icon" data-cover-size-icon="larger" aria-hidden="true" title="{{ _('Larger covers')|forceescape }}">
+            <svg viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><rect x="4" y="2" width="16" height="20" rx="2"/><path d="M9 11h6m-3-3v6"/></svg>
+        </span>
+    </div>
+    <output class="cover-size-control__output cover-size-control__text" aria-live="off" data-cover-size-output>100%</output>
     <p class="cover-size-control__note media-card__sr-only">{{ _('One size across catalogue pages, for this account in this browser.')|forceescape }}</p>
     <p class="cover-size-control__status" data-cover-size-status role="status" hidden></p>
     <button type="button" class="text-xs text-shelf-accent2 underline" data-cover-size-retry hidden disabled>{{ _('Retry saving')|forceescape }}</button>

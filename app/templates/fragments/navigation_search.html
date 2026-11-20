@@ -2,9 +2,13 @@
    hidden query copies or JS mirroring. Other pages use the eligible nav target. #}
 {% macro navigation_search_fields(form_id=none, query='', max_length=300) -%}
 <label for="library-q" class="media-navigation__search-label">{{ _('Search your library')|forceescape }}</label>
-<input id="library-q" name="q" value="{{ query|forceescape }}" type="search" maxlength="{{ max_length }}"
-       class="media-navigation__search-input" placeholder="{{ _('Search your library')|forceescape }}"{% if form_id %} form="{{ form_id }}"{% endif %}>
-<button type="submit" class="media-navigation__search-submit"{% if form_id %} form="{{ form_id }}"{% endif %}>{{ _('Search')|forceescape }}</button>
+<span class="media-navigation__search-field">
+    <input id="library-q" name="q" value="{{ query|forceescape }}" type="search" maxlength="{{ max_length }}"
+           class="media-navigation__search-input" placeholder="{{ _('Search your library')|forceescape }}"{% if form_id %} form="{{ form_id }}"{% endif %}>
+    <button type="submit" class="media-navigation__search-submit" aria-label="{{ _('Search')|forceescape }}" title="{{ _('Search')|forceescape }}"{% if form_id %} form="{{ form_id }}"{% endif %}>
+        <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true" focusable="false"><circle cx="10.5" cy="10.5" r="6.5"/><path d="m15.5 15.5 4.5 4.5"/></svg>
+    </button>
+</span>
 {%- endmacro %}
 {% if _library_search %}
 <div class="media-navigation__search" role="search" aria-label="{{ _('Search your library')|forceescape }}" data-navigation-search>

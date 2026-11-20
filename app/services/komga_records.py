@@ -19,7 +19,7 @@ from typing import Any
 
 from app.config import MEDIA_TYPES
 from app.services import isbn as isbn_svc
-from app.services import metadata_policy
+from app.services import import_bindings, metadata_policy
 from app.services.item_write import IdentifierInTrash, insert_item, update_item_fields
 
 KOMGA_KINDS = frozenset({"comic", "manga"})
@@ -145,12 +145,21 @@ def _check_reclassification(existing, media_type: str) -> None:
         )
 
 
+def _insert_record(db, komga_id, item_id, library_id, series_id, kind):
+    db.execute(
+        "INSERT INTO komga_records (komga_id, item_id, library_id, series_id, kind) "
+        "VALUES (?, ?, ?, ?, ?)",
+        (komga_id, item_id, library_id, series_id, kind),
+    )
+
+
 def persist_candidate(db, candidate: dict[str, Any]) -> dict[str, Any]:
     """Create/update one Komga holding and return the persistence decision.
 
     Identity rules are intentionally conservative:
 
     * an existing ``komga_id`` always updates the item it already owns;
+    * a missing binding can recover one exact prior ``komga:<id>`` target;
     * otherwise an exact ISBN match of the same Shelf media type is adopted;
     * title/series similarity is never enough to adopt an existing item;
     * a new item is created when no strong identifier exists.
@@ -174,6 +183,12 @@ def persist_candidate(db, candidate: dict[str, Any]) -> dict[str, Any]:
 
     metadata_policy.begin_write(db)
     existing = _existing_record(db, komga_id)
+    recovered = False
+    if existing is None:
+        previous = import_bindings.previous_item(db, "komga", komga_id)
+        if previous is not None:
+            existing = {**dict(previous), "item_id": previous["id"]}
+            recovered = True
     if existing is not None and existing["deleted_at"] is not None:
         return {"item_id": existing["item_id"], "action": "in_trash"}
 
@@ -202,16 +217,14 @@ def persist_candidate(db, candidate: dict[str, Any]) -> dict[str, Any]:
             metadata_policy.record_observation(db, item_id, source_key, fields, applied_fields=updates)
         else:
             _fill_missing_fields(db, item_id, candidate)
-        db.execute(
-            "UPDATE komga_records SET library_id = ?, series_id = ?, kind = ?, "
-            "updated_at = datetime('now') WHERE komga_id = ?",
-            (
-                library_id,
-                _clean(candidate.get("komga_series_id")),
-                kind,
-                komga_id,
-            ),
-        )
+        if recovered:
+            _insert_record(db, komga_id, item_id, library_id, _clean(candidate.get("komga_series_id")), kind)
+        else:
+            db.execute(
+                "UPDATE komga_records SET library_id = ?, series_id = ?, kind = ?, "
+                "updated_at = datetime('now') WHERE komga_id = ?",
+                (library_id, _clean(candidate.get("komga_series_id")), kind, komga_id),
+            )
         return {
             "item_id": item_id,
             "action": "updated",
@@ -251,17 +264,7 @@ def persist_candidate(db, candidate: dict[str, Any]) -> dict[str, Any]:
 
     if not adopted:
         metadata_policy.record_initial(db, item_id, source_key, fields)
-    db.execute(
-        "INSERT INTO komga_records (komga_id, item_id, library_id, series_id, kind) "
-        "VALUES (?, ?, ?, ?, ?)",
-        (
-            komga_id,
-            item_id,
-            library_id,
-            _clean(candidate.get("komga_series_id")),
-            kind,
-        ),
-    )
+    _insert_record(db, komga_id, item_id, library_id, _clean(candidate.get("komga_series_id")), kind)
     return {
         "item_id": item_id,
         "action": "adopted" if adopted else "created",

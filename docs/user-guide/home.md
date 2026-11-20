@@ -3,7 +3,7 @@
 Shelf opens on **Home**, a collection overview. It is deliberately separate from **Browse**: Home answers “what is happening in my library?”, while Browse remains the place for searching, filtering, sorting and bulk editing.
 
 **Search your library** is in the top navigation bar, including on Home. Enter a
-query and press **Enter** or **Search** to open matching catalogue results. It
+query and press **Enter** or the magnifying glass inside the field to open matching catalogue results. It
 stays available when the mobile menu is closed; it does not search remote services.
 
 Home shows:
@@ -67,6 +67,8 @@ navigation and the last **View more** tile open the full Activity page, where
 Digital Continue, manual Continue and Up Next remain separate. An empty row shows one explanation instead
 of two empty panels.
 All cards and links remain usable without JavaScript.
+The repeated “Swipe or scroll to explore” hint is omitted from both Home rows;
+scrolling and the previous/next controls remain available.
 
 ## Recently added
 
@@ -83,12 +85,17 @@ the image. The **artist/creator** has its own link to that indexed creator's loc
 collection; an available **series name** opens that particular series, not the
 whole Series index. The cover/title still opens the item. Captions remain visible
 while tabbing through their links and are shown directly on touch/coarse-pointer
-screens. Long credits can scroll within the frame without resizing the cover.
+screens. Multiple creators are compressed to the first linked name and **…**;
+long names use a one-line ellipsis instead of a scrollbar. The tooltip and item
+page retain the complete credit list. Cover dimensions do not change.
 There is no separate Details toggle or media-type caption. Native remote-only
 Continue labels are not assumed to identify local creators. See
 [Follow an artist, author or series](browse-and-search.md#follow-an-artist-author-or-series).
 
-**Item size** fits more or fewer complete items across without shrinking text.
+The slider between the **small and large cover icons** fits more or fewer complete
+items across without shrinking text. The icons indicate direction, not extra buttons.
+The **Item size** label and percentage are available to screen readers rather than
+displayed beside the slider.
 The default **100%** keeps the normal cover size and sits at the slider's midpoint;
 the ends are **50%** and **200%**. Move the slider back to the center for 100%.
 The slider sits on the same line as the **Home** heading at the right, with the

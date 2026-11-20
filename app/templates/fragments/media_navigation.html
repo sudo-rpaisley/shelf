@@ -50,15 +50,19 @@
                                     <li>{{ tab_link(media_navigation.all_media, 'Library', primary=true) }}<span class="media-navigation__description">{{ _(media_navigation.all_media.label)|forceescape }}</span></li>
                                     {% endif %}
                                     {% for family in media_navigation.families %}
+                                    {% set family_label_id = 'nav-family-label-' ~ loop.index %}
+                                    {% set family_formats_id = 'nav-family-formats-' ~ loop.index %}
                                     <li data-nav-family="{{ family.key }}" data-nav-hover class="media-navigation__family">
+                                        {% if family.path %}
+                                        <a id="{{ family_label_id }}" href="{{ family.path }}" data-nav-family-link="{{ family.key }}" data-nav-family-label class="media-navigation__link media-navigation__family-link text-shelf-muted">{{ _(family.label)|forceescape }}</a>
+                                        {% else %}
+                                        <span id="{{ family_label_id }}" data-nav-family-label class="media-navigation__link media-navigation__family-link text-shelf-muted">{{ _(family.label)|forceescape }}</span>
+                                        {% endif %}
                                         <details data-nav-disclosure>
-                                            <summary>{{ _(family.label)|forceescape }} {{ chevron() }}</summary>
+                                            <summary class="media-navigation__family-toggle" aria-labelledby="{{ family_label_id }} {{ family_formats_id }}"><span id="{{ family_formats_id }}" class="media-navigation__format-label">{{ _('Show formats')|forceescape }}</span>{{ chevron() }}</summary>
                                             <ul class="media-navigation__formats">
                                                 {% if family.landing %}
                                                 <li>{{ tab_link(family.landing) }}</li>
-                                                {% endif %}
-                                                {% if family.path %}
-                                                <li><a href="{{ family.path }}" data-nav-family-link="{{ family.key }}" class="media-navigation__link text-shelf-muted">{{ _('All items')|forceescape }}</a></li>
                                                 {% endif %}
                                                 {% for format in family.formats %}
                                                 <li><a href="{{ format.path }}" data-nav-format="{{ format.key }}" class="media-navigation__link text-shelf-muted">{{ _(format.label)|forceescape }}</a></li>

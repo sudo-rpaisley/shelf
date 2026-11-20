@@ -23,6 +23,25 @@ class CreditPart:
     href: str | None = None
 
 
+@dataclass(frozen=True, slots=True)
+class CreditPreview:
+    parts: tuple[CreditPart, ...]
+    truncated: bool = False
+
+
+def creator_preview(parts: tuple[CreditPart, ...]) -> CreditPreview:
+    """Keep one native creator link; further credits belong on the item page.
+
+    Do not leave clipped, focusable links behind an ellipsis. Single credits,
+    including their raw role/punctuation, and unparsed plain text stay intact.
+    The complete ``creator_parts``/``creator_text`` remain separate inputs.
+    """
+    linked = [index for index, part in enumerate(parts) if part.href]
+    if len(linked) < 2:
+        return CreditPreview(parts)
+    return CreditPreview(parts[:linked[0] + 1], truncated=True)
+
+
 def creator_parts(text: str) -> tuple[CreditPart, ...]:
     """Link parsed names without rewriting even one display character.
 

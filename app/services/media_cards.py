@@ -83,6 +83,7 @@ class MediaCard:
     series_name: str = ""
     artwork: media_presentation.ArtworkSpec = field(init=False)
     creator_parts: tuple[caption_links.CreditPart, ...] = field(init=False)
+    creator_preview: caption_links.CreditPreview = field(init=False)
     series_href: str | None = field(init=False)
 
     def __post_init__(self, known_subtype):
@@ -99,6 +100,7 @@ class MediaCard:
         object.__setattr__(self, "badges", tuple(_text(badge, "badge") for badge in self.badges))
         object.__setattr__(self, "artwork", media_presentation.artwork_spec(self.media_type, known_subtype))
         object.__setattr__(self, "creator_parts", caption_links.creator_parts(self.creator_text))
+        object.__setattr__(self, "creator_preview", caption_links.creator_preview(self.creator_parts))
         object.__setattr__(self, "series_href", caption_links.series_href(self.series_name))
 
     @property

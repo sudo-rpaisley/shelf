@@ -15,7 +15,7 @@
         {% endif %}
         <div class="media-card__caption">
             <h3 class="media-card__title">{% if interactive %}<a href="{{ primary_href or card.detail_href }}" data-caption-link="item">{{ _title }}</a>{% else %}{{ _title }}{% endif %}</h3>
-            {% if card.creator_text %}<p class="media-card__creator">{% if interactive and card.creator_parts is defined %}{% for part in card.creator_parts %}{% if part.href %}<a href="{{ part.href }}" data-caption-link="creator">{{ part.text }}</a>{% else %}{{ part.text }}{% endif %}{% endfor %}{% else %}{{ card.creator_text }}{% endif %}</p>{% endif %}
+            {% if card.creator_text %}<p class="media-card__creator" title="{{ card.creator_text|forceescape }}">{% if interactive and card.creator_preview is defined %}{% for part in card.creator_preview.parts %}{% if part.href %}<a href="{{ part.href }}" data-caption-link="creator">{{ part.text }}</a>{% else %}{{ part.text }}{% endif %}{% endfor %}{% if card.creator_preview.truncated %}<span data-caption-more aria-hidden="true">…</span>{% endif %}{% else %}{{ card.creator_text }}{% endif %}</p>{% endif %}
             {% if interactive and card.series_href is defined and card.series_href and feature_on is defined and feature_on('series') %}<p class="media-card__creator media-card__series"><a href="{{ card.series_href }}" data-caption-link="series">{{ card.series_name }}</a></p>{% endif %}
         </div>
         {% if caller is defined %}{{ caller('overlay') if interactive else caller() }}{% endif %}

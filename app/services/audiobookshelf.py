@@ -11,7 +11,7 @@ from app import config
 from app.config import BOOK_MEDIA_TYPES
 from app.database import get_db
 from app.services import authors as authors_svc
-from app.services import cover_sync_policy, media_groups, metadata_policy
+from app.services import cover_sync_policy, import_bindings, media_groups, metadata_policy
 from app.services.item_write import IdentifierInTrash, insert_item
 from app.services.item_write import ItemValueError, update_item_fields
 from app.services import isbn as isbn_svc
@@ -376,6 +376,15 @@ async def sync(abs_url: str, abs_token: str, on_progress=None) -> dict:
                            ORDER BY deleted_at IS NOT NULL, id LIMIT 1""",
                         (abs_id,),
                     ).fetchone()
+                    if existing is None:
+                        try:
+                            existing = import_bindings.previous_item(db, "audiobookshelf", abs_id)
+                        except import_bindings.ImportBindingConflict:
+                            db.rollback()
+                            stats["skipped"] += 1
+                            if on_progress:
+                                await on_progress(current, total, title, "skipped")
+                            continue
                     if existing is not None and existing["deleted_at"] is not None:
                         # A machine re-syncing does not resurrect what a
                         # person deleted. Skipped BEFORE any write (G85), and
@@ -459,7 +468,11 @@ async def sync(abs_url: str, abs_token: str, on_progress=None) -> dict:
                                 )
                             continue
                         applied_fields = set(desired)
-                        for name, value in {"abs_id": abs_id, "abs_library_id": lib_id}.items():
+                        # A merged item may retain one canonical scalar ABS ID
+                        # and exact provenance for other IDs. Refreshing an alias
+                        # must not replace that canonical opening/Continue identity.
+                        binding = {"abs_id": abs_id, "abs_library_id": lib_id} if existing["abs_id"] in (None, "", abs_id) else {}
+                        for name, value in binding.items():
                             if existing[name] != value:
                                 desired[name] = value
                         changed = bool(desired)

@@ -9,8 +9,16 @@ between visits. If Library is disabled or hidden,
 the standalone **Browse** link remains as the core-catalogue fallback.
 See [Connected library](connected-library.md) for mixed-format Library views.
 
+Select a media-family **name**—Books, Comics, Music, Films, TV, Games or
+Periodicals—to open all items in that family. Its separate **arrow** opens the
+format submenu, where you can choose a specific format. The duplicate **All
+items** submenu entry is gone. Mouse hover still reveals formats; keyboard and
+touch users can activate the arrow independently. Native Music/Periodicals
+overview links remain in their submenus when available.
+
 **Search your library** is in the top navigation, outside the mobile menu—not
-inside the Library filter panel. Use **Enter** or **Search**. On Library it submits
+inside the Library filter panel. Use **Enter** or the magnifying glass inside the
+field (named **Search** for screen readers). On Library it submits
 the same filters, view and saved-view selection as **Apply filters**, including
 the current search text; no JavaScript is required. From another page it opens
 the eligible mixed-catalogue destination, using Browse when Library is hidden or
@@ -59,8 +67,9 @@ metadata and controls.
 On the main catalogue covers, select the **artist/creator name** to see items
 associated with that creator in the existing local index. For example, **Meat
 Loaf** opens your Meat Loaf releases, not every title mentioning his name and
-not a MusicBrainz/Discogs search. Separately credited names have their own links;
-credit roles and separators stay as written. A stale or unindexed creator link
+not a MusicBrainz/Discogs search. Covers show the first linked creator and **…**
+when there are more, rather than a scrolling list. Open the item for all credits;
+the full raw list also remains in the tooltip. A stale or unindexed creator link
 reports not found rather than opening an unrelated collection or repairing data.
 
 The **cover or title** still opens its original item. A populated **series name**
@@ -72,8 +81,8 @@ destination.
 
 Use **Tab** to move from the cover to its title, creators and series. The caption
 stays open while one of its links has focus. Touch/coarse-pointer screens show
-interactive captions without requiring hover; long credits can scroll inside
-the unchanged cover frame. Name links are native links, so normal new-tab and
+interactive captions without requiring hover; long names are shortened visually
+with an ellipsis inside the unchanged cover frame. Name links are native links, so normal new-tab and
 modified-click actions work. In Browse **Select** mode, clicking a name still
 selects that item instead of navigating. The selection button and lending/source
 actions remain separate.
@@ -86,8 +95,10 @@ never edits items, account activity, progress, source bindings or the creator
 index. The new interaction/rendering regressions are authored but not executed
 for this source-only checkpoint.
 
-**Item size** is at the top right; on Home it shares the **Home** heading row
-and wraps below the heading when space is limited. One native
+The **small/large cover icons and slider** are at the top right; on Home they share
+the **Home** heading row and wrap below the heading when space is limited. The
+icons are direction cues, not buttons; **Item size** and its current percentage
+remain available to screen readers without visible text. One native
 slider controls catalogue cover widths across Home, Browse (grid and list), all
 Library views, local Music, Series, My Activity and catalogue detail/list pages.
 Cards use a common base width, not different percentage bases on each page;

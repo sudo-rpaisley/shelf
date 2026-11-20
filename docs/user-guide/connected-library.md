@@ -14,6 +14,14 @@ provides **Available here**, **Sources**, **Needs Attention** and **My Activity*
 Shelf is still a catalogue and front door to other services, not a media server
 or player.
 
+Media-family names in **Library** now link straight to their existing all-items
+view: Books opens all book formats, Comics all comic formats, and the same applies
+to Music, Films, TV, Games and Periodicals. Use the separate arrow to open specific
+format choices. There is no duplicate **All items** entry in those submenus.
+Existing Music/Periodicals overview links remain available inside them; hidden
+or disabled destinations are not reintroduced. The Browse fallback uses the same
+family-specific format selection when Library is unavailable.
+
 **Explore** opens downward to its enabled destinations, including Series and
 Stats when available, not an expanded strip across the navigation bar.
 **Add / Scan** instead opens one workspace containing search/manual entry,
@@ -59,7 +67,8 @@ the same item, though they can occur in different fields. Search is
 Unicode-aware and case-insensitive; it does not remove accents.
 
 **Search your library** now lives in the top navigation, not above the Library
-filters. Use **Enter** or its **Search** button. On Library, it keeps your current
+filters. Use **Enter** or the in-field magnifying glass, labelled **Search** for
+screen readers. On Library, it keeps your current
 filters, display choices and selected saved view; **Apply filters** also includes
 the text currently in that nav field. Clearing the field submits an empty query,
 including when overriding a saved view. This works without JavaScript.
@@ -69,6 +78,8 @@ if Library is hidden or disabled, it uses the existing Browse fallback instead.
 Home's recent shelf shows up to **24** items in one horizontally scrollable row
 (up to eight without JavaScript). Swipe, scroll or use its previous/next buttons.
 The heading no longer shows the recent-count/“Across your collection” subtitle.
+Neither the recent nor Continue row repeats the “Swipe or scroll to explore” hint;
+their scrolling and previous/next controls remain.
 The **Recently added** heading link and terminal **View more** open the complete
 mixed catalogue.
 Home reveals its title/creator overlay on cover hover or keyboard focus; open the
@@ -79,17 +90,22 @@ metadata rows, ownership badges or holding boxes. Open an item for its full deta
 physical copies and **Available here** source actions. Recent grouping is not yet
 configurable per account, and editing still opens the existing full-page form rather than a
 pop-out editor.
+Long creator lists on covers show the first linked name and **…**, not a
+scrollbar. The tooltip and item page keep the complete credits; long names are
+visually ellipsized without changing stored metadata.
 
 On phones, Library uses the same cover-only tiles. Keyboard focus also reveals
 the caption; tapping a cover opens the full item. Artwork keeps its proportions.
 Open **About this Library** for catalogue, item-size, cached-availability and
 grouping/series explanations. Search, presets and live controls stay outside Help.
 
-**Item size**, at the top right, uses one common cover-width
+The slider between the **small and large cover icons**, at the top right, uses one common cover-width
 scale across catalogue pages, including every **Local series** view and drilldown.
 On Home it aligns with the **Home** heading, wrapping below it on narrow screens.
-The native slider runs from 50% to 200%, with 100% in the center. Move left to fit
-more items across or right for larger covers; narrow screens share the same cap.
+The native slider runs from 50% to 200%, with 100% in the center. Move toward the
+small cover to fit more items across or the large cover for larger artwork;
+narrow screens share the same cap. The icons are not buttons. **Item size** and
+the percentage stay available to screen readers, not as visible labels.
 Text stays readable, artwork keeps its proportions, and item order and results
 per page stay the same. The choice is saved per account in this browser, survives
 navigation/reload and updates other open tabs, but does not sync between devices.
@@ -363,6 +379,21 @@ and errors do not advance the latter. A later complete sync that sees a record
 again restores its cached availability. Changing the configured feed or library
 scope changes what a complete enumeration covers: review that scope before
 syncing. **Nothing here automatically restores items from Trash.**
+
+**Repeated imports and rescans:** existing remote IDs are reused, not matched by
+title or issue number. A user-confirmed duplicate merge now preserves every
+Komga/RomM holding so its next rescan cannot recreate the merged-away item.
+Audiobookshelf can recover an exact previously imported alias without replacing
+the kept item's canonical ABS opening ID. A missing singleton binding can also
+be repaired from one unique, exact prior import identity; Trash stays in Trash.
+Multiple prior targets require review rather than guessing. OPDS/Jellyfin keep
+their existing instance-scoped identities and merge-preserved source records.
+
+A rescan does **not** automatically merge lookalikes with different remote IDs,
+editions or source instances, or erase existing catalogue records. Such pairs
+still need identity review; a matching cover/title/series number is not proof.
+These new repair/merge regressions are authored but not yet executed, and no
+live catalogue repair has been performed at this source-only checkpoint.
 
 ### Change configuration, disable or re-enable
 

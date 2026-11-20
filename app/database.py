@@ -1085,6 +1085,8 @@ CREATE TABLE IF NOT EXISTS item_metadata_provenance (
     observed_at TEXT NOT NULL DEFAULT (datetime('now')),
     PRIMARY KEY(item_id, source_key, field_name)
 );
+CREATE INDEX IF NOT EXISTS idx_item_metadata_provenance_source
+    ON item_metadata_provenance(source_key, item_id);
 
 -- Removing artwork queues human review without letting the next provider
 -- sync immediately undo the removal. This is independent of queue dismissal.

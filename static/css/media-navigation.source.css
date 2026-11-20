@@ -210,7 +210,8 @@
     max-inline-size: 100%;
     margin: 0;
 }
-.media-navigation__search-label {
+.media-navigation__search-label,
+.media-navigation__format-label {
     position: absolute;
     inline-size: 1px;
     block-size: 1px;
@@ -220,20 +221,26 @@
     clip-path: inset(50%);
     white-space: nowrap;
 }
-.media-navigation__search-input,
-.media-navigation__search-submit {
+.media-navigation__search-field {
+    --nav-search-target: max(44px, 2.75rem);
+    position: relative;
+    display: block;
+    flex: 1 1 10rem;
+    min-inline-size: 0;
+    max-inline-size: 100%;
+}
+.media-navigation__search-input {
     box-sizing: border-box;
-    min-block-size: max(44px, 2.75rem);
+    display: block;
+    min-block-size: calc(var(--nav-search-target) + 2px);
     max-inline-size: 100%;
     border: 1px solid var(--color-shelf-border, #2d3148);
     border-radius: 0.5rem;
-    padding: 0.5rem 0.75rem;
+    padding-block: 0.5rem;
+    padding-inline: calc(var(--nav-search-target) + 0.5rem) 0.75rem;
     font: inherit;
     font-size: 0.875rem;
     line-height: 1.5;
-}
-.media-navigation__search-input {
-    flex: 1 1 10rem;
     inline-size: 100%;
     min-inline-size: 80px;
     background: var(--color-shelf-bg, #0f1117);
@@ -245,14 +252,26 @@
     outline-offset: 2px;
 }
 .media-navigation__search-submit {
-    flex: 0 1 auto;
+    box-sizing: border-box;
+    position: absolute;
+    inset-inline-start: 1px;
+    inset-block-start: 1px;
+    inline-size: var(--nav-search-target);
+    block-size: calc(100% - 2px);
     min-inline-size: 0;
-    background: var(--color-shelf-accent, #6366f1);
-    color: #fff;
-    overflow-wrap: anywhere;
+    min-block-size: var(--nav-search-target);
+    display: grid;
+    place-items: center;
+    padding: 0;
+    border: 0;
+    border-radius: calc(0.5rem - 1px);
+    background: transparent;
+    color: var(--color-shelf-muted, #94a3b8);
     cursor: pointer;
 }
-.media-navigation__search-submit:hover { background: var(--color-shelf-accent2, #818cf8); }
+.media-navigation__search-submit:hover { background: var(--color-shelf-hover, #242836); color: var(--color-shelf-accent2, #818cf8); }
+.media-navigation__search-submit:focus-visible { outline-offset: -2px; }
+.media-navigation__search-submit svg { inline-size: 1.25rem; block-size: 1.25rem; pointer-events: none; }
 /* Keep the desktop seam spacious; the widest shell can put search beside the
    menu/account. Large text may wrap search controls instead of clipping them. */
 @media (min-width: 64rem) {
@@ -265,3 +284,28 @@
     .media-navigation__bar[data-nav-search-layout="catalogue-v1"] > .media-navigation__search { grid-column: 3; grid-row: 1; }
     .media-navigation__bar[data-nav-search-layout="catalogue-v1"] > .media-navigation__account { grid-column: 4; }
 }
+
+/* Family names navigate; the independent native summary only opens formats.
+   Contain the label float even while closed, and clear it for in-flow phone
+   content so long/translated labels never overlap the open format list. */
+.media-navigation__family {
+    --nav-family-toggle-size: max(44px, 2.75rem);
+    display: flow-root;
+}
+.media-navigation__family > .media-navigation__family-link {
+    box-sizing: border-box;
+    float: inline-start;
+    inline-size: calc(100% - var(--nav-family-toggle-size));
+    min-inline-size: 0;
+    min-block-size: var(--nav-family-toggle-size);
+}
+.media-navigation__family > details > .media-navigation__family-toggle {
+    box-sizing: border-box;
+    inline-size: var(--nav-family-toggle-size);
+    min-inline-size: var(--nav-family-toggle-size);
+    min-block-size: var(--nav-family-toggle-size);
+    margin-inline-start: auto;
+    padding: 0;
+    justify-content: center;
+}
+.media-navigation__family > details > .media-navigation__formats { clear: both; }

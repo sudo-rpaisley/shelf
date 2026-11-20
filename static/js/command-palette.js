@@ -63,7 +63,7 @@
 
     function contextFor(anchor) {
         var branch = anchor.closest('[data-nav-family],[data-nav-group]');
-        var summary = branch && branch.querySelector('summary');
+        var summary = branch && (branch.querySelector('[data-nav-family-label]') || branch.querySelector('summary'));
         return summary ? summary.textContent.trim().replace(/\s+/g, ' ') : '';
     }
 

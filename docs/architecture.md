@@ -1361,8 +1361,9 @@ their own sync.
 **Provider identity lives in a side table whose primary key is the provider's
 own id** — `romm_records(romm_id, item_id, platform_id)` and
 `komga_records(komga_id, item_id, library_id, series_id, kind)`. That is what
-makes a re-sync update its row instead of inserting a second one, and the
-`ON DELETE CASCADE` from `items` drops the record with the item. Two refusals are
+makes a re-sync update its row instead of inserting a second one. An explicit
+user merge re-points these bindings before deleting the losing row, preserving
+each remote ID/library/platform; a purge still cascades normally. Two refusals are
 stated rather than incidental:
 
 - **RomM does not match onto an existing physical game** by title and platform.
@@ -1373,11 +1374,27 @@ stated rather than incidental:
   `items.asin` and never into `isbn`. A sync writes it only when ABS sends a
   valid one, so an ASIN stamped by hand or by an Audible import survives a
   sync that sends none. It is not a sync matching key: `abs_id` matches
-  first, then ISBN.
+  first, then one exact prior source-provenance target, then ISBN.
 - **Komga's library kind is held apart from `items.media_type`** — that is what
   `komga_records.kind` (`comic` or `manga`, checked in the schema) is for.
   Changing a library's kind on the Komga side must not reclassify an item the
   user catalogued by hand.
+
+`services/import_bindings.py` recovers a missing legacy singleton binding only
+from one exact provider/source-key target under the persistence caller's write
+transaction. The source-key/item index on `item_metadata_provenance` avoids a
+full provenance scan per newly imported candidate. Recovery reads physical items
+to see Trash and refuses multiple targets; it never merges/deletes catalogue
+rows, changes remote IDs, installs schema or commits independently. Existing
+bindings remain authoritative. Komga/RomM restore missing holdings only after
+metadata validation; ABS aliases retain an already-set canonical `abs_id` and
+library identity. A merged manual RomM target must have a compatible format and
+exact prior import provenance; it remains fill-only, not provider-owned. Arbitrary
+manual attachments retain the refusal guard. Generic instance-scoped OPDS/Jellyfin
+bindings and their durable repair/merge behavior are unchanged. Different remote
+IDs/title or issue-number similarity are not proof for automatic consolidation.
+No live duplicates were inspected or removed; new regression sources require
+separately authorized DB/runtime verification.
 
 ## Connected library experiment
 
@@ -1683,13 +1700,33 @@ eligible destination URLs are unchanged; the legacy management payload remains
 compatible but does not contribute visible navigation or suppress its empty state.
 Direct `/browse` retains its normal permissions, catalogue administration and bulk
 tools, and account-menu destinations are unchanged.
+Each media-family name now owns the existing `family.path`/`data-nav-family-link`
+directly, replacing its redundant All items submenu anchor. A sibling native
+Details/Summary arrow owns format disclosure; no link is nested in Summary,
+button or another link, so the hover-first-click guard cannot swallow family
+navigation. Fixed loop-index IDs connect the arrow's accessible name to the
+escaped family label plus **Show formats**. Format/native-overview links and the
+registry's exact types/reset/view/sort/visibility/Browse fallback are unchanged.
+The in-flow label float is contained per row and cleared for mobile format
+content, while desktop flyouts retain their existing containing block/placement.
+No details-content flattening or JS height measurement is introduced. Command
+palette context prefers the actual family-label marker, not the arrow's text;
+all inventory/safeHref/query/dedup policies and the navigation controller remain
+unchanged. Direct label click/Enter/modified-click, independent arrow/hover,
+no-JS/RTL/long-label layout and native focus evidence remain unexecuted.
 The `library-primary-v1` main wrapper uses a single narrow-screen column and resets
 the older cached tree's200% width/negative offset. Resizing focus returns a nested
 Library link to the visible Library opener rather than the newly collapsed branch.
 
 **Catalogue search belongs to the shared navigation.** The signed-in shell's
 search is outside the mobile disclosure, with one labelled native search input
-and submit button. `nav.media_navigation` derives its GET path and successful
+and an icon-only native submit button inset inside its visual field. The magnifier
+retains the escaped **Search** accessible name and title; its SVG is decorative.
+A positioned wrapper reserves logical inline-start input padding for a minimum
+44px target, leaving the native search-clear affordance at the opposite end.
+No input appearance/clear suppression or JS submit handler is introduced. Input
+then submit remain in native tab order; logical insets/padding support RTL.
+`nav.media_navigation` derives its GET path and successful
 hidden fields from the same eligible mixed primary URL; native GET submission
 would otherwise discard its action's query. This preserves Library's reset/items/
 recent defaults and the hidden/disabled-Library Browse fallback without a second
@@ -1701,7 +1738,7 @@ Library explicitly associates the nav input/button with its fixed `library-filte
 GET form through native `form=` ownership. The old in-panel search block is gone;
 the same types/filters/view/sort/page-size/saved-view controls remain. There is one
 successful q per GET, no hidden query copy, JS synchronization, nested form or
-new search endpoint. Enter, Search and Apply filters use the current nav query,
+new search endpoint. Enter, the magnifier and Apply filters use the current nav query,
 including empty overrides of saved searches, with ordinary page-one GET behavior.
 Saved-view POSTs retain their existing server-rendered filter snapshots/account
 ownership. Other pages get a standalone global GET form; anonymous shells do not.
@@ -1813,6 +1850,15 @@ Home, Library and Music have no local control copies. The eleven native
 positions map to 50/60/70/80/90/100/120/140/160/180/200%; the centered position5
 keeps the original Home 100% physical scale. There are no sizing buttons or custom
 keyboard handlers. Without JS, the common 100% layout and native links remain.
+Small/minus and large/plus SVG cover icons flank the range in a three-column
+wrapper. They are decorative, nonfocusable spans outside the inner native label,
+not new sizing buttons or alternate event targets. Component-owned clipped text
+retains the Item/Cover size label and live percentage output without visible
+captions; the same `data-cover-size-output`, native label association and
+`aria-valuetext` are synchronized by the unchanged controller. Status/retry/no-JS
+explanations are not clipped. Cover/frame/artwork formulas and account/mount/
+history/storage semantics are unchanged. Actual icon/field hitboxes, clipping,
+native clear, RTL/enlarged-text and assistive-technology evidence remain pending.
 
 All explicit catalogue consumers use one requested frame width:
 `max(80px, min(10rem × factor, 100vw − 6rem))`. Shared phone headroom accounts for
@@ -1895,6 +1941,9 @@ fallback retains eight cards and ordinary links. The visible recent-count/Across
 your collection subtitle is removed without changing the heading link, buffer,
 scrolling or arrows; its existing JS tolerates the absent count node. Full metadata
 remains on the item page.
+Both Recently added and Continue omit only their repeated **Swipe or scroll to
+explore** paragraph. Row scrolling, arrow controls, no-JS guidance, native Continue
+connection notices and the private cached selection are unchanged.
 
 Exact Home Recent/Continue `streaming-v1` markers scope row navigation, not cover
 presentation. `components/media_cover.html` owns the `recent-v1` catalogue cover:
@@ -1932,7 +1981,12 @@ native navigation outside select mode and toggles the exact item within it;
 the selection button, loan disclosure and RomM action keep independent owners.
 `:focus-within` retains captions during keyboard traversal, hidden names do not
 capture pointer clicks, and coarse/touch screens expose the links directly.
-Caption scrolling/touch targets do not change frame dimensions, artwork specs,
+Compact creator captions show the first linked name plus an ellipsis for further
+credits, rather than a scrolling stack. `CreditPreview` leaves the complete raw
+credit/spans intact in the model; the tooltip/item page keep all credits. Omitted
+creator anchors are not left clipped in the tab order. Long visible names use
+single-line CSS ellipsis and retain their full native link name. Caption overflow
+is clipped, while first-creator and series targets stay native. This does not change frame dimensions, artwork specs,
 slider identity/storage or fixed print budgets. New series caption lines are
 hidden in print. These source-authored changes require new rendering/browser
 evidence and finite link-ownership expectation review; no old tests were edited.
@@ -2245,8 +2299,10 @@ List membership moves through `lists.reparent`, which lives in the module that
 owns `list_items` rather than beside the other reparent helpers, and carries
 one rule the others do not: an **owned** keeper sheds the wishlist membership
 it just inherited, since owning a thing and wanting it cannot both be true.
-`romm_records`, `komga_records`, `periodical_issues` and the `music_*` tables
-are deliberately left to the cascade — each keys a single item by design.
+`romm_records` and `komga_records` move with the instance-scoped `source_records`:
+their uniqueness is the remote key, not the catalogue ID. Dropping them would let
+a later rescan recreate the losing item. `periodical_issues` and the `music_*`
+tables remain deliberately left to the cascade, retaining their existing policy.
 
 Each media family that needed its own page got its own router rather than more
 of `items.py`: `music.py`, `periodicals.py`, `shelf_fill.py`,

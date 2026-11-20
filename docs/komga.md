@@ -33,6 +33,17 @@ Consequently:
 - ambiguous editions remain separate instead of being silently merged;
 - Komga sync never assigns a room/shelf location or creates a physical copy.
 
+A user-confirmed merge in Shelf retains all Komga book IDs on the kept item;
+the next **Sync Now** must update that item rather than recreate the losing row.
+If an older merge lost the holding, rescan can recover it from one unique exact
+`komga:<book ID>` import record. Manual metadata stays protected and items in
+Trash are not restored. Conflicting prior targets are skipped for review.
+
+Rescan does not automatically merge items just because their covers, titles or
+issue numbers match. Different Komga IDs can represent different files/editions;
+existing lookalike pairs need identity review. No live duplicate cleanup or
+runtime verification is claimed for this source-only change.
+
 ## Sync and covers
 
 **Sync Now** reads every included library with bounded pagination, persists new/changed holdings, and reports progress in Settings.
