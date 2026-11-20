@@ -42,9 +42,9 @@ its home.
   title.", which would be untrue: the artwork exists, Shelf just cannot ask
   for it.
 
-  MusicBrainz and Cover Art Archive need no API key. In **Choose artwork**, Discogs
-  images require an optional token and an explicitly selected pressing; public
-  cassette candidate previews can offer available images without a token. If Music is turned off,
+  MusicBrainz, Cover Art Archive and public artwork for a saved Discogs pressing
+  need no API key. A configured Discogs token is optional for this public path;
+  the separate legacy token-only pressing APIs retain their existing requirement. If Music is turned off,
   the generic music item still offers manual image URLs and uploads without
   contacting music providers. See [Music](music.md) for release matching and
   shop-link previews. Selecting artwork does not change the matched edition.
@@ -210,7 +210,8 @@ stored value is not a valid ISBN. For the Audiobookshelf case you usually
 don't have to correct anything: from 0.28.0 the next sync clears an ASIN out
 of the ISBN field for you (see [Integrations](integrations.md)).
 
-**Retry cover** appears once the item has an ISBN. **Push to Hardcover**
+The music retry API does not require an ISBN; other existing Retry cover controls
+retain their format-specific requirements. **Push to Hardcover**
 appears only for book-family items, and only when the item has an ISBN or
 an existing Hardcover link, so adding an ISBN in Edit helps only for
 book-family rows.
@@ -220,10 +221,14 @@ book-family rows.
 The automatic chain tries, in order: Open Library → Hardcover → DNB (German
 ISBNs) → Amazon → Google Books → IGDB (games). A miss is retried in the
 background, and Settings → Data → Maintenance → **Retry missing covers** sweeps
-cover-less items — but **only book-shaped ones** (books, comics, manga). It
-deliberately never touches a DVD, a game, a CD or a record: the automatic
-chain's fallback is a book-catalogue title search, and turning it loose on a
-disc once wrote a novel's cover and ISBN onto it.
+cover-less books, comics, manga **and music**. Music dispatches to a separate
+resolver before any book/ISBN path: saved-release front/primary artwork first,
+then a conservative artist/title album-art match, never an inferred release ID
+or book cover. Existing, removed or dismissed music artwork is protected.
+The sweep includes older music of any age; new music is queued after saving and
+recent coverless music participates in the existing 48-hour restart recovery.
+DVDs and games remain outside this automatic sweep. The music revision is local
+source only; no runtime/browser/live-library backfill result is claimed.
 
 For a book with an ISBN, **Find cover** checks that exact edition in Google
 Books and Open Library first. When Open Library knows the edition, the picker
@@ -246,7 +251,7 @@ next item.
 
 Three things make it different from Retry missing covers:
 
-- **It shows you everything**, not just books, because a person is choosing
+- **It shows you everything**, not just automatic-cover-eligible formats, because a person is choosing
   rather than an algorithm guessing.
 - **It remembers.** Some items genuinely have no findable cover — a
   self-published paperback, a burned CD. **Not available** takes one out of the
@@ -256,14 +261,14 @@ Three things make it different from Retry missing covers:
 - **It is a decision, not a sweep.** Retry missing covers is unattended and
   fast; the queue is for the ones that need a look.
 
-The two compose: run Retry missing covers first to clear the easy book rows,
+The two compose: run Retry missing covers first to clear the easy book/music rows,
 then walk what is left.
 
 **Removing a cover puts the item back in the queue** and clears any previous
 "not available" verdict — so a cover you decide was wrong becomes reviewable
-again. Note that Retry missing covers still sweeps a dismissed item, which is
-deliberate: it is currently the only way an accidental **Not available** comes
-back on its own.
+again. The historical book retry branch still sweeps dismissed book items;
+music respects dismissal and deliberate removal until you explicitly allow
+missing-cover sync again. Existing artwork is never replaced by music backfill.
 
 Covers you keep are stored locally in `data/covers/`; nothing hot-links to
 the source. While the picker is open, though, the candidate tiles *are*

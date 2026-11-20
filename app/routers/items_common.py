@@ -25,7 +25,7 @@ import httpx
 
 from fastapi import Request
 
-from app.config import HTTP_TIMEOUT, MEDIA_TYPES
+from app.config import HTTP_TIMEOUT, MEDIA_TYPES, MUSIC_MEDIA_TYPES
 from app.database import get_db, get_setting
 from app.services import covers, detect, googlebooks, hardcover, national, openlibrary, provider_result
 from app.services import cover_queue
@@ -230,12 +230,17 @@ async def resolve_missing_cover(
 
     Returns the stored cover path, or None if nothing was found. Items that
     already have a cover are left alone.
+    Music is dispatched first to its separate artwork resolver, with no book
+    hints, ISBN recovery or book catalogue searches.
     """
     with get_db() as db:
         row = db.execute(
             "SELECT title, authors, isbn, cover_path, media_type FROM items_live WHERE id = ?",
             (item_id,),
         ).fetchone()
+    if row and row["media_type"] in MUSIC_MEDIA_TYPES:
+        from app.services import music_auto_covers
+        return await music_auto_covers.resolve(item_id, client)
     if not row or row["cover_path"]:
         return None
 
@@ -322,7 +327,7 @@ async def _enrich_import_covers(item_ids: list[int]) -> None:
     queue's own worker does the downloading. That preserves the
     fire-and-forget shape both call sites already rely on.
 
-    Filters to book-ish media types before enqueueing (G29) — `enqueue_many`
+    Filters to book/music automatic-cover media types before enqueueing (G29) — `enqueue_many`
     applies no filter itself, and this is the shared hand-off both
     producers (photo-intake confirm and CSV import) go through.
     """
@@ -330,7 +335,7 @@ async def _enrich_import_covers(item_ids: list[int]) -> None:
     queued = cover_queue.enqueue_many(eligible)
     if queued != len(item_ids):
         logger.info(
-            "Queued %d of %d items for cover enrichment (non-book rows skipped)",
+            "Queued %d of %d items for cover enrichment (unsupported media skipped)",
             queued, len(item_ids),
         )
     else:
@@ -877,4 +882,3 @@ def _manual_form_locations():
     """
     with get_db() as db:
         return db.execute("SELECT id, name FROM locations ORDER BY sort_order, name").fetchall()
-

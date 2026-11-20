@@ -7,7 +7,8 @@ from app.services import discogs, discogs_selection, manual_cover, music_matchin
 
 def context(db, item):
     result = dict(item)
-    release = db.execute("SELECT musicbrainz_release_id, musicbrainz_release_group_id FROM music_releases WHERE item_id = ?",
+    release = db.execute("SELECT musicbrainz_release_id, musicbrainz_release_group_id, catalog_number, artist_credit, release_date "
+                         "FROM music_releases WHERE item_id = ?",
                          (result["id"],)).fetchone()
     if release:
         result.update(dict(release))
@@ -60,8 +61,8 @@ async def search(item, query, client, *, creds):
                 candidates.append(image)
         if len(candidates) >= 12:
             break
-    if not typed and item.get("discogs_release_id") and creds.get("discogs_token"):
-        result = await discogs.lookup_release(item["discogs_release_id"], client, token=creds["discogs_token"])
+    if not typed and item.get("discogs_release_id"):
+        result = await discogs.lookup_public_release(item["discogs_release_id"], client, token=creds.get("discogs_token") or "")
         outcomes.append(result)
         if result.found:
             candidates.extend(result.payload.get("images") or [])

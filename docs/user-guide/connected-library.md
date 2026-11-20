@@ -395,6 +395,16 @@ still need identity review; a matching cover/title/series number is not proof.
 These new repair/merge regressions are authored but not yet executed, and no
 live catalogue repair has been performed at this source-only checkpoint.
 
+For Komga, a complete, warning-free sync can now mark missing holdings unavailable
+and hide **source-only stale imports** from default catalogue/series views without
+deleting their records. Physical copies/loans, manual items and other available holdings
+keep an item visible. Use **Unavailable holdings** to inspect retained entries;
+direct item links and personal Activity/history still work. Partial or failed
+scans cannot hide new entries, and changing server/credentials/library selection
+resets this evidence to Unknown. Returning IDs reappear; different live IDs are
+not automatically merged. See [missing Komga books](../komga.md#books-that-disappear-or-acquire-a-different-id).
+This follow-up is source-authored only; no scan or production cleanup was run.
+
 ### Change configuration, disable or re-enable
 
 Changing a syncable source's server root, Browser URL prefix, effective

@@ -13,7 +13,7 @@
 {% set music_types = ('vinyl', 'cassette', 'cd', 'digital_music') %}
 {% set book_types = ('book', 'audiobook', 'ebook', 'comic', 'manga') %}
 {% set method_labels = {'title': _('Title or keyword'), 'isbn': _('ISBN'), 'barcode': _('Retail barcode'), 'catalog_number': _('Catalogue number'), 'manual': _('Manual entry')} %}
-{% set policy_labels = {'auto': _('Automatic (MusicBrainz first for music)'), 'musicbrainz': _('MusicBrainz only'), 'discogs': _('Discogs only')} %}
+{% set policy_labels = {'auto': _('Automatic (MusicBrainz + Discogs for music)'), 'musicbrainz': _('MusicBrainz only'), 'discogs': _('Discogs only')} %}
 {% set field_labels = {'title': _('Title'), 'authors': _('Artist'), 'publisher': _('Label'), 'publish_year': _('Year'), 'upc': _('Barcode'), 'description': _('Description')} %}
 {% set control_class = 'block w-full min-w-0 mt-1 bg-shelf-bg border border-shelf-border rounded-lg px-3 py-2 text-shelf-text focus:ring-2 focus:ring-shelf-accent' %}
 {% set button_class = 'max-w-full whitespace-normal rounded-lg px-4 py-2 bg-shelf-accent text-white text-sm hover:bg-shelf-accent2 focus:ring-2 focus:ring-shelf-accent disabled:opacity-50' %}
@@ -84,6 +84,7 @@
     <div class="space-y-2">
         <p class="text-sm text-shelf-muted">{{ _('Choose Add or Wishlist, a concrete format and a search method. Search, compare, review and save here; no specialist page is required.') }}</p>
         <p class="text-sm text-shelf-muted"><a href="#add-media-manual-heading" class="text-shelf-accent2 underline">{{ _('Add by hand instead') }}</a> · {{ _('Cameras only open when requested. Barcode lookup fills the search field; it never submits it.') }}</p>
+        <p class="text-sm text-shelf-muted">{{ _('Music with no cover is queued for background artwork lookup after saving. Exact-release art is preferred; a confident artist/title match may supply album artwork without changing release IDs. Your chosen or deliberately removed covers are kept.') }}</p>
     </div>
 
     {% if add.error_code %}
@@ -166,7 +167,7 @@
                         {% if add.input.get('provider') not in policy_labels %}<option value="" selected disabled>{{ _('Choose a provider') }}</option>{% endif %}
                         {% for key, label in policy_labels.items() %}<option value="{{ key }}"{% if add.input.get('provider') == key %} selected{% endif %}>{{ label }}</option>{% endfor %}
                     </select>
-                    <p id="add-media-provider-help" class="text-xs text-shelf-muted mt-1">{{ _('For non-music formats choose Automatic. Automatic keeps MusicBrainz first, with Discogs fallback only for a successful empty cassette search with both title and artist. Discogs only searches Discogs directly, including catalogue-only searches, without a MusicBrainz fallback.') }}</p>
+                    <p id="add-media-provider-help" class="text-xs text-shelf-muted mt-1">{{ _('For non-music formats choose Automatic. For music, Automatic searches MusicBrainz then Discogs every time, using the supplied fields. MusicBrainz only and Discogs only search their selected catalogue.') }}</p>
                 </div>
                 <div class="min-w-0" data-add-types="vinyl cassette cd digital_music" data-add-methods="title barcode catalog_number">
                     <label for="add-media-artist" class="block text-sm font-medium text-shelf-muted">{{ _('Artist (music, optional)') }}</label>
@@ -200,6 +201,7 @@
     </section>
 
     <p hidden data-add-invalidated role="status" aria-live="polite" aria-atomic="true" class="rounded-lg border border-shelf-warning/40 p-3 text-sm"></p>
+    {% with music_search_statuses=add.music_search_statuses %}{% include "fragments/music_search_status.html" %}{% endwith %}
     {% if add.provider_outcome %}
     <section role="status" aria-live="polite" class="rounded-xl border border-shelf-border bg-shelf-card p-4 space-y-2">
         <h2 class="font-semibold">{{ _('Search outcome') }}</h2>

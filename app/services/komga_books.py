@@ -16,6 +16,16 @@ import httpx
 from app.services.komga_libraries import KomgaError, _headers
 
 PAGE_SIZE = 200
+MAX_PAGES = 1000
+MAX_BOOKS = 100000
+
+
+class BookBatch(list):
+    """List-compatible results with separate, fail-closed traversal evidence."""
+
+    def __init__(self, values=(), *, complete=False):
+        super().__init__(values)
+        self.complete = complete
 
 # Komga can derive ``seriesTitle`` as ``<Series> (<Volume>)`` from ComicInfo
 # metadata when its append-volume option is enabled. Shelf groups catalogue
@@ -138,8 +148,9 @@ async def fetch_library_books(
         }
     }
     page = 0
-    books: list[dict[str, Any]] = []
+    books = BookBatch(complete=True)
     seen_ids: set[str] = set()
+    expected_pages = expected_total = None
 
     while True:
         try:
@@ -159,31 +170,66 @@ async def fetch_library_books(
             raise KomgaError("Komga returned invalid book JSON") from exc
         if not isinstance(data, dict):
             raise KomgaError("Komga returned an invalid book page")
-        content = data.get("content") or []
+        content = data.get("content")
         if not isinstance(content, list):
             raise KomgaError("Komga returned an invalid book list")
+
+        for name in ("totalPages", "totalElements", "number"):
+            if name in data and (type(data[name]) is not int or data[name] < 0):
+                raise KomgaError("Komga returned invalid pagination")
+        if "last" in data and type(data["last"]) is not bool:
+            raise KomgaError("Komga returned invalid pagination")
+        if "number" in data and data["number"] != page:
+            books.complete = False
+        total_pages, total = data.get("totalPages"), data.get("totalElements")
+        if total_pages is not None:
+            if expected_pages is not None and total_pages != expected_pages:
+                books.complete = False
+            expected_pages = total_pages
+        if total is not None:
+            if expected_total is not None and total != expected_total:
+                books.complete = False
+            expected_total = total
 
         added = 0
         for book in content:
             if not isinstance(book, dict):
+                books.complete = False
                 continue
-            book_id = str(book.get("id") or "").strip()
-            if book_id and book_id in seen_ids:
+            raw_id = book.get("id")
+            if (not isinstance(raw_id, (str, int)) or isinstance(raw_id, bool)
+                    or not str(raw_id).strip() or len(str(raw_id)) > 512):
+                books.complete = False
                 continue
-            if book_id:
-                seen_ids.add(book_id)
+            book_id = str(raw_id).strip()
+            if book_id in seen_ids:
+                books.complete = False
+                continue
+            if "libraryId" in book and str(book["libraryId"]) != clean_library:
+                books.complete = False
+                continue
+            if len(books) >= MAX_BOOKS:
+                books.complete = False
+                break
+            seen_ids.add(book_id)
             books.append(book)
             added += 1
 
         if data.get("last") is True:
+            if expected_pages is not None and expected_pages != page + 1 and not (expected_pages == 0 and not books):
+                books.complete = False
             break
-        total_pages = data.get("totalPages")
-        if isinstance(total_pages, int) and page + 1 >= total_pages:
+        if expected_pages is not None and page + 1 >= expected_pages:
+            if data.get("last") is False or page + 1 > max(1, expected_pages):
+                books.complete = False
             break
-        if not content or added == 0:
+        if not content or added == 0 or page + 1 >= MAX_PAGES or len(books) >= MAX_BOOKS:
+            books.complete = False
             break
         page += 1
 
+    if expected_total is not None and len(seen_ids) != expected_total:
+        books.complete = False
     return books
 
 
@@ -197,9 +243,11 @@ async def fetch_library_candidates(
 ) -> list[dict[str, Any]]:
     """Fetch one library and return only valid normalised book candidates."""
     books = await fetch_library_books(client, komga_url, api_key, library_id)
-    candidates = []
+    candidates = BookBatch(complete=getattr(books, "complete", False) is True)
     for book in books:
         candidate = normalise_book(book, library_id=library_id, kind=kind)
         if candidate is not None:
             candidates.append(candidate)
+        else:
+            candidates.complete = False
     return candidates

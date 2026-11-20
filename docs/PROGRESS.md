@@ -3,6 +3,43 @@
 The live checklist is [NEXT_ACTIONS.md](NEXT_ACTIONS.md). Entries here distinguish
 implementation and verified outcomes from investigation or blocked acceptance.
 
+## 2026-11-20 — Automatic music covers/backfill authored locally, unverified
+
+User requested automatic music artwork for new and already-added coverless items,
+and explicitly approved artist/title **album-art fallback** without inferred release
+IDs. Local source prefers saved MusicBrainz/Discogs front/primary artwork, then
+known Release Group and conservatively matched album art. Postcommit saves queue
+optional work; legacy music entry paths also avoid generic book artwork. Existing
+Retry Missing Covers handles older music of any age, while restart recovery stays
+limited to 48 hours. Music removal/dismissal/feature blocks and concurrent cover/
+metadata/credential changes are rechecked before a fill-only publication.
+
+This is **source only**, not live provider research, a backfill, commit or push.
+New synthetic unit/API/native-form browser regressions are authored **not run**;
+their fake HTTP/DNS and acknowledgement faults do not establish native safety or
+durability. Existing test/fixture paths remain unchanged. Independent review,
+finite policy/visible-copy/queue-expectation migration, fresh authorized SQL/runtime/
+browser resources and all previous native/safety/publication holds remain.
+
+## 2026-11-20 — Combined music search authored locally, unverified
+
+User selected **Search both every time** after reporting that automatic music
+search required manually selecting Discogs. Source now queries MusicBrainz then
+Discogs for each valid submitted music search, even when MusicBrainz returns hits
+or fails, across all music formats and title/artist/barcode/catalogue-only input.
+Up to 30+20 candidates retain separate exact provider identities; provider counts
+and honest partial failures remain visible. Single-provider modes, provider
+clients/pacing, non-music searches and preview/save/history protections are unchanged.
+Each leg has a 12-second deadline within Add's existing 30-second budget.
+
+This is local **source authoring only**, not a commit/push or runtime release.
+New synthetic service/API/native JS-no-JS regressions are authored, **not executed**.
+All existing test/fixture sources remain unchanged; old narrow-fallback/query-
+budget/visible-copy assertions need a finite reviewed policy migration, not weakened
+assertions, skips or transferred historical passes. Independent review and fresh
+authorized runtime/browser resources remain required. No live provider requests
+or catalogue changes occurred. The publication and results below remain history.
+
 ## 2026-11-17 — Unified Add Media published
 
 **[`a1542204`](https://github.com/sudo-rpaisley/shelf/commit/a1542204ecf17fd2fe3b8d3ef851c6e3457eefc5)**

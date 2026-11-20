@@ -23,6 +23,8 @@ async def allow_cover_sync(
         db.execute("BEGIN IMMEDIATE")
         if not cover_sync_policy.allow(db, item_id):
             raise HTTPException(404, i18n.gettext("Item not found"))
+    from app.services import music_auto_covers
+    music_auto_covers.enqueue_missing(item_id)
     target = f"/item/{item_id}"
     if request.headers.get("HX-Request", "").lower() == "true":
         return HTMLResponse("", headers={

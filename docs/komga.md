@@ -44,6 +44,31 @@ issue numbers match. Different Komga IDs can represent different files/editions;
 existing lookalike pairs need identity review. No live duplicate cleanup or
 runtime verification is claimed for this source-only change.
 
+### Books that disappear or acquire a different ID
+
+After a **complete, successful Sync Now** of the unchanged selected libraries,
+holdings not returned by Komga are marked **Unavailable**. A Komga-only imported
+item with no remaining available holding is hidden from normal Browse, Library,
+Series and Home recent previews. It is **not deleted or merged**: its Shelf ID,
+Komga ID, metadata, artwork and activity/history remain. Physical copies (including
+restorable copies), loan records, manual catalogue items and other available holdings keep
+the item visible. Library's **Unavailable holdings** filter can inspect retained
+entries when the integrations are enabled; direct item links and Activity remain.
+
+Partial/failed/malformed scans, repeated pages or IDs, changing counts, traversal
+limits and skipped entries cannot create new absence verdicts. Reconciliation is
+atomic across the selected scope, and overlapping older runs/configuration
+changes cannot finalize it. Returning IDs become available again. Changing the
+server, credentials or library selection resets verdicts to Unknown, so entries
+stay visible until new evidence exists. A rebuilt **library ID** needs review;
+Shelf does not guess a mapping from its name or issue numbers.
+
+This adds no individual-book 404 probing or Komga-side scan action. Traversal is
+bounded to 100 selected libraries, 1,000 pages/100,000 books per library; reaching
+a bound without explicit completion means incomplete. Remote traversal is not an
+atomic server snapshot; undetected concurrent remote changes remain a limitation.
+The new regression sources are authored, **not executed or runtime qualified**.
+
 ## Sync and covers
 
 **Sync Now** reads every included library with bounded pagination, persists new/changed holdings, and reports progress in Settings.

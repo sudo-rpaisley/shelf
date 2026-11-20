@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import sqlite3
-from pathlib import Path
 
 import httpx
 from fastapi import APIRouter, Depends, Form, Query, Request
@@ -12,9 +11,9 @@ from fastapi.responses import HTMLResponse, RedirectResponse
 from app import i18n
 from app.auth import require_role
 from app.features import require_feature
-from app.config import COVERS_DIR, HTTP_TIMEOUT, MEDIA_TYPES, MUSIC_MEDIA_TYPES
+from app.config import HTTP_TIMEOUT, MEDIA_TYPES, MUSIC_MEDIA_TYPES
 from app.database import get_db, get_setting
-from app.services import cover_sync_policy, discogs, discogs_selection, music_artwork, music_catalog, music_matching, music_review, musicbrainz, shop_metadata
+from app.services import discogs, discogs_selection, music_catalog, music_matching, music_review, musicbrainz, shop_metadata
 from app.services import upc as upc_svc
 from app.services import item_write
 from app.services.item_write import insert_item, update_item_fields
@@ -87,35 +86,10 @@ def _music_types_sql() -> tuple[str, tuple[str, ...]]:
 
 
 async def _apply_release_artwork(item_id: int, release_id: str) -> None:
-    """Fill a missing cover from Cover Art Archive without overwriting one."""
-    with get_db() as db:
-        row = db.execute(
-            "SELECT cover_path FROM items_live WHERE id = ?", (item_id,)
-        ).fetchone()
-        blocked = cover_sync_policy.blocked(db, item_id)
-        release = music_catalog.get_release(db, item_id)
-    if not row or row["cover_path"] or blocked:
-        return
-
+    """Use the shared fill-only resolver, fenced to the saved release requested."""
+    from app.services import music_auto_covers
     async with httpx.AsyncClient(timeout=HTTP_TIMEOUT) as client:
-        art = await music_artwork.release_candidates(release or {"musicbrainz_release_id": release_id}, client)
-        candidates = art.payload if art.found else []
-        front = next((c for c in candidates if c.get("front")), None)
-        chosen = front or (candidates[0] if candidates else None)
-        if not chosen:
-            return
-        cover_path = await music_artwork.download(item_id, chosen["url"])
-
-    if cover_path:
-        with get_db() as db:
-            db.execute("BEGIN IMMEDIATE")
-            current = db.execute("SELECT cover_path FROM items_live WHERE id = ?", (item_id,)).fetchone()
-            current_release = music_catalog.get_release(db, item_id)
-            if (current and not current["cover_path"] and not cover_sync_policy.blocked(db, item_id)
-                    and (current_release or {}).get("musicbrainz_release_id", release_id) == release_id):
-                update_item_fields(db, item_id, {"cover_path": cover_path})
-            else:
-                (COVERS_DIR / Path(cover_path).name).unlink(missing_ok=True)
+        await music_auto_covers.resolve(item_id, client, expected_release_id=release_id)
 
 
 @router.get("/music")
@@ -130,7 +104,7 @@ async def music_page(
     _=Depends(require_role("viewer")),
     __=Depends(require_feature("music")),
 ):
-    """Browse catalogued music and search exact MusicBrainz releases."""
+    """Browse catalogued music and search both exact-release catalogues."""
     q = q.strip()[:200]
     artist = artist.strip()[:200]
     barcode = upc_svc.normalize_barcode(barcode)[:32]
@@ -157,11 +131,13 @@ async def music_page(
         discogs_token = get_setting(db, "discogs_token")
 
     results: list[dict] = []
+    music_search_statuses = ()
     error = None
     if q or artist or barcode or catalog_number:
         async with httpx.AsyncClient(timeout=HTTP_TIMEOUT) as client:
             result = await music_matching.search_catalogue(client, title=q, artist=artist, barcode=barcode,
                 catalog_number=catalog_number, format=format, country=country, discogs_token=discogs_token or "")
+        music_search_statuses = music_matching.search_statuses(result)
         if result.found:
             results = result.payload or []
             for release in results:
@@ -177,6 +153,7 @@ async def music_page(
         {
             "items": items,
             "results": results,
+            "music_search_statuses": music_search_statuses,
             "error": error,
             "q": q,
             "artist": artist,
@@ -220,6 +197,8 @@ async def add_music_release(
         ).fetchone()
         restored = bool(existing) and item_write.restore_item(db, existing["item_id"])
     if existing:
+        from app.services import music_auto_covers
+        music_auto_covers.enqueue_missing(existing["item_id"])
         flag = "?restored=1" if restored else ""
         return RedirectResponse(
             f"/music/item/{existing['item_id']}{flag}", status_code=303)
@@ -279,6 +258,8 @@ async def add_music_release(
         if existing:
             with get_db() as db:
                 restored = item_write.restore_item(db, existing["item_id"])
+            from app.services import music_auto_covers
+            music_auto_covers.enqueue_missing(existing["item_id"])
             flag = "?restored=1" if restored else ""
             return RedirectResponse(
                 f"/music/item/{existing['item_id']}{flag}", status_code=303
@@ -286,10 +267,10 @@ async def add_music_release(
         raise
 
     restored = item_write.was_restored(item_id)
-    # Artwork runs either way: `_apply_release_artwork` already refuses to
-    # overwrite an existing cover, so a restored row keeps the user's and a
-    # restored row that never had one still gets artwork.
-    await _apply_release_artwork(item_id, release_id)
+    # Optional postcommit work: the worker rechecks existing artwork/removals
+    # and release bindings before it publishes a missing music cover.
+    from app.services import music_auto_covers
+    music_auto_covers.enqueue_missing(item_id)
     flag = "?restored=1" if restored else ""
     return RedirectResponse(f"/music/item/{item_id}{flag}", status_code=303)
 
@@ -365,7 +346,8 @@ async def refresh_music_release(
         )
         music_catalog.save_release(db, item_id, refreshed)
 
-    await _apply_release_artwork(item_id, release_id)
+    from app.services import music_auto_covers
+    music_auto_covers.enqueue_missing(item_id)
     return RedirectResponse(f"/music/item/{item_id}", status_code=303)
 
 

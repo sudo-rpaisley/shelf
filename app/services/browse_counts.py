@@ -58,7 +58,7 @@ def filter_counts(db, values: dict, total: int) -> dict:
     type_counts = {
         row["media_type"]: row["c"]
         for row in db.execute(
-            f"SELECT media_type, COUNT(*) as c FROM items_live i {type_where} GROUP BY media_type",
+            f"SELECT media_type, COUNT(*) as c FROM catalogue_items_live i {type_where} GROUP BY media_type",
             type_params,
         ).fetchall()
     }
@@ -67,7 +67,7 @@ def filter_counts(db, values: dict, total: int) -> dict:
     own_where, own_params = _count_where("owned")
     own_row = db.execute(
         f"SELECT COALESCE(SUM(i.owned = 1), 0) AS o, COALESCE(SUM({lists.WISHLISTED_SQL}), 0) AS w, "
-        f"COALESCE(SUM({lists.NEITHER_SQL}), 0) AS n FROM items_live i {own_where}",
+        f"COALESCE(SUM({lists.NEITHER_SQL}), 0) AS n FROM catalogue_items_live i {own_where}",
         own_params,
     ).fetchone()
     owned_count, wishlist_count, neither_count = own_row["o"], own_row["w"], own_row["n"]
@@ -77,13 +77,13 @@ def filter_counts(db, values: dict, total: int) -> dict:
     location_counts = {
         row["location_id"]: row["c"]
         for row in db.execute(
-            f"SELECT location_id, COUNT(*) as c FROM items_live i {loc_where}"
+            f"SELECT location_id, COUNT(*) as c FROM catalogue_items_live i {loc_where}"
             f"{_loc_join} location_id IS NOT NULL GROUP BY location_id",
             loc_params,
         ).fetchall()
     }
     no_location_count = db.execute(
-        f"SELECT COUNT(*) as c FROM items_live i {loc_where}{_loc_join} location_id IS NULL",
+        f"SELECT COUNT(*) as c FROM catalogue_items_live i {loc_where}{_loc_join} location_id IS NULL",
         loc_params,
     ).fetchone()["c"]
 
@@ -92,7 +92,7 @@ def filter_counts(db, values: dict, total: int) -> dict:
     reading_status_counts = {
         row["reading_status"]: row["c"]
         for row in db.execute(
-            f"SELECT reading_status, COUNT(*) as c FROM items_live i {rs_where}"
+            f"SELECT reading_status, COUNT(*) as c FROM catalogue_items_live i {rs_where}"
             f"{_rs_join} reading_status IS NOT NULL AND reading_status != '' "
             "GROUP BY reading_status",
             rs_params,
@@ -104,7 +104,7 @@ def filter_counts(db, values: dict, total: int) -> dict:
     source_counts = {
         row["source"]: row["c"]
         for row in db.execute(
-            f"SELECT source, COUNT(*) as c FROM items_live i {src_where}"
+            f"SELECT source, COUNT(*) as c FROM catalogue_items_live i {src_where}"
             f"{_src_join} source IS NOT NULL AND source != '' "
             "GROUP BY source ORDER BY source",
             src_params,

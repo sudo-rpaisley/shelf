@@ -118,7 +118,7 @@ async def browse(
             f" WHERE c.item_id = i.id AND c.checked_in IS NULL LIMIT 1) AS lent_to, "
             f"(SELECT 1 FROM checkouts c WHERE c.item_id = i.id AND {OVERDUE_CONDITION} LIMIT 1) AS lent_overdue, "
             f"{lists.WISHLISTED_SQL} AS wishlisted "
-            f"FROM items_live i "
+            f"FROM catalogue_items_live i "
             f"LEFT JOIN locations l ON i.location_id = l.id "
             f"{where} ORDER BY {order_clause} LIMIT ?",
             [get_overdue_days(db)] + params + [DEFAULT_PAGE_SIZE],
@@ -126,13 +126,13 @@ async def browse(
         tags_by_item = tags_svc.tags_for_items(db, [row["id"] for row in items])
 
         total_filtered = db.execute(
-            f"SELECT COUNT(*) as c FROM items_live i {where}", params
+            f"SELECT COUNT(*) as c FROM catalogue_items_live i {where}", params
         ).fetchone()["c"]
 
         series_names = [
             row["series_name"]
             for row in db.execute(
-                "SELECT DISTINCT series_name FROM items_live "
+                "SELECT DISTINCT series_name FROM catalogue_items_live "
                 "WHERE series_name IS NOT NULL AND TRIM(series_name) != '' "
                 "ORDER BY series_name COLLATE NOCASE"
             ).fetchall()
@@ -147,7 +147,7 @@ async def browse(
         # `fragments/filter_counts_oob.html`, so none can diverge.
         lent_out_count = db.execute(
             "SELECT COUNT(DISTINCT c.item_id) as c FROM checkouts c "
-            "JOIN items_live i ON i.id = c.item_id WHERE c.checked_in IS NULL"
+            "JOIN catalogue_items_live i ON i.id = c.item_id WHERE c.checked_in IS NULL"
         ).fetchone()["c"]
 
         from app.services.tags import get_all_tags
@@ -158,7 +158,7 @@ async def browse(
         item_languages = [
             row["language"]
             for row in db.execute(
-                "SELECT DISTINCT language FROM items_live "
+                "SELECT DISTINCT language FROM catalogue_items_live "
                 "WHERE language IS NOT NULL AND language != '' ORDER BY language"
             ).fetchall()
         ]

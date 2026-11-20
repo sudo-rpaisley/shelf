@@ -16,7 +16,7 @@ from app.add_media_types import AddDetails, CapturedAddIntent, DbAddResult, Manu
 from app.auth import require_role
 
 logger = logging.getLogger(__name__)
-from app.config import MEDIA_TYPES, BOOK_MEDIA_TYPES, HTTP_TIMEOUT, DEFAULT_PAGE_SIZE, MAX_PAGE_SIZE, MAX_PAGE, canonical_media_type, status_labels
+from app.config import MEDIA_TYPES, BOOK_MEDIA_TYPES, MUSIC_MEDIA_TYPES, HTTP_TIMEOUT, DEFAULT_PAGE_SIZE, MAX_PAGE_SIZE, MAX_PAGE, canonical_media_type, status_labels
 from app.database import (get_db, get_setting, gc_orphaned_series_meta,
                           get_reading_history)
 from app.routers.series import MAX_SERIES_NAME
@@ -832,7 +832,8 @@ async def manual_add(request: Request, _=Depends(require_role("editor"))):
 
         # If no upload, check for preview cover from scan, then try Amazon —
         # unless this restored a row that keeps its stored cover.
-        if (not cover_path and isbn13 and media_type not in {"digital_video", "tv_series"}
+        if (not cover_path and isbn13 and media_type not in MUSIC_MEDIA_TYPES
+                and media_type not in {"digital_video", "tv_series"}
                 and not restore_report.keeps_stored_cover(item_id)):
             preview_path = covers.COVERS_DIR / f"preview_{isbn13}.jpg"
             if preview_path.exists():
@@ -854,6 +855,9 @@ async def manual_add(request: Request, _=Depends(require_role("editor"))):
         cover_path = None
         cover_failed = True
 
+    if media_type in MUSIC_MEDIA_TYPES:
+        from app.services import music_auto_covers
+        music_auto_covers.enqueue_missing(item_id)
     items_common._log_scan(isbn13 or upc_code or "", media_type, status, item_id, mode)
 
     resp = templates.TemplateResponse(
@@ -947,7 +951,7 @@ async def search_items(
 
     with get_db() as db:
         total = db.execute(
-            f"SELECT COUNT(*) as c FROM items_live i {where}", params
+            f"SELECT COUNT(*) as c FROM catalogue_items_live i {where}", params
         ).fetchone()["c"]
 
         from app.routers.checkouts import OVERDUE_CONDITION, get_overdue_days
@@ -957,7 +961,7 @@ async def search_items(
             f" WHERE c.item_id = i.id AND c.checked_in IS NULL LIMIT 1) AS lent_to, "
             f"(SELECT 1 FROM checkouts c WHERE c.item_id = i.id AND {OVERDUE_CONDITION} LIMIT 1) AS lent_overdue, "
             f"{lists.WISHLISTED_SQL} AS wishlisted "
-            f"FROM items_live i "
+            f"FROM catalogue_items_live i "
             f"LEFT JOIN locations l ON i.location_id = l.id "
             f"{where} ORDER BY {order_clause} LIMIT ? OFFSET ?",
             [get_overdue_days(db)] + params + [per_page, offset],

@@ -18,7 +18,7 @@ import httpx
 from app.config import HTTP_TIMEOUT
 from app.crypto import decrypt_value, encrypt_value, get_encryption_key
 from app.database import get_db
-from app.services import covers, komga_books, komga_libraries, komga_records, legacy_sources
+from app.services import covers, komga_books, komga_libraries, komga_presence, komga_records, legacy_sources
 from app.services.item_write import update_item_fields
 
 logger = logging.getLogger(__name__)
@@ -68,14 +68,18 @@ def _write_secret(db, key: str, value: str, *, clear: bool = False) -> None:
 
 def configuration() -> dict[str, Any]:
     with get_db() as db:
-        url = _read(db, "komga_url")
-        public_url = _read(db, "komga_public_url")
-        api_key = _read_secret(db, "komga_api_key")
-        kinds = komga_libraries.parse_library_kinds(_read(db, "komga_library_kinds"))
-        try:
-            excluded_raw = json.loads(_read(db, "komga_excluded_libraries") or "[]")
-        except (json.JSONDecodeError, TypeError):
-            excluded_raw = []
+        return _configuration(db)
+
+
+def _configuration(db) -> dict[str, Any]:
+    url = _read(db, "komga_url")
+    public_url = _read(db, "komga_public_url")
+    api_key = _read_secret(db, "komga_api_key")
+    kinds = komga_libraries.parse_library_kinds(_read(db, "komga_library_kinds"))
+    try:
+        excluded_raw = json.loads(_read(db, "komga_excluded_libraries") or "[]")
+    except (json.JSONDecodeError, TypeError):
+        excluded_raw = []
     excluded = {
         str(value) for value in excluded_raw
         if isinstance(value, (str, int)) and str(value).strip()
@@ -100,9 +104,12 @@ def save_configuration(
     clean_server = clean_url(url)
     clean_public = clean_url(public_url) if public_url else ""
     with get_db() as db:
+        previous = komga_presence.revision(db)
         _write(db, "komga_url", clean_server)
         _write(db, "komga_public_url", clean_public)
         _write_secret(db, "komga_api_key", api_key.strip(), clear=clear_api_key)
+        if komga_presence.revision(db) != previous:
+            komga_presence.reset(db)
 
 
 def save_library_selection(rows: list[dict[str, Any]]) -> None:
@@ -124,8 +131,11 @@ def save_library_selection(rows: list[dict[str, Any]]) -> None:
         if not included:
             excluded.append(library_id)
     with get_db() as db:
+        previous = komga_presence.revision(db)
         _write(db, "komga_library_kinds", komga_libraries.dump_library_kinds(kinds))
         _write(db, "komga_excluded_libraries", json.dumps(sorted(excluded)))
+        if komga_presence.revision(db) != previous:
+            komga_presence.reset(db)
 
 
 async def discover_libraries(
@@ -203,11 +213,19 @@ async def sync(on_progress: ProgressCallback | None = None) -> dict[str, int]:
 
 
 async def _sync(on_progress: ProgressCallback | None = None) -> dict[str, int]:
-    config = configuration()
+    with get_db() as db:
+        # Configuration and its in-memory revision come from one WAL snapshot;
+        # a change-and-change-back between independent reads cannot mix scopes.
+        db.execute("BEGIN")
+        config = _configuration(db)
+        revision = komga_presence.revision(db)
     server = clean_url(config["url"])
     key = str(config["api_key"] or "").strip()
     if not server or not key:
         raise komga_libraries.KomgaError("Komga URL and API key are required")
+    with get_db() as db:
+        db.execute("BEGIN IMMEDIATE")
+        token = komga_presence.start(db, revision)
 
     stats = {"created": 0, "adopted": 0, "updated": 0, "skipped": 0,
              "in_trash": 0, "errors": 0}
@@ -216,8 +234,13 @@ async def _sync(on_progress: ProgressCallback | None = None) -> dict[str, int]:
             client, server, key, configured=config["kinds"]
         )
         selected = [row for row in libraries if row["id"] not in config["excluded"]]
+        if len(selected) > 100:
+            raise komga_libraries.KomgaError("Too many Komga libraries; narrow the selected scope")
+        if len({row["id"] for row in selected}) != len(selected):
+            raise komga_libraries.KomgaError("Komga returned duplicate library identities")
 
         batches: list[tuple[dict[str, Any], list[dict[str, Any]]]] = []
+        enumerated_ids = set()
         for library in selected:
             try:
                 candidates = await komga_books.fetch_library_candidates(
@@ -227,6 +250,12 @@ async def _sync(on_progress: ProgressCallback | None = None) -> dict[str, int]:
                     library_id=library["id"],
                     kind=library["kind"],
                 )
+                identities = {row.get("komga_id") for row in candidates if isinstance(row, dict)
+                              and isinstance(row.get("komga_id"), str)}
+                if enumerated_ids & identities:
+                    stats["errors"] += 1
+                    stats["complete"] = False
+                enumerated_ids.update(identities)
                 batches.append((library, candidates))
             except komga_libraries.KomgaError:
                 logger.exception("Could not read Komga library %s", library["id"])
@@ -234,13 +263,24 @@ async def _sync(on_progress: ProgressCallback | None = None) -> dict[str, int]:
 
         total = sum(len(candidates) for _, candidates in batches)
         current = 0
-        for _library, candidates in batches:
+        reconciliations = []
+        for library, candidates in batches:
+            complete = getattr(candidates, "complete", False) is True
+            seen = set()
+            if isinstance(candidates, komga_books.BookBatch) and not complete:
+                stats["complete"] = False
+                stats["errors"] += 1
             for candidate in candidates:
                 current += 1
                 title = str(candidate.get("title") or "Komga item")
                 try:
                     with get_db() as db:
+                        db.execute("BEGIN IMMEDIATE")
+                        komga_presence.current(db, revision, token)
                         result = komga_records.persist_candidate(db, candidate)
+                        if result["action"] != "in_trash":
+                            komga_presence.observed(db, candidate["komga_id"], library["id"], server)
+                    seen.add(candidate["komga_id"])
                     action = result["action"]
                     if action in stats:
                         stats[action] += 1
@@ -256,15 +296,32 @@ async def _sync(on_progress: ProgressCallback | None = None) -> dict[str, int]:
                         )
                     status = action
                 except (komga_records.KomgaPersistenceError, ValueError):
+                    complete = False
                     logger.warning("Skipping unsafe Komga candidate %r", candidate.get("komga_id"), exc_info=True)
                     stats["skipped"] += 1
                     status = "skipped"
+                except komga_libraries.KomgaError:
+                    raise
                 except Exception:
+                    complete = False
                     logger.exception("Failed to persist Komga candidate %r", candidate.get("komga_id"))
                     stats["errors"] += 1
                     status = "error"
                 if on_progress is not None:
                     await on_progress(current, total, title, status)
+            if complete:
+                reconciliations.append((library["id"], seen))
+        # Absence is atomic across this selected scope. A later library/page or
+        # persistence failure must not leave earlier libraries newly hidden.
+        if (not stats["errors"] and not stats["skipped"]
+                and len(reconciliations) == len(selected)):
+            with get_db() as db:
+                db.execute("BEGIN IMMEDIATE")
+                komga_presence.current(db, revision, token)
+                missing = sum(komga_presence.reconcile(db, library_id, server, seen,
+                              expected=revision, token=token) for library_id, seen in reconciliations)
+            if missing:
+                stats["unavailable"] = missing
     return stats
 
 
@@ -274,6 +331,8 @@ def item_action(item_id: int) -> str | None:
         return None
     with get_db() as db:
         records = komga_records.records_for_item(db, item_id)
+        states = komga_presence.states(db, [row["komga_id"] for row in records])
+        records = [row for row in records if states.get(row["komga_id"]) != "unavailable"]
     if not records:
         return None
     return komga_libraries.browser_book_url(

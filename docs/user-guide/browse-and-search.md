@@ -24,6 +24,13 @@ the current search text; no JavaScript is required. From another page it opens
 the eligible mixed-catalogue destination, using Browse when Library is hidden or
 disabled. The original Browse page's local filters and bulk tools remain separate.
 
+Komga-only imports confirmed missing by a complete, successful sync are omitted
+from default catalogue/series results and their filter counts. They remain stored:
+Library's **Unavailable holdings** filter, direct item links and personal Activity
+can still reach them. Physical copies/loans, manual items and other available holdings keep
+items visible. Partial scans never create new absence verdicts; no records are
+automatically deleted or merged. See [Komga](../komga.md#books-that-disappear-or-acquire-a-different-id).
+
 **Explore** opens a downward dropdown of its available destinations, such as
 Series and Stats. Its links are stacked below the label, not alongside it.
 On a small screen, open **Main menu** first.

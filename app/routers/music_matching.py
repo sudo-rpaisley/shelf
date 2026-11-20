@@ -109,7 +109,7 @@ def _refuse_release_duplicate(db, candidate, item_id):
         raise music_review.ReviewError(i18n.gettext("This release is already catalogued. Open the existing item instead. No changes were saved."))
 
 
-def _render(request, *, item=None, candidates=(), error=None, results=(), fields=None):
+def _render(request, *, item=None, candidates=(), error=None, results=(), fields=None, search_statuses=()):
     if fields is None and item:
         fields = {"q": item["title"], "artist": item.get("authors") or "", "barcode": item.get("upc") or "",
                   "format": item["media_type"]}
@@ -118,6 +118,7 @@ def _render(request, *, item=None, candidates=(), error=None, results=(), fields
         "match_fields": fields or {}, "music_media_types": {key: MEDIA_TYPES[key] for key in MEDIA_TYPES if key in MUSIC_MEDIA_TYPES},
         "field_labels": music_review.FIELD_LABELS,
         "show_match_search": bool(item),
+        "match_search_statuses": search_statuses,
     }, headers={"Cache-Control": "no-store"})
 
 
@@ -135,11 +136,12 @@ async def match_panel(request: Request, item_id: int = Query(0, ge=0, le=2**63 -
                   "catalog_number": catalog_number.strip()[:100] if search else (release or {}).get("catalog_number") or "",
                   "format": format if search and format in MUSIC_MEDIA_TYPES else (item or {}).get("media_type", ""),
                   "country": country.strip()[:2].upper()}
-        results, error = [], None
+        results, error, search_statuses = [], None, ()
         if search:
             async with httpx.AsyncClient(timeout=HTTP_TIMEOUT) as client:
                 answer = await music_matching.search_catalogue(client, title=fields["q"], artist=fields["artist"], barcode=fields["barcode"],
                     catalog_number=fields["catalog_number"], format=fields["format"], country=fields["country"], discogs_token=token)
+            search_statuses = music_matching.search_statuses(answer)
             if answer.found:
                 results = answer.payload
             else:
@@ -147,7 +149,7 @@ async def match_panel(request: Request, item_id: int = Query(0, ge=0, le=2**63 -
                 error = i18n.gettext("No matching release was found. Try fewer filters or paste a release/shop link.") if answer.outcome == "no_match" else (
                     i18n.gettext("Discogs could not complete this search. Try again shortly.") if provider == "Discogs"
                     else i18n.gettext("MusicBrainz could not complete this search. Try again shortly."))
-        return _render(request, item=item, fields=fields, results=results, error=error)
+        return _render(request, item=item, fields=fields, results=results, error=error, search_statuses=search_statuses)
     except music_review.ReviewError as error:
         return HTMLResponse(str(error), status_code=404)
 
@@ -496,6 +498,9 @@ async def _apply_review_operation(*, user_id, ticket, context_item_id=None, fiel
                                      row["media_type"], row["id"], row["source"], row["title"], row["authors"], row["cover_path"])
             transaction_finished = True
         path = None  # The new cover now belongs to the committed item.
+        if intent is None:
+            from app.services import music_auto_covers
+            music_auto_covers.enqueue_missing(item_id)
         return receipt if intent is not None else AddReceipt("added" if creating else "updated", item_id=item_id)
     except add_context.AddMediaError:
         raise

@@ -713,9 +713,25 @@ than relying on the ordinary book metadata cascade:
   transaction.
   `services/music_matching.py` ranks identifier-first searches with visible
   matching facts/conflicts and bounded fallback, plus format/country filters.
-  Its `search_catalogue` wrapper reuses the existing MusicBrainz search and permits
-  one bounded public Discogs cassette search only after a genuine empty/no-match
-  result with nonblank title and artist. Provider failures do not permit fallback.
+  Its `search_catalogue` wrapper reuses the existing MusicBrainz search, then always
+  performs one bounded public Discogs search for a valid music query, regardless
+  of MusicBrainz hits, misses or failures. It supports all four music formats and
+  optional any-format legacy queries, including title/artist/barcode/catalogue-only
+  inputs. The legs are sequential, each with a 12-second deadline inside Add's
+  existing 30-second budget, without new retries or concurrent provider fanout.
+  Cancellation propagates. At most 30 MusicBrainz plus 20 Discogs summaries remain
+  in provider order, never merged across providers or automatically selected.
+  `CatalogueSearchResult` extends the unchanged `ProviderResult` with independent
+  bounded leg outcomes. Per-provider counts/failures are displayed on Add, Music
+  and existing-item matching; a successful leg keeps its candidates even if the
+  other fails. Non-200/malformed/rejected/rate-limited results are not empty hits.
+  Add's automatic result cap is 50, so Discogs is not truncated behind MusicBrainz.
+  Explicit MusicBrainz-only/Discogs-only branches and their caps stay isolated.
+  Search remains read-only; provider adapters, pacing, canonical identities,
+  signed intent/selection/review, preview/save/artwork and non-music dispatch are
+  unchanged. The combined policy is source-authored, not runtime/native-browser
+  qualified or published; historical narrow-fallback expectations need separate
+  finite migration approval, not weakened tests or transferred passes.
   Scan title search hands music to this path or its native manual form rather
   than searching Open Library; the manual form retains Scan's Add/Wishlist intent.
   `routers/music_matching.py` exposes editor-only, music-feature-gated search,
@@ -755,10 +771,10 @@ than relying on the ordinary book metadata cascade:
   because `_find_item_by_barcode` cannot see a magazine issue. Shelf Fill calls
   the same dispatch, so it renders the card, and it places only an owned issue
   rescanned with its add-on (the `duplicate` card).
-- **Discogs** (`services/discogs.py`) supplies reviewed public cassette candidates
+- **Discogs** (`services/discogs.py`) supplies reviewed public music-release candidates
   and optional token-based pressing enrichment. Public helpers are explicit and
   additive; legacy search/lookup helpers remain token-only. Signed reviews can
-  create generic cassette items with a minimal container and exact Release ID in
+  create generic music items with a minimal container and exact Release ID in
   `music_identifiers` as `discogs_release_id`, without assigning MusicBrainz IDs.
   Checked generic fields and selected artwork are saved; the Discogs response and
   tracks are not copied into canonical release tables. Existing MusicBrainz release
@@ -942,6 +958,32 @@ post-redirect re-check. Misses are retried by a background **cover queue**
 verified English related edition (`services/librarything.py`, thingISBN →
 Open Library / Google Books), recording that edition's ISBN and language
 with the cover.
+
+**Music automatic artwork** (`services/music_auto_covers.py`) is a separate
+fill-only resolver dispatched before any book/hint/ISBN path. It prefers saved
+MusicBrainz front scans, saved public Discogs primary artwork, known Release Group
+art, then conservative exact normalised artist/title album artwork. A matching
+MusicBrainz group must be unambiguous in the returned candidates; at most three
+Discogs details are checked for structured title/artist and nonconflicting known
+masters. Composite Discogs search titles are never split into artist identity.
+These bounded cosmetic matches are not exhaustive catalogue or pressing proof.
+The resolver writes only cover path/cleared book-cover provenance/update time,
+never provider bindings, release metadata/tracks, ISBNs, personal activity or IDs.
+
+Postcommit Add/manual/legacy music saves enqueue optional work. Legacy add/refresh
+no longer waits for image fetching; the retained `_apply_release_artwork` helper
+delegates to the same guarded resolver and fences its expected saved MBID. Queue
+failure does not turn a committed item into a claimed refusal. A read snapshot
+captures item/release facts, raw credential revision, feature and suppression;
+network/image work is outside transactions. `BEGIN IMMEDIATE` rechecks the exact
+snapshot/live/music/missing/dismissal/block predicates before publication. Images
+have unique staging names and use unchanged public-DNS/redirect/size/byte checks.
+Only this operation's unique staged file is removed on a proven stale refusal;
+ambiguous write/commit acknowledgements retain it conservatively. Two front
+attempts per source, three bounded Discogs details and a 90-second overall deadline
+limit the work; cancellation propagates. No new retries, host allowlist relaxation,
+schema, JS, request/ticket/auth or downloader changes are introduced. This source
+is not native SQL/concurrency/DNS/TLS/cancellation/durability qualification.
 
 The **picker is a separate, human-driven path** and dispatches on the item's
 media type (`covers.search_covers`): `dvd` → TMDb's poster set for the film,
@@ -1225,14 +1267,18 @@ was never eligible. Anything else (including CDs, which this Photo Intake
 confirmation pipeline does not look up) is filed title-only with no outbound
 metadata request.
 
-**Invariant: non-book rows are enriched by a direct provider lookup and a
-direct cover download, and they bypass the cover queue by design.** The queue's
+**Invariant: non-books must never enter a book catalogue/ISBN cover path.** DVDs
+and games retain direct provider cover downloads outside the queue. Music now
+uses its own guarded artwork resolver through the queue. The book resolver's
 `resolve_missing_cover` falls back to a title search, which accepts the first
 Open Library hit for an item with no authors and then stores the ISBN it found
 — that once wrote a novel's cover *and* its ISBN onto a cover-less DVD row.
-`cover_queue.COVER_REQUEUE_MEDIA_TYPES` is what keeps non-book rows out, and
-widening it is the mistake this invariant exists to prevent; the disc and game
-covers are fetched straight through `covers._download_to_item` instead.
+`cover_queue.COVER_REQUEUE_MEDIA_TYPES` remains book-only because intake uses it
+for book-search classification; it is not widened. A separate
+`AUTO_COVER_MEDIA_TYPES` adds music only where early music dispatch is guaranteed.
+Import/queue eligibility and 48-hour restart recovery use that set. Admin JSON/SSE
+Retry Missing Covers also includes older music of any age, with no new unbounded
+startup sweep. The legacy manual music path bypasses book preview/ISBN artwork too.
 
 **The terminal stage: the cover review queue** (`app/routers/cover_review.py`
 for the page and the reads, `cover_review_actions.py` for the three writes).
@@ -1257,10 +1303,13 @@ radius than the original.
 `cover_queue.py` is deliberately in-memory and its docstring delegates per-item
 cover state here. Three readers honour the flag — the queue's own predicate,
 `cover_queue.requeue_recent_missing` (so a boot does not override a human), and
-the Settings/Home cover-less counts. The two bulk Retry Missing Covers sweeps
-deliberately do **not**, because with no un-dismiss control in the UI they are
-the only way an accidental dismissal returns. `items_covers.cover_remove`
-clears the flag, which is the intended route back.
+the Settings/Home cover-less counts. The historical **book** branches of both
+bulk Retry Missing Covers sweeps deliberately remain dismissal-blind. The new
+music branches honor dismissal, feature state and deliberate-removal blocks;
+explicit cover-sync opt-in clears suppression and queues a fresh music attempt.
+`items_covers.cover_remove` clears dismissal but blocks automatic source artwork.
+The cover follow-up is source-authored only; existing tests/fixtures are preserved
+and finite policy/visible-copy/queue expectations still need independent migration.
 
 Advancing through the queue is a **keyset seek** over `(updated_at DESC,
 id DESC)`, and each action captures its ordering key *before* writing: setting
@@ -1395,6 +1444,40 @@ bindings and their durable repair/merge behavior are unchanged. Different remote
 IDs/title or issue-number similarity are not proof for automatic consolidation.
 No live duplicates were inspected or removed; new regression sources require
 separately authorized DB/runtime verification.
+
+**Confirmed-missing Komga holdings are a presentation state, not Trash.** The
+`komga_presence` sidecar caches exact remote-ID/library/root verdicts. The
+list-compatible `BookBatch` carries explicit completeness independently of its
+deduplicated contents: malformed/overlapping/repeated/changing pagination,
+normalisation gaps and bounds fail closed. All selected libraries must enumerate
+and persist successfully before one transaction reconciles absence; the positive
+observation of a returning ID can restore it during a partial pass. Unannotated
+lists cannot authorize absence. No individual-book existence probes or remote
+mutations are added. Complete traversal still is not an atomic server snapshot.
+
+Configuration plus its raw revision are captured in one read snapshot; revision
+material stays in memory, never copied into cache/logs/requests. A durable random
+run generation fences older overlapping runs. Scope/credential changes reset
+cached verdicts to Unknown and invalidate the generation, including change-back
+races. Every writer rechecks configuration/generation under the caller's lock.
+The helper commits/opens no connection and writes only its two sidecar tables.
+
+`catalogue_items_live` is a separate **TEMP** projection, leaving `items_live`
+and `copies_live` unchanged for identity, direct details, history, repair and
+backup/export. It excludes only source=komga rows whose every Komga holding is
+confirmed missing for its current library/root, with no physical/restorable copy,
+loan record, legacy location/ABS/RomM binding or available enabled connected
+holding. Manual/unknown/orphaned/stale-scope bindings remain visible. Browse/API
+search and matching facets, Series counts/lists and Home recent previews use
+this projection. Library uses it by default but its explicit Unavailable filter
+reads retained live rows. Group hydration safely excludes hidden members rather
+than changing their stored format links; tag hydration tolerates filtered IDs.
+Home's stored totals/operational metrics, personal/Continue/export readers stay
+on the original view. Confirmed-unavailable Komga actions have no dead URL;
+other providers retain their existing cached availability policy. No old/new ID
+mapping, catalogue deletion, progress rewrite or native cache mutation occurs.
+Source regressions, real scan/DB/native-browser verification and review remain
+pending; source text/AST checks do not qualify pagination, views or concurrency.
 
 ## Connected library experiment
 

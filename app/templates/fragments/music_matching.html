@@ -6,6 +6,7 @@
         <p class="text-sm text-shelf-muted mt-1">{{ _('Preview the edition and artwork before changing anything. Existing copies, ownership, locations and personal activity stay unchanged.') }}</p>
     </div>
     {% if match_error %}<p role="alert" class="p-3 rounded-lg border border-shelf-error/40 text-sm text-shelf-error">{{ match_error }}</p>{% endif %}
+    {% with music_search_statuses=match_search_statuses | default(()) %}{% include "fragments/music_search_status.html" %}{% endwith %}
     <details{% if not candidates %} open{% endif %} class="space-y-4">
     <summary class="cursor-pointer text-sm text-shelf-accent2">{{ _('Search and link options') }}</summary>
     {% if show_match_search %}
@@ -111,7 +112,8 @@
             {% endif %}
             <fieldset class="space-y-3">
                 <legend class="font-medium text-sm mb-2">{{ _('Artwork') }}</legend>
-                <label class="flex items-center gap-2 text-sm"><input type="radio" name="image" value="-1" checked> {{ _('Keep current artwork') if item else _('Add without artwork') }}</label>
+                <label class="flex items-center gap-2 text-sm"><input type="radio" name="image" value="-1" checked> {{ _('Keep current artwork; look up a cover if missing') if item else _('Look up missing artwork after saving') }}</label>
+                <p class="text-xs text-shelf-muted">{{ _('Automatic lookup keeps chosen or deliberately removed covers. Album-art fallback never assigns or changes a release ID.') }}</p>
                 {% if candidate.images %}
                 <div class="grid grid-cols-2 xl:grid-cols-3 gap-3">
                     {% for image in candidate.images %}

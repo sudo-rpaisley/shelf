@@ -28,7 +28,7 @@ from dataclasses import dataclass, field, replace
 
 import httpx
 
-from app.config import HTTP_TIMEOUT
+from app.config import HTTP_TIMEOUT, MUSIC_MEDIA_TYPES
 from app.database import get_db
 from app.services.synopsis import SYNOPSIS_MEDIA_TYPES
 
@@ -38,14 +38,17 @@ MAX_ATTEMPTS = 3
 RETRY_BACKOFF = (5.0, 20.0)  # seconds before attempt 2 and attempt 3
 REQUEUE_WINDOW_HOURS = 48
 
-# Only book-ish items may be requeued. `resolve_missing_cover`'s fallback is
+# The book-classification set stays book-only. Its resolver's fallback is
 # a *book catalogue* title search that accepts the first Open Library hit
 # when the item has no authors (`authors.matches(None, …)` is True by
 # design) and then stores the ISBN it found. Sweeping a cover-less DVD or
 # video game through it writes a novel's cover and a book ISBN onto the
 # disc — silently, on every boot. Comics and Manga share the same safe
-# book-catalogue cover path; non-book cover misses stay manual.
+# book-catalogue cover path. Music is added only to the separate dispatch set.
 COVER_REQUEUE_MEDIA_TYPES = SYNOPSIS_MEDIA_TYPES + ("comic", "manga")
+# Keep the book-classification constant above unchanged: intake uses it before
+# metadata lookup. Music has its own resolver, never the ISBN/title book chain.
+AUTO_COVER_MEDIA_TYPES = COVER_REQUEUE_MEDIA_TYPES + tuple(sorted(MUSIC_MEDIA_TYPES))
 
 
 @dataclass
@@ -120,14 +123,15 @@ FILTER_CHUNK_SIZE = 500  # stay under SQLite's default bound-parameter cap
 
 
 def filter_cover_eligible(item_ids: list[int]) -> list[int]:
-    """Narrow a producer's ids to the book-ish media types cover enrichment
+    """Narrow a producer's ids to the book/music types cover enrichment
     is safe for (G29).
 
     `resolve_missing_cover`'s title-search fallback accepts the first Open
     Library hit when an item has no authors (`authors.matches(None, …)` is
     True by design) and then stores the ISBN it finds — fine for a
     book-catalogue lookup, wrong for an authorless DVD or video game, which
-    would acquire a novel's ISBN and cover. `enqueue_many` applies no media
+    would acquire a novel's ISBN and cover. Music now dispatches to its own
+    resolver before any book path. `enqueue_many` applies no media
     filter itself, so this is the shared hand-off both current producers —
     photo-intake confirm's `_enrich_import_covers` and CSV import's
     `import_csv` (`app/routers/items.py`) — must call before enqueueing.
@@ -139,7 +143,7 @@ def filter_cover_eligible(item_ids: list[int]) -> list[int]:
     if not item_ids:
         return []
 
-    media_placeholders = ", ".join("?" for _ in COVER_REQUEUE_MEDIA_TYPES)
+    media_placeholders = ", ".join("?" for _ in AUTO_COVER_MEDIA_TYPES)
     eligible_ids: set[int] = set()
     for start in range(0, len(item_ids), FILTER_CHUNK_SIZE):
         chunk = item_ids[start:start + FILTER_CHUNK_SIZE]
@@ -148,7 +152,7 @@ def filter_cover_eligible(item_ids: list[int]) -> list[int]:
             rows = db.execute(
                 f"SELECT id FROM items_live WHERE id IN ({id_placeholders}) "
                 f"AND media_type IN ({media_placeholders})",
-                (*chunk, *COVER_REQUEUE_MEDIA_TYPES),
+                (*chunk, *AUTO_COVER_MEDIA_TYPES),
             ).fetchall()
         eligible_ids.update(row["id"] for row in rows)
 
@@ -250,12 +254,12 @@ async def run_worker() -> None:
 
 
 def requeue_recent_missing(window_hours: int = REQUEUE_WINDOW_HOURS) -> int:
-    """Queue recently-added, cover-less book items. Returns how many.
+    """Queue recently-added, cover-less book/music items. Returns how many.
 
     Recovers jobs lost to a restart without any persistent state. The window
     keeps genuinely cover-less older items from being re-hammered on every
-    boot, and the media-type filter keeps non-books out of a book-catalogue
-    resolver (see COVER_REQUEUE_MEDIA_TYPES).
+    boot. Music uses its own resolver; other non-books remain excluded. The
+    book-search classification constant remains unchanged.
 
     `cover_review_dismissed = 0` is the third filter and the reason this
     module's docstring points at the cover-review-queue plan for durable state.
@@ -263,14 +267,19 @@ def requeue_recent_missing(window_hours: int = REQUEUE_WINDOW_HOURS) -> int:
     be handed back to the automatic chain on every boot, forever — that is
     exactly the non-convergence the column exists to end.
     """
-    placeholders = ", ".join("?" for _ in COVER_REQUEUE_MEDIA_TYPES)
+    placeholders = ", ".join("?" for _ in AUTO_COVER_MEDIA_TYPES)
+    music_placeholders = ", ".join("?" for _ in MUSIC_MEDIA_TYPES)
     with get_db() as db:
         rows = db.execute(
-            f"SELECT id FROM items_live WHERE cover_path IS NULL "
+            f"SELECT id FROM items_live WHERE (cover_path IS NULL OR "
+            f"(cover_path = '' AND media_type IN ({music_placeholders}))) "
             f"AND cover_review_dismissed = 0 "
             f"AND media_type IN ({placeholders}) "
+            f"AND (media_type NOT IN ({music_placeholders}) OR ("
+            f"COALESCE((SELECT value FROM settings WHERE key = 'feature.music'), '') != '0' "
+            f"AND NOT EXISTS (SELECT 1 FROM cover_sync_blocks b WHERE b.item_id = items_live.id AND b.blocked = 1))) "
             f"AND created_at >= datetime('now', ?)",
-            (*COVER_REQUEUE_MEDIA_TYPES, f"-{window_hours} hours"),
+            (*MUSIC_MEDIA_TYPES, *AUTO_COVER_MEDIA_TYPES, *MUSIC_MEDIA_TYPES, f"-{window_hours} hours"),
         ).fetchall()
     return enqueue_many([row["id"] for row in rows])
 

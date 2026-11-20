@@ -15,7 +15,7 @@ from urllib.parse import parse_qsl, quote, urljoin, urlsplit
 from app import features
 from app.config import MEDIA_TYPES
 from app.database import get_setting
-from app.services import audiobookshelf, format_groups, komga_libraries, komga_sync, legacy_sources, romm_client, romm_sync
+from app.services import audiobookshelf, format_groups, komga_libraries, komga_presence, komga_sync, legacy_sources, romm_client, romm_sync
 
 
 _STATES = frozenset({"available", "lent", "missing", "unavailable", "unknown"})
@@ -204,15 +204,24 @@ def _existing_rows(db, items, result, enabled) -> None:
             ).fetchall()
             if records and config is None:
                 config = configuration()
+            presence = komga_presence.states(db, [row["external_id"] for row in records]) if key == "komga" else {}
             for record in records:
                 url = legacy_url(config["url"], config["public_url"], record["external_id"], builder)
+                state = "available" if url and health[key]["last_status"] not in {"error", "partial"} else "unknown"
+                detail = ("Last source sync failed or was partial; cached holding retained."
+                          if health[key]["last_status"] in {"error", "partial"}
+                          else "Cached holding; no live connection check.")
+                if presence.get(record["external_id"]) == "unavailable":
+                    state, url = "unavailable", None
+                    detail = "Not seen in a complete Komga library sync; catalogue record retained."
+                elif presence.get(record["external_id"]) == "unknown":
+                    state = "unknown"
+                    detail = "Komga scope changed; sync again to confirm this cached holding."
                 result[record["item_id"]].append(_row(
                     items[record["item_id"]], source_key=key, source_name=name, kind="digital",
-                    state="available" if url and health[key]["last_status"] not in {"error", "partial"} else "unknown", url=url,
+                    state=state, url=url,
                     last_seen=record["updated_at"],
-                    detail=("Last source sync failed or was partial; cached holding retained."
-                            if health[key]["last_status"] in {"error", "partial"}
-                            else "Cached holding; no live connection check."),
+                    detail=detail,
                 ))
 
 

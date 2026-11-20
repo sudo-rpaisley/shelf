@@ -1,10 +1,14 @@
 """Explicit music matching: identifiers first, explained candidates, no writes."""
 
+import asyncio
+from dataclasses import dataclass
 import re
 import unicodedata
 from difflib import SequenceMatcher
 from urllib.parse import urlsplit
 from uuid import UUID
+
+import httpx
 
 from app.config import MUSIC_MEDIA_TYPES
 from app.services import discogs, musicbrainz, provider_result, upc
@@ -142,21 +146,64 @@ def _catalogue_search_result(result):
     return provider_result.ProviderResult("transport_failed", result.provider, status=result.status)
 
 
+@dataclass(frozen=True, slots=True)
+class CatalogueSearchResult(provider_result.ProviderResult):
+    """Read-only candidates plus each catalogue's independent, bounded outcome."""
+
+    provider_results: tuple[provider_result.ProviderResult, ...] = ()
+
+
+async def _catalogue_leg(provider, operation, *, options, limit):
+    try:
+        # Leave room for both sequential catalogues inside Add's 30-second
+        # budget. A stalled first provider must not consume the second's turn.
+        result = await asyncio.wait_for(operation, timeout=12)
+        if not isinstance(result, provider_result.ProviderResult) or result.provider != provider:
+            return provider_result.transport_failed(provider)
+        result = _catalogue_summaries(_catalogue_search_result(result))
+        if not result.found:
+            return result
+        candidates = result.payload[:limit]
+        if provider == "discogs":
+            candidates = [dict(row) for row in candidates]
+            for row in candidates:
+                identifier = discogs._public_release_id(row.get("discogs_release_id"))
+                if not identifier or not isinstance(row.get("title"), str) or not row["title"].strip():
+                    return provider_result.transport_failed(provider)
+                row.update(provider=provider, provider_release_id=str(identifier),
+                           source_url=f"https://www.discogs.com/release/{identifier}")
+        if not candidates:
+            return provider_result.no_match(provider, status=result.status)
+        return result.with_payload(rank(candidates, **options))
+    except (TimeoutError, httpx.HTTPError, TypeError, ValueError, AttributeError):
+        # Provider/normalisation failures are not empty catalogues. Cancellation
+        # is deliberately not caught, so the enclosing request remains bounded.
+        return provider_result.transport_failed(provider)
+
+
+def search_statuses(result):
+    """Display-free provider facts, including failures beside another leg's hits."""
+    return tuple({"provider": leg.provider, "outcome": leg.outcome,
+                  "count": len(leg.payload) if leg.found else 0}
+                 for leg in getattr(result, "provider_results", ()))
+
+
 async def search_catalogue(client, *, title="", artist="", barcode="", catalog_number="", format="",
                            country="", discogs_token=""):
-    """MusicBrainz first; only a genuine empty cassette lookup permits Discogs."""
-    title, artist = title.strip(), artist.strip()
-    result = _catalogue_summaries(_catalogue_search_result(await search(client, title=title, artist=artist, barcode=barcode,
-        catalog_number=catalog_number, format=format, country=country)))
-    empty = (result.provider == "musicbrainz" and result.status in (None, 200)
-             and ((result.found and result.payload == []) or result.outcome == "no_match"))
-    if format != "cassette" or not title or not artist or not empty:
-        return result
+    """Search MusicBrainz then Discogs every time; never merge pressing IDs."""
+    title, artist, catalog_number = title.strip(), artist.strip(), catalog_number.strip()
     barcode = upc.normalize_barcode(barcode)[:32]
-    result = _catalogue_search_result(await discogs.search_public_releases(title, client, token=discogs_token, artist=artist,
-        barcode=barcode or None, catalog_number=catalog_number.strip() or None,
-        media_type=format, country=country or None, limit=20))
-    if not result.found:
-        return result
-    return result.with_payload(rank(result.payload, title=title, artist=artist, barcode=barcode,
-                                    catalog_number=catalog_number, format=format, country=country))
+    if (format and format not in MUSIC_MEDIA_TYPES) or not (title or artist or barcode or catalog_number):
+        return CatalogueSearchResult("no_match", "music_catalogue")
+    options = dict(title=title, artist=artist, barcode=barcode, catalog_number=catalog_number,
+                   format=format, country=country)
+    first = await _catalogue_leg("musicbrainz", search(client, **options), options=options, limit=30)
+    second = await _catalogue_leg("discogs", discogs.search_public_releases(
+        title, client, token=discogs_token, artist=artist or None, barcode=barcode or None,
+        catalog_number=catalog_number or None, media_type=format or None, country=country or None, limit=20),
+        options=options, limit=20)
+    legs = (first, second)
+    candidates = [row for leg in legs if leg.found for row in leg.payload]
+    winner = (provider_result.found("music_catalogue", candidates, status=None) if candidates
+              else provider_result.combine(legs, provider="music_catalogue"))
+    return CatalogueSearchResult(winner.outcome, winner.provider, winner.payload, winner.status, legs)

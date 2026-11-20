@@ -62,7 +62,7 @@ async def series_page(request: Request, name: str = Query("", max_length=MAX_SER
             "SELECT i.id, i.title, i.authors, i.cover_path, i.series_name, "
             "i.series_position, i.owned, i.reading_status, "
             f"{lists.WISHLISTED_SQL} AS wishlisted "
-            "FROM items_live i WHERE i.series_name IS NOT NULL "
+            "FROM catalogue_items_live i WHERE i.series_name IS NOT NULL "
             "AND TRIM(i.series_name) != '' "
             "ORDER BY i.series_name COLLATE NOCASE, "
             "i.series_position IS NULL, i.series_position, i.title COLLATE NOCASE"
@@ -84,13 +84,13 @@ async def series_page(request: Request, name: str = Query("", max_length=MAX_SER
             for r in db.execute("SELECT series_name, check_state FROM release_watches").fetchall()
         }
         unassigned_total = db.execute(
-            f"SELECT COUNT(*) FROM items_live WHERE {_unassigned_where}",
+            f"SELECT COUNT(*) FROM catalogue_items_live WHERE {_unassigned_where}",
             UNASSIGNED_MEDIA_TYPES,
         ).fetchone()[0]
         unassigned_items = [dict(r) for r in db.execute(
             "SELECT id, title, authors, cover_path, series_name, series_position, "
             f"owned, reading_status, {lists.WISHLISTED_SQL} AS wishlisted "
-            f"FROM items_live i WHERE {_unassigned_where} "
+            f"FROM catalogue_items_live i WHERE {_unassigned_where} "
             "ORDER BY title COLLATE NOCASE LIMIT ?",
             (*UNASSIGNED_MEDIA_TYPES, UNASSIGNED_STRIP_CAP),
         ).fetchall()]

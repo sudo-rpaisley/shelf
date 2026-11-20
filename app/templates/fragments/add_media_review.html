@@ -57,7 +57,7 @@
         {% if preview.intent.media_type == 'video_game' %}<p class="text-xs text-shelf-muted">{{ _('Game saves use native title, publisher, year, description, series and platform fields. A displayed provider ID or developer credit does not establish a stored provider binding or creator field.') }}</p>{% endif %}
         {% if preview.intent.media_type == 'dvd' %}<p class="text-xs text-shelf-muted">{{ _('Movie saves use native title, description and year fields, not a durable provider ID or proof of a particular disc edition.') }}</p>{% endif %}
     {% endif %}
-    <p class="text-sm text-shelf-muted">{{ _('No artwork is loaded or selected in this review. You can add artwork later.') }}</p>
+    <p class="text-sm text-shelf-muted">{% if review_music %}{{ _('No artwork is loaded or selected in this review. Missing music artwork is looked up in the background after saving; this does not identify or change the pressing.') }}{% else %}{{ _('No artwork is loaded or selected in this review. You can add artwork later.') }}{% endif %}</p>
     <form method="post" action="{{ request.url_for('add_media_save') }}" accept-charset="UTF-8" data-testid="add-media-save" data-add-prepared class="space-y-4">
         <input type="hidden" name="_csrf" value="{{ request.cookies.get('csrf_token', '') }}">
         <input type="hidden" name="context" value="{{ preview.context }}">

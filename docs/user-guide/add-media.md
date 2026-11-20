@@ -72,13 +72,24 @@ credentials are not evidence that no editions exist.
 
 Choose Vinyl, Cassette, CD or Digital Music, then select:
 
-- **Automatic:** MusicBrainz first. Only a successful, genuinely empty cassette
-  search with both title and artist permits the existing narrow Discogs fallback.
-  A catalogue-only query or provider error does not trigger that fallback.
+- **Automatic (MusicBrainz + Discogs for music):** search MusicBrainz, then Discogs
+  every time, even when MusicBrainz finds matches. This applies to all four music
+  formats and title-, artist-, barcode- or catalogue-number-only searches. Title
+  and artist are not both required. Each result keeps its own provider and exact
+  release identifier; similar titles are not merged or automatically selected.
 - **MusicBrainz only:** no Discogs fallback.
 - **Discogs only:** search Discogs directly across all four music formats,
   including catalogue-number-only queries, without MusicBrainz fallback. Results
   are bounded candidates, not an exhaustive catalogue or availability guarantee.
+
+Automatic shows up to 30 MusicBrainz and 20 Discogs candidates, MusicBrainz first,
+with a separate result count or failure for each catalogue. If one provider fails,
+the other is still searched and its results remain available; a failure is never
+reported as an empty catalogue. Each provider has a 12-second search deadline
+within the existing 30-second Add search budget. Cancelling the request cancels
+the search. Nothing is searched just by typing or changing the provider choice.
+This combined-search revision is local source only; runtime/browser verification
+and publication remain pending.
 
 For a cassette without a barcode, try **Hits Out of Hell**, artist **Meat Loaf**,
 and compare the returned pressings. This example does not identify your copy.
@@ -89,6 +100,15 @@ A MusicBrainz save uses the exact selected release. A Discogs save keeps the
 selected catalogue fields and exact pressing reference; its live track details
 are not copied into the canonical MusicBrainz track tree or invented MB IDs.
 When Music is disabled, use honest manual entry rather than provider matching.
+
+After a music save commits, a missing cover is queued for background lookup; no
+artwork is fetched or selected during the review. This also applies to manual music
+with an artist and title. Exact saved-release artwork is preferred, with conservative
+album-art fallback that never attaches a release identity. Existing/chosen covers,
+deliberate removals and music marked **Not available** remain protected. Use
+**Settings → Data → Maintenance → Retry Missing Covers** for older coverless music
+of any age. See [Music artwork](music.md#artwork). This artwork revision is local
+source only; no runtime/browser or live backfill result is claimed.
 
 ## Manual entry and existing items
 

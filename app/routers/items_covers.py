@@ -60,7 +60,8 @@ async def cover_status(request: Request, item_id: int, attempt: int = 0, _=Depen
 async def retry_cover(item_id: int, _=Depends(require_role("editor"))):
     """Re-attempt cover download for an item.
 
-    G29: only a book-family item goes through `resolve_missing_cover`. Its
+    Music has its own resolver and does not require an ISBN. G29: only a
+    book-family item goes through the generic book path. Its
     title-search fallback has no media-type guard, and a DVD keeps its UPC in
     `isbn`, so sending a cover-less DVD down that path installs a novel's
     cover. Every other type gets the one exact `download_cover` call this
@@ -70,6 +71,12 @@ async def retry_cover(item_id: int, _=Depends(require_role("editor"))):
         item = db.execute(
             "SELECT isbn, cover_path, media_type FROM items_live WHERE id = ?", (item_id,)
         ).fetchone()
+    if item and item["media_type"] in MUSIC_MEDIA_TYPES:
+        if item["cover_path"]:
+            return {"ok": True, "cover_path": item["cover_path"]}
+        async with httpx.AsyncClient(timeout=HTTP_TIMEOUT) as client:
+            path = await items_common.resolve_missing_cover(item_id, client)
+        return {"ok": True, "cover_path": path} if path else {"ok": False, "message": i18n.gettext("No cover found")}
     if not item or not item["isbn"]:
         return {"ok": False, "message": i18n.gettext("No ISBN")}
     if item["cover_path"]:
@@ -407,7 +414,7 @@ async def cover_remove(item_id: int, return_to: str = Form(""), _=Depends(requir
     resp.headers["HX-Redirect"] = f"/music/item/{item_id}" if return_to == "music" else f"/item/{item_id}"
     return resp
 
-# These two sweeps are deliberately NOT filtered on `cover_review_dismissed`.
+# The book branch of these two sweeps is deliberately NOT filtered on `cover_review_dismissed`.
 # Both are admin-only and media-type-gated, so G29's defect cannot fire and no
 # wrong data is written; the worst case is an admin who asked for a sweep
 # getting one on a row they earlier dismissed. The deciding factor is the other
@@ -418,25 +425,37 @@ async def cover_remove(item_id: int, return_to: str = Form(""), _=Depends(requir
 # Pinned by test_cover_review.py::TestRetryMissingCoversStaysDismissalBlind.
 # Revisit when un-dismissing from the UI ships.
 #
-# Bulk cover retry is restricted to book media types for the same reason the
+# The historical generic retry branch stays restricted to books: the
 # startup requeue is (GOTCHAS G29): items_common.resolve_missing_cover's fallback is a
 # book-catalogue title search that accepts the first Open Library hit when the
 # item has no authors, then writes that book's ISBN onto the row. Sweeping a
 # cover-less DVD or video game through it attaches a novel's cover and ISBN to
-# the disc. Non-book cover misses are re-fetched from the item page instead.
+# the disc. Music has a separate guarded resolver; other non-books stay manual.
 _COVER_RETRY_PLACEHOLDERS = ", ".join(
     "?" for _ in cover_queue.COVER_REQUEUE_MEDIA_TYPES
 )
 
+
+def _missing_cover_items(db, *, streaming=False):
+    # Preserve the historical book sweep's dismissal-blind behavior. Music is a
+    # separate branch that respects explicit removal/dismissal and feature state.
+    columns = "id, isbn, title" if streaming else "id"
+    music_placeholders = ", ".join("?" for _ in MUSIC_MEDIA_TYPES)
+    return db.execute(
+        f"SELECT {columns} FROM items_live WHERE (cover_path IS NULL AND "
+        f"media_type IN ({_COVER_RETRY_PLACEHOLDERS})) OR (COALESCE(cover_path, '') = '' "
+        f"AND media_type IN ({music_placeholders}) "
+        f"AND cover_review_dismissed = 0 "
+        f"AND COALESCE((SELECT value FROM settings WHERE key = 'feature.music'), '') != '0' "
+        f"AND NOT EXISTS (SELECT 1 FROM cover_sync_blocks b WHERE b.item_id = items_live.id AND b.blocked = 1))",
+        (*cover_queue.COVER_REQUEUE_MEDIA_TYPES, *MUSIC_MEDIA_TYPES),
+    ).fetchall()
+
 @router.post("/covers/bulk-retry")
 async def bulk_retry_covers(request: Request, _=Depends(require_role("admin"))):
-    """Retry downloading covers for all book items missing them."""
+    """Retry missing book/music artwork, including music of any age."""
     with get_db() as db:
-        items = db.execute(
-            f"SELECT id FROM items_live WHERE cover_path IS NULL "
-            f"AND media_type IN ({_COVER_RETRY_PLACEHOLDERS})",
-            cover_queue.COVER_REQUEUE_MEDIA_TYPES,
-        ).fetchall()
+        items = _missing_cover_items(db)
 
     results = {"success": 0, "failed": 0, "total": len(items)}
 
@@ -461,11 +480,7 @@ async def bulk_retry_covers(request: Request, _=Depends(require_role("admin"))):
 async def bulk_retry_covers_stream(request: Request, _=Depends(require_role("admin"))):
     """SSE endpoint for bulk cover retry with progress updates."""
     with get_db() as db:
-        items = db.execute(
-            f"SELECT id, isbn, title FROM items_live WHERE cover_path IS NULL "
-            f"AND media_type IN ({_COVER_RETRY_PLACEHOLDERS})",
-            cover_queue.COVER_REQUEUE_MEDIA_TYPES,
-        ).fetchall()
+        items = _missing_cover_items(db, streaming=True)
 
     if not items:
         async def empty_stream():

@@ -276,12 +276,22 @@ wishlist price-drop digest and the release-radar digest. See
 ## Always-on sources (no key)
 
 Open Library, Google Books (anonymous by default), Amazon cover images, UPC Item DB,
-MusicBrainz and Cover Art Archive, public Discogs cassette search/review and selected
-release details, the Deutsche Nationalbibliothek for German ISBNs, the Bibliothèque
+MusicBrainz and Cover Art Archive, public Discogs music-release search/review,
+saved-release artwork and selected release details, the Deutsche Nationalbibliothek for German ISBNs, the Bibliothèque
 nationale de France for French ones, and the Servizio Bibliotecario Nazionale for
 Italian ones. Apart from credentials you explicitly configure, metadata lookups send
 the fields needed for the request, such as identifiers, title/artist and selected
 format/country filters—not your Shelf account credentials or a collection export.
+Automatic music searches query MusicBrainz then Discogs on every valid submitted
+search across all four music formats, retaining distinct provider results and
+per-provider failures. MusicBrainz only and Discogs only remain isolated options.
+The combined-search follow-up is source-authored only; no live provider check is
+claimed for it.
+Missing music artwork now uses a separate background resolver: saved releases
+first, then confident artist/title album artwork without assigning provider IDs.
+The existing Retry Missing Covers action also handles older coverless music while
+respecting chosen/removed/dismissed artwork. This is source-authored only, not a
+live-provider or backfill result. See [Music artwork](music.md#artwork).
 Requests to every provider are paced to its
 published rate limit. UPC Item DB's free tier is
 the tightest of them at six lookups a minute, so Shelf leaves ten seconds

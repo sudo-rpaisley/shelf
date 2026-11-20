@@ -1,0 +1,18 @@
+{% if music_search_statuses %}
+<section role="status" aria-live="polite" aria-atomic="true" data-testid="music-search-status" class="rounded-lg border border-shelf-border bg-shelf-card p-4 space-y-2">
+    <h2 class="font-semibold text-sm">{{ _('Catalogue search') }}</h2>
+    <ul class="space-y-2 text-sm">
+        {% for search_status in music_search_statuses %}
+        <li data-music-provider="{{ search_status.provider }}" data-search-outcome="{{ search_status.outcome }}" class="break-words">
+            <span class="font-medium">{{ _('Discogs') if search_status.provider == 'discogs' else _('MusicBrainz') }}</span>:
+            {% if search_status.outcome == 'found' %}{{ _('Releases returned: %(count)s', count=search_status.count) }}
+            {% elif search_status.outcome == 'no_match' %}{{ _('No matching releases returned.') }}
+            {% elif search_status.outcome == 'rejected' %}{{ _('Request rejected. Check the provider settings; this is not a no-match result.') }}
+            {% elif search_status.outcome == 'rate_limited' %}{{ _('Rate limit reached. Try again later; this is not a no-match result.') }}
+            {% elif search_status.outcome == 'no_credential' %}{{ _('A required provider credential is missing.') }}
+            {% else %}{{ _('Search could not be completed. This is not a no-match result.') }}{% endif %}
+        </li>
+        {% endfor %}
+    </ul>
+</section>
+{% endif %}

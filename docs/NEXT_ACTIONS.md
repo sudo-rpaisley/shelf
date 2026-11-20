@@ -1,6 +1,6 @@
 # Live feature work queue
 
-Updated: **2026-11-17**. This is the working checklist for the current development
+Updated: **2026-11-20**. This is the working checklist for the current development
 wave on `new-test`, not a release-readiness claim. See [Progress](PROGRESS.md) for
 completed batches and evidence.
 
@@ -8,6 +8,32 @@ An item is ticked only after its implementation, regression checks and independe
 review are recorded. **In progress**, **unverified** and **blocked** are not done.
 The original [acceptance checklist](connected-library-acceptance.md) is unchanged;
 this queue does not waive or automatically complete any of its 185 entries.
+
+## Local source follow-up: automatic music artwork and older-item backfill
+
+- [ ] **MUSIC-COVERS — Fill missing music covers without identifying a pressing.**
+  User approved cosmetic artist/title album-art fallback after saved-release art.
+  Local source queues music after committed saves, uses a separate front/primary
+  artwork resolver, supports public saved Discogs artwork without a token, and
+  extends existing Retry Missing Covers to older music of any age. Existing/chosen,
+  removed and dismissed covers are protected and rechecked under the write lock.
+  The book-classification set, provider identities/history, downloader and safety
+  boundaries remain intact. New synthetic regressions are authored **not run**;
+  independent review, finite protected-expectation migration, native/runtime/browser
+  qualification and publication remain pending. No live backfill has been run.
+
+## Local source follow-up: combined music search
+
+- [ ] **MUSIC-COMBINED — Automatic searches both catalogues every time.** User
+  explicitly chose both MusicBrainz and Discogs, not only an empty-result fallback.
+  Local source queries them sequentially across all music formats, including
+  identifier-only searches, keeps up to 30+20 separately attributed results and
+  displays per-provider counts/failures without dropping the other leg's hits.
+  Single-provider modes, non-music dispatch and exact-release save protections
+  remain. Additive synthetic regressions are authored **not run**; no provider
+  contact, independent review, protected-expectation migration, runtime/browser
+  qualification or publication is claimed. The published narrow-fallback policy
+  and historical passing cases below are capture-scoped, not this revision's pass.
 
 ## Published priority: unified Add Media
 

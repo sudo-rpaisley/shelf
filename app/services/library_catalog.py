@@ -279,8 +279,11 @@ def search_catalog(db, filters: Mapping | None = None, *, page: int = 1) -> dict
     filters = normalize_filters(filters)
     types = media_type_filters.parse_types(filters["types"])
     columns = ", ".join(f"i.{column}" for column in _ITEM_COLUMNS)
+    # Explicit unavailable inspection can recover retained records; ordinary
+    # catalogue views omit only confirmed-missing, source-only Komga imports.
+    relation = "items_live" if filters["availability"] == "unavailable" else "catalogue_items_live"
     items = {row["id"]: dict(row) for row in db.execute(
-        f"SELECT {columns}, {WISHLISTED_SQL} AS wishlisted FROM items_live i"
+        f"SELECT {columns}, {WISHLISTED_SQL} AS wishlisted FROM {relation} i"
     )}
     holdings = availability.availability_for_items(db, items)
     external = _external_ids(db, items)
@@ -289,7 +292,8 @@ def search_catalog(db, filters: Mapping | None = None, *, page: int = 1) -> dict
         "SELECT it.item_id, t.name FROM item_tags it JOIN tags t ON t.id = it.tag_id "
         "JOIN items_live i ON i.id = it.item_id ORDER BY t.name COLLATE NOCASE, t.id"
     ):
-        tags[row["item_id"]].append(row["name"])
+        if row["item_id"] in tags:
+            tags[row["item_id"]].append(row["name"])
     tokens = _fold(filters["q"]).split()
     series_choices = {}
     result_kind = ("series" if filters["view"] == "series" and not filters["series"]

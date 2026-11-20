@@ -690,6 +690,20 @@ CREATE INDEX IF NOT EXISTS idx_komga_records_item
 CREATE INDEX IF NOT EXISTS idx_komga_records_library
     ON komga_records(library_id, kind);
 
+-- Cached scan evidence, never catalogue deletion or a replacement identity.
+CREATE TABLE IF NOT EXISTS komga_presence (
+    komga_id TEXT PRIMARY KEY REFERENCES komga_records(komga_id) ON DELETE CASCADE,
+    library_id TEXT NOT NULL,
+    server_url TEXT NOT NULL,
+    availability TEXT NOT NULL CHECK(availability IN ('available', 'unavailable', 'unknown')),
+    last_seen_at TEXT,
+    checked_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+CREATE TABLE IF NOT EXISTS komga_scan_generation (
+    slot INTEGER PRIMARY KEY CHECK(slot = 1),
+    token TEXT NOT NULL
+);
+
 -- Periodical publications and issues (#106)
 CREATE TABLE IF NOT EXISTS periodical_publications (
     id          INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -2037,6 +2051,29 @@ def get_db():
         "CREATE TEMP VIEW IF NOT EXISTS copies_live AS "
         "SELECT c.* FROM item_copies c JOIN items i ON i.id = c.item_id "
         "WHERE c.deleted_at IS NULL AND i.deleted_at IS NULL"
+    )
+    # Separate presentation from identity/history. TEMP views do not enter
+    # backups; the canonical items_live/physical-copy seams remain unchanged.
+    conn.execute(
+        "CREATE TEMP VIEW IF NOT EXISTS komga_cached_availability AS "
+        "SELECT r.komga_id, r.item_id, r.library_id, "
+        "CASE WHEN p.library_id = r.library_id AND p.server_url = "
+        "RTRIM(TRIM(COALESCE((SELECT value FROM settings WHERE key = 'komga_url'), '')), '/') "
+        "THEN p.availability ELSE 'unknown' END AS availability, p.last_seen_at, p.komga_id AS presence_id "
+        "FROM komga_records r LEFT JOIN komga_presence p ON p.komga_id = r.komga_id"
+    )
+    conn.execute(
+        "CREATE TEMP VIEW IF NOT EXISTS catalogue_items_live AS "
+        "SELECT i.* FROM items_live i WHERE COALESCE(i.source, '') != 'komga' "
+        "OR i.location_id IS NOT NULL OR COALESCE(i.abs_id, '') != '' "
+        "OR EXISTS (SELECT 1 FROM item_copies c WHERE c.item_id = i.id) "
+        "OR EXISTS (SELECT 1 FROM checkouts c WHERE c.item_id = i.id) "
+        "OR EXISTS (SELECT 1 FROM romm_records r WHERE r.item_id = i.id) "
+        "OR EXISTS (SELECT 1 FROM source_records r JOIN source_instances s ON s.id = r.source_id "
+        "WHERE r.item_id = i.id AND r.availability = 'available' AND s.enabled = 1) "
+        "OR NOT EXISTS (SELECT 1 FROM komga_records r WHERE r.item_id = i.id) "
+        "OR EXISTS (SELECT 1 FROM komga_cached_availability k "
+        "WHERE k.item_id = i.id AND k.availability != 'unavailable')"
     )
     try:
         yield conn

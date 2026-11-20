@@ -93,7 +93,7 @@ def _input(intent=None):
 
 
 def _render(request, actor, *, intent=None, inputs=None, results=(), preview=None, manual=None,
-            receipt=None, error_code=None, provider_outcome=None, host_warning=None, status_code=200):
+            receipt=None, error_code=None, provider_outcome=None, host_warning=None, music_search_statuses=(), status_code=200):
     _revalidate(actor)
     with get_db() as db:
         platforms = get_game_platforms(db)
@@ -110,6 +110,7 @@ def _render(request, actor, *, intent=None, inputs=None, results=(), preview=Non
         "intent_context": context.sign_context(actor, intent) if intent is not None else "",
         "results": tuple(results), "preview": preview, "manual": manual, "receipt": receipt,
         "error_code": error_code, "provider_outcome": provider_outcome, "host_warning": host_warning,
+        "music_search_statuses": tuple(music_search_statuses),
         "media_types": MEDIA_TYPES, "platforms": platforms, "music_enabled": feature_enabled("music"),
         "status_types": STATUS_MEDIA_TYPES,
         "locations": locations,
@@ -353,7 +354,7 @@ async def _search_provider(intent):
                     title, client, token=token, artist=intent.artist or None, barcode=options["barcode"] or None,
                     catalog_number=options["catalog_number"] or None, media_type=intent.media_type,
                     country=intent.country or None, limit=20))
-            cap = 20 if intent.music_provider == "discogs" or answer.provider == "discogs" else 30
+            cap = 50 if intent.music_provider == "auto" else 20 if intent.music_provider == "discogs" else 30
         elif intent.method == "barcode":
             answer = await upcitemdb.lookup(context.strict_barcode(intent.query), client)
             return answer, [answer.payload] if answer.found and isinstance(answer.payload, dict) else []
@@ -534,6 +535,9 @@ def _finish(request, actor, intent, receipt, *, log_code=None):
         except Exception:
             warning = "log_failed"
     _revalidate(actor)
+    if intent.media_type in MUSIC_MEDIA_TYPES and not receipt.cover_path:
+        from app.services import music_auto_covers
+        music_auto_covers.enqueue_missing(receipt.item_id)
     candidate = {"actor": asdict(actor), "status": receipt.status, "item_id": receipt.item_id,
                  "mode": receipt.actual_mode, "media_type": receipt.actual_media_type, "source": receipt.source,
                  "cover_warning": receipt.cover_warning, "host_warning": warning}
@@ -632,6 +636,7 @@ async def add_media_search(request: Request):
         _revalidate(actor, music=intent.media_type in MUSIC_MEDIA_TYPES)
         results, manual = _search_results(rows, answer, actor, intent)
         return _render(request, actor, intent=intent, results=results, manual=manual,
+                       music_search_statuses=music_matching.search_statuses(answer),
                        provider_outcome=None if results else _outcome(answer, music=intent.media_type in MUSIC_MEDIA_TYPES))
     except context.ProviderUnavailable as error:
         try:

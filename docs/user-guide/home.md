@@ -124,5 +124,10 @@ shares and scanning/cover-picker previews do not use this setting.
 Without JavaScript, the row shows up to eight recent items. Item links, hover/focus
 captions and the **Recently added** heading link still work.
 
+Recently added omits Komga-only imports confirmed missing by a complete sync.
+Their records and personal Continue/Activity/history remain; stored-catalogue
+totals and operational review counts still include retained records. Partial scans
+do not create new absence verdicts. See [missing Komga books](../komga.md#books-that-disappear-or-acquire-a-different-id).
+
 Catalogue totals, checkouts, covers and local activity are read when Home opens.
 Opted-in native Continue uses a separately stored account-private snapshot.

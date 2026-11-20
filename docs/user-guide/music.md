@@ -6,7 +6,8 @@ Supported music formats are **Vinyl**, **Cassette**, **CD** and **Digital Music*
 
 ## Add a release
 
-Open **Music** from the navigation bar. Shelf searches MusicBrainz first using:
+Open **Music** from the navigation bar. Shelf searches **MusicBrainz then Discogs**
+on every submitted search, even when MusicBrainz finds matches, using:
 
 - release title;
 - artist;
@@ -15,12 +16,22 @@ Open **Music** from the navigation bar. Shelf searches MusicBrainz first using:
 - a format filter (Vinyl, CD, Cassette or Digital Music) and optional two-letter
   country code, such as `GB` or `US`.
 
-Barcode searches take priority over catalogue numbers and titles. Shelf tries
+Within MusicBrainz, barcode searches take priority over catalogue numbers and titles. Shelf tries
 the equivalent UPC/EAN padding where applicable, then a catalogue-number or
 title/artist fallback only if the identifier searches return no results. An
 unreachable or rate-limited provider is reported rather than treated as an
-empty search. **Matching facts** and **Check differences** explain the available
+empty search. Discogs is an independent second search using the supplied fields,
+not just a cassette/no-match fallback. Title and artist are optional independently;
+barcode- or catalogue-number-only searches work too. **Matching facts** and **Check differences** explain the available
 evidence; they are not a guarantee that two pressings are identical.
+
+Up to 30 MusicBrainz and 20 Discogs releases are shown, each with its provider,
+exact release ID and source link. Similar-looking releases remain separate.
+Per-provider counts and failures remain visible even when the other catalogue
+finds matches. Each leg has a 12-second deadline; provider failures are not
+misreported as no matches and do not suppress the other catalogue's results.
+The combined-search revision is local source only, not runtime/browser-qualified
+or published. Single-provider choices on Add Media remain single-provider.
 
 MusicBrainz searches use exact **releases**, not only release groups, so different pressings can retain their own country, date, label, catalogue number, packaging and medium format.
 
@@ -35,10 +46,9 @@ can also be edited from **Catalogue item** afterwards.
 
 1. Set **Format** to **Cassette**, enter a **Release title** and **Artist**, and
    leave **Barcode** blank. For example, search for `Hits Out of Hell` by
-   `Meat Loaf` using **Search MusicBrainz and cassette catalogue**.
-2. MusicBrainz is searched first. Only a successful search with no cassette
-   matches permits a public Discogs search by title, artist and cassette format.
-   This is one page of at most 20 candidates, not an exhaustive catalogue search.
+   `Meat Loaf` using **Search MusicBrainz and Discogs**.
+2. MusicBrainz is searched first, then Discogs regardless of MusicBrainz's matches
+   or failure. The Discogs leg is one page of at most 20 candidates, not an exhaustive catalogue search.
    No API key, provider account or Discogs token is needed for this public path.
 3. Results show their provider, exact release ID and source link. Use **Preview
    details and artwork** on a possible pressing and compare its country, year,
@@ -53,7 +63,7 @@ Leaving the barcode blank omits that search filter; it does not restrict results
 to releases without barcodes. Do not relabel a CD result as a cassette. Search
 and preview do not create catalogue items or physical copies. Provider rejection,
 rate limits, unreachable services and unreadable responses are errors, not empty
-matches, and do not trigger the fallback. Requests are paced, so allow time for
+matches; the independent other catalogue is still checked. Requests are paced, so allow time for
 the lookup; retry later if a provider cannot complete it.
 
 ### When the pressing is unknown
@@ -138,11 +148,36 @@ into this MusicBrainz hierarchy. Manual unknown-pressing items have no track lis
 
 ## Artwork
 
-After adding an exact MusicBrainz release, Shelf asks Cover Art Archive for its scans and
-prefers a front image. If a front is unavailable, Release Group artwork may be
-offered, explicitly labelled **another edition**. Existing Shelf artwork is
-not automatically overwritten, including a cover chosen while an automatic
-download was running.
+Music saved without a cover is queued for background artwork lookup, including
+manual additions. The same lookup is used by **Retry cover** without requiring an
+ISBN. Saved MusicBrainz front scans and the saved public Discogs release's primary
+image take priority, followed by known Release Group artwork. Public saved Discogs
+artwork needs no token; a configured token is used without an anonymous retry if
+it is rejected.
+
+If exact-release art is unavailable, Shelf can use album artwork with matching
+structured **artist and title**. MusicBrainz candidates must identify one matching
+Release Group; Discogs fallback checks at most three release details and declines
+conflicting or unknown album/master identities. Composite search titles are not
+split to invent an artist. These bounded matches are best-effort cosmetic artwork,
+not exhaustive catalogue research or proof of your pressing. No release IDs,
+tracks, ISBNs, metadata or history are assigned or changed by the cover lookup.
+Only front/primary images are automatically selected; uncertain matches stay for
+manual review.
+
+For music already added without a cover, open **Settings → Data → Maintenance →
+Retry Missing Covers**. It includes older music of **any age**, not just recent
+additions, and fills only missing covers. Startup recovery remains limited to the
+last 48 hours; it does not repeatedly sweep the whole music catalogue on boot.
+
+Existing covers, deliberate removals, **Not available** decisions and disabled
+Music matching are respected, including choices made during a download. Use the
+existing **Allow missing-cover sync** control to explicitly permit lookup again.
+The worker rechecks the saved release/matching facts, feature/configuration and
+suppression under its write lock before publishing a fresh local image. Each
+music item has a 90-second lookup deadline; failures leave it for later retry or
+review. This follow-up is local source only: runtime/browser/concurrency verification
+and publication remain pending; no real library backfill has been run.
 
 Editors can use **Choose artwork** on a Music item, even when it already has
 a cover. A larger, responsive gallery shows the current image and alternative
