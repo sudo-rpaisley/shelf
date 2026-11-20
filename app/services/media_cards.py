@@ -15,6 +15,7 @@ from urllib.parse import unquote, urlsplit
 
 from app import config, media_presentation
 from app.i18n import N_
+from app.services import caption_links
 
 
 def _text(value, name):
@@ -79,12 +80,15 @@ class MediaCard:
     edit_href: str | None = None
     badges: tuple[str, ...] = ()
     known_subtype: InitVar[str | None] = None
+    series_name: str = ""
     artwork: media_presentation.ArtworkSpec = field(init=False)
+    creator_parts: tuple[caption_links.CreditPart, ...] = field(init=False)
+    series_href: str | None = field(init=False)
 
     def __post_init__(self, known_subtype):
         item_id = _item_id(self.id)
         object.__setattr__(self, "id", item_id)
-        for name in ("title", "creator_text", "media_type"):
+        for name in ("title", "creator_text", "media_type", "series_name"):
             object.__setattr__(self, name, _text(getattr(self, name), name))
         object.__setattr__(self, "cover_path", _local_cover_path(self.cover_path))
         object.__setattr__(self, "detail_href", _item_href(self.detail_href, item_id, "detail_href"))
@@ -94,6 +98,8 @@ class MediaCard:
             raise ValueError("badges must be a sequence of text labels")
         object.__setattr__(self, "badges", tuple(_text(badge, "badge") for badge in self.badges))
         object.__setattr__(self, "artwork", media_presentation.artwork_spec(self.media_type, known_subtype))
+        object.__setattr__(self, "creator_parts", caption_links.creator_parts(self.creator_text))
+        object.__setattr__(self, "series_href", caption_links.series_href(self.series_name))
 
     @property
     def media_type_label(self) -> str | None:
@@ -117,7 +123,7 @@ def build_media_card(item, *, detail_href=None, edit_href=None, creator_text=Non
         creator_text=item.get("authors") if creator_text is None else creator_text,
         media_type=item.get("media_type"), cover_path=item.get("cover_path"),
         detail_href=f"/item/{item_id}" if detail_href is None else detail_href,
-        edit_href=edit_href, badges=badges, known_subtype=known_subtype,
+        edit_href=edit_href, badges=badges, known_subtype=known_subtype, series_name=item.get("series_name"),
     )
 
 

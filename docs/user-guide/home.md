@@ -2,6 +2,10 @@
 
 Shelf opens on **Home**, a collection overview. It is deliberately separate from **Browse**: Home answers “what is happening in my library?”, while Browse remains the place for searching, filtering, sorting and bulk editing.
 
+**Search your library** is in the top navigation bar, including on Home. Enter a
+query and press **Enter** or **Search** to open matching catalogue results. It
+stays available when the mobile menu is closed; it does not search remote services.
+
 Home shows:
 
 - catalogue, owned and wishlist totals;
@@ -68,15 +72,21 @@ All cards and links remain usable without JavaScript.
 
 Browse up to **24** recent additions in one horizontal row, newest first. Swipe,
 scroll, or use the previous/next buttons; nothing advances automatically. The
-count describes items in the row, not how many fit on screen. Select the
+heading has no item-count or “Across your collection” subtitle. Select the
 **Recently added** heading or the last **View more** tile to open the complete
 collection. The heading keeps its usual appearance and underlines on hover,
 keyboard focus or activation; there is no separate View all button.
 
-Artwork keeps its original proportions. Hover a cover, or focus its link with the
-keyboard, to reveal the title and artist/creator over the bottom-left of the image.
-There is no separate Details toggle or media-type caption. Open the item itself
-to read complete metadata, including on touch devices.
+Artwork keeps its original proportions. Hover a local catalogue cover, or focus
+one of its links, to reveal the title and artist/creator over the bottom-left of
+the image. The **artist/creator** has its own link to that indexed creator's local
+collection; an available **series name** opens that particular series, not the
+whole Series index. The cover/title still opens the item. Captions remain visible
+while tabbing through their links and are shown directly on touch/coarse-pointer
+screens. Long credits can scroll within the frame without resizing the cover.
+There is no separate Details toggle or media-type caption. Native remote-only
+Continue labels are not assumed to identify local creators. See
+[Follow an artist, author or series](browse-and-search.md#follow-an-artist-author-or-series).
 
 **Item size** fits more or fewer complete items across without shrinking text.
 The default **100%** keeps the normal cover size and sits at the slider's midpoint;
@@ -95,8 +105,13 @@ original proportions.
 Your choice is saved for your account in this browser and shared across pages,
 reloads and other open tabs. Another account has its own choice; it does not sync
 between devices. If browser storage is blocked, the control still works for the
-current page and says that it could not save. After a cached Back/Forward restore,
-refresh the page before editing the saved size. Print/export artwork, public
+current page and says that it could not save. **Back/Forward needs no refresh**:
+sizing works immediately on the page while a read-only sign-in check restores
+saving for the original account. If the sign-in changed or the check fails,
+changes remain page-only; **Retry saving** checks again without reloading. Any
+choice made before confirmation stays on the page, not automatically in saved
+storage; move the slider again after confirmation to save the next change.
+Print/export artwork, public
 shares and scanning/cover-picker previews do not use this setting.
 
 Without JavaScript, the row shows up to eight recent items. Item links, hover/focus

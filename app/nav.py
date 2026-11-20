@@ -16,7 +16,7 @@ import json
 import logging
 from collections.abc import Callable, Mapping, Sequence
 from typing import TYPE_CHECKING
-from urllib.parse import urlencode
+from urllib.parse import parse_qsl, urlencode
 
 from app.features import FEATURES, feature_enabled
 from app.i18n import N_
@@ -330,6 +330,10 @@ def media_navigation(
         if members:
             groups.append({"key": key, "label": label, "tabs": members})
 
+    # Native GET forms replace an action URL's query. Reuse this same eligible
+    # mixed-catalogue destination as explicit successful controls, not a second
+    # feature/visibility policy or a manually copied set of search defaults.
+    search_path, _, search_query = primary_path.partition("?")
     return {
         "primary": {**browse, "path": primary_path} if browse else None,
         "all_media": {**library, "label": N_("All media"), "path": primary_path}
@@ -338,6 +342,8 @@ def media_navigation(
         "groups": groups,
         "management": {**browse, "label": N_("Catalogue management")}
                       if browse else None,
+        "search": {"path": search_path, "fields": tuple(parse_qsl(search_query, keep_blank_values=True)),
+                   "max_length": 300 if library else 200} if browse else None,
     }
 
 

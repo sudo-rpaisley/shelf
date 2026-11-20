@@ -447,9 +447,25 @@ function browsePage() {
         // opens a new tab instead (middle-click is handled natively by the
         // anchor markup, which never reaches this handler).
         openOrToggle(id, url, event) {
+            if (event && event.target && event.target.closest('[data-caption-link]')) {
+                this.captionOrToggle(id, event);
+                return;
+            }
             if (this.selectMode) { this.toggleItem(id); return; }
             if (event && (event.ctrlKey || event.metaKey)) window.open(url, '_blank');
             else window.location = url;
+        },
+
+        // Caption links are siblings of the cover, not nested anchors. Outside
+        // selection mode keep native navigation/modified-click behavior. In
+        // selection mode a metadata click must still select this exact item.
+        captionOrToggle(id, event) {
+            if (!this.selectMode || !event || !event.target) return;
+            var target = event.target.closest('[data-caption-link]');
+            if (!target) return;
+            event.preventDefault();
+            event.stopPropagation();
+            this.toggleItem(id);
         },
 
         toggleItem(id) {

@@ -1,10 +1,14 @@
 {% from "components/media_cover.html" import media_cover with context %}
 {% set card = build_media_card(item) %}
-<div class="relative">
-<a href="/item/{{ item.id }}" class="group relative block" data-item-id="{{ item.id }}" data-cover-size-card="catalogue-v2" data-cover-link
-   @click.prevent="openOrToggle({{ item.id }}, '/item/{{ item.id }}', $event)"
-   :class="selectedIds.includes({{ item.id }}) ? 'ring-2 ring-shelf-accent' : ''">
-    {% call media_cover(card) %}
+<div class="relative" data-cover-size-card="catalogue-v2" @click="captionOrToggle({{ item.id }}, $event)"
+     :class="selectedIds.includes({{ item.id }}) ? 'ring-2 ring-shelf-accent' : ''">
+    {% call(slot) media_cover(card, interactive=true) %}
+    {% if slot == 'primary' %}
+<a href="/item/{{ item.id }}" class="group relative block" data-item-id="{{ item.id }}" data-cover-link aria-label="{{ card.title if card.title.strip() else _('Untitled item')|forceescape }}"
+   @click.prevent="openOrToggle({{ item.id }}, '/item/{{ item.id }}', $event)">
+    {% with catalogue_artwork=true %}{% include "components/media_artwork.html" %}{% endwith %}
+</a>
+    {% else %}
         {% if item.wishlisted %}
         <div class="absolute top-2 right-2 z-10 px-1.5 py-0.5 rounded-sm text-[10px] font-medium bg-shelf-warning/90 text-black shadow-sm">{{ _('Wishlist') }}</div>
         {% elif item.lent_to and feature_on('lending') %}
@@ -24,14 +28,16 @@
         <div class="absolute top-2 {% if item.wishlisted or (item.lent_to and feature_on('lending')) or item.reading_status %}right-2 top-8{% else %}right-2{% endif %} z-10 px-1.5 py-0.5 rounded-sm text-[10px] font-medium bg-shelf-accent/80 text-white shadow-sm">{{ _('New') }}</div>
         {% endif %}
         <!-- Select checkbox -->
-        <div x-show="selectMode" class="absolute top-2 left-2 z-10">
-            <div class="w-5 h-5 rounded-sm border-2 flex items-center justify-center text-xs"
+        <button type="button" x-show="selectMode" class="absolute top-2 left-2 z-10" data-cover-select-action
+                @click.stop.prevent="toggleItem({{ item.id }})" :aria-pressed="selectedIds.includes({{ item.id }})"
+                aria-label="{{ _('Select item')|forceescape }}: {{ card.title }}">
+            <span class="w-5 h-5 rounded-sm border-2 flex items-center justify-center text-xs"
                  :class="selectedIds.includes({{ item.id }}) ? 'bg-shelf-accent border-shelf-accent text-white' : 'border-shelf-border bg-black/40'">
                 <span x-show="selectedIds.includes({{ item.id }})">&#10003;</span>
-            </div>
-        </div>
+            </span>
+        </button>
+    {% endif %}
     {% endcall %}
-</a>
 {% if item.source == 'romm' %}
 {% if feature_on('romm') %}
 <a href="/api/romm/items/{{ item.id }}/open" target="_blank" rel="noopener"

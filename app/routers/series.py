@@ -7,7 +7,7 @@ can be added to the wishlist via the existing add-to-shelf endpoint.
 import logging
 from dataclasses import asdict
 
-from fastapi import APIRouter, Depends, Form, Request
+from fastapi import APIRouter, Depends, Form, Query, Request
 from fastapi.responses import Response
 
 from app.auth import require_role
@@ -53,7 +53,8 @@ def find_gaps(positions: list) -> list[int]:
 
 
 @router.get("/series")
-async def series_page(request: Request, _=Depends(require_role("viewer")),
+async def series_page(request: Request, name: str = Query("", max_length=MAX_SERIES_NAME),
+                      _=Depends(require_role("viewer")),
                       __=Depends(require_feature("series"))):
     templates = request.app.state.templates
     with get_db() as db:
@@ -133,11 +134,20 @@ async def series_page(request: Request, _=Depends(require_role("viewer")),
 
     # Largest series first; ties alphabetical
     series_list = sorted(series.values(), key=lambda s: (-len(s["items"]), s["name"].casefold()))
+    # A caption deep-link opens this exact existing casefold group, not every
+    # series or a substring match. Preserve the full rename/merge name inventory.
+    series_name_choices = [entry["name"] for entry in series_list]
+    selected_series = name if name.strip() else ""
+    if selected_series:
+        series_list = [entry for entry in series_list if entry["name"].casefold() == selected_series.casefold()]
+        unassigned_items, unassigned_total = [], 0
 
     return templates.TemplateResponse(
         request, "series.html",
         {
             "series_list": series_list,
+            "series_name_choices": series_name_choices,
+            "selected_series": selected_series,
             "has_hardcover": has_hardcover,
             # The radar needs both flags; every watch control hides otherwise.
             "radar_on": feature_enabled("release_radar") and feature_enabled("hardcover"),

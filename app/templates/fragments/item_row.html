@@ -62,8 +62,8 @@
     {%- else %}
     <td x-show="visibleCols.{{ col.name }}" data-col="{{ col.name }}"
         class="px-3 py-2 {{ col_class.get(col.name, 'text-shelf-muted text-xs') }}">
-        {%- if col.name == 'author' %}{{ item.authors or '—' }}
-        {%- elif col.name == 'media_type' %}{{ _(media_types[item.media_type]) if item.media_type in media_types else (item.media_type or '—') }}
+        {%- if col.name == 'author' %}{% if item.authors %}{% for part in build_media_card(item).creator_parts %}{% if part.href %}<a href="{{ part.href }}" data-caption-link="creator" class="hover:underline">{{ part.text }}</a>{% else %}{{ part.text }}{% endif %}{% endfor %}{% else %}—{% endif %}
+        {%- elif col.name == 'media_type' %}{% if item.media_type in media_types %}<a href="/browse?media_type_filter={{ item.media_type|urlencode }}" data-caption-link="format" class="hover:underline">{{ _(media_types[item.media_type]) }}</a>{% else %}{{ item.media_type or '—' }}{% endif %}
         {%- elif col.name == 'location' %}{{ item.location_name or '—' }}
         {%- elif col.name == 'status' %}
         {% if item.lent_to and feature_on('lending') %}
@@ -81,12 +81,12 @@
         {%- set value = item.manual_value if item.manual_value is not none else item.estimated_value %}
         {{- value|money if value is not none else '—' }}
         {%- elif col.name == 'series' %}
-        {%- if item.series_name %}{{ item.series_name }}{% if item.series_position is not none %} #{{ item.series_position|int if item.series_position == item.series_position|int else item.series_position }}{% endif %}
+        {%- if item.series_name %}{% set _series_href = build_media_card(item).series_href %}{% if _series_href and feature_on('series') %}<a href="{{ _series_href }}" data-caption-link="series" class="hover:underline">{{ item.series_name }}</a>{% else %}{{ item.series_name }}{% endif %}{% if item.series_position is not none %} #{{ item.series_position|int if item.series_position == item.series_position|int else item.series_position }}{% endif %}
         {%- else %}—{% endif %}
         {%- elif col.name == 'publisher' %}{{ item.publisher or '—' }}
         {%- elif col.name == 'year' %}{{ item.publish_year or '—' }}
         {%- elif col.name == 'pages' %}{{ item.page_count or '—' }}
-        {%- elif col.name == 'language' %}{{ item.language or '—' }}
+        {%- elif col.name == 'language' %}{% if item.language %}<a href="/browse?language={{ item.language|urlencode }}" data-caption-link="language" class="hover:underline">{{ item.language }}</a>{% else %}—{% endif %}
         {%- elif col.name == 'added' %}{{ item.created_at[:10] if item.created_at else '—' }}
         {%- elif col.name == 'platform' %}{{ item.platform or '—' }}
         {%- elif col.name == 'identifier' %}{{ item.isbn or item.upc or '—' }}

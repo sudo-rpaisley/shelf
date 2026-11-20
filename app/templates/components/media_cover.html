@@ -1,15 +1,24 @@
 {# One catalogue cover, also used by Home's Recently added. Callers own links,
    permissions, metadata and optional badges/selection controls, never geometry. #}
-{% macro media_cover(card, artwork_source=none, print_layout='card', artwork_testid=none) -%}
+{% macro media_cover(card, artwork_source=none, print_layout='card', artwork_testid=none, interactive=false, primary_href=none) -%}
 {% set _title = card.title if card.title.strip() else _('Untitled item')|forceescape %}
-<div class="media-card__art-stage" data-cover-size-stage="catalogue-v2" data-cover-presentation="recent-v1" data-cover-print="{{ print_layout }}">
+<div class="media-card__art-stage" data-cover-size-stage="catalogue-v2" data-cover-presentation="recent-v1" data-cover-print="{{ print_layout }}"{% if interactive %} data-caption-navigation="metadata-v1"{% endif %}>
     <div class="media-card__cover-preview">
+        {% if interactive %}
+        {% if caller is defined %}{{ caller('primary') }}{% else %}
+        <a class="media-card__detail" href="{{ primary_href or card.detail_href }}" data-cover-link aria-label="{{ _title }}">
+            {% with validated_artwork_source=artwork_source, catalogue_artwork=true %}{% include "components/media_artwork.html" %}{% endwith %}
+        </a>
+        {% endif %}
+        {% else %}
         {% with validated_artwork_source=artwork_source, catalogue_artwork=true %}{% include "components/media_artwork.html" %}{% endwith %}
+        {% endif %}
         <div class="media-card__caption">
-            <h3 class="media-card__title">{{ _title }}</h3>
-            {% if card.creator_text %}<p class="media-card__creator">{{ card.creator_text }}</p>{% endif %}
+            <h3 class="media-card__title">{% if interactive %}<a href="{{ primary_href or card.detail_href }}" data-caption-link="item">{{ _title }}</a>{% else %}{{ _title }}{% endif %}</h3>
+            {% if card.creator_text %}<p class="media-card__creator">{% if interactive and card.creator_parts is defined %}{% for part in card.creator_parts %}{% if part.href %}<a href="{{ part.href }}" data-caption-link="creator">{{ part.text }}</a>{% else %}{{ part.text }}{% endif %}{% endfor %}{% else %}{{ card.creator_text }}{% endif %}</p>{% endif %}
+            {% if interactive and card.series_href is defined and card.series_href and feature_on is defined and feature_on('series') %}<p class="media-card__creator media-card__series"><a href="{{ card.series_href }}" data-caption-link="series">{{ card.series_name }}</a></p>{% endif %}
         </div>
-        {% if caller is defined %}{{ caller() }}{% endif %}
+        {% if caller is defined %}{{ caller('overlay') if interactive else caller() }}{% endif %}
     </div>
 </div>
 {%- endmacro %}

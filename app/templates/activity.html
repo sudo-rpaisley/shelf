@@ -9,14 +9,14 @@
     {% if rows %}
     <div class="cover-grid" data-cover-size-grid="catalogue-v2">
         {% for item in rows %}
-        <a href="/item/{{ item.id }}#personal-library" class="group min-w-0" data-cover-link>
-            {% with cover_item=item, cover_print='card' %}{% include "components/catalogue_cover.html" %}{% endwith %}
+        <div class="group min-w-0">
+            {% with cover_item=item, cover_print='card', cover_interactive=true, cover_href='/item/' ~ item.id ~ '#personal-library' %}{% include "components/catalogue_cover.html" %}{% endwith %}
             <p class="text-xs text-shelf-muted mt-1">
                 {{ _(personal_status_labels.get(item.status, 'No personal status')) }}
                 {% if item.progress is not none %} · {{ item.progress }}%{% endif %}
                 {% if item.rating is not none %} · {{ _('Rating: %(rating)s/5', rating=item.rating) }}{% endif %}
             </p>
-        </a>
+        </div>
         {% endfor %}
     </div>
     {% else %}

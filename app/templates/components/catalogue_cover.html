@@ -2,4 +2,4 @@
    Operational/provider previews and public shares do not use this component. #}
 {% from "components/media_cover.html" import media_cover with context %}
 {% set _catalogue_cover = build_media_card(cover_item) %}
-{{ media_cover(_catalogue_cover, artwork_source=validated_artwork_source|default(none), print_layout=cover_print|default('tile'), artwork_testid=cover_testid|default(none)) }}
+{{ media_cover(_catalogue_cover, artwork_source=validated_artwork_source|default(none), print_layout=cover_print|default('tile'), artwork_testid=cover_testid|default(none), interactive=cover_interactive|default(false), primary_href=cover_href|default(none)) }}

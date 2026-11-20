@@ -1,11 +1,13 @@
 {% extends "base.html" %}
+{% set selected_series = selected_series|default('') %}
 {% set catalogue_cover_sizing = true %}
-{% block title %}Series — Shelf{% endblock %}
+{% block title %}{% if selected_series %}{{ selected_series }} — {% endif %}Series — Shelf{% endblock %}
 {% block content %}
 {% set can_edit = user and user.role in ('admin', 'editor') %}
 {% set radar = radar_on and has_hardcover %}
 <div class="mb-6">
     <h1 class="text-2xl font-bold">Series <span class="text-shelf-muted text-lg font-normal">({{ series_list|length }})</span></h1>
+    {% if selected_series %}<p class="text-sm mt-2" data-testid="selected-series">{{ selected_series }} · <a href="/series" class="text-shelf-accent2 hover:underline">{{ _('All series') }}</a></p>{% endif %}
     <p class="text-sm text-shelf-muted mt-1">Your library grouped by series. Gaps are inferred from position numbers{% if has_hardcover %}; use <span class="text-shelf-accent2">Check completeness</span> to compare against Hardcover's full series listing{% endif %}.</p>
     {% if radar %}
     <div class="flex flex-wrap items-center gap-3 mt-3">
@@ -21,7 +23,7 @@
 
 {% if not series_list %}
 <div class="text-center py-16 text-shelf-muted">
-    <p class="text-lg mb-1">No series yet</p>
+    <p class="text-lg mb-1">{{ _('Series not found') if selected_series else _('No series yet') }}</p>
     <p class="text-sm">Items gain a series when metadata lookup finds one, or when you set it manually while editing.</p>
 </div>
 {% endif %}
@@ -211,9 +213,9 @@
         <!-- Owned/wishlisted volumes -->
         <div class="flex gap-3 mt-4 overflow-x-auto pb-2">
             {% for item in s['items'] %}
-            <a href="/item/{{ item.id }}?from=series" class="shrink-0 w-20 group" title="{{ item.title }}" data-cover-size-slot="catalogue-v2" data-cover-link>
+            <div class="shrink-0 w-20 group" title="{{ item.title }}" data-cover-size-slot="catalogue-v2">
                 <div class="relative">
-                    {% with cover_item=item, cover_print='series' %}{% include "components/catalogue_cover.html" %}{% endwith %}
+                    {% with cover_item=item, cover_print='series', cover_interactive=true, cover_href='/item/' ~ item.id ~ '?from=series' %}{% include "components/catalogue_cover.html" %}{% endwith %}
                     {% if item.series_position is not none %}
                     <span class="absolute top-1 left-1 bg-black/70 text-white text-[10px] px-1 rounded-sm">#{{ item.series_position|int if item.series_position == item.series_position|int else item.series_position }}</span>
                     {% endif %}
@@ -221,7 +223,7 @@
                     <span class="absolute bottom-1 left-1 bg-shelf-warning/90 text-black text-[9px] px-1 rounded-sm font-medium">Wishlist</span>
                     {% endif %}
                 </div>
-            </a>
+            </div>
             {% endfor %}
         </div>
 
@@ -285,14 +287,14 @@
         <p class="text-sm text-shelf-muted mt-2">These books don't belong to a series yet. Open one and set a series on its edit page to move it into a series card.</p>
         <div class="flex gap-3 mt-4 overflow-x-auto pb-2">
             {% for item in unassigned_items %}
-            <a href="/item/{{ item.id }}?from=series" class="shrink-0 w-20 group" title="{{ item.title }}" data-cover-size-slot="catalogue-v2" data-cover-link>
+            <div class="shrink-0 w-20 group" title="{{ item.title }}" data-cover-size-slot="catalogue-v2">
                 <div class="relative">
-                    {% with cover_item=item, cover_print='series' %}{% include "components/catalogue_cover.html" %}{% endwith %}
+                    {% with cover_item=item, cover_print='series', cover_interactive=true, cover_href='/item/' ~ item.id ~ '?from=series' %}{% include "components/catalogue_cover.html" %}{% endwith %}
                     {% if item.wishlisted %}
                     <span class="absolute bottom-1 left-1 bg-shelf-warning/90 text-black text-[9px] px-1 rounded-sm font-medium">Wishlist</span>
                     {% endif %}
                 </div>
-            </a>
+            </div>
             {% endfor %}
         </div>
     </div>
@@ -305,6 +307,6 @@
    input points its `list` here, and seriesCard reads the same options to
    decide when a rename is really a merge. #}
 <datalist id="series-names">
-    {% for s in series_list %}<option value="{{ s.name }}"></option>{% endfor %}
+    {% for name in series_name_choices %}<option value="{{ name }}"></option>{% endfor %}
 </datalist>
 {% endblock %}

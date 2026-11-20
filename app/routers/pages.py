@@ -1,9 +1,9 @@
 from datetime import date, datetime, timedelta
 
-from fastapi import APIRouter, Depends, Query, Request
-from fastapi.responses import RedirectResponse
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
+from fastapi.responses import JSONResponse, RedirectResponse
 
-from app import browse_filters, features, nav
+from app import browse_filters, features, i18n, nav
 from app import add_scan_workspace
 from app.auth import require_role
 from app.features import require_feature
@@ -35,6 +35,15 @@ from app.services.home_dashboard import dashboard_summary
 router = APIRouter()
 
 
+@router.get("/api/ui/cover-size-owner")
+async def cover_size_owner(request: Request, user=Depends(require_role("viewer"))):
+    """Confirm a restored shell's owner; never read or save a size preference."""
+    return JSONResponse(
+        {"account": str(user["id"]), "mount": request.scope.get("root_path", "")},
+        headers={"Cache-Control": "no-store", "Vary": "Cookie"},
+    )
+
+
 @router.get("/")
 async def index(
     request: Request,
@@ -64,6 +73,21 @@ async def index(
             "home_activity": home_activity,
         },
     )
+
+
+@router.get("/browse/creator")
+async def browse_creator(key: str = Query(min_length=1, max_length=1000),
+                         _=Depends(require_role("viewer"))):
+    """Resolve the existing index identity, never run a provider/name search."""
+    with get_db() as db:
+        row = db.execute(
+            "SELECT a.id FROM authors a WHERE a.name_key = ? AND EXISTS ("
+            "SELECT 1 FROM item_authors ia JOIN items_live i ON i.id = ia.item_id "
+            "WHERE ia.author_id = a.id) LIMIT 1", (key,),
+        ).fetchone()
+    if row is None:
+        raise HTTPException(404, i18n.gettext("Creator not found"), headers={"Cache-Control": "no-store"})
+    return RedirectResponse(f"/browse?author_filter={row['id']}", status_code=303, headers={"Cache-Control": "no-store"})
 
 
 @router.get("/browse")

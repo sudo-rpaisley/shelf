@@ -53,10 +53,10 @@
     <div class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4" data-item-grid="library">
         {% for series in series_results %}
         <article class="min-w-0" data-library-series="{{ series.key }}">
-            <a href="{{ series.url }}" class="media-card__detail" data-cover-link>
+            <div class="media-card__detail">
                 {% set validated_artwork_source = prepared_library_artwork.source_for(series.representative.id, series.representative.cover_path) if prepared_library_artwork is defined else none %}
-                {% with cover_item={'id': series.representative.id, 'title': series.name, 'authors': series.representative.authors|default(none), 'media_type': series.representative.media_type, 'cover_path': series.representative.cover_path}, cover_print='card' %}{% include "components/catalogue_cover.html" %}{% endwith %}
-            </a>
+                {% with cover_item={'id': series.representative.id, 'title': series.name, 'authors': series.representative.authors|default(none), 'media_type': series.representative.media_type, 'cover_path': series.representative.cover_path}, cover_print='card', cover_interactive=true, cover_href=series.url %}{% include "components/catalogue_cover.html" %}{% endwith %}
+            </div>
         </article>
         {% endfor %}
     </div>

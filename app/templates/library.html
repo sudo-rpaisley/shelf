@@ -3,6 +3,7 @@
 {% set library_presentation_mode = 'phone-wrap-v1' %}
 {% set library_explanations_hosted = true %}
 {% set item_size_mode = 'density-v1' %}
+{% set navigation_search_form = 'library-filters' %}
 {% block title %}{{ _('Library') }} — Shelf{% endblock %}
 {% block head %}<link rel="stylesheet" href="/static/css/library-presentation.source.css">{% endblock %}
 {% macro library_help() -%}
@@ -41,16 +42,9 @@
         {% for preset in presets %}<a href="{{ preset.url }}" class="px-3 py-2 rounded-lg bg-shelf-card border border-shelf-border text-sm hover:text-shelf-accent2">{{ _(preset.label) }}</a>{% endfor %}
     </nav>
 
-    <form method="get" action="/library" class="library-phone-filters rounded-xl border border-shelf-border bg-shelf-card p-4 space-y-4" role="search" data-testid="library-filters">
+    <form id="library-filters" method="get" action="/library" class="library-phone-filters rounded-xl border border-shelf-border bg-shelf-card p-4 space-y-4" aria-label="{{ _('Library filters')|forceescape }}" data-testid="library-filters">
         {% if saved_view %}<input type="hidden" name="saved_view" value="{{ saved_view.id }}">{% endif %}
         <input type="hidden" name="types" value="{{ filters.types }}">
-        <div>
-            <label for="library-q" class="block text-sm font-medium mb-1">{{ _('Search your library') }}</label>
-            <div class="library-phone-search flex gap-2">
-                <input id="library-q" name="q" value="{{ filters.q }}" type="search" maxlength="300" class="min-w-0 flex-1 bg-shelf-bg border border-shelf-border rounded-lg px-3 py-2" placeholder="{{ _('Title, creator, ISBN, UPC, ASIN, narrator, series, publisher, tag or external ID') }}">
-                <button type="submit" class="px-4 py-2 rounded-lg bg-shelf-accent text-white hover:bg-shelf-accent2">{{ _('Search') }}</button>
-            </div>
-        </div>
         {% set active_filters = namespace(count=0) %}
         {% for key, default in [('media_type', ''), ('types', ''), ('family', ''), ('series', ''), ('source', ''), ('availability', ''), ('ownership', ''), ('wishlist', ''), ('view', 'groups'), ('sort', 'title'), ('page_size', '24')] %}
         {% if filters[key] != default %}{% set active_filters.count = active_filters.count + 1 %}{% endif %}

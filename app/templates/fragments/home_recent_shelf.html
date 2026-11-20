@@ -6,7 +6,6 @@
     <header class="recent-shelf__header">
         <div class="recent-shelf__heading">
             <h2 id="home-recent-heading">{% if shelf.view_more_href %}<a class="recent-shelf__title-link" href="{{ shelf.view_more_href }}">{{ shelf.title }}</a>{% else %}{{ shelf.title }}{% endif %}</h2>
-            <p><span data-recent-count>{{ ngettext('%(count)s recent item', '%(count)s recent items', shelf.items|length, count=shelf.items|length)|forceescape }}</span> · {{ _('Across your collection')|forceescape }}</p>
         </div>
         {% if shelf.items %}
         <div class="recent-shelf__actions" role="group" aria-label="{{ _('Recently added navigation')|forceescape }}">

@@ -141,7 +141,7 @@ async def music_page(
     placeholders, music_types = _music_types_sql()
     with get_db() as db:
         items = db.execute(
-            f"""SELECT i.id, i.title, i.authors, i.media_type, i.cover_path,
+            f"""SELECT i.id, i.title, i.authors, i.media_type, i.cover_path, i.series_name,
                        i.publish_year, mr.format_summary, mr.catalog_number,
                        mr.release_date
                 FROM items_live i

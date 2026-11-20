@@ -1,0 +1,19 @@
+{# One native search field. Library owns its GET filters through form=, without
+   hidden query copies or JS mirroring. Other pages use the eligible nav target. #}
+{% macro navigation_search_fields(form_id=none, query='', max_length=300) -%}
+<label for="library-q" class="media-navigation__search-label">{{ _('Search your library')|forceescape }}</label>
+<input id="library-q" name="q" value="{{ query|forceescape }}" type="search" maxlength="{{ max_length }}"
+       class="media-navigation__search-input" placeholder="{{ _('Search your library')|forceescape }}"{% if form_id %} form="{{ form_id }}"{% endif %}>
+<button type="submit" class="media-navigation__search-submit"{% if form_id %} form="{{ form_id }}"{% endif %}>{{ _('Search')|forceescape }}</button>
+{%- endmacro %}
+{% if _library_search %}
+<div class="media-navigation__search" role="search" aria-label="{{ _('Search your library')|forceescape }}" data-navigation-search>
+    {{ navigation_search_fields(form_id='library-filters', query=filters.q) }}
+</div>
+{% else %}
+<form method="get" action="{{ media_navigation.search.path }}" class="media-navigation__search" role="search"
+      aria-label="{{ _('Search your library')|forceescape }}" data-navigation-search>
+    {% for name, value in media_navigation.search.fields %}<input type="hidden" name="{{ name }}" value="{{ value }}">{% endfor %}
+    {{ navigation_search_fields(max_length=media_navigation.search.max_length) }}
+</form>
+{% endif %}

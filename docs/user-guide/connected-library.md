@@ -5,7 +5,7 @@ It is not a released feature or an upstream design commitment. **Back up your
 database, covers and external key files before trying it.** See
 [Backup and portability](#backup-and-portability) below.
 
-Use **Media → Library** for the mixed library, and the same Media menu for
+Use **Library → Library** for the mixed library, and the same **Library** menu for
 family/format choices. The redundant standalone Browse button is omitted when
 Library is available, and there is no separate Manage dropdown. The original
 collection administration and bulk tools remain available directly at `/browse`.
@@ -41,7 +41,7 @@ account-local, not a permissions boundary around the catalogue.
 
 ## Find editions in Library
 
-When Library is available, **Media → Library** opens
+When Library is available, **Library → Library** opens
 `/library?reset=1&view=items&sort=recent`: the complete mixed live catalogue as
 individual items, newest first. This resets the current Library view, not your
 saved-view records. If Library is disabled or hidden from navigation,
@@ -58,9 +58,17 @@ TMDb, TVDb and MusicBrainz album/release IDs. Search words must all occur on
 the same item, though they can occur in different fields. Search is
 Unicode-aware and case-insensitive; it does not remove accents.
 
+**Search your library** now lives in the top navigation, not above the Library
+filters. Use **Enter** or its **Search** button. On Library, it keeps your current
+filters, display choices and selected saved view; **Apply filters** also includes
+the text currently in that nav field. Clearing the field submits an empty query,
+including when overriding a saved view. This works without JavaScript.
+From other pages, nav search starts at the normal complete-catalogue destination;
+if Library is hidden or disabled, it uses the existing Browse fallback instead.
+
 Home's recent shelf shows up to **24** items in one horizontally scrollable row
-(up to eight without JavaScript). Swipe, scroll or use its previous/next buttons;
-the count describes the row's inventory, not simultaneously visible cards.
+(up to eight without JavaScript). Swipe, scroll or use its previous/next buttons.
+The heading no longer shows the recent-count/“Across your collection” subtitle.
 The **Recently added** heading link and terminal **View more** open the complete
 mixed catalogue.
 Home reveals its title/creator overlay on cover hover or keyboard focus; open the
@@ -86,7 +94,11 @@ Text stays readable, artwork keeps its proportions, and item order and results
 per page stay the same. The choice is saved per account in this browser, survives
 navigation/reload and updates other open tabs, but does not sync between devices.
 If storage is blocked, sizing still works on the current page with an explanation.
-Refresh after a cached Back/Forward restore before editing the saved value.
+Back/Forward does not require a refresh. Sizing remains usable while a read-only
+sign-in check restores saving for the original account. If verification fails or
+the sign-in changed, changes apply only to the page; **Retry saving** rechecks
+without reloading. A choice made before confirmation is never saved retroactively:
+move the slider again after confirmation to save the next change.
 Printed/exported artwork, public shares and scanning/editor/provider previews are
 not resized by this setting. No catalogue or server preference data is written.
 **Commands** is the small round ⌘ button just above **?** at the bottom left;
@@ -111,7 +123,7 @@ Open **Filters and display** for Format, Media family, Local series, Holding sou
 Catalogue ownership and Wishlist. Ownership and wishlist membership are
 independent: an imported digital holding need not be owned or wishlisted.
 An item's original import `source` is not evidence that it still has a holding.
-Search and quick presets stay visible when this disclosure is closed; closing
+The nav search and quick presets stay visible when this disclosure is closed; closing
 it does not clear its selected filters. View, sort and page size are there too.
 
 The caption stays **Filters and display**; its separate active-option count includes

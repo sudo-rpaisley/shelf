@@ -203,6 +203,58 @@
         line-height: 1.4;
     }
 
+    /* Independent native caption links are siblings of the cover link. Keep
+       the same frame/art geometry; never nest anchors or hit hidden names. */
+    [data-caption-navigation="metadata-v1"]:is(:hover, :focus-within) {
+        border-color: var(--color-shelf-accent2, #818cf8);
+        box-shadow: 0 0 0 1px var(--color-shelf-accent2, #818cf8);
+    }
+    [data-caption-navigation="metadata-v1"] .media-card__caption {
+        box-sizing: border-box;
+        max-block-size: 100%;
+        overflow-y: auto;
+        overscroll-behavior: contain;
+    }
+    [data-caption-navigation="metadata-v1"]:is(:hover, :focus-within) .media-card__caption {
+        opacity: 1;
+        pointer-events: auto;
+    }
+    [data-caption-navigation="metadata-v1"] .media-card__caption .media-card__creator {
+        white-space: normal;
+        overflow: visible;
+        text-overflow: clip;
+    }
+    [data-caption-navigation="metadata-v1"] .media-card__caption a {
+        display: inline-flex;
+        align-items: center;
+        min-block-size: 2.75rem;
+        max-inline-size: 100%;
+        color: inherit;
+        font: inherit;
+        overflow-wrap: anywhere;
+        text-decoration: none;
+        text-underline-offset: 0.15em;
+        pointer-events: inherit;
+    }
+    [data-caption-navigation="metadata-v1"] .media-card__caption a:is(:hover, :focus-visible) {
+        text-decoration: underline;
+    }
+    [data-caption-navigation="metadata-v1"] .media-card__caption .media-card__title a {
+        display: inline;
+        min-block-size: 0;
+    }
+    [data-caption-navigation="metadata-v1"] .media-card__caption a:focus-visible {
+        outline: 2px solid var(--color-shelf-accent2, #818cf8);
+        outline-offset: -2px;
+        border-radius: 0.125rem;
+    }
+    [data-caption-navigation="metadata-v1"] [data-cover-select-action] {
+        padding: 0;
+        border: 0;
+        background: transparent;
+        color: inherit;
+    }
+
     /* Inner artwork markers remain available to list/detail consumers; every
        producer now gets them through the common stage, not a local size base. */
     [data-cover-size-artwork="catalogue-v2"] {
@@ -248,6 +300,15 @@
     }
 }
 
+/* Touch users can select a name on their first tap instead of relying on a
+   hover gesture. Keyboard focus-within and no-JS native anchors remain usable. */
+@media screen and (hover: none) {
+    [data-caption-navigation="metadata-v1"] .media-card__caption {
+        opacity: 1;
+        pointer-events: auto;
+    }
+}
+
 @media (max-width: 30rem) {
     .cover-size-control { gap: 0.5rem; }
     .cover-size-control__range { flex: 1 1 auto; }
@@ -273,4 +334,6 @@
     [data-cover-print="duplicate"] { width: 3rem; }
     [data-cover-print="location"], [data-cover-print="trash"] { width: 2.5rem; }
     [data-cover-print="report"] { width: 1.75rem; }
+    [data-caption-navigation="metadata-v1"] .media-card__series { display: none; }
+    [data-caption-navigation="metadata-v1"] .media-card__caption a { color: inherit; text-decoration: none; }
 }

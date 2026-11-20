@@ -14,6 +14,8 @@
    for command search/the b shortcut instead of rendering a duplicate button.
    A hidden/disabled Library retains the existing standalone Browse fallback. #}
 {% set _library_primary = media_navigation.primary and media_navigation.all_media %}
+{% set _library_search = navigation_search_form|default('') == 'library-filters' and filters is defined %}
+{% set _navigation_search = user is defined and user and media_navigation.primary and (_library_search or (media_navigation.search is defined and media_navigation.search)) %}
 {% set _add_media_entry = user is defined and user and user.role in ('editor', 'admin') and add_media_entry_url is defined and add_media_entry_url %}
 {% macro add_media_link() -%}
 {% set workspace_path = add_media_entry_url.path if add_media_entry_url.path is defined else '/add' %}
@@ -23,7 +25,7 @@
 {%- endmacro %}
 <nav data-media-navigation aria-label="{{ _('Primary navigation')|forceescape }}" class="media-navigation bg-shelf-card border-b border-shelf-border sticky top-0 z-50">
     <div class="app-shell">
-        <div class="media-navigation__bar">
+        <div class="media-navigation__bar"{% if _navigation_search %} data-nav-search-layout="catalogue-v1"{% endif %}>
             <div class="flex min-w-0 flex-wrap items-center gap-x-3 gap-y-1">
                 <a href="/" class="text-lg font-bold text-shelf-accent2 tracking-tight media-navigation__brand"{% if request.url.path == '/' %} aria-current="page"{% endif %}>Shelf</a>
             </div>
@@ -42,7 +44,7 @@
                         {% if media_navigation.primary %}
                         <div class="media-navigation__top" data-nav-hover>
                             <details data-nav-disclosure data-nav-browse>
-                                <summary class="media-navigation__browse-toggle" aria-label="{{ _('Browse media')|forceescape }}"><span>{{ _('Media')|forceescape }}</span>{{ chevron() }}</summary>
+                                <summary class="media-navigation__browse-toggle" aria-label="{{ _('Browse library')|forceescape }}"><span>{{ _('Library')|forceescape }}</span>{{ chevron() }}</summary>
                                 <ul class="media-navigation__panel">
                                     {% if media_navigation.all_media %}
                                     <li>{{ tab_link(media_navigation.all_media, 'Library', primary=true) }}<span class="media-navigation__description">{{ _(media_navigation.all_media.label)|forceescape }}</span></li>
@@ -115,6 +117,7 @@
                     </div>
                 </details>
             </div>
+            {% if _navigation_search %}{% include "fragments/navigation_search.html" %}{% endif %}
             {% if user %}
             <div class="media-navigation__account">{% include "fragments/account_menu.html" %}</div>
             {% endif %}

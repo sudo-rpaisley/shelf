@@ -94,7 +94,7 @@ def dashboard(db, user_id: int, limit: int = 12) -> dict:
 
     def items(condition):
         return [dict(row) for row in db.execute(
-            "SELECT i.id, i.title, i.authors, i.media_type, i.cover_path, "
+            "SELECT i.id, i.title, i.authors, i.media_type, i.cover_path, i.series_name, "
             "s.status, s.progress, s.rating, s.favourite, s.on_list, s.notes, "
             "s.started_at, s.finished_at, s.updated_at "
             "FROM user_item_state s JOIN items_live i ON i.id = s.item_id "

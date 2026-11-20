@@ -1,12 +1,20 @@
 # Browse & search
 
-Use **Media → Library** for the mixed catalogue. There is no separate Manage
+Open the **Library** menu and choose **Library** for the mixed catalogue, or
+choose a family/format from the same menu. There is no separate Manage
 dropdown, or duplicate Browse button when Library is enabled and visible. The
 original Browse page remains available directly at `/browse`, with the grid/list,
 filters, sorting and bulk tools described below; it remembers those choices
 between visits. If Library is disabled or hidden,
 the standalone **Browse** link remains as the core-catalogue fallback.
 See [Connected library](connected-library.md) for mixed-format Library views.
+
+**Search your library** is in the top navigation, outside the mobile menu—not
+inside the Library filter panel. Use **Enter** or **Search**. On Library it submits
+the same filters, view and saved-view selection as **Apply filters**, including
+the current search text; no JavaScript is required. From another page it opens
+the eligible mixed-catalogue destination, using Browse when Library is hidden or
+disabled. The original Browse page's local filters and bulk tools remain separate.
 
 **Explore** opens a downward dropdown of its available destinations, such as
 Series and Stats. Its links are stacked below the label, not alongside it.
@@ -30,7 +38,7 @@ fallback when Library is unavailable. The palette offers no edit, delete, sync o
 external-media launch commands, and no command history is saved. Destination
 pages retain their normal behaviour. Without JavaScript or native
 dialog support, use the normal navigation; the Commands disclosure explains this.
-Without native dialog support, use **Media → Library** (open **Main menu** first
+Without native dialog support, use **Library → Library** (open **Main menu** first
 on a small screen). When Library is unavailable, the Browse fallback stays directly
 visible. Menus are not opened automatically. The **B** shortcut uses the same
 Library-or-Browse destination.
@@ -46,6 +54,38 @@ boxes. Open an item for its complete metadata, copies and source actions. Browse
 keeps selection, wishlist and lending badges. Detail/list screens retain their own
 metadata and controls.
 
+### Follow an artist, author or series
+
+On the main catalogue covers, select the **artist/creator name** to see items
+associated with that creator in the existing local index. For example, **Meat
+Loaf** opens your Meat Loaf releases, not every title mentioning his name and
+not a MusicBrainz/Discogs search. Separately credited names have their own links;
+credit roles and separators stay as written. A stale or unindexed creator link
+reports not found rather than opening an unrelated collection or repairing data.
+
+The **cover or title** still opens its original item. A populated **series name**
+opens just that local series, using the existing series identity, with **All
+series** available to return to the full index. Series links stay plain when the
+Series feature is off. Existing format and language labels in Browse list/detail
+views link to their exact filters; unsupported metadata is not given a guessed
+destination.
+
+Use **Tab** to move from the cover to its title, creators and series. The caption
+stays open while one of its links has focus. Touch/coarse-pointer screens show
+interactive captions without requiring hover; long credits can scroll inside
+the unchanged cover frame. Name links are native links, so normal new-tab and
+modified-click actions work. In Browse **Select** mode, clicking a name still
+selects that item instead of navigating. The selection button and lending/source
+actions remain separate.
+
+This applies to local Home/Library/Music shared cards, Browse grid and list
+metadata, Activity, Series item covers and catalogue/music details. Operational,
+public/print/export previews and untyped remote-only Continue captions are not
+turned into guessed creator identities. Navigation reads local data only and
+never edits items, account activity, progress, source bindings or the creator
+index. The new interaction/rendering regressions are authored but not executed
+for this source-only checkpoint.
+
 **Item size** is at the top right; on Home it shares the **Home** heading row
 and wraps below the heading when space is limited. One native
 slider controls catalogue cover widths across Home, Browse (grid and list), all
@@ -59,7 +99,11 @@ The choice is saved for your account in this browser, survives navigation/reload
 and updates other open tabs. It is not a server-side or cross-device preference.
 Other accounts and mounted Shelf instances use separate numeric storage keys.
 Blocked browser storage leaves current-page sizing usable with an explanation.
-After a cached Back/Forward restore, refresh before editing the saved value.
+Back/Forward works without refreshing: the control checks the current sign-in
+before resuming saved sizing. You can still resize the page during that check.
+If the sign-in changed or cannot be confirmed, changes stay on this page; use
+**Retry saving** to check again. Edits made before confirmation are not saved
+retroactively—move the slider again after confirmation to save your next choice.
 JavaScript is needed to change size; without it the common 100% layout is usable.
 Print/export artwork, public shares and provider/scanning/editor previews stay
 separate from this catalogue presentation setting.

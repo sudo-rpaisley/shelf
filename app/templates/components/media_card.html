@@ -4,17 +4,17 @@
 {% set _shelf_preview = media_card_presentation|default('') == 'shelf-preview-v1' %}
 {% set _shared_size = media_card_size_mode|default('') == 'shared-v2' %}
 <article class="media-card" data-item-id="{{ card.id }}" data-media-type="{{ card.media_type }}"{% if _shelf_preview %} data-card-presentation="shelf-preview-v1"{% endif %}{% if _shelf_preview or _shared_size %} data-cover-size-card="catalogue-v2"{% endif %}>
-    <a class="media-card__detail" href="{{ card.detail_href }}"{% if _shelf_preview or _shared_size %} data-cover-link{% endif %}>
-        {% if _shelf_preview or _shared_size %}
-        {{ media_cover(card, artwork_source=validated_artwork_source|default(none)) }}
-        {% else %}
+    {% if _shelf_preview or _shared_size %}
+        {{ media_cover(card, artwork_source=validated_artwork_source|default(none), interactive=true) }}
+    {% else %}
+    <a class="media-card__detail" href="{{ card.detail_href }}">
         {% include "components/media_artwork.html" %}
         <h3 class="media-card__title">{{ card_title }}</h3>
-        {% endif %}
     </a>
+    {% endif %}
     {% if not _shelf_preview %}
-    {% if not _shared_size and card.creator_text %}<p class="media-card__creator">{{ card.creator_text }}</p>{% endif %}
-    {% if card.media_type %}<p class="media-card__type">{% if card.media_type_label is not none %}{{ _(card.media_type_label)|forceescape }}{% else %}{{ card.media_type }}{% endif %}</p>{% endif %}
+    {% if not _shared_size and card.creator_text %}<p class="media-card__creator">{% for part in card.creator_parts %}{% if part.href %}<a href="{{ part.href }}" data-caption-link="creator">{{ part.text }}</a>{% else %}{{ part.text }}{% endif %}{% endfor %}</p>{% endif %}
+    {% if card.media_type %}<p class="media-card__type">{% if card.media_type_label is not none %}<a href="/browse?media_type_filter={{ card.media_type|urlencode }}" data-caption-link="format">{{ _(card.media_type_label)|forceescape }}</a>{% else %}{{ card.media_type }}{% endif %}</p>{% endif %}
     {% endif %}
     {% if card.badges %}
     <div class="media-card__badges">

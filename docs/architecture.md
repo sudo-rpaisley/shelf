@@ -1685,7 +1685,30 @@ Direct `/browse` retains its normal permissions, catalogue administration and bu
 tools, and account-menu destinations are unchanged.
 The `library-primary-v1` main wrapper uses a single narrow-screen column and resets
 the older cached tree's200% width/negative offset. Resizing focus returns a nested
-Library link to the visible Media opener rather than the newly collapsed branch.
+Library link to the visible Library opener rather than the newly collapsed branch.
+
+**Catalogue search belongs to the shared navigation.** The signed-in shell's
+search is outside the mobile disclosure, with one labelled native search input
+and submit button. `nav.media_navigation` derives its GET path and successful
+hidden fields from the same eligible mixed primary URL; native GET submission
+would otherwise discard its action's query. This preserves Library's reset/items/
+recent defaults and the hidden/disabled-Library Browse fallback without a second
+role/feature policy. Existing link keys, paths and menu mechanisms are unchanged.
+The independent navigation stylesheet keeps search on a full row at narrow/
+desktop seams and inline on wide screens, with wrapping controls and44px targets.
+
+Library explicitly associates the nav input/button with its fixed `library-filters`
+GET form through native `form=` ownership. The old in-panel search block is gone;
+the same types/filters/view/sort/page-size/saved-view controls remain. There is one
+successful q per GET, no hidden query copy, JS synchronization, nested form or
+new search endpoint. Enter, Search and Apply filters use the current nav query,
+including empty overrides of saved searches, with ordinary page-one GET behavior.
+Saved-view POSTs retain their existing server-rendered filter snapshots/account
+ownership. Other pages get a standalone global GET form; anonymous shells do not.
+The existing slash shortcut naturally reaches the earlier nav field. No new JS,
+provider/catalogue queries, account storage, source identities or server preference
+writes implement this relocation. Form-data/keyboard/no-JS/layout evidence remains
+pending; finite old form-descendant assertions were preserved, not migrated.
 
 Explore uses an initially closed native disclosure. Add / Scan is now one direct
 workspace link rather than a dropdown containing duplicate tool destinations.
@@ -1828,10 +1851,35 @@ HTMX/OOB replacements inherit state and singleton listeners. A value-free
 `shelf:cover-size-changed` event refreshes each Home row's independent navigation.
 
 This is not confidential account storage, cross-device sync or instant revocation
-of already-open documents. A BFCache restoration latches editing/persistence off
-until a real server refresh; the stale shell never recaptures identity. No account
-API, native preference store/CAS, database, cookie, URL, schema, auth or navigation
-membership change implements sizing. Rendering, JS/native-browser/storage/layout,
+of already-open documents. BFCache `pageshow.persisted` now keeps sizing usable
+locally while one same-origin, cookie-session `GET /api/ui/cover-size-owner`
+confirms the original account/mount. The viewer-gated response contains only the
+resolved account ID **as text** and trusted ASGI root path, with `no-store` and
+`Vary: Cookie`; it does not read preferences, catalogue, personal activity or
+providers. The request refuses redirects, bypasses caches and has a five-second
+deadline. Initial navigation/normal slider changes make no extra request. An
+expired/unavailable session, malformed reply or mismatched account/mount leaves
+page-only sizing usable; native **Retry saving** verifies again without reloading.
+No polling, queued saves, automatic retry or forced refresh is involved.
+
+The existing readable CSRF-cookie helper supplies an in-memory change marker,
+not account authority; the HttpOnly authentication cookie is never read. A
+matching marker is checked after the reply and before later native writes or
+storage-event updates. Missing/unreadable markers fail closed to page-only;
+login/logout changes cannot cause a delayed confirmation to authorize another
+sign-in. Pagehide/new checks invalidate and abort outstanding checks, including
+their late response/JSON callbacks. The script never copies the marker into
+request data, storage, logs or emitted events; the browser's normal same-origin
+session cookies accompany the check. History-restored native range values are
+also reconciled at the next paint without another request.
+Only an exact original identity match permits a fresh localStorage read. Edits
+made while unverified or after a storage refusal are preserved, never overwritten
+by confirmation/storage events or retroactively saved; a later real value change
+may save after confirmation. Duplicate input/change events still do not write.
+No cookie/auth policy, schema, source/identity boundary, preference store/CAS or
+navigation membership changes implement sizing. The outer menu is now labelled
+**Library** (accessible name **Browse library**); keys, destinations and gates
+are unchanged. Rendering, JS/native-browser/storage/layout,
 cached-asset, print and build qualification of this source follow-up remain pending;
 historical results for older candidates do not qualify it.
 
@@ -1842,8 +1890,11 @@ default remains eight; API stats still request zero recent rows. The result is
 partitioned into eight real SSR cards and at most sixteen inert template cards,
 outside the inner shelf. Enhancement validates and moves those existing nodes
 before the sole View more tile once, with no extra catalogue/API request or store.
-Inventory labels and overflow hints follow the materialized count; native fallback
-retains eight cards and ordinary links. Full metadata remains on the item page.
+The inert total/label and overflow hints follow the materialized count; native
+fallback retains eight cards and ordinary links. The visible recent-count/Across
+your collection subtitle is removed without changing the heading link, buffer,
+scrolling or arrows; its existing JS tolerates the absent count node. Full metadata
+remains on the item page.
 
 Exact Home Recent/Continue `streaming-v1` markers scope row navigation, not cover
 presentation. `components/media_cover.html` owns the `recent-v1` catalogue cover:
@@ -1863,6 +1914,28 @@ and export code are unchanged. The default unmarked card mode is unchanged.
 Home and Library use the same `shelf-preview-v1` presentation and suppress separate
 type/metadata rows; other shared-size consumers retain caller-owned metadata.
 There is no Details toggle. Complete escaped caption text remains in native link names.
+For the local interactive gallery, `services/caption_links.py` derives immutable
+link/plain-text spans from the existing author parser without rewriting raw
+credit characters. `MediaCard` snapshots these and the actual series name;
+supplied creator/series URLs are never trusted. `/browse/creator?key=...` is a
+viewer-only, local-read resolver to an existing live creator-index ID and the
+unchanged `author_filter` Browse contract, not a title/provider search or index
+repair. Named `/series?name=...` links select the exact existing casefold group;
+the no-name index and global rename/merge inventory remain intact.
+
+The cover macro's explicit `interactive` mode makes the artwork anchor, caption
+title and metadata anchors siblings, not nested links. Primary callers opt in
+and remove enclosing anchors; legacy operational/export/native-remote callers
+retain the static anchor-free macro. A controlled primary-link slot preserves
+Browse's own cover selection behavior. Its delegated metadata guard retains
+native navigation outside select mode and toggles the exact item within it;
+the selection button, loan disclosure and RomM action keep independent owners.
+`:focus-within` retains captions during keyboard traversal, hidden names do not
+capture pointer clicks, and coarse/touch screens expose the links directly.
+Caption scrolling/touch targets do not change frame dimensions, artwork specs,
+slider identity/storage or fixed print budgets. New series caption lines are
+hidden in print. These source-authored changes require new rendering/browser
+evidence and finite link-ownership expectation review; no old tests were edited.
 Recently added's existing heading now contains the former View all destination,
 inherits its typography and underlines on hover/focus/activation; its separate
 View all button is removed. Count, arrows, row IDs, buffer and terminal View more

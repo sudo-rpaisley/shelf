@@ -51,7 +51,7 @@ def dashboard_summary(db, *, recent_limit: int = 8) -> dict:
         recent = [
             dict(row)
             for row in db.execute(
-                "SELECT i.id, i.title, i.authors, i.media_type, i.cover_path, i.owned, "
+                "SELECT i.id, i.title, i.authors, i.media_type, i.cover_path, i.owned, i.series_name, "
                 f"i.created_at, {lists.WISHLISTED_SQL} AS wishlisted "
                 "FROM items_live i ORDER BY i.created_at DESC, i.id DESC LIMIT ?",
                 (limit,),

@@ -5,7 +5,10 @@
 <div class="cover-size-control" data-cover-size-control
      data-cover-size-saved="{{ _('Saved for this account in this browser.')|forceescape }}"
      data-cover-size-unavailable="{{ _('Browser storage is unavailable; size changes apply to this page only.')|forceescape }}"
-     data-cover-size-restored="{{ _('Refresh this page to change the saved size after returning with Back or Forward.')|forceescape }}">
+     data-cover-size-checking="{{ _('Checking this sign-in; size changes apply to this page for now.')|forceescape }}"
+     data-cover-size-unverified="{{ _('Sign-in could not be confirmed; size changes apply to this page only. Retry saving when connected.')|forceescape }}"
+     data-cover-size-changed="{{ _('This sign-in has changed; size changes apply to this page only.')|forceescape }}"
+     data-cover-size-unsaved="{{ _('Size changed on this page; move the slider again to save for this account.')|forceescape }}">
     <label class="cover-size-control__range">
         <span>{{ (_('Item size') if _item_density else _('Cover size'))|forceescape }}</span>
         <input type="range" min="0" max="10" step="1" value="5" aria-valuetext="100%" disabled data-cover-size-input>
@@ -13,5 +16,6 @@
     <output class="cover-size-control__output" aria-live="off" data-cover-size-output>100%</output>
     <p class="cover-size-control__note media-card__sr-only">{{ _('One size across catalogue pages, for this account in this browser.')|forceescape }}</p>
     <p class="cover-size-control__status" data-cover-size-status role="status" hidden></p>
+    <button type="button" class="text-xs text-shelf-accent2 underline" data-cover-size-retry hidden disabled>{{ _('Retry saving')|forceescape }}</button>
     <noscript><p class="cover-size-control__note">{{ (_('Enable JavaScript to change item size.') if _item_density else _('Enable JavaScript to change cover size.'))|forceescape }}</p></noscript>
 </div>

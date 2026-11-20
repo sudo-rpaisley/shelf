@@ -20,7 +20,7 @@
             {# The width is declared here rather than left to the image, so the
                picker's controls below have a real budget to lay out inside. #}
             <div class="w-48 shrink-0" data-cover-size-column="catalogue-v2">
-                {% with cover_item=item, cover_print='detail' %}{% include "components/catalogue_cover.html" %}{% endwith %}
+                {% with cover_item=item, cover_print='detail', cover_interactive=true %}{% include "components/catalogue_cover.html" %}{% endwith %}
                 {% if item.cover_path %}
                 {% if item.cover_edition_language == "en" %}<p class="text-xs text-shelf-muted mt-2">{{ _('English cover from another edition') }}</p>{% endif %}
                 {% else %}
@@ -83,10 +83,10 @@
 
                 <div class="grid grid-cols-2 gap-x-8 gap-y-2 text-sm mb-6">
                     {% if item.media_type %}
-                    <div><span class="text-shelf-muted">{{ _('Type:') }}</span> {{ (_(media_types[item.media_type]) if item.media_type in media_types else item.media_type) }}</div>
+                    <div><span class="text-shelf-muted">{{ _('Type:') }}</span> {% if item.media_type in media_types %}<a href="/browse?media_type_filter={{ item.media_type|urlencode }}" class="text-shelf-accent2 hover:underline" data-caption-link="format">{{ _(media_types[item.media_type]) }}</a>{% else %}{{ item.media_type }}{% endif %}</div>
                     {% endif %}
                     {% if item.language %}
-                    <div><span class="text-shelf-muted">{{ _('Language:') }}</span> {{ search_langs.get(item.language, item.language) }}</div>
+                    <div><span class="text-shelf-muted">{{ _('Language:') }}</span> <a href="/browse?language={{ item.language|urlencode }}" class="text-shelf-accent2 hover:underline" data-caption-link="language">{{ search_langs.get(item.language, item.language) }}</a></div>
                     {% endif %}
                     {% if item.platform %}
                     <div><span class="text-shelf-muted">{{ _('Platform:') }}</span> {{ game_platforms.get(item.platform, item.platform) }}</div>
@@ -106,7 +106,7 @@
                     {% if item.series_name %}
                     <div><span class="text-shelf-muted">{{ _('Series:') }}</span>
                         {% if feature_on('series') %}
-                        <a href="/series" class="text-shelf-accent2 hover:text-shelf-accent transition-colors">{{ item.series_name }}</a>{% if item.series_position is not none %} #{{ item.series_position|int if item.series_position == item.series_position|int else item.series_position }}{% endif %}
+                        {% set _series_href = build_media_card(item).series_href %}{% if _series_href %}<a href="{{ _series_href }}" class="text-shelf-accent2 hover:text-shelf-accent transition-colors">{{ item.series_name }}</a>{% else %}{{ item.series_name }}{% endif %}{% if item.series_position is not none %} #{{ item.series_position|int if item.series_position == item.series_position|int else item.series_position }}{% endif %}
                         {% else %}
                         <span data-testid="series-name">{{ item.series_name }}</span>{% if item.series_position is not none %} #{{ item.series_position|int if item.series_position == item.series_position|int else item.series_position }}{% endif %}
                         {% endif %}

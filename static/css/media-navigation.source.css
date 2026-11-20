@@ -193,3 +193,75 @@
     .media-navigation__panel { max-block-size: calc(100dvh - 5rem); overflow-y: auto; }
     .media-navigation__formats { position: static; inline-size: auto; max-inline-size: 100%; border: 0; border-inline-start: 1px solid var(--color-shelf-border, #2d3148); box-shadow: none; margin-inline-start: 0.75rem; }
 }
+
+/* One shell search stays available outside the mobile menu. Its external form
+   association on Library changes ownership, not its layout or native behavior. */
+.media-navigation__bar[data-nav-search-layout="catalogue-v1"] > .media-navigation__main { grid-row: 3; }
+.media-navigation__search {
+    position: relative;
+    grid-column: 1 / -1;
+    grid-row: 2;
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: flex-end;
+    gap: 0.5rem;
+    min-inline-size: 0;
+    max-inline-size: 100%;
+    margin: 0;
+}
+.media-navigation__search-label {
+    position: absolute;
+    inline-size: 1px;
+    block-size: 1px;
+    padding: 0;
+    margin: -1px;
+    overflow: hidden;
+    clip-path: inset(50%);
+    white-space: nowrap;
+}
+.media-navigation__search-input,
+.media-navigation__search-submit {
+    box-sizing: border-box;
+    min-block-size: max(44px, 2.75rem);
+    max-inline-size: 100%;
+    border: 1px solid var(--color-shelf-border, #2d3148);
+    border-radius: 0.5rem;
+    padding: 0.5rem 0.75rem;
+    font: inherit;
+    font-size: 0.875rem;
+    line-height: 1.5;
+}
+.media-navigation__search-input {
+    flex: 1 1 10rem;
+    inline-size: 100%;
+    min-inline-size: 80px;
+    background: var(--color-shelf-bg, #0f1117);
+    color: var(--color-shelf-text, #e2e8f0);
+}
+.media-navigation__search-input::placeholder { color: var(--color-shelf-muted, #94a3b8); opacity: 1; }
+.media-navigation__search-input:focus-visible {
+    outline: 2px solid var(--color-shelf-accent2, #818cf8);
+    outline-offset: 2px;
+}
+.media-navigation__search-submit {
+    flex: 0 1 auto;
+    min-inline-size: 0;
+    background: var(--color-shelf-accent, #6366f1);
+    color: #fff;
+    overflow-wrap: anywhere;
+    cursor: pointer;
+}
+.media-navigation__search-submit:hover { background: var(--color-shelf-accent2, #818cf8); }
+/* Keep the desktop seam spacious; the widest shell can put search beside the
+   menu/account. Large text may wrap search controls instead of clipping them. */
+@media (min-width: 64rem) {
+    .media-navigation__bar[data-nav-search-layout="catalogue-v1"] > .media-navigation__main { grid-row: 1; }
+}
+@media (min-width: 80rem) {
+    .media-navigation__bar[data-nav-search-layout="catalogue-v1"] {
+        grid-template-columns: auto minmax(0, 1fr) minmax(12rem, 24rem) auto;
+    }
+    .media-navigation__bar[data-nav-search-layout="catalogue-v1"] > .media-navigation__search { grid-column: 3; grid-row: 1; }
+    .media-navigation__bar[data-nav-search-layout="catalogue-v1"] > .media-navigation__account { grid-column: 4; }
+}
