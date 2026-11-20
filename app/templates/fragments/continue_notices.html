@@ -1,0 +1,7 @@
+{% if native_continue.connections %}
+<div class="text-xs text-shelf-muted mt-3" data-testid="native-continue-notices">
+    {% for connection in native_continue.connections %}
+    <p>{{ connection.name }} · {% if not connection.available %}{{ _('Unavailable or configuration changed; cached cards hidden. Re-link or enable the source in sync settings.')|forceescape }}{% elif connection.last_status == 'never' %}{{ _('Not refreshed yet.')|forceescape }}{% elif connection.last_status == 'running' %}{{ _('Refresh in progress; showing the previous snapshot, if any.')|forceescape }}{% elif connection.last_status == 'interrupted' %}{{ _('Last refresh did not finish; showing older cached details, if any.')|forceescape }}{% elif connection.last_error %}{{ _('Refresh failed; any shown entries are from an older snapshot.')|forceescape }}{% elif connection.stale %}{{ _('Cached snapshot is over a day old; refresh before relying on its position.')|forceescape }}{% else %}{{ _('Last refreshed:')|forceescape }} {{ connection.last_success_at }}{% endif %}{% if connection.truncated %} {{ _('Bounded snapshot; more entries or libraries may exist in the native app.')|forceescape }}{% endif %}{% if connection.interval_minutes and not connection.authorization_current %} {{ _('Automatic refresh paused: renew your account consent.')|forceescape }}{% endif %}</p>
+    {% endfor %}
+</div>
+{% endif %}

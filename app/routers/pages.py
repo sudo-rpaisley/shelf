@@ -51,8 +51,9 @@ async def index(
         summary["recent_has_more"] = summary["total_count"] > len(recent)
         home_activity = None
         if features.feature_enabled("connected_library"):
-            from app.services import personal_library
+            from app.services import personal_library, source_continue
             home_activity = personal_library.dashboard(db, request.state.user["id"], limit=6)
+            home_activity["native_continue"] = source_continue.context(db, request.state.user["id"])
 
     return request.app.state.templates.TemplateResponse(
         request,

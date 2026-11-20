@@ -1016,6 +1016,46 @@ CREATE TABLE IF NOT EXISTS user_source_schedules (
 );
 CREATE INDEX IF NOT EXISTS idx_user_source_schedule_due ON user_source_schedules(next_due_at);
 
+-- Native Continue is a separately consented cache, not a personal-state import.
+-- Keep the existing progress-account provider CHECK and all its FKs untouched.
+CREATE TABLE IF NOT EXISTS user_continue_connections (
+    id                    INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id               INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    source_key            TEXT NOT NULL,
+    provider              TEXT NOT NULL CHECK(provider IN ('jellyfin', 'abs', 'komga', 'romm')),
+    remote_user_id        TEXT NOT NULL,
+    credentials_enc       TEXT NOT NULL,
+    root_fingerprint      TEXT NOT NULL,
+    revision              TEXT NOT NULL,
+    consent_version       TEXT NOT NULL,
+    consented_at          TEXT NOT NULL,
+    entries_json          TEXT NOT NULL DEFAULT '[]',
+    truncated             INTEGER NOT NULL DEFAULT 0 CHECK(truncated IN (0, 1)),
+    last_attempt_at       TEXT,
+    last_success_at       TEXT,
+    last_status           TEXT NOT NULL DEFAULT 'never',
+    last_error            TEXT,
+    lease_token           TEXT,
+    lease_expires_at      TEXT,
+    interval_minutes      INTEGER NOT NULL DEFAULT 0 CHECK(interval_minutes IN (0, 15, 60, 360, 1440)),
+    schedule_revision     TEXT NOT NULL,
+    schedule_consent      TEXT,
+    schedule_consented_at TEXT,
+    actor_username        TEXT,
+    actor_role            TEXT,
+    actor_token_version   INTEGER,
+    next_due_at           TEXT,
+    UNIQUE(user_id, source_key),
+    UNIQUE(source_key, remote_user_id)
+);
+CREATE INDEX IF NOT EXISTS idx_user_continue_due ON user_continue_connections(next_due_at);
+CREATE TABLE IF NOT EXISTS user_continue_link_state (
+    user_id    INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    source_key TEXT NOT NULL,
+    generation TEXT NOT NULL,
+    PRIMARY KEY(user_id, source_key)
+);
+
 CREATE TABLE IF NOT EXISTS library_saved_views (
     id           INTEGER PRIMARY KEY AUTOINCREMENT,
     user_id      INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,

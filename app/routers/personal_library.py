@@ -8,7 +8,7 @@ from app.auth import require_role
 from app.database import get_db
 from app.features import require_feature
 from app.routers import items_common
-from app.services import personal_library
+from app.services import personal_library, source_continue
 
 
 router = APIRouter()
@@ -49,6 +49,7 @@ async def activity_page(
 ):
     with get_db() as db:
         context = personal_library.dashboard(db, user["id"])
+        context["native_continue"] = source_continue.context(db, user["id"], limit=96)
     return request.app.state.templates.TemplateResponse(
         request, "activity.html", context, headers={"Cache-Control": "no-store"},
     )

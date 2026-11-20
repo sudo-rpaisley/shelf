@@ -1,13 +1,15 @@
 {# Reuse the account-scoped six + six selection, with in-progress items first.
    A listed item can occur in both inputs; catalogue identity appears only once. #}
 {% set _continue_entries = (home_activity.continue_items + home_activity.up_next_items)|unique(attribute='id')|list %}
+{% set native_continue = home_activity.native_continue|default({'entries': [], 'connections': [], 'catalogue_ids': []}) %}
+{% set _continue_entries = _continue_entries|rejectattr('id', 'in', native_continue.catalogue_ids)|list %}
 <section class="recent-shelf mb-8" data-testid="home-personal-library" data-continue-shelf="streaming-v1" aria-labelledby="home-continue-heading">
     <header class="recent-shelf__header">
         <div class="recent-shelf__heading">
             <h2 id="home-continue-heading">{{ _('Continue')|forceescape }}</h2>
-            <p>{{ _('In progress and items from your list')|forceescape }}</p>
+            <p>{{ _('Native digital Continue, in-progress items and your list')|forceescape if native_continue.connections else _('In progress and items from your list')|forceescape }}</p>
         </div>
-        {% if _continue_entries %}
+        {% if _continue_entries or native_continue.entries %}
         <div class="recent-shelf__actions" role="group" aria-label="{{ _('Continue navigation')|forceescape }}">
             <button type="button" data-recent-action="previous" aria-label="{{ _('Previous items to continue')|forceescape }}" aria-controls="home-continue-row" disabled>
                 <svg viewBox="0 0 20 20" aria-hidden="true" focusable="false"><path d="m12 5-5 5 5 5"/></svg>
@@ -18,8 +20,11 @@
         </div>
         {% endif %}
     </header>
-    {% if _continue_entries %}
+    {% if _continue_entries or native_continue.entries %}
     <ul id="home-continue-row" class="media-shelf__items" tabindex="0" aria-labelledby="home-continue-heading" data-item-shelf="density-v1">
+        {% for entry in native_continue.entries %}
+        <li class="media-shelf__slot">{% include "components/continue_card.html" %}</li>
+        {% endfor %}
         {% for entry in _continue_entries %}
         <li class="media-shelf__slot">
             {% set _status_badge = _('In progress') if entry.status == 'in_progress' else _('Up Next') %}
@@ -39,4 +44,6 @@
     {% else %}
     <p class="media-shelf__empty">{{ _('Open an item to set your personal status or add it to My List. Your plans are separate from the shared wishlist.')|forceescape }}</p>
     {% endif %}
+    {% include "fragments/continue_notices.html" %}
+    <p class="recent-shelf__help"><a href="/account/source-progress#native-continue-settings" class="text-shelf-accent2 hover:underline">{{ _('Connect or refresh digital Continue')|forceescape }}</a></p>
 </section>

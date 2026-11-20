@@ -16,7 +16,7 @@ from app.database import get_db
 from app.features import require_feature
 from app.http_body import BodyTooLarge, bounded_body
 from app.routers import items_common
-from app.services import source_handoff, source_progress
+from app.services import source_continue, source_handoff, source_progress
 from app.services.source_progress import ProgressError
 
 
@@ -40,6 +40,8 @@ def form_limit(path: str) -> int | None:
         r"/api/source-progress/accounts/[^/]+/(?:disconnect|schedule)",
         r"/api/source-progress/accounts/[^/]+/items/[^/]+/pull",
         r"/api/source-progress/reviews/[^/]+",
+        r"/api/source-continue/connections/link",
+        r"/api/source-continue/connections/[^/]+/(?:refresh|disconnect|schedule)",
     )
     return FORM_BYTES if any(re.fullmatch(pattern, path) for pattern in patterns) else None
 
@@ -80,6 +82,11 @@ _MESSAGES = {
     "stale_schedule": i18n.N_("The automatic-pull consent or job lease changed. The delayed result was discarded."),
     "unavailable": i18n.N_("The source is not currently eligible. Cached state was kept; refresh the source before pulling progress."),
     "schedule_saved": i18n.N_("Your automatic-pull choice was saved. Automatic pulls use the same local-edit and conflict rules; nothing is sent back."),
+    "continue_linked": i18n.N_("Your account is linked for native Continue. Refresh explicitly or separately enable automatic cache refresh. Local progress is unchanged."),
+    "continue_refreshed": i18n.N_("Your native Continue snapshot was refreshed. Local activity and history were not changed."),
+    "continue_disconnected": i18n.N_("Your Continue token, cache and automatic-refresh consent were forgotten. Local activity and progress-import connections remain. Revoke the token remotely separately."),
+    "continue_schedule_saved": i18n.N_("Your automatic Continue cache choice was saved. This does not enable progress imports or remote writes."),
+    "busy": i18n.N_("A Continue refresh is already running or was just attempted. Wait before refreshing again."),
 }
 _REASONS = {
     "unknown_clock": i18n.N_("The source has no trustworthy update timestamp."),
@@ -133,10 +140,11 @@ async def accounts_page(request: Request, item_id: int | None = Query(default=No
             raise HTTPException(404, i18n.gettext("Item not found"))
         progress = source_progress.context(db, user["id"], item_id=item_id,
                                            review_before=review_before, history_before=history_before,
-                                           scheduler_active=bool(getattr(request.app.state, "source_progress_scheduler_active", False)))
+                                            scheduler_active=bool(getattr(request.app.state, "source_progress_scheduler_active", False)))
+        native_continue = source_continue.context(db, user["id"])
     code = request.query_params.get("notice", "")
     return request.app.state.templates.TemplateResponse(request, "source_progress.html", {
-        "progress": progress, "progress_item": dict(item) if item else None,
+        "progress": progress, "native_continue": native_continue, "progress_item": dict(item) if item else None,
         "progress_reasons": _REASONS, "notice": _message(code) if code in _MESSAGES or code in source_progress._ERRORS else None,
     }, headers={"Cache-Control": "no-store"})
 
@@ -256,3 +264,74 @@ async def review(request: Request, observation_id: int = Path(gt=0, le=2**63 - 1
     except ProgressError as exc:
         return _response(request, exc.code, ok=False)
     return _response(request, fields["decision"], item_id=item_id)
+
+
+@router.post("/api/source-continue/connections/link")
+async def link_continue(request: Request, user=Depends(require_role("viewer")), _=Depends(require_feature("connected_library"))):
+    try:
+        actor = _request_actor(request, user)
+        fields = await _form(request)
+        connection_id = await source_continue.link(
+            user["id"], fields.get("source_key", ""), token=fields.get("token", ""),
+            remote_user_id=fields.get("remote_user_id", ""), consent=fields.get("consent", ""), actor=actor,
+        )
+    except ProgressError as exc:
+        return _response(request, exc.code, ok=False)
+    return _response(request, "continue_linked", connection_id=connection_id)
+
+
+@router.post("/api/source-continue/connections/{connection_id}/refresh")
+async def refresh_continue(request: Request, connection_id: int = Path(gt=0, le=2**63 - 1),
+                           user=Depends(require_role("viewer")), _=Depends(require_feature("connected_library"))):
+    try:
+        actor = _request_actor(request, user)
+        await _form(request)
+        result = await source_continue.refresh(user["id"], connection_id, actor=actor)
+    except ProgressError as exc:
+        return _response(request, exc.code, ok=False)
+    return _response(request, "continue_refreshed", count=result["count"], truncated=result["truncated"])
+
+
+@router.post("/api/source-continue/connections/{connection_id}/disconnect")
+async def disconnect_continue(request: Request, connection_id: int = Path(gt=0, le=2**63 - 1),
+                              user=Depends(require_role("viewer")), _=Depends(require_feature("connected_library"))):
+    try:
+        actor = _request_actor(request, user)
+        await _form(request)
+        with get_db() as db:
+            db.execute("BEGIN IMMEDIATE")
+            source_continue.disconnect(db, user["id"], connection_id, actor=actor)
+    except ProgressError as exc:
+        return _response(request, exc.code, ok=False)
+    return _response(request, "continue_disconnected")
+
+
+@router.post("/api/source-continue/connections/{connection_id}/schedule")
+async def schedule_continue(request: Request, connection_id: int = Path(gt=0, le=2**63 - 1),
+                            user=Depends(require_role("viewer")), _=Depends(require_feature("connected_library"))):
+    try:
+        actor = _request_actor(request, user)
+        fields = await _form(request)
+        value = fields.get("interval_minutes", "")
+        if re.fullmatch(r"[0-9]{1,4}", value, re.ASCII) is None:
+            raise ProgressError("invalid_form")
+        with get_db() as db:
+            db.execute("BEGIN IMMEDIATE")
+            source_continue.set_schedule(db, user["id"], connection_id, interval_minutes=int(value),
+                                         consent=fields.get("consent", ""), actor=actor)
+    except ProgressError as exc:
+        return _response(request, exc.code, ok=False)
+    return _response(request, "continue_schedule_saved")
+
+
+@router.get("/api/source-continue/connections/{connection_id}/entries/{entry_key}/open")
+async def open_continue(connection_id: int = Path(gt=0, le=2**63 - 1),
+                        entry_key: str = Path(min_length=64, max_length=64, pattern=r"^[0-9a-f]{64}$"),
+                        user=Depends(require_role("viewer")), _=Depends(require_feature("connected_library"))):
+    try:
+        with get_db() as db:
+            target = source_continue.resolve(db, user["id"], connection_id, entry_key)
+    except ProgressError:
+        raise HTTPException(404, i18n.gettext("This native Continue entry is no longer available. Refresh its connection."),
+                            headers={"Cache-Control": "no-store"}) from None
+    return RedirectResponse(target, status_code=303, headers={"Cache-Control": "no-store", "Referrer-Policy": "no-referrer"})

@@ -1,0 +1,62 @@
+<section id="native-continue-settings" class="mb-8" data-testid="native-continue-settings">
+    <h2 class="text-lg font-semibold mb-3">{{ _('Digital Continue') }}</h2>
+    <p class="text-sm text-shelf-muted mb-3">{{ _('Show your native Continue from Jellyfin, Audiobookshelf, Komga and RomM on Home and My Activity. This caches your own resume details, including remote-only items; it never changes manual activity or imports progress into Shelf items. Nothing is sent back. Home never contacts a remote server.') }}</p>
+    <p class="text-sm text-shelf-muted mb-3">{{ _('OPDS catalogues and external links have no standard personal Continue feed. They remain available in Library, but cannot supply native resume activity. RomM recently played games may have no completion percentage. Episodes and tracks are not series or album progress.') }}</p>
+    {% if not progress.scheduler_active %}<p class="text-sm text-shelf-muted mb-3">{{ _('The automatic-refresh worker is inactive in this process; no automatic freshness is claimed.') }}</p>{% endif %}
+    {% for connection in native_continue.connections %}
+    <div class="bg-shelf-card border border-shelf-border rounded-lg p-4 mb-3" data-continue-connection="{{ connection.id }}">
+        <p class="font-medium">{{ connection.name }} · {{ connection.remote_user_id }}</p>
+        <p class="text-xs text-shelf-muted mt-1">{{ _('Native Continue consent recorded:') }} {{ connection.consented_at }}</p>
+        <p class="text-xs text-shelf-muted mt-1">{{ _('Last refreshed:') }} {{ connection.last_success_at or _('Not yet') }} · {{ connection.last_status }}{% if connection.last_error %} · {{ connection.last_error }}{% endif %}</p>
+        {% if connection.truncated %}<p class="text-xs text-shelf-muted mt-2">{{ _('Bounded snapshot: up to 24 entries per connection and 8 selected libraries. More may exist in the native app.') }}</p>{% endif %}
+        {% if not connection.available %}<p class="text-sm text-shelf-muted mt-2">{{ _('Source disabled, unhealthy or changed. Its cached cards and browser links are hidden. Repair the source or re-link below; local activity is unchanged.') }}</p>{% else %}
+        <form method="post" action="/api/source-continue/connections/{{ connection.id }}/refresh" class="mt-3">
+            <input type="hidden" name="_csrf" value="{{ request.cookies.get('csrf_token', '') }}">
+            <button type="submit" class="text-sm text-shelf-accent2 hover:underline">{{ _('Refresh my native Continue now') }}</button>
+        </form>
+        {% endif %}
+        <details class="mt-3">
+            <summary class="cursor-pointer text-sm font-medium">{{ _('Automatic Continue cache refresh') }}</summary>
+            <p class="text-xs text-shelf-muted mt-2">{{ _('Off by default, with separate consent from progress imports. Refreshes use your personal credential and configured library/platform scope. Failures keep the old snapshot with a stale notice, not a claim of completion.') }}</p>
+            {% if connection.interval_minutes %}<p class="text-xs text-shelf-muted mt-2">{{ _('Next due:') }} {{ connection.next_due_at }}{% if not connection.authorization_current %} · {{ _('Paused: renew consent after your account/session version changed.') }}{% endif %}</p>{% endif %}
+            <form method="post" action="/api/source-continue/connections/{{ connection.id }}/schedule" class="space-y-3 mt-3">
+                <input type="hidden" name="_csrf" value="{{ request.cookies.get('csrf_token', '') }}">
+                <label class="block text-sm">{{ _('Refresh interval') }}
+                    <select name="interval_minutes" class="bg-shelf-bg border border-shelf-border rounded-lg p-2">
+                        <option value="0"{% if not connection.interval_minutes %} selected{% endif %}>{{ _('Off') }}</option>
+                        {% for minutes in native_continue.schedule_intervals %}<option value="{{ minutes }}"{% if connection.interval_minutes == minutes %} selected{% endif %}>{{ minutes }} {{ _('minutes') }}</option>{% endfor %}
+                    </select>
+                </label>
+                <label class="flex items-start gap-2 text-sm"><input type="checkbox" name="consent" value="{{ native_continue.schedule_consent_version }}"><span>{{ _('I consent to automatic pull-only caching of my native Continue for this connection. This separate consent is required to enable or change the interval, not to turn it off.') }}</span></label>
+                <button type="submit" class="text-sm text-shelf-accent2 hover:underline">{{ _('Save my Continue refresh choice') }}</button>
+            </form>
+        </details>
+        <form method="post" action="/api/source-continue/connections/{{ connection.id }}/disconnect" class="mt-3">
+            <input type="hidden" name="_csrf" value="{{ request.cookies.get('csrf_token', '') }}">
+            <button type="submit" class="text-sm text-shelf-error hover:underline">{{ _('Disconnect Continue and forget its token/cache') }}</button>
+        </form>
+    </div>
+    {% else %}<p class="text-sm text-shelf-muted mb-3">{{ _('No native Continue connections. Catalogue API keys and existing progress-import consent do not authorize this cache.') }}</p>{% endfor %}
+    {% if native_continue.linkable %}
+    <details class="mt-4">
+        <summary class="cursor-pointer font-medium">{{ _('Connect or replace my digital Continue') }}</summary>
+        <form method="post" action="/api/source-continue/connections/link" class="space-y-3 mt-4">
+            <input type="hidden" name="_csrf" value="{{ request.cookies.get('csrf_token', '') }}">
+            <label class="block text-sm">{{ _('Source') }}
+                <select name="source_key" required class="block w-full bg-shelf-bg border border-shelf-border rounded-lg p-2 mt-1">
+                    {% for source in native_continue.linkable %}<option value="{{ source.key }}">{{ source.name }}</option>{% endfor %}
+                </select>
+            </label>
+            <label class="block text-sm">{{ _('Confirm my remote user ID (not my username; RomM uses a number)') }}
+                <input name="remote_user_id" required maxlength="200" autocomplete="off" class="block w-full bg-shelf-bg border border-shelf-border rounded-lg p-2 mt-1">
+            </label>
+            <label class="block text-sm">{{ _('My personal token (Komga: my own API key)') }}
+                <input name="token" type="password" required maxlength="4096" autocomplete="new-password" class="block w-full bg-shelf-bg border border-shelf-border rounded-lg p-2 mt-1">
+            </label>
+            <p class="text-xs text-shelf-muted">{{ _('Use a token for your own account, never a household catalogue credential. Shelf verifies the authenticated current user, not an administrator-selected user ID. Tokens are encrypted on the server and never added to browser links. Re-linking clears this cache and disables automatic refresh; it does not change existing progress imports.') }}</p>
+            <label class="flex items-start gap-2 text-sm"><input name="consent" type="checkbox" required value="{{ native_continue.consent_version }}"><span>{{ _('This is my remote account. I consent to explicit pull-only caching and display of my native Continue in my Shelf account. No automatic refresh, local progress replacement or remote writeback.') }}</span></label>
+            <button type="submit" class="text-sm px-4 py-2 bg-shelf-accent text-white rounded-lg">{{ _('Verify and connect Continue') }}</button>
+        </form>
+    </details>
+    {% endif %}
+</section>

@@ -74,7 +74,7 @@ _ERRORS = frozenset({
     "relink_required", "stale_review", "stale_config", "auth_failed", "unsafe_redirect",
     "http_error", "timeout", "unreachable", "malformed_response", "too_large",
     "ambiguous_binding", "actor_changed", "stale_link", "stale_schedule", "unavailable",
-    "interrupted", "unexpected_error",
+    "interrupted", "unexpected_error", "busy",
 })
 
 
@@ -334,6 +334,12 @@ async def link_account(user_id: int, source_key: str, *, token: str,
         if claimed is None or claimed[0] != generation:
             raise ProgressError("stale_link")
         other = db.execute("SELECT user_id FROM user_source_accounts WHERE source_key = ? AND remote_user_id = ?",
+                           (source_key, actual)).fetchone()
+        if other and other[0] != user_id:
+            raise ProgressError("account_in_use")
+        # Native Continue has separate consent/cache, not a second ownership
+        # namespace that could expose one remote account to another Shelf user.
+        other = db.execute("SELECT user_id FROM user_continue_connections WHERE source_key = ? AND remote_user_id = ?",
                            (source_key, actual)).fetchone()
         if other and other[0] != user_id:
             raise ProgressError("account_in_use")

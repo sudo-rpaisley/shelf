@@ -1526,7 +1526,7 @@ families and identifiers or whole title/subtitle plus named creator overlap.
 Accept/dismiss/restore recheck evidence under the write lock. Acceptance only
 adds a format edge; existing Related Media unlink is the undo. A dismissal
 expires logically when its evidence fingerprint changes. `personal_library.py`
-reads/writes only the authenticated account's item state/events; Continue is
+reads/writes only the authenticated account's item state/events; its manual Continue is
 In progress and Up Next is explicit My List or Planned. Progress is
 edition-specific, not propagated through format links. These writes never
 alter shared status/reading logs, ownership, wishlist or Hardcover. Item merges
@@ -1536,6 +1536,43 @@ chosen row on an exact tie. Only a real personal save advances that identity;
 reset/merge history cannot promote stale progress. Flags/notes are combined
 without truncating the originals kept in personal merge history. The separate
 shared catalogue-status endpoint still permits viewers.
+
+**Native Continue cache.** `services/continue_connectors.py` reads native
+Jellyfin Resume, ABS personalized Continue shelves plus `/me` progress, Komga
+IN_PROGRESS books ordered by read-progress modification time, and RomM's native
+last-played query. OPDS/links have no standard resume contract. Native units,
+timestamps and episode/track identity are preserved; no completion or parent/
+format aggregation is invented. Naive clocks remain naive rather than acquiring
+an assumed timezone. No media/artwork requests, redirects, retries or remote writes.
+
+`services/source_continue.py` owns separately consented personal connections,
+encrypted tokens and atomic bounded snapshots in auxiliary
+`user_continue_connections`/`user_continue_link_state` tables. The old
+`user_source_accounts` CHECK and FK graph remain unchanged. Remote-account
+ownership is checked across both registries under the final write lock. Link
+generations, source fingerprints, actor snapshots and expiring revisioned leases
+fence delayed results; network/decryption never spans a SQLite write transaction.
+Relink/disconnect forget native cache/automatic consent, not manual or imported
+state/history. Native refresh never calls personal_library's write/import paths.
+
+At most 24 rows/connection, 8 scopes, 10 requests, 2 MiB/response and 8 MiB/connection refresh;
+manual refresh has a 60-second productive-work budget, not a hard HTTP-cleanup
+shutdown bound. Up to 64 connections belong to one account. Automatic native
+refresh is a separate opt-in hosted in `_periodic_source_progress`: 20 seconds/
+3 connections, followed by the existing imports with a 40-second budget. No new
+daemon; the existing disable switch covers both. Failures retain the old cache
+and success clock, with truthful stale/truncated/unavailable notices.
+
+The existing viewer/feature-gated source_progress router owns bounded,
+CSRF-protected `/api/source-continue/connections/...` POST forms and a cache-only
+handoff GET. Home/Activity/account GETs never fetch/decrypt/sync. Native cards
+reuse cover geometry without pretending remote-only entries are MediaCards with
+fabricated catalogue IDs; only exact current whole-edition bindings supply local
+art and item links. Episodes/tracks never link to parent activity, and Trash
+cannot reappear as remote-only. Click-time source/binding revalidation generates
+credential-free provider item-page URLs, not player/proxy/resume-position URLs.
+Native protocol/DDL/rendering/race coverage remains authored, unexecuted; no
+live-provider compatibility or runtime-safety qualification follows from it.
 
 **Refresh provenance.** `services/metadata_policy.py` supplies the
 ABS/Komga/RomM and new-source three-way refresh policy: observations do not claim
@@ -1830,8 +1867,10 @@ Recently added's existing heading now contains the former View all destination,
 inherits its typography and underlines on hover/focus/activation; its separate
 View all button is removed. Count, arrows, row IDs, buffer and terminal View more
 are unchanged, including the Library-eligible versus Browse fallback destination.
-Continue merges the existing account-scoped six + six selections,
-in-progress first, deduplicated by catalogue ID within that row. Each row owns
+Continue retains the existing account-scoped six + six local selections,
+in-progress first and deduplicated by catalogue ID, behind up to twelve native
+cached entries. Native exact edition bindings suppress duplicate local previews,
+without changing saved state; different sources/episodes remain distinct. Each row owns
 separate track/heading IDs and enhancement flags; Continue never consumes the
 Recent buffer. Header paging uses native nonanimated logical scrolling, guarded
 edge controls that retain focus, and refresh after shared size changes, range

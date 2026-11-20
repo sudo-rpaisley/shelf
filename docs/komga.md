@@ -37,6 +37,18 @@ Consequently:
 
 **Sync Now** reads every included library with bounded pagination, persists new/changed holdings, and reports progress in Settings.
 
+## Personal Continue Reading
+
+In **My source progress → Digital Continue**, separately link your own Komga API
+key and confirm its authenticated user ID. Refresh reads that user's **In
+progress** books with native page/total counts, newest read-progress modification
+first; it does not treat **On Deck** (next unread book) as currently reading.
+Excluded libraries stay excluded. Native snapshots appear on Home/My Activity
+without replacing manual activity or creating physical copies. Automatic cache
+refresh requires separate consent; the catalogue API key is never substituted.
+See [Digital Continue](user-guide/connected-library.md#digital-continue) for cache,
+privacy, limits and the current unexecuted qualification status.
+
 If an imported item has no cover, Shelf requests the book thumbnail from the configured Komga server and stores it using Shelf’s normal local cover handling.
 
 ## Open in Komga

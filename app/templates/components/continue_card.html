@@ -1,0 +1,24 @@
+{# Native activity is not a catalogue item. No fabricated item ID or remote art.
+   Only exact, current whole-edition bindings can supply a local cover/link. #}
+{% from "components/media_cover.html" import media_cover with context %}
+<article class="media-card" data-native-continue="{{ entry.key }}" data-continue-provider="{{ entry.provider }}" data-media-type="{{ entry.media_type }}" data-card-presentation="shelf-preview-v1" data-cover-size-card="catalogue-v2"{% if entry.catalogue_id is not none %} data-item-id="{{ entry.catalogue_id }}"{% endif %}>
+    <a class="media-card__detail" href="{{ entry.open_href }}" data-cover-link rel="noreferrer" aria-label="{{ _('Open in')|forceescape }} {{ entry.source_name }}: {{ entry.title if entry.title.strip() else _('Untitled item')|forceescape }}">
+        {{ media_cover(entry.art) }}
+    </a>
+    <div class="media-card__badges">
+        <span class="media-card__badge">{{ entry.source_name }}</span>
+        <span class="media-card__badge">{% if entry.kind == 'game' %}{{ _('Now playing')|forceescape if entry.now_playing else _('Recently played')|forceescape }}{% else %}{{ _('In progress')|forceescape }}{% endif %}</span>
+        {% if entry.kind == 'episode' %}<span class="media-card__badge">{{ _('Episode')|forceescape }}</span>{% elif entry.kind == 'track' %}<span class="media-card__badge">{{ _('Track')|forceescape }}</span>{% endif %}
+        {% if entry.percent is not none %}<span class="media-card__badge">{{ '%.1f'|format(entry.percent) }}%</span>{% endif %}
+        {% if entry.stale %}<span class="media-card__badge">{{ _('Stale cache')|forceescape }}</span>{% endif %}
+    </div>
+    {% if entry.unit == 'pages' %}
+    <p class="media-card__creator mt-1">{{ _('Page %(page)s of %(total)s', page=entry.position_label, total=entry.total_label)|forceescape }}</p>
+    {% elif entry.unit == 'seconds' and entry.position is not none %}
+    <p class="media-card__creator mt-1">{{ _('Position:')|forceescape }} {{ entry.position_label }}{% if entry.total is not none %} / {{ entry.total_label }}{% endif %}</p>
+    {% elif entry.percent is none %}
+    <p class="media-card__creator mt-1">{{ _('Progress not supplied')|forceescape }}</p>
+    {% endif %}
+    {% if entry.updated_at %}<p class="media-card__creator mt-1">{{ _('Source timestamp:')|forceescape }} {{ entry.updated_at }}</p>{% endif %}
+    <p class="media-card__creator mt-1">{{ _('Cached:')|forceescape }} {{ entry.observed_at }}{% if entry.catalogue_id is not none %} · <a href="/item/{{ entry.catalogue_id }}?from=activity" class="text-shelf-accent2 hover:underline">{{ _('Shelf item')|forceescape }}</a>{% else %} · {{ _('Remote only')|forceescape }}{% endif %}</p>
+</article>

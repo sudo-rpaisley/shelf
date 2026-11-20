@@ -511,10 +511,12 @@ panel and **My Activity** (`/activity`, account menu → Personal):
 - **Reset my activity for this item** clears your current state but keeps your
   personal history. Trash hides the item and its activity until restored.
 
-On Home, a single **Continue** cover row combines your In progress and My List /
-Up Next previews, with in-progress items first and duplicates shown once. It uses
+On Home, a single **Continue** cover row combines your native digital snapshots,
+In progress and My List / Up Next previews. Native entries appear first; the local
+lists remain in-progress first and deduplicated by item ID. An exact native
+edition binding suppresses its duplicate local preview, not its saved state. It uses
 the Recently added card style and its own scroll controls. The full My Activity
-page retains the separate lists; combining their Home presentation does not change
+page retains the separate native/manual lists; combining their Home presentation does not change
 your saved status, list membership or history.
 
 The item panel starts with a compact summary. Open **Update my activity** to
@@ -525,7 +527,70 @@ This state belongs to the signed-in account **and the specific catalogue item**.
 Progress on an audiobook does not transfer to its print/eBook siblings, and no
 cross-format page/time conversion is attempted. Saving it does not change the
 shared catalogue status, ownership, wishlist, other users' activity, reading
-log or Hardcover. It does not sync progress to/from external services.
+log or Hardcover. Manual saves never write progress to external services.
+
+### Digital Continue
+
+In the account menu, open **My source progress → Digital Continue**, or use
+**Connect or refresh digital Continue** below Home's Continue row. This is a
+personal cache of each provider's native resume activity, not another import into
+your manual Shelf activity.
+
+| Integration | Native input and detail |
+|---|---|
+| Jellyfin | Authenticated user's native Resume items; movie/audiobook time, individual TV episodes and audio tracks stay distinct from series/albums. Book progress is shown only when supplied; no page/time conversion |
+| Audiobookshelf | Native personalized Continue Listening / Continue Reading shelves, respecting hidden membership, joined to that user's exact audio/ebook/episode progress. Audio stays in seconds, ebook progress stays a fraction, podcasts stay individual episodes |
+| Komga | Books **In progress**, sorted by that user's read-progress modification time. Shows page and total page count; **On Deck** (next unread book) is not used as currently reading |
+| RomM | Native Continue Playing query: recently played games, last-played timestamp, explicit Now playing and supplied completion. Zero/unset completion is not displayed as a guessed 0%; no playtime is invented |
+| OPDS / external links | No standard personal Continue contract. Catalogue availability and browser links remain supported, but no native resume activity is fabricated |
+
+1. Select a configured source, supply **your own** token (Komga: your own user API
+   key), and confirm the remote user ID. RomM IDs are numeric, not usernames.
+   Shelf verifies authenticated self identity rather than an admin-selected user.
+2. Consent explicitly to caching/displaying your native Continue. Household
+   catalogue credentials and existing progress-import consent do not authorize
+   it. One remote account cannot belong to two Shelf users for the same source,
+   including across the native-cache and progress-import registries.
+3. Choose **Refresh my native Continue now**. Linking alone does not enumerate or
+   cache activity. Optionally enable a separate automatic cache interval of
+   15, 60, 360 or 1440 minutes; it starts off. Turning it off needs no new consent.
+
+Home/Activity/settings GETs and browser handoffs are cache-only: no remote request,
+token decryption or progress import. Native entries may be remote-only without
+creating catalogue items/copies. Only exact current whole-edition bindings supply
+local artwork and a Shelf item link; no title matching or parent/format progress
+substitution. Trash stays hidden. Native cover links reopen the configured
+provider item page; they are revalidated at click time, carry no credential or
+position, and do not proxy media or promise direct episode playback.
+
+The snapshot is bounded to 24 entries per connection and 8 libraries per refresh,
+with 10 requests, 2 MiB per response and 8 MiB total response data. A manual
+refresh has a 60-second productive-work budget; HTTP cleanup can take longer.
+There are no automatic HTTP retries or media/artwork downloads. Each successful
+refresh atomically replaces that bounded snapshot, including a legitimately empty
+one. Failures keep the previous snapshot and success clock with a stale notice;
+over-day-old caches and truncation are labelled. Missing or naive source clocks
+are not assigned invented timezones, completion or recency. Open the native app
+for its complete current Continue view.
+
+Automatic cache refresh shares the existing source-progress worker and its
+`SHELF_DISABLE_SOURCE_PROGRESS` switch. Each pass budgets up to 20 productive
+seconds/3 connections for native caches and 40 seconds for existing progress
+imports, with cleanup drains outside any hard shutdown claim. Source failures
+wait the selected interval. Account/session-version changes pause automatic
+consent until renewed. Disabled/unhealthy/changed source scopes hide native cards
+and links; repair or re-link the connection as indicated.
+
+Re-linking forgets this cache and automatic consent. Disconnecting forgets its
+encrypted token/cache but does not revoke the remote token; revoke it remotely
+separately. Neither action changes manual activity, source-import baselines or
+history. Tokens/consent are deliberately separate from the existing per-edition
+Jellyfin/ABS progress-import controls below Digital Continue; only those imports
+can change supported Shelf personal progress, under their conflict/review rules.
+
+Native-feed, schema-upgrade, rendering and runtime regressions are source-authored
+but have not been executed for this checkpoint. Live-provider compatibility is
+not claimed by source inspection or fixture coverage.
 
 The existing **Shared catalogue status** (read/watched/played) remains writable
 by every role, including viewers, with its existing shared history and optional
@@ -545,7 +610,8 @@ These are different operations:
 
 The additive tables are `source_instances`, `source_records`, `user_item_state`,
 `user_item_events`, `library_saved_views`, `connection_dismissals`,
-`item_metadata_provenance` and `cover_sync_blocks`, all owned by
+`item_metadata_provenance`, `cover_sync_blocks`, `user_continue_connections` and
+`user_continue_link_state`, all owned by
 `MIGRATION_TABLES` in `app/database.py`. They exist even with the feature off;
 an upstream upgrade does not invent personal activity or new source configuration
 from shared legacy catalogue data.
@@ -619,6 +685,6 @@ as encrypted credentials, so protect it accordingly. See
 
 This experiment does not add isolated household libraries, a general commercial
 provider connector, DRM handling, native playback, transcoding, a hosted reader,
-an OPDS server or external progress sync. Adapter fixtures and regression tests
+an OPDS server or bidirectional progress sync. Adapter fixtures and regression tests
 are present; final branch verification is separate, and a fixture is not proof
 of compatibility with every live OPDS or Jellyfin server.

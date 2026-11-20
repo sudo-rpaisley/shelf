@@ -772,13 +772,17 @@ async def _periodic_source_progress(application: FastAPI):
     if os.environ.get("SHELF_DISABLE_SOURCE_PROGRESS"):
         return
     from app.services import source_progress as progress_service
+    from app.services import source_continue as continue_service
 
     application.state.source_progress_scheduler_active = True
     try:
         while True:
             try:
                 if feature_enabled("connected_library"):
-                    await progress_service.run_scheduled_pass()
+                    # One worker, separate consents and a combined 60-second
+                    # productive budget. HTTP cleanup can outlast that budget.
+                    await continue_service.run_scheduled_pass(max_seconds=20)
+                    await progress_service.run_scheduled_pass(max_seconds=40)
             except Exception:
                 logger.exception("Source-progress pass failed")
             await asyncio.sleep(_SOURCE_PROGRESS_POLL_SECONDS)

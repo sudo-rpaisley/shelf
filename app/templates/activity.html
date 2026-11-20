@@ -36,6 +36,19 @@
 
     {% include "fragments/reading_life_activity.html" %}
 
+    <section class="mb-8" data-testid="activity-native-continue">
+        <h2 class="text-lg font-semibold">{{ _('Digital Continue') }}</h2>
+        <p class="text-sm text-shelf-muted mt-1 mb-4">{{ _('Your cached native resume details, separate from manual activity below. Open the native app to continue; Shelf never puts your token or progress in its browser links.') }}</p>
+        {% if native_continue.entries %}
+        <div class="cover-grid" data-cover-size-grid="catalogue-v2">
+            {% for entry in native_continue.entries %}{% include "components/continue_card.html" %}{% endfor %}
+        </div>
+        {% else %}<p class="text-sm text-shelf-muted">{{ _('No native Continue entries in your current snapshot.') }}</p>{% endif %}
+        {% include "fragments/continue_notices.html" %}
+        {% if native_continue.has_more %}<p class="text-sm text-shelf-muted mt-3">{{ _('More cached entries exist. Open the native app for its complete Continue view.') }}</p>{% endif %}
+        <p class="text-sm mt-3"><a href="/account/source-progress#native-continue-settings" class="text-shelf-accent2 hover:underline">{{ _('Connect or refresh digital Continue') }}</a></p>
+    </section>
+
     {{ item_section('activity-continue', _('Continue'), _('Items you have marked in progress.'), continue_items, _('Nothing in progress. Open an item and set your personal status to get started.')) }}
     {{ item_section('activity-up-next', _('My List / Up Next'), _('Items you explicitly added to My List or marked Planned. This is not the shared wishlist.'), up_next_items, _('Your list is empty. Add an item from its personal activity panel.')) }}
     {{ item_section('activity-favourites', _('Favourites'), _('Your personal favourites across all media.'), favourite_items, _('No favourites yet.')) }}

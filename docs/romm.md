@@ -41,3 +41,15 @@ If an imported game has no local cover, Shelf may fetch RomM-provided artwork. C
 Items backed by RomM get a compact **Open in RomM** action on the main item card. The action uses the optional Browser URL when configured, keeping Docker-internal addresses out of browser links.
 
 The same action appears on a RomM game's card in **Browse** as a small **RomM ↗** badge, so a game can be launched without opening its item page first. To see only what came from RomM, set Browse's **Source** filter to RomM — the games keep bulk select, list view, column choices and sorting, because they are ordinary Browse results.
+
+## Personal Continue Playing
+
+**My source progress → Digital Continue** can separately link your own RomM user
+token and numeric user ID. Explicit refresh (or a separately consented automatic
+cache interval) reads RomM's native recently played list for Home and My Activity.
+Last played, Now playing and explicit positive completion are shown when supplied;
+unset completion is not guessed as zero and no playtime is invented. Excluded
+platforms stay excluded. This never changes catalogue holdings, physical copies
+or manual progress/history, and the catalogue token is not personal authority.
+See [Digital Continue](user-guide/connected-library.md#digital-continue) for cache,
+privacy, limits and the current unexecuted qualification status.

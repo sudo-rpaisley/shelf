@@ -28,16 +28,39 @@ The collection mix by media type and location is available on
 
 ## Continue
 
-With Connected Library enabled, **Continue** combines your In progress and
-My List / Up Next items into one full-width, horizontally scrolling cover row,
+With Connected Library enabled, **Continue** combines native digital resume
+entries, your In progress items and My List / Up Next in one horizontal cover row,
 using the same cover sizing and hover/focus captions as Recently added.
-In-progress items come first; an item in both lists appears once. Status and
-available progress remain visible as badges. This is your account's activity,
+Native snapshots come first, with their source, supplied position/completion and
+timestamp. Local in-progress items precede your local plans; local duplicates
+appear once. A native card with an exact Shelf edition binding replaces its
+duplicate local preview, not its saved state. Different native sources and
+episodes remain distinct. This is your account's activity,
 not the shared wishlist or another user's plans.
+
+Use **Connect or refresh digital Continue** to open **My source progress → Digital
+Continue**. Supply your own personal credential and confirm the remote user ID;
+then explicitly refresh, or separately opt into automatic cache refresh. Jellyfin,
+Audiobookshelf, Komga and RomM have native adapters. OPDS and external links do not
+have a standard personal Continue feed. RomM can supply recently played games
+without a completion percentage; Shelf never guesses one.
+
+Remote-only entries can appear without adding catalogue items or physical copies.
+Only exact existing whole-edition bindings supply local cover artwork and a
+**Shelf item** link; other entries use a placeholder, not authenticated remote
+image requests. The cover opens the native app's item page, where you log in
+normally; Shelf does not launch a player or send a resume position in the URL.
+Episodes and tracks do not become series/album progress.
+
+Home reads a cache, never contacts remote servers, and never changes your manual
+activity/history. Notices show failures, old snapshots, disabled/changed sources
+and bounded results. Each connection retains up to 24 entries from up to 8
+selected libraries; Home previews up to 12 native entries. An empty or failed
+native feed does not reset local progress. See [Digital Continue](connected-library.md#digital-continue).
 
 Swipe, scroll or use the row's previous/next buttons. **My Activity** in the main
 navigation and the last **View more** tile open the full Activity page, where
-Continue and Up Next remain separate. An empty row shows one explanation instead
+Digital Continue, manual Continue and Up Next remain separate. An empty row shows one explanation instead
 of two empty panels.
 All cards and links remain usable without JavaScript.
 
@@ -79,4 +102,5 @@ shares and scanning/cover-picker previews do not use this setting.
 Without JavaScript, the row shows up to eight recent items. Item links, hover/focus
 captions and the **Recently added** heading link still work.
 
-No new dashboard data is stored. The page is built from the existing catalogue, checkout and cover state each time it is opened.
+Catalogue totals, checkouts, covers and local activity are read when Home opens.
+Opted-in native Continue uses a separately stored account-private snapshot.
