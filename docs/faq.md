@@ -2,8 +2,9 @@
 
 **Does Shelf need an internet connection?**
 For metadata and covers, yes — lookups go to Open Library and friends. The
-catalog itself, Browse, Stats, lending and Store Mode's scan verdicts all work
-offline. Nothing phones home.
+catalog itself, Browse, Stats and lending work without provider internet access
+while your browser can reach the Shelf server. Only Store Mode's cached verdicts
+work with no server connection; optional integrations make outbound requests.
 
 **Is my data sent anywhere?**
 Only the ISBN/UPC being looked up goes to metadata providers — plus the title,
@@ -24,21 +25,29 @@ quota that nobody else is sharing.
 
 The scan card tells you which of these happened rather than making you guess:
 no key configured, a key the provider rejected, a provider that is
-rate-limiting you right now, a format Shelf has no metadata source for (CDs,
-today), or a genuine miss. See
+rate-limiting you right now, an unsupported lookup format, or a genuine miss.
+MusicBrainz is available for supported music releases. See
 [Troubleshooting](troubleshooting.md#a-scan-comes-back-empty-and-the-log-says-a-provider-asked-for-a-long-wait).
 
 **Why HTTPS with a self-signed certificate?**
-Phone cameras and offline mode both require a secure origin, so Shelf must
-be HTTPS; without a domain, self-signed is the only way to do that out of
-the box. (The one exception is Photo Intake's **Take photo** button on a
+Phone cameras and offline mode both require a secure origin, so Shelf
+serves HTTPS by default; without a domain, self-signed is the only way to do
+that out of the box. Behind a reverse proxy that terminates TLS you can set
+`SHELF_TLS=off` and let the proxy supply HTTPS instead. (The one exception is Photo Intake's **Take photo** button on a
 phone, which opens the native camera app rather than using `getUserMedia`
-and works over plain `http://` — but trust the cert for everything else.)
-You can trust the cert on your devices or front it with a real one —
+and works over plain `http://`; everything else needs the secure origin,
+from either Shelf's built-in certificate or your HTTPS proxy.)
+With the built-in certificate you can trust it on your devices or front it
+with a real one —
 see [HTTPS & reverse proxy](https-and-reverse-proxy.md).
 
 **Can I use a USB barcode scanner?**
 Yes — any scanner that acts as a keyboard and sends Enter. No setup.
+
+**Which browsers does Shelf need?**
+Since 0.68.0: Safari 16.4, Chrome 111, Firefox 128 or newer (Edge and other
+Chromium browsers follow Chrome). An older browser still loads the pages, but
+some colours and styles are missing.
 
 **Does camera scanning work on iPhone?**
 Yes, since 0.10.0 (iOS Safari uses a ZXing decoder). It needs HTTPS and a
@@ -48,18 +57,23 @@ camera permission.
 EAN-13 (ISBN-13 and UPC-like), EAN-8, UPC-A, UPC-E. ISBN-10s can be typed.
 
 **What about books with no barcode?**
-Title search (Open Library), manual add, or Photo Intake of the cover
-face-up — the model recognizes the cover, and reads the printed ISBN if the
-back cover is showing.
+Add it by hand: the Scan page's **Add by hand** panel needs nothing but a
+title, and covers every media type. Title search (Open Library) and Photo
+Intake of the cover face-up are the other two routes — the model recognizes
+the cover, and reads the printed ISBN if the back cover is showing.
 
 **Can several people use it?**
-Yes: admin / editor / viewer roles on one shared library. Per-user reading
-tracking and per-household libraries are planned.
+Yes. The fork has libraries with per-user Viewer/Editor membership and private
+activity, ratings, wishlist and notes. Site administration is separate from
+library authority. Collections and locations do not grant access. See
+[Users, libraries & roles](user-guide/users-and-roles.md).
 
-**Can I import from Goodreads / StoryGraph / LibraryThing / Libib?**
-Goodreads and StoryGraph today (upload the export as-is). LibraryThing and
-Libib are on the [roadmap](roadmap.md). Anything else: CSV with at least a
-`title` column.
+**Can I import from Goodreads / StoryGraph / LibraryThing / Libib / Audible?**
+Yes — all five: upload the export as-is and the format is detected. The
+LibraryThing and Libib importers are labelled beta. Audible comes in through
+an export from audible-cli or Libation; Shelf never signs in to Audible. See
+[Import & export](user-guide/import-and-export.md#reading-trackers-and-catalogue-apps).
+Anything else: CSV with at least a `title` column.
 
 **How do I move Shelf to another machine?**
 Copy the `data/` directory — or export a portable archive and import it on
@@ -68,7 +82,18 @@ the new instance. See [Upgrading & backups](upgrading-and-backups.md).
 **How do I back up?**
 Copy `data/`, or Settings → Data → Backup & Restore (optionally
 passphrase-encrypted). Portable archive for a credential-free copy with
-covers.
+covers. Archives may still contain sensitive catalogue notes, loans and Trash;
+they are not backups of every user's private activity. Review before sharing.
+
+**Can I upgrade an upstream database directly to this fork?**
+No transparent conversion is promised. Fresh installs and positively recognized
+fork/common-prefix histories are admitted; upstream/mixed/unknown histories
+refuse before mutation. Do not relabel migration history. See
+[Integration status and compatibility](upstream-integration.md).
+
+**Does Store keep unreadable-barcode placeholder items?**
+No. This fork rejects invalid codes with no insertion. Valid queued scans retain
+the offline workflow; malformed input is not a catalogue item.
 
 **Where are the covers stored?**
 `data/covers/`. They're downloaded once and served locally.
@@ -79,10 +104,17 @@ page use **Find cover** to pick another — it works even when the item
 already has a cover, not just a blank one — or **Edit** to fix the record.
 
 **I removed a cover by mistake — can I get it back?**
-Only indirectly, and only for a book added in the last 48 hours: a
-container restart re-queues cover-less recent books for automatic lookup,
-which would refetch one. Older items, or a cover you don't want refetched,
-need **Find cover** or **Upload** to set a new one by hand.
+Not the exact file, but the item goes straight back into **Review covers
+needing attention** (Settings → Data → Maintenance), where you can search or
+upload a replacement without hunting for the item first. Removing a cover also
+clears any previous **Not available** verdict, so it is the way to un-dismiss
+something. For a book added in the last 48 hours a container restart will also
+re-queue it for automatic lookup, which may refetch one on its own.
+
+**I marked something "Not available" by mistake.**
+There is no undo button yet. Two routes back: give the item a cover and then
+remove it (removal clears the verdict), or run **Retry missing covers**, which
+deliberately ignores the flag for exactly this reason.
 
 **Is the valuation a resale value?**
 No — ISBNdb list price, i.e. replacement cost. Right for insurance, not for
@@ -92,9 +124,11 @@ selling.
 Yes, Settings → Library → Collection. Formatting only; no conversion.
 
 **Is there an API?**
-Not a documented, token-authenticated one yet — the routes exist for the UI
-(FastAPI) but require the session cookie. A stable `/api/v1` with personal
-access tokens is on the roadmap.
+A small one. Read-only API tokens and `GET /api/v1/stats` — item counts,
+loans, collection value and upcoming releases — feed dashboards such as
+Homepage and Home Assistant; see [Homelab integration](homelab-integration.md).
+The rest of `/api/v1` (items, loans, wishlist, series) is on the roadmap.
+Every other route serves the UI and needs the session cookie.
 
 **Kobo / Kindle / OPDS / reading ebooks in the browser?**
 Out of scope. Shelf catalogs physical media (and links to your
@@ -106,4 +140,4 @@ a network service you must publish your changes under the same license.
 
 **Something else?**
 [Troubleshooting](troubleshooting.md), then
-[open an issue](https://github.com/dgahagan/shelf/issues).
+[open a fork issue](https://github.com/sudo-rpaisley/shelf/issues/new/choose).

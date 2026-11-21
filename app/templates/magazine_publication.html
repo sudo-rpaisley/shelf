@@ -1,7 +1,7 @@
 {% extends "base.html" %}
 {% block title %}{{ publication.title }} — Magazines — Shelf{% endblock %}
 {% block content %}
-{% set can_edit = user and user.role in ('editor', 'admin') %}
+{% set can_edit = can_edit_publication|default(false) %}
 {% set bulk_added = request.query_params.get('bulk_added') %}
 {% set bulk_skipped = request.query_params.get('bulk_skipped') %}
 {% set bulk_error = request.query_params.get('bulk_error') %}
@@ -56,12 +56,13 @@
         </div>
     </section>
 
-    {% if can_edit %}
+    {% if can_bulk_add|default(false) %}
     <section class="bg-shelf-card border border-shelf-border rounded-xl p-5" data-testid="magazine-bulk-panel">
         <h2 class="font-semibold">Bulk add issues</h2>
         <p class="text-sm text-shelf-muted mt-1">Add a known numbered run as owned without scanning every copy.</p>
         <form method="post" action="/api/magazines/publications/{{ publication.id }}/bulk-add-issues"
               class="mt-4 space-y-3" data-testid="magazine-bulk-form">
+            {% include "fragments/csrf_field.html" %}
             <div class="grid md:grid-cols-3 gap-3">
                 <label class="block text-sm">
                     <span class="text-shelf-muted">Volume <span class="text-xs">(optional)</span></span>

@@ -7,7 +7,7 @@ import respx
 
 from app.config import MEDIA_FAMILIES, MEDIA_TYPES
 from app.media_types import is_digital_media, is_physical_media
-from app.services import browse_grouping, komga, media_groups
+from app.services import browse_grouping, komga, komga_sync, media_groups
 from tests.conftest import _insert_item
 
 KOMGA = "http://komga.example:25600"
@@ -200,6 +200,7 @@ class TestKomgaLibraryTypeSettings:
 class TestKomgaMangaSync:
     @respx.mock
     def test_manga_named_library_imports_as_digital_manga(self, db):
+        komga_sync.save_library_selection([{"id": "lib_manga", "included": True, "kind": "manga"}])
         _mock_library("lib_manga", "Manga", _book())
 
         stats = asyncio.run(komga.sync(KOMGA, KEY))
@@ -262,6 +263,7 @@ class TestKomgaMangaSync:
             source="manual",
         )
         db.execute("COMMIT")
+        komga_sync.save_library_selection([{"id": "lib_manga", "included": True, "kind": "manga"}])
         _mock_library("lib_manga", "Manga", _book())
 
         stats = asyncio.run(komga.sync(KOMGA, KEY))
@@ -288,6 +290,7 @@ class TestKomgaMangaSync:
             source="manual",
         )
         db.execute("COMMIT")
+        komga_sync.save_library_selection([{"id": "lib_manga", "included": True, "kind": "manga"}])
         _mock_library("lib_manga", "Manga", _book())
 
         asyncio.run(komga.sync(KOMGA, KEY))

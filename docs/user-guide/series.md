@@ -4,6 +4,23 @@ The **Series** page groups your library by series name, sorted by size, with
 each volume's position and a cover strip. It is the fastest way to answer
 "which Discworld am I missing?"
 
+The fork also keeps multiple series memberships and provider-backed details
+(synopsis, publisher, status, totals and ordering) from Audiobookshelf, Komga and
+RomM where supplied. Collections are separate groupings; an unordered game
+collection/franchise is not automatically a numbered series. Exact attachments
+and conflicting series identities must be preserved or refused, not guessed from
+titles. Provider enrichment does not grant library access.
+
+Your personal Continue / Up Next and My List use your own status/progress and
+series ordering, not another user's completion history. Catalogue series edits
+need the affected libraries' write authority. These retained fork behaviors and
+modern release-radar controls still need final [integration verification](../upstream-integration.md).
+
+Series can be turned off in Settings → **Features**. While it is off, an item
+page still shows its series name and position as plain text, but the name is
+no longer a link and the "you own N of …" read-out goes. Home's **Series**
+shortcut goes too.
+
 ## What it shows
 
 - **Series name**, count, and the covers you own in position order.
@@ -40,6 +57,40 @@ Hardcover knows how many books a series has. **Check completeness** compares you
 shelf against Hardcover's list: volumes you don't own appear with covers and
 an **Add to wishlist** button — one click per missing volume, or all of
 them. This is the feature that turns a wishlist into a completion list.
+When [buy links](wishlist-and-store-mode.md#buy-links) are set up, each
+missing volume also carries Bookshop.org and Amazon search links that use
+your own affiliate tags.
+
+## Watching for new volumes
+
+With Hardcover connected and **Release radar** on (Settings → Features), Shelf
+can tell you when a new book in a series is announced.
+
+- **Watch for new volumes** — a button on each series card (editors). It reads
+  **Watching** once the series is watched; press it again to stop. Viewers see
+  a **Watching** badge instead.
+- **Watch all complete series** — a button in the Series page header that
+  watches every series whose last **Check completeness** found nothing
+  missing. A series that has never been checked is not included, so run the
+  check first. Nothing is watched automatically.
+- **Not found on Hardcover** — shown under a watched series' name when
+  Hardcover has no series by that name. Rename the series to Hardcover's
+  spelling to fix it.
+- **Upcoming releases** — a link in the header to a page listing every
+  announced volume in the series you watch, by date, with undated ones last
+  (*announced — date TBA*). Editors can **+ Wishlist** a volume, **Dismiss**
+  it, or **Stop watching** its series. A volume you own or have on the
+  wishlist is not listed.
+- **The daily digest** — once a day Shelf asks Hardcover about your watched
+  series and sends one notification listing newly announced volumes and any
+  coming out within the week. It uses the notification URL on Settings →
+  Library → Lending; with no URL set, the page still fills in. The number of
+  series checked per day is set in Settings → Integrations → Hardcover →
+  **Release radar**; with more watches than that, they are checked in turn
+  over several days.
+
+Announcements come from Hardcover. If none is found for a series, that does
+not mean nothing is coming — Hardcover may not list the next volume yet.
 
 ## Fixing series data
 

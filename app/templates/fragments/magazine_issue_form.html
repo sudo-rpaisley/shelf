@@ -1,5 +1,5 @@
 <div class="scan-result bg-shelf-card rounded-lg border border-shelf-border p-4"
-     data-scan-status="not_found">
+     data-scan-status="not_found"{% if location_node_id %} data-shelf-fill-node="{{ location_node_id }}"{% endif %}>
     {% set display_carrier = carrier_ean[1:] if carrier_ean and carrier_ean|length == 13 and carrier_ean[0] == '0' else carrier_ean %}
     {% set search_key = (carrier_ean or 'manual') ~ '-' ~ (supplement or 'base') %}
     <div class="flex items-center gap-4 mb-3">
@@ -27,7 +27,7 @@
     <div class="border-t border-shelf-border pt-3 mb-3">
         <p class="text-sm font-medium mb-1">Find a magazine match</p>
         <p class="text-xs text-shelf-muted mb-2">If the automatic barcode lookup is missing or wrong, search by publication title and choose a result. The scanned barcode and add-on will be kept.</p>
-        <form hx-get="/api/magazines/search"
+        <form action="/api/magazines/search" method="get" hx-get="/api/magazines/search"
               hx-target="#magazine-search-{{ search_key }}"
               hx-swap="innerHTML"
               class="flex flex-col sm:flex-row gap-2">
@@ -37,8 +37,13 @@
             <input type="hidden" name="carrier_ean" value="{{ carrier_ean or '' }}">
             <input type="hidden" name="barcode_supplement" value="{{ supplement or '' }}">
             <input type="hidden" name="issn_hint" value="{{ issn_hint or '' }}">
-            <input type="hidden" name="location_id" value="{{ selected_location_id or '' }}">
+            {% if selected_location_id %}<input type="hidden" name="location_id" value="{{ selected_location_id }}">{% endif %}
             <input type="hidden" name="mode" value="{{ mode }}">
+            {% if library_id or selected_library_id %}<input type="hidden" name="library_id" value="{{ library_id or selected_library_id }}">{% endif %}
+            <input type="hidden" name="tags" value="{{ tags or '' }}">
+            <input type="hidden" name="reading_status" value="{{ reading_status or '' }}">
+            {% if location_node_id %}<input type="hidden" name="location_node_id" value="{{ location_node_id }}">{% endif %}
+            <input type="hidden" name="shelf_fill_origin" value="{{ shelf_fill_origin or '' }}">
             <input type="hidden" name="for_scan" value="1">
             <button type="submit" class="px-4 py-2 bg-shelf-hover border border-shelf-border rounded-lg text-sm hover:border-shelf-accent/50 transition-colors">Search</button>
         </form>
@@ -51,8 +56,9 @@
         <div id="magazine-search-{{ search_key }}" class="mt-3"></div>
     </div>
 
-    <form hx-post="/api/magazines/add" hx-target="closest .scan-result" hx-swap="outerHTML"
+    <form action="/api/magazines/add" method="post" hx-post="/api/magazines/add" hx-target="closest .scan-result" hx-swap="outerHTML"
           class="border-t border-shelf-border pt-3 space-y-3">
+        {% include "fragments/csrf_field.html" %}
         <input type="hidden" name="google_volume_id" value="{{ google_volume_id or '' }}">
         <input type="hidden" name="issn" value="{{ issn or '' }}">
         <input type="hidden" name="publisher" value="{{ publisher or '' }}">
@@ -62,6 +68,11 @@
         <input type="hidden" name="carrier_ean" value="{{ carrier_ean or '' }}">
         <input type="hidden" name="barcode_supplement" value="{{ supplement or '' }}">
         <input type="hidden" name="mode" value="{{ mode }}">
+        <input type="hidden" name="library_id" value="{{ library_id or selected_library_id or '' }}">
+        <input type="hidden" name="tags" value="{{ tags or '' }}">
+        <input type="hidden" name="reading_status" value="{{ reading_status or '' }}">
+        <input type="hidden" name="location_node_id" value="{{ location_node_id or '' }}">
+        <input type="hidden" name="shelf_fill_origin" value="{{ shelf_fill_origin or '' }}">
 
         <label class="block text-sm">
             <span class="text-shelf-muted">Publication title</span>

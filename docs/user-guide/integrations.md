@@ -5,6 +5,12 @@ something specific. All are configured under Settings → Integrations, each
 card has an inline setup guide, and every key is stored encrypted and shown
 write-only.
 
+Provider-library IDs are not Shelf permission-library IDs. Connectors must
+preserve exact existing attachments across inline IDs, sidecars and plural
+digital holdings, with one canonical writer/scheduler per provider. Ambiguous
+kind/platform/library evidence refuses rather than guessing from a title. See
+[integration status and identity policy](../upstream-integration.md).
+
 ## Hardcover
 
 [hardcover.app](https://hardcover.app) — free, community-run Goodreads
@@ -13,11 +19,18 @@ alternative with an excellent data model.
 **Adds:** bidirectional reading-status sync, richer metadata and synopses on
 lookup, series completeness checks and one-click "add missing volumes to
 wishlist", import of your Hardcover library, export of your Shelf library to
-Hardcover, and the **Discover** tab (recommendations).
+Hardcover, the **Discover** tab (recommendations), and the **release radar**
+— watch a series and get a daily digest when a new volume is announced (see
+[Series](series.md#watching-for-new-volumes)).
 
 **Setup:** Hardcover → Settings → API → copy the token → paste into the
 Hardcover card. Choose a sync schedule for reading status; run **Import
 library** once if you have history there.
+
+An ISBN that arrives from Hardcover — or from an Open Library title search —
+and fails its check digit is dropped rather than stored, with a line in the
+server log naming it. The item is still added; it just arrives without an
+ISBN, and you can type the right one into **Edit**.
 
 ## Audiobookshelf
 
@@ -25,7 +38,7 @@ library** once if you have history there.
 audiobook/podcast server.
 
 **Adds:** sync of selected ABS libraries into Shelf as audiobook / eBook
-items, cross-linking with physical copies (the item page shows both and
+items, each with its ASIN, cross-linking with physical copies (the item page shows both and
 deep-links into ABS), periodic re-sync.
 
 **Setup:** in ABS, Settings → Users → your user → API Token. Enter the ABS
@@ -33,27 +46,73 @@ URL and token, **Test**, then choose which libraries to include. Set an
 interval for automatic sync or run it by hand. Items removed from ABS can be
 cleaned up from the same card.
 
-If Shelf reaches Audiobookshelf over a Docker/LAN address while your browser
-uses a reverse-proxy hostname, set the optional **Browser URL** as well. It is
-used only for **Listen on Audiobookshelf** / **Read on Audiobookshelf** links;
-sync and library discovery continue to use the server URL. Leave it blank to
-keep the existing behaviour. The environment equivalent is `ABS_PUBLIC_URL`.
+**Move Excluded Items to Trash** saves the library selection, then moves every
+Shelf item that came from an unchecked library to [Trash](items.md#trash).
+Audiobookshelf itself is not touched, and nothing is lost: restore any of them
+from Trash. **A sync does not bring them back on its own.** Re-checking the
+library and syncing again skips every item that is in Trash, and the summary
+counts them under **In Trash** — restore the ones you want first, then sync.
 
-## Komga
+**If Shelf reaches ABS at a different address than your browser does, fill in
+the Browser URL.** Shelf commonly talks to Audiobookshelf over a Docker network
+or a LAN hostname — `http://audiobookshelf:80` — while you open it through a
+reverse proxy at `https://audiobooks.example.com`. The **Listen on
+Audiobookshelf** and **Read on Audiobookshelf** links on an item page are built
+from the URL you configured, so with only the internal address set they point
+somewhere your browser cannot follow. The optional **Browser URL** field is used
+for those links and nothing else — sync, library discovery and cleanup keep
+using the Audiobookshelf URL above it. Leave it blank and the links behave
+exactly as before.
+The environment equivalent is `ABS_PUBLIC_URL`.
 
-[komga.org](https://komga.org) — self-hosted comics and Manga server.
+**Repeat syncs are cheap and safe to run.** An item whose metadata has not
+changed since the last sync is left alone — not rewritten, and its cover is
+not downloaded again — and the summary on the card counts it under
+**Unchanged**, beside Added, Updated and Skipped. An audiobook or eBook whose
+ISBN you had already catalogued by hand in the same format is adopted and
+linked rather than added a second time; a duplicate of the same ISBN inside
+ABS is skipped with a reason. If one library times out, the others still sync
+and the timeout is reported for that library alone.
 
-**Adds:** sync of selected Komga libraries into Shelf as Digital Comic or
-Digital Manga items, including issue metadata, series membership, cover art
-and a browser-facing link back to Komga. Physical copies stay separate and
-can be linked automatically to their digital counterpart.
+**The sync records each item's ASIN** (Audible's product id) in its own
+field, shown in the item page's Integration IDs panel and searchable in
+Browse. The ASIN is never stored as an ISBN — an ASIN isn't one, and storing
+it there broke the edit form and the duplicate checks — so an ABS item that
+has only an ASIN syncs **without** an ISBN. A row that got an ASIN in its
+ISBN field from an earlier sync is cleared on the next sync and counted
+under **Updated**. An ASIN that is not ten letters or digits is left out,
+and an item whose ISBN in ABS fails its check digit is left without it; each
+gets a line in the server log naming the item. An ASIN you set yourself, or
+one an Audible import stamped, stays when ABS sends none.
 
-**Setup:** enter the Komga URL Shelf can reach and an API key, then use
-**Manage Libraries** to choose which libraries are included. Each Komga
-library has its own **Comic / Manga** classification. Shelf initially suggests
-Manga when the library name contains “Manga” and Comic otherwise, but every
-suggestion can be overridden. Changing a library from Comic to Manga (or back)
-reclassifies existing synced items in place rather than creating duplicates.
+**The first sync after upgrading may count items as Updated.** Every ABS
+item whose record has an ASIN gains it on that sync, which is a change. Later
+syncs go back to counting them as **Unchanged**. ABS fills the ASIN from its
+Audible metadata provider; a library matched another way has none, and the
+sync changes nothing.
+
+**Libation → Audiobookshelf → Shelf.** If you download your Audible library
+with [Libation](https://github.com/rmcrackan/Libation) into a folder
+Audiobookshelf serves, sync Audiobookshelf first, then import Libation's
+[library export](import-and-export.md#audible). The import matches the
+synced audiobooks by ASIN, or by title and author where the sync has not
+recorded one yet, instead of adding each title a second time.
+
+## Komga and RomM
+
+[Komga](../komga.md) syncs selected Comic/Manga provider libraries; new connector
+items retain the fork's Digital Comic / Digital Manga families. Physical copies
+and exact existing attachments are not detached or reclassified automatically.
+Library kind is explicit provider metadata, not a title-based migration guess.
+
+[RomM](../romm.md) syncs digital games and retains provider platform, collection
+and franchise identities. An exact attached physical game remains attached, but
+a title/platform match alone is not permission to adopt a cartridge row.
+
+The fork retains provider-series enrichment, external browser links, plural
+holdings and scheduled/manual sync. Only one canonical scheduler/writer per
+connector may run; old calls delegate rather than run a competing loop. Identity
+translation and repeat-sync preservation still need frozen-tree verification.
 
 A scan that comes back thin tells you **on the card** which of five things
 happened: no credential configured, a credential the provider rejected, a
@@ -67,7 +126,8 @@ See [Troubleshooting](../troubleshooting.md#a-scan-added-only-a-title).
 [IGDB](https://www.igdb.com) via Twitch developer credentials — free.
 
 **Adds:** video-game metadata, cover art, platform and series on UPC scan;
-title search for retro cartridges.
+title search for retro cartridges; and the title lookup a Photo Intake row
+typed Video Game runs when you confirm it.
 
 **Setup:** [dev.twitch.tv/console](https://dev.twitch.tv/console) → Register
 Your Application (category "Application Integration", any redirect URL) →
@@ -77,7 +137,8 @@ copy Client ID and generate a Client Secret → paste both.
 
 [themoviedb.org](https://www.themoviedb.org) — free API key.
 
-**Adds:** film metadata and posters from UPC scans, movie title search.
+**Adds:** film metadata and posters from UPC scans, movie title search, and
+the title lookup a Photo Intake row typed DVD runs when you confirm it.
 
 **Setup:** TMDb account → Settings → API → request access → paste **either**
 credential the API page shows: the 32-character **API Key (v3 auth)** or the
@@ -90,7 +151,8 @@ now probes TMDb exactly the way a real lookup does.
 [isbndb.com](https://isbndb.com) — paid.
 
 **Adds:** list-price valuation per item and in bulk, the insurance report's
-numbers, value-over-time stats. See
+numbers, value-over-time stats, and nightly wishlist
+[price alerts](wishlist-and-store-mode.md#price-alerts). See
 [Stats & valuation](stats-and-valuation.md).
 
 ## Google Books (optional API key)
@@ -112,8 +174,10 @@ perfectly idle Shelf. A key gives you a quota of your own.
 
 You will notice this only where Google Books is actually reached, which is
 less often than it sounds. It is the **last** book source tried on an ISBN
-scan — behind the Deutsche Nationalbibliothek for 978-3 ISBNs, Open Library,
-and Hardcover — so it answers for the books the others missed. It also backs
+scan — behind the national bibliographies (the Deutsche Nationalbibliothek for
+978-3 ISBNs, the Servizio Bibliotecario Nazionale for Italian 978-88 and
+979-12 ones), Open Library, and Hardcover — so it answers for the books the
+others missed. It also backs
 synopsis lookups and book cover search. If Open Library is answering your
 scans, a key will change nothing you can see; if you regularly scan books
 that come back thin, or you run bulk operations like the synopsis backfill or
@@ -146,6 +210,20 @@ sent only in the `X-Goog-Api-Key` request header — never in a request URL,
 which keeps it out of URLs that might be logged. Remove it at any time with
 **Remove saved key**; Shelf falls straight back to anonymous requests.
 
+## LibraryThing (English cover fallback)
+
+[LibraryThing](https://www.librarything.com/developer) — a free API token,
+non-commercial use only unless LibraryThing grants permission.
+
+**Adds:** an English cover for a book whose own ISBN has no cover anywhere
+Shelf looks. LibraryThing's thingISBN service lists the other ISBNs of the
+same work; Shelf tries the English ones against Open Library and Google Books
+and keeps the first verified cover. The catalogued ISBN, title, authors and
+language are untouched, and the item page says the cover came from another
+edition. It runs in **Retry Missing Covers** and adds up to five tiles to
+**Find cover**; it never replaces a cover you already have. See
+[Settings](settings.md#librarything-english-cover-fallback) for the limits.
+
 ## Vision providers (Photo Intake)
 
 Anthropic, any OpenAI-compatible endpoint, or Ollama. See
@@ -154,15 +232,23 @@ Anthropic, any OpenAI-compatible endpoint, or Ollama. See
 ## Notifications (ntfy / webhook)
 
 Not an integration card — lives under Settings → Library → Lending — but the
-same idea: an ntfy topic or JSON webhook URL for the overdue-loan digest. See
-[Lending](lending.md#reminders).
+same idea: an ntfy topic or JSON webhook URL for the overdue-loan digest, the
+wishlist price-drop digest and the release-radar digest. See
+[Lending](lending.md#reminders),
+[Price alerts](wishlist-and-store-mode.md#price-alerts) and
+[Series](series.md#watching-for-new-volumes).
 
 ## Always-on sources (no key)
 
-Open Library, Google Books (anonymous by default), Amazon cover images, UPC Item DB, and
-the Deutsche Nationalbibliothek for German ISBNs, and SBN for Italian ISBNs. Apart from credentials you
-explicitly configure, lookups send only the ISBN or UPC — never your account,
-collection or personal data. Requests to every provider are paced to its
+Open Library, Google Books (anonymous by default), Amazon cover images, UPC Item DB,
+the Deutsche Nationalbibliothek for German ISBNs, the Bibliothèque nationale
+de France for French ones, and the Servizio Bibliotecario Nazionale for Italian
+ones. Apart from credentials you
+explicitly configure, identifier lookups send ISBN/UPC/ASIN as appropriate;
+title/author search sends those terms, remote cover candidates contact image
+hosts, Photo Intake sends selected images, and configured reading sync exchanges
+activity with its remote account. Self-hosting is not zero outbound traffic.
+Public metadata requests are paced to each provider's
 published rate limit. UPC Item DB's free tier is
 the tightest of them at six lookups a minute, so Shelf leaves ten seconds
 between consecutive barcode lookups: scanning a stack of discs or games is
@@ -182,8 +268,8 @@ can be starved at once. See
 
 Every key except the vision providers can come from an environment variable
 (`HARDCOVER_TOKEN`, `GOOGLE_BOOKS_API_KEY`, `ABS_URL`/`ABS_TOKEN`,
-`KOMGA_URL`/`KOMGA_API_KEY`, `ISBNDB_API_KEY`, `TMDB_API_KEY`,
-`IGDB_CLIENT_ID`/`IGDB_CLIENT_SECRET`), which overrides whatever is stored. The
+`KOMGA_URL`/`KOMGA_API_KEY`, `ROMM_URL`/`ROMM_API_TOKEN`, `ISBNDB_API_KEY`, `TMDB_API_KEY`,
+`IGDB_CLIENT_ID`/`IGDB_CLIENT_SECRET`, `LIBRARYTHING_TOKEN`, `DISCOGS_TOKEN`), which overrides whatever is stored. The
 secret field stays blank in Settings — Shelf never echoes a secret back — but
 **Test key** still works against it, so you can confirm the key without pasting
 a second copy in. See [Configuration](../configuration.md#credential-overrides).

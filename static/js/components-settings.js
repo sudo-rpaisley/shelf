@@ -103,6 +103,25 @@ document.addEventListener('alpine:init', function () {
             setTab(name) {
                 this.tab = name;
                 localStorage.setItem('shelf_settings_tab', name);
+            },
+            // Switch tab, then bring one field on it into view and focus it —
+            // setTab alone keeps the old tab's scroll offset, which can leave
+            // the field far below the fold. The panel's x-show has not applied
+            // by $nextTick (measured: visible only a frame later), and a hidden
+            // field neither scrolls nor focuses, so wait a few frames for it.
+            goToField(name, id) {
+                this.setTab(name);
+                const reveal = (tries) => {
+                    const el = document.getElementById(id);
+                    if (!el) return;
+                    if (!el.offsetParent && tries > 0) {
+                        requestAnimationFrame(() => reveal(tries - 1));
+                        return;
+                    }
+                    el.scrollIntoView({ block: 'center' });
+                    el.focus({ preventScroll: true });
+                };
+                this.$nextTick(() => reveal(10));
             }
         };
     });
@@ -215,13 +234,13 @@ document.addEventListener('alpine:init', function () {
                     .catch(() => { this.libsSaving = false; showToast('Save failed', 'error') });
             },
             cleanup() {
-                if (!confirm('Remove all Shelf items that came from unchecked libraries? Audiobookshelf itself is not touched, and re-checking a library re-imports them on the next sync.')) return;
+                if (!confirm('Move all Shelf items that came from unchecked libraries to Trash? Audiobookshelf itself is not touched, and you can restore them from Trash. A later sync does not re-import an item that is in Trash: restore it first.')) return;
                 this.cleaning = true; this.cleanResult = false;
                 // Persist the current selection first so the cleanup matches what's on screen
                 fetch('/api/sync/audiobookshelf/libraries', {method: 'POST', headers: {'Content-Type': 'application/json', 'X-CSRF-Token': window.csrfToken()}, body: JSON.stringify({excluded: this.excludedIds()})})
                     .then(() => fetch('/api/sync/audiobookshelf/libraries/cleanup', {method: 'POST', headers: {'X-CSRF-Token': window.csrfToken()}}))
                     .then(r => r.json())
-                    .then(d => { this.cleaning = false; this.cleanResult = d; if (d.ok) showToast('Removed ' + d.deleted + ' items') })
+                    .then(d => { this.cleaning = false; this.cleanResult = d; if (d.ok) showToast('Moved ' + d.deleted + ' items to Trash') })
                     .catch(() => { this.cleaning = false; showToast('Cleanup failed', 'error') });
             }
         };
@@ -790,7 +809,13 @@ document.addEventListener('alpine:init', function () {
             importCount() {
                 if (!this.plan) { return 0; }
                 var n = 0;
-                if (this.selCreates) { n += this.plan.summary.create; }
+                if (this.selCreates) {
+                    n += this.plan.summary.create;
+                    // A restore is gated by the same "new items" toggle as a
+                    // create — || 0 so a response from before `restore`
+                    // existed still counts correctly.
+                    n += this.plan.summary.restore || 0;
+                }
                 if (this.selUpdates && this.planMode === 'update') { n += this.plan.summary.update; }
                 return n;
             },
@@ -799,13 +824,36 @@ document.addEventListener('alpine:init', function () {
                 return 'Import ' + this.plural(this.importCount(), 'item');
             },
 
+            // Whether the "Include" section's new-items checkbox shows at
+            // all — a restore-only archive (nothing to create) still needs
+            // it, since a restore is gated by the same selCreates toggle.
+            showCreatesCheckbox() {
+                if (!this.plan) { return false; }
+                var s = this.plan.summary;
+                return s.create > 0 || (s.restore || 0) > 0;
+            },
+
+            // "3 new items", "3 new items, 1 restored from Trash", or
+            // "1 restored from Trash" — the label for showCreatesCheckbox().
+            createsLabel() {
+                if (!this.plan) { return ''; }
+                var s = this.plan.summary;
+                var parts = [];
+                if (s.create > 0) { parts.push(this.plural(s.create, 'new item')); }
+                if (s.restore) { parts.push(s.restore + ' restored from Trash'); }
+                return parts.join(', ');
+            },
+
             // "494 new, 168 already in your library (skipped), 3 to update"
             verdictSentence() {
                 if (!this.plan) { return ''; }
                 var s = this.plan.summary;
-                var parts = [s.create + ' new'];
+                var newPart = s.create + ' new';
+                if (s.create_in_trash) { newPart += ' (' + s.create_in_trash + ' into Trash)'; }
+                var parts = [newPart];
                 if (s.skip) { parts.push(s.skip + ' already in your library (skipped)'); }
                 if (s.update) { parts.push(s.update + ' to update'); }
+                if (s.restore) { parts.push(s.restore + ' to restore from Trash'); }
                 return parts.join(', ');
             },
 
@@ -956,6 +1004,101 @@ document.addEventListener('alpine:init', function () {
         };
     });
 
+    // fragments/account_menu.html — API tokens tab of the account modal.
+    // Loaded on first open of the tab: `tab` is the enclosing accountModal's.
+    // The raw token lives only in `created`, from the create response.
+    // api_tokens stamps are SQLite datetime('now'): UTC, no zone marker.
+    // Shown in the reader's own time, since "last used" is read by the hour.
+    function tokenTime(stamp) {
+        if (!stamp) return t('Never');
+        const d = new Date(stamp.replace(' ', 'T') + 'Z');
+        if (isNaN(d)) return stamp;
+        return d.toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' });
+    }
+
+    Alpine.data('apiTokensPanel', function () {
+        return {
+            tokens: [], loaded: false,
+            when: tokenTime,
+            newName: '', creating: false,
+            created: false, copied: false, result: false,
+            get copyLabel() { return this.copied ? t('Copied') : t('Copy'); },
+            init() {
+                const self = this;
+                this.$watch('tab', function (v) {
+                    if (v === 'tokens' && !self.loaded) self.load();
+                });
+            },
+            async load() {
+                const self = this;
+                const d = await postJSON('/api/tokens', {});
+                if (d.ok) self.tokens = d.tokens;
+                else self.result = d;
+                self.loaded = true;
+            },
+            async create() {
+                const self = this;
+                self.creating = true; self.result = false; self.created = false; self.copied = false;
+                const form = new FormData();
+                form.append('name', self.newName.trim());
+                const d = await postJSON('/api/tokens', { method: 'POST', headers: { 'X-CSRF-Token': window.csrfToken() }, body: form });
+                self.creating = false;
+                if (!d.ok) { self.result = d; return; }
+                self.created = d;
+                self.newName = '';
+                await self.load();
+            },
+            async revoke(id, name) {
+                const self = this;
+                if (!confirm(t('Revoke token {name}?').replace('{name}', function () { return name; }))) return;
+                const d = await postJSON('/api/tokens/' + id, { method: 'DELETE', headers: { 'X-CSRF-Token': window.csrfToken() } });
+                if (!d.ok) { self.result = d; return; }
+                if (self.created && self.created.id === id) self.created = false;
+                self.result = false;
+                await self.load();
+            },
+            selectPlaintext() {
+                if (this.$refs.plaintext) this.$refs.plaintext.select();
+            },
+            copy() {
+                const self = this;
+                const input = self.$refs.plaintext;
+                // navigator.clipboard is absent off a secure context, so the
+                // .catch below would never be reached.
+                if (!navigator.clipboard) { if (input) input.select(); return; }
+                navigator.clipboard.writeText(self.created.token).then(function () {
+                    self.copied = true;
+                }).catch(function () {
+                    // No clipboard (plain HTTP, or denied): select it for a hand copy.
+                    if (input) input.select();
+                });
+            }
+        };
+    });
+
+    // fragments/settings/users.html — every user's API tokens (admin only).
+    Alpine.data('adminTokensPanel', function () {
+        return {
+            tokens: [], loaded: false, result: false,
+            when: tokenTime,
+            async load() {
+                const self = this;
+                const d = await postJSON('/api/tokens/all', {});
+                if (d.ok) { self.tokens = d.tokens; self.result = false; }
+                else self.result = d;
+                self.loaded = true;
+            },
+            async revoke(id, name) {
+                const self = this;
+                if (!confirm('Revoke token ' + name + '?')) return;
+                const d = await postJSON('/api/tokens/' + id, { method: 'DELETE', headers: { 'X-CSRF-Token': window.csrfToken() } });
+                if (!d.ok) { self.result = d; return; }
+                self.result = false;
+                await self.load();
+            }
+        };
+    });
+
 });
 
 // Delete confirmations for the plain <form method="post"> deletes on the
@@ -972,4 +1115,208 @@ document.addEventListener('submit', function (e) {
     if (!form || !form.getAttribute) return;
     const msg = form.getAttribute('data-confirm');
     if (msg && !confirm(msg)) e.preventDefault();
+});
+
+// Feature changes keep the user on the current page. Let the server handle
+// the same form POST and redirect, then refresh feature-dependent regions from
+// that authoritative Settings HTML without a document navigation.
+let featureRefreshGeneration = 0;
+let featureMutationTail = null;
+const featureFormSelector = 'form[action^="/api/settings/features/"]:not([action$="/enable"]), form[action="/api/settings/profile"]';
+const featureBusyForms = new WeakMap();
+
+function featureFormFields(form) {
+    const fields = new URLSearchParams();
+    new FormData(form).forEach((value, name) => {
+        if (typeof value === 'string') fields.append(name, value);
+    });
+    return fields;
+}
+
+function liveFeatureForm(intent) {
+    return Array.from(document.querySelectorAll(featureFormSelector)).find(form => {
+        const action = new URL(form.action, window.location.href);
+        return action.origin === window.location.origin && action.pathname === intent.path
+            && (intent.field !== 'profile' || featureFormFields(form).get('profile') === intent.value);
+    });
+}
+
+function lockFeatureForm(form) {
+    let state = featureBusyForms.get(form);
+    if (!state) {
+        const button = form.querySelector('button[type="submit"]');
+        state = {count: 0, saving: form.dataset.featureSaving, busy: form.getAttribute('aria-busy'), button,
+            label: button && button.textContent, disabled: button && button.disabled,
+            buttonBusy: button && button.getAttribute('aria-busy')};
+        if (button) {
+            // Share the ordinary HTMX control owner when present. The local
+            // form lease also reference-counts rebinding queued work to a fresh
+            // server-rendered form, so old cleanup cannot unlock another task.
+            if (window.shelfBusyControls) state.releaseButton = window.shelfBusyControls.lock(button, true);
+            else { button.disabled = true; button.setAttribute('aria-busy', 'true'); }
+            button.textContent = t('Saving…');
+        }
+        featureBusyForms.set(form, state);
+        form.dataset.featureSaving = '1';
+        form.setAttribute('aria-busy', 'true');
+    }
+    state.count++;
+    let released = false;
+    return function () {
+        if (released) return;
+        released = true;
+        if (--state.count) return;
+        featureBusyForms.delete(form);
+        if (state.saving === undefined) delete form.dataset.featureSaving;
+        else form.dataset.featureSaving = state.saving;
+        if (state.busy === null) form.removeAttribute('aria-busy');
+        else form.setAttribute('aria-busy', state.busy);
+        if (state.button) {
+            if (state.releaseButton) state.releaseButton();
+            else {
+                state.button.disabled = state.disabled;
+                if (state.buttonBusy === null) state.button.removeAttribute('aria-busy');
+                else state.button.setAttribute('aria-busy', state.buttonBusy);
+            }
+            state.button.textContent = state.label;
+        }
+    };
+}
+
+function currentFeatureAccount() {
+    const root = document.querySelector('[data-account-root]');
+    if (!root || !/^[1-9][0-9]*$/.test(root.dataset.accountOwner)
+        || !root.dataset.accountSession || root.dataset.accountSession !== window.csrfToken()) return null;
+    return {owner: root.dataset.accountOwner, session: root.dataset.accountSession};
+}
+
+function sameFeatureAccount(account) {
+    const current = currentFeatureAccount();
+    return account && current && current.owner === account.owner && current.session === account.session;
+}
+
+function replaceFeatureRegion(current, updated, wholeRoot) {
+    const replace = function () {
+        if (wholeRoot) {
+            if (window.Alpine) Alpine.destroyTree(current);
+            current.replaceWith(updated);
+            if (window.Alpine) Alpine.initTree(updated);
+        } else {
+            if (window.Alpine) Array.from(current.children).forEach(child => Alpine.destroyTree(child));
+            current.replaceChildren(...Array.from(updated.childNodes));
+            if (window.Alpine) Array.from(current.children).forEach(child => Alpine.initTree(child));
+        }
+    };
+    // Explicit destroy/init while the observer is paused: no duplicated
+    // window listeners, watchers, IDs or hidden copies of token controls.
+    if (window.Alpine) Alpine.mutateDom(replace);
+    else replace();
+    if (window.htmx) htmx.process(wholeRoot ? updated : current);
+}
+
+async function refreshFeatureSettings(response, account, generation) {
+    if (generation !== featureRefreshGeneration || !sameFeatureAccount(account)) return;
+    const target = new URL(response.url, window.location.href);
+    if (!response.ok || target.origin !== window.location.origin || target.pathname !== '/settings') {
+        throw new Error(`Request failed (${response.status})`);
+    }
+
+    const html = await response.text();
+    if (generation !== featureRefreshGeneration || !sameFeatureAccount(account)) return;
+    const refreshed = new DOMParser().parseFromString(html, 'text/html');
+    const currentPanel = document.querySelector('[data-testid="settings-section-content"] [x-show="tab === \'features\'"]');
+    const updatedPanel = refreshed.querySelector('[data-testid="settings-section-content"] [x-show="tab === \'features\'"]');
+    if (!currentPanel || !updatedPanel) throw new Error('Could not refresh feature settings');
+    const currentAccount = document.querySelector('[data-account-root]');
+    const updatedAccount = refreshed.querySelector('[data-account-root]');
+    if (!currentAccount || !updatedAccount || updatedAccount.dataset.accountOwner !== account.owner
+        || updatedAccount.dataset.accountSession !== account.session) {
+        throw new Error(t('Your sign-in changed. Reload Settings before changing features.'));
+    }
+
+    const focused = document.activeElement;
+    const accountHadFocus = currentAccount.contains(focused);
+    const panelHadFocus = currentPanel.contains(focused);
+    const focusedTestId = focused && focused.getAttribute('data-testid');
+
+    // Feature flags also decide which tabs the server renders in the
+    // desktop/mobile nav AND the whole account root. The dropdown and
+    // modal are siblings: replacing only the dropdown leaves token panes
+    // stale. A fresh root also resets an incompatible open tokens tab.
+    for (const selector of ['nav .hidden.lg\\:flex', 'nav [data-testid="nav-menu-panel"]']) {
+        const currentNav = document.querySelector(selector);
+        const updatedNav = refreshed.querySelector(selector);
+        if (currentNav && updatedNav) {
+            replaceFeatureRegion(currentNav, updatedNav, false);
+        }
+    }
+    replaceFeatureRegion(currentAccount, updatedAccount, true);
+    replaceFeatureRegion(currentPanel, updatedPanel, false);
+    let focusTarget = null;
+    if (accountHadFocus) focusTarget = updatedAccount.querySelector('[data-testid="account-menu-button"]');
+    else if (panelHadFocus) {
+        focusTarget = Array.from(currentPanel.querySelectorAll('[data-testid]')).find(el => el.getAttribute('data-testid') === focusedTestId);
+        if (!focusTarget || focusTarget.disabled) { currentPanel.tabIndex = -1; focusTarget = currentPanel; }
+    } else if (focused && !focused.isConnected) focusTarget = document.querySelector('[data-nav-search-input]');
+    if (focusTarget) focusTarget.focus({preventScroll: true});
+}
+
+document.addEventListener('submit', async function (e) {
+    if (e.defaultPrevented) return;
+    const form = e.target;
+    if (!form || !form.matches) return;
+    if (!form.matches(featureFormSelector)) return;
+
+    e.preventDefault();
+    if (form.dataset.featureSaving === '1') return;
+    const generation = ++featureRefreshGeneration;
+    const account = currentFeatureAccount();
+    const releases = [lockFeatureForm(form)];
+    const previous = featureMutationTail;
+    let releaseTurn;
+    const turn = new Promise(resolve => { releaseTurn = resolve; });
+    featureMutationTail = turn;
+
+    try {
+        if (!account) throw new Error(t('Your sign-in changed. Reload Settings before changing features.'));
+        const action = new URL(form.action, window.location.href);
+        if (action.origin !== window.location.origin) throw new Error('Invalid feature settings action');
+        const field = action.pathname === '/api/settings/profile' ? 'profile' : 'enabled';
+        const intent = {path: action.pathname, field, value: featureFormFields(form).get(field)};
+        // Serialise BEFORE issuing any POST, not merely before painting its
+        // response. Otherwise a delayed older mutation can execute last on the
+        // server even though its stale HTML is correctly discarded here.
+        if (previous) await previous;
+        if (!sameFeatureAccount(account)) return;
+        const admittedForm = liveFeatureForm(intent);
+        if (!admittedForm) throw new Error('Could not find current feature settings');
+        const body = featureFormFields(admittedForm);
+        // Read current fields/CSRF from the LIVE form at admission, but retain
+        // the submitted desired state/profile; a fresh toggle must not invert it.
+        body.set(intent.field, intent.value);
+        if (admittedForm !== form) releases.push(lockFeatureForm(admittedForm));
+        const response = await fetch(admittedForm.action, {
+            method: 'POST',
+            headers: { 'X-CSRF-Token': account.session },
+            body
+        });
+        await refreshFeatureSettings(response, account, generation);
+    } catch (error) {
+        if (generation === featureRefreshGeneration && sameFeatureAccount(account)) {
+            // Earlier successful HTML may have been superseded by this queued
+            // intent, and a failed POST/redirect does not prove no server write
+            // occurred. Reconcile authoritatively while still owning the turn.
+            try {
+                const response = await fetch('/settings', {cache: 'no-store', headers: {'X-CSRF-Token': account.session}});
+                await refreshFeatureSettings(response, account, generation);
+            } catch (refreshError) { /* keep the original failure visible; never invent settings */ }
+        }
+        if (generation === featureRefreshGeneration && (!account || sameFeatureAccount(account)) && error.name !== 'AbortError') {
+            alert(error.message || t('Could not save feature settings'));
+        }
+    } finally {
+        releases.forEach(release => release());
+        releaseTurn(); // errors and stale owners must not poison the global queue
+        if (featureMutationTail === turn) featureMutationTail = null;
+    }
 });

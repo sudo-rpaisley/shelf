@@ -21,8 +21,9 @@ def test_inaccessible_direct_item_and_personal_state_behave_as_missing(
     db.commit()
 
     detail = viewer_client.get(f"/item/{hidden}", follow_redirects=False)
-    assert detail.status_code == 303
+    assert detail.status_code == 307
     assert detail.headers["location"] == "/browse"
+    assert "Hidden direct item" not in detail.text
 
     personal = viewer_client.get(f"/api/items/{hidden}/personal-state")
     assert personal.status_code == 404
@@ -70,8 +71,9 @@ def test_global_editor_without_library_membership_cannot_edit_item(
     db.commit()
 
     response = editor_client.get(f"/item/{hidden}/edit", follow_redirects=False)
-    assert response.status_code == 303
+    assert response.status_code == 307
     assert response.headers["location"] == "/browse"
+    assert "Not this editor's item" not in response.text
 
 
 def test_hidden_related_item_cannot_bridge_two_visible_items(
@@ -142,7 +144,7 @@ def test_revoked_hidden_state_does_not_appear_in_home_or_in_progress(
     db, viewer_client, viewer_user
 ):
     private = _private_library(db, "Revoked")
-    visible = _insert_item(db, title="Recent Visible", isbn="9780000011030")
+    _insert_item(db, title="Recent Visible", isbn="9780000011030")
     hidden = _insert_item(
         db,
         title="Recent Hidden",

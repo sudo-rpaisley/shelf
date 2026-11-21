@@ -1,14 +1,34 @@
 function scanPage() {
     return {
         mode: localStorage.getItem('shelf_scan_mode') || 'add',
-        // Auto for a *new* user. A stored value is deliberately never
-        // migrated: "book" is also what someone who scans books chose, and
-        // reinterpreting that as "no choice" is guessing at intent. The
-        // barcode rule (§1) is what reaches those users instead.
-        mediaType: localStorage.getItem('shelf_media_type') || 'auto',
+        // This is a hint for NEW input, not an existing item's type. Keep
+        // legacy kids_book rows distinct; only the device hint becomes book.
+        // Other deliberate choices (including book) must not become Auto.
+        mediaType: (function () {
+            var value = localStorage.getItem('shelf_media_type') || 'auto';
+            if (value === 'kids_book') {
+                value = 'book';
+                localStorage.setItem('shelf_media_type', value);
+            }
+            return value;
+        })(),
         platform: localStorage.getItem('shelf_platform') || '',
         location: localStorage.getItem('shelf_location') || '',
+        // Inventory/audits select location_nodes, unlike flat add/move.
+        auditLocation: localStorage.getItem('shelf_audit_location') || '',
         shelfLocation: localStorage.getItem('shelf_fill_location') || '',
+        readingStatus: (function () {
+            var v = localStorage.getItem('shelf_reading_status') || '';
+            return ['', 'want_to_read', 'reading', 'read'].indexOf(v) === -1 ? '' : v;
+        })(),
+        // The default-status words for the current media type, and whether
+        // that type carries a status at all (refreshStatusLabels).
+        statusLabelSets: {},
+        statusWant: t('Want to'),
+        statusDoing: t('In progress'),
+        statusDone: t('Finished'),
+        statusTypeOk: true,
+        statusDisabled: false,
         borrowerId: '',
         cameraActive: false,
         scanPaused: false,
@@ -17,56 +37,103 @@ function scanPage() {
         scanner: false,
         lastScanned: '',
         lastScanTime: 0,
-        inventoryScannedIds: [],
+        // The open audit session's id ('' when none), mirrored to
+        // localStorage so a reload resumes it. The strip is the authority:
+        // syncAuditFromStrip() overwrites this from every fragment it renders.
+        auditId: (function() {
+            try { return localStorage.getItem('shelf_audit_id') || ''; } catch (e) { return ''; }
+        })(),
         isZxingFallback: false,
+        manualOpen: false,
+        recentScansRequest: 0,
 
         modes: [
-            {id: 'add', label: 'Add'},
-            {id: 'shelf_fill', label: 'Shelf Fill'},
-            {id: 'wishlist', label: 'Wishlist'},
-            {id: 'lend', label: 'Lend'},
-            {id: 'return', label: 'Return'},
-            {id: 'move', label: 'Move'},
-            {id: 'inventory', label: 'Inventory'},
-            {id: 'lookup', label: 'Lookup'},
-            {id: 'quick_rate', label: 'Quick Rate'},
+            {id: 'add', label: t('Add')},
+            {id: 'shelf_fill', label: t('Shelf Fill')},
+            {id: 'wishlist', label: t('Wishlist')},
+            {id: 'lend', label: t('Lend')},
+            {id: 'return', label: t('Return')},
+            {id: 'move', label: t('Move')},
+            {id: 'inventory', label: t('Inventory')},
+            {id: 'lookup', label: t('Lookup')},
+            {id: 'quick_rate', label: t('Quick Rate')},
         ],
+
+        // Alpine's CSP build can't call t() in an expression: the scan form's
+        // mode- and type-dependent wording comes from these getters.
+        get locationLabel() {
+            return this.mode === 'move' ? t('Target Location') : this.mode === 'inventory' ? t('Auditing Location') : t('Location');
+        },
+        get barcodeOnly() {
+            return ['lend', 'return', 'move', 'inventory', 'lookup', 'quick_rate'].indexOf(this.mode) !== -1;
+        },
+        get barcodeLabel() { return this.barcodeOnly ? t('Barcode') : t('ISBN / UPC'); },
+        get barcodePlaceholder() {
+            if (this.barcodeOnly) return t('Scan barcode...');
+            if (this.mediaType === 'auto') return t('Scan any barcode...');
+            return this.mediaType === 'video_game' ? t('Scan UPC barcode...') : t('Scan or type ISBN...');
+        },
+        get titlePlaceholder() {
+            return {auto: t('Title or author...'), video_game: t('Game title...'), dvd: t('Movie title...')}[this.mediaType] ||
+                t('Book title or author...');
+        },
+        get resultsHeading() {
+            return {add: t('Recently Added'), wishlist: t('Added to Wishlist'), lend: t('Checked Out'), 'return': t('Returned'),
+                    move: t('Moved'), inventory: t('Scanned Items'), lookup: t('Lookup Results'),
+                    quick_rate: t('Marked as finished')}[this.mode] || t('Results');
+        },
 
         get modeConfig() {
             var configs = {
-                add: {heading: 'Add Items', description: 'Scan barcodes to add items to your collection.'},
-                shelf_fill: {heading: 'Shelf Filling', description: 'Pick a precise shelf or sub-location, then scan items in the order they sit. New items are added; existing items are moved.'},
-                wishlist: {heading: 'Add to Wishlist', description: 'Scan to save items you want but haven\'t bought yet.'},
-                lend: {heading: 'Lend Items', description: 'Select a borrower, then scan items to check them out.'},
-                'return': {heading: 'Return Items', description: 'Scan items to check them back in.'},
-                move: {heading: 'Move Items', description: 'Select a target location, then scan items to move them.'},
-                inventory: {heading: 'Inventory Audit', description: 'Select a location and scan every item you find there. Then check for missing items.'},
-                lookup: {heading: 'Lookup', description: 'Scan to check if an item is in your collection. No changes are made.'},
-                quick_rate: {heading: 'Quick Rate', description: 'Scan to mark items as read or completed.'},
+                add: {heading: t('Add Items'), description: t('Scan barcodes to add items to your collection.')},
+                shelf_fill: {heading: t('Shelf Filling'), description: t('Pick a precise shelf or sub-location, then scan items in the order they sit. New items are added; existing items are moved.')},
+                wishlist: {heading: t('Add to Wishlist'), description: t('Scan to save items you want but haven\'t bought yet.')},
+                lend: {heading: t('Lend Items'), description: t('Select a borrower, then scan items to check them out.')},
+                'return': {heading: t('Return Items'), description: t('Scan items to check them back in.')},
+                move: {heading: t('Move Items'), description: t('Select a target location, then scan items to move them.')},
+                inventory: {heading: t('Inventory Audit'), description: t('Select a location and scan every item you find there. Start an audit to get a report.')},
+                lookup: {heading: t('Lookup'), description: t('Scan to check if an item is in your collection. No changes are made.')},
+                quick_rate: {heading: t('Quick Rate'), description: t('Scan to mark items as read or completed.')},
             };
             return configs[this.mode] || configs.add;
         },
 
         loadRecentScans(m) {
+            // Unresolved cards and saved IDs outlive mode switches. History is
+            // a snapshot, not permission to discard a paused Shelf Fill scan.
+            if (this._shelfFlow && this._shelfFlow.hasContinuations()) return;
+            var self = this;
+            var request = ++this.recentScansRequest;
+            var results = document.getElementById('scan-results');
+            var firstResult = results.firstChild;
             fetch('/api/recent-scans?mode=' + encodeURIComponent(m))
                 .then(function(r) {
                     if (!r.ok) throw new Error('HTTP ' + r.status);
                     return r.text();
                 })
                 .then(function(html) {
-                    document.getElementById('scan-results').innerHTML = html;
+                    // A newer history load or an inserted scan card makes this snapshot stale.
+                    if (request === self.recentScansRequest && results.firstChild === firstResult &&
+                        !(self._shelfFlow && self._shelfFlow.hasContinuations())) {
+                        results.innerHTML = html;
+                        htmx.process(results);
+                    }
                 })
                 .catch(function() {
-                    showToast('Could not load recent scans', 'error');
+                    showToast(t('Could not load recent scans'), 'error');
                 });
+        },
+
+        toggleManual() {
+            this.manualOpen = !this.manualOpen;
         },
 
         setMode(m) {
             this.mode = m;
+            if (this._shelfFlow) this._shelfFlow.changed();
             localStorage.setItem('shelf_scan_mode', m);
-            document.getElementById('inventory-missing').innerHTML = '';
-            this.inventoryScannedIds = [];
             this.loadRecentScans(m);
+            if (m === 'inventory') this.refreshAudit();
             var si = document.getElementById('title-search-input');
             if (si) si.value = '';
             var sr = document.getElementById('title-search-results');
@@ -86,11 +153,15 @@ function scanPage() {
         persistLocation() {
             localStorage.setItem('shelf_location', this.location);
         },
+        persistAuditLocation() {
+            localStorage.setItem('shelf_audit_location', this.auditLocation);
+        },
 
         persistShelfLocation() {
             var select = document.getElementById('shelf-fill-location');
             this.shelfLocation = select ? select.value : '';
             localStorage.setItem('shelf_fill_location', this.shelfLocation);
+            if (this._shelfFlow) this._shelfFlow.changed();
         },
 
         persistPlatform() {
@@ -132,6 +203,7 @@ function scanPage() {
                         });
                     }
                     self.updateShelfFillVisibility();
+                    if (self._shelfFlow) self._shelfFlow.changed();
                 })
                 .catch(function() {
                     host.innerHTML = '';
@@ -141,64 +213,138 @@ function scanPage() {
                 });
         },
 
-        async placeDeferredResult(html) {
-            if (this.mode !== 'shelf_fill' || !this.shelfLocation || !html) return;
+        persistReadingStatus() {
+            localStorage.setItem('shelf_reading_status', this.readingStatus);
+        },
 
-            var tmp = document.createElement('div');
-            tmp.innerHTML = html;
-            var incoming = tmp.querySelector('.scan-result');
-            if (!incoming) return;
-            var status = incoming.getAttribute('data-scan-status') || '';
-            if (status !== 'added' && status !== 'duplicate') return;
-
-            var link = incoming.querySelector('a[href^="/item/"]');
-            if (!link) return;
-            var match = link.getAttribute('href').match(/\/item\/(\d+)/);
-            if (!match) return;
-            var itemId = parseInt(match[1]);
-
-            var body = new FormData();
-            body.set('item_id', itemId);
-            body.set('location_node_id', this.shelfLocation);
-            try {
-                var resp = await fetch('/api/shelf-fill/place', {
-                    method: 'POST',
-                    headers: {'X-CSRF-Token': window.csrfToken()},
-                    body: body
-                });
-                if (!resp.ok) throw new Error('HTTP ' + resp.status);
-                var replacement = await resp.text();
-                var cards = document.querySelectorAll('#scan-results .scan-result');
-                for (var i = 0; i < cards.length; i++) {
-                    var cardLink = cards[i].querySelector('a[href="/item/' + itemId + '"]');
-                    var cardStatus = cards[i].getAttribute('data-scan-status') || '';
-                    if (cardLink && (cardStatus === 'added' || cardStatus === 'duplicate')) {
-                        cards[i].outerHTML = replacement;
-                        var first = document.querySelector('#scan-results .scan-result');
-                        if (first) htmx.process(first);
-                        break;
-                    }
-                }
-            } catch (err) {
-                showToast('Item was added, but could not be placed on the selected shelf', 'error');
-            }
+        // Auto gets the neutral words; a type outside the map has no status,
+        // so the control is disabled and keeps the neutral words.
+        refreshStatusLabels() {
+            var sets = this.statusLabelSets;
+            var words = sets[this.mediaType] || sets.auto ||
+                [t('Want to'), t('In progress'), t('Finished')];
+            this.statusTypeOk = this.mediaType === 'auto' || !!sets[this.mediaType];
+            if (!this.statusTypeOk) words = sets.auto || [t('Want to'), t('In progress'), t('Finished')];
+            this.statusWant = words[0];
+            this.statusDoing = words[1];
+            this.statusDone = words[2];
+            this.statusDisabled = (this.mode !== 'add' && this.mode !== 'wishlist') || !this.statusTypeOk;
         },
 
         // Client-side validation before form submit
         init() {
             var self = this;
+
+            // Lending off (or any feature whose scan_modes the registry
+            // disabled) removes its modes from the row. Read through the
+            // root's data attribute, tolerating its absence or an empty
+            // value (G91: no throw inside init()). If the mode restored
+            // from localStorage above is no longer offered, fall back to
+            // 'add' the same way the manual-panel normalization below
+            // does — this also tidies any other unknown stored value,
+            // since an id that matches nothing in `this.modes` is caught
+            // by the same check regardless of why it is unknown.
+            var offEl = document.querySelector('[data-off-modes]');
+            var offModes = (offEl && offEl.dataset.offModes) ? offEl.dataset.offModes.split(' ') : [];
+            this.modes = this.modes.filter(function(m) { return offModes.indexOf(m.id) === -1; });
+            // An audit report's Add link seeds Add mode and a code on the
+            // root. A seeded mode wins over the stored one; the code is
+            // put in the input and never submitted. Absent or empty is fine.
+            var seedEl = document.querySelector('[data-seed-mode]');
+            if (seedEl && seedEl.dataset.seedMode === 'add') {
+                this.mode = 'add';
+                try { localStorage.setItem('shelf_scan_mode', 'add'); } catch (err) { /* private mode */ }
+            }
+            var shelfSeed = this.$el.getAttribute('data-shelf-fill-initial');
+            if (shelfSeed) {
+                this.shelfLocation = shelfSeed;
+                this.mode = 'shelf_fill';
+                localStorage.setItem('shelf_fill_location', shelfSeed);
+                localStorage.setItem('shelf_scan_mode', this.mode);
+            }
+            var codeEl = document.querySelector('[data-seed-code]');
+            var seedCode = codeEl ? (codeEl.dataset.seedCode || '') : '';
+            if (!this.modes.some(function(m) { return m.id === self.mode; })) {
+                this.mode = 'add';
+                localStorage.setItem('shelf_scan_mode', 'add');
+            }
+
+            // The manual panel's open state is seeded server-side from
+            // ?add=manual, so there is no URL parsing here and no
+            // open-then-populate flash.
+            var seed = document.querySelector('[data-manual-open]');
+            this.manualOpen = !!(seed && seed.dataset.manualOpen === 'true');
+
+            // Default-status words per media type, from the root (G91: absence
+            // or a bad value never throws). A watch, not a hook in
+            // persistMediaType(): auto-detect and restore change it too.
+            var labelsEl = document.querySelector('[data-status-labels]');
+            try {
+                this.statusLabelSets = JSON.parse((labelsEl && labelsEl.dataset.statusLabels) || '{}') || {};
+            } catch (err) {
+                this.statusLabelSets = {};
+            }
+
+            // ...but `mode` is restored from localStorage above, and six of
+            // the eight modes hide the panel AND its only toggle. Without
+            // this, every returning user whose last mode was Lookup follows
+            // Home's "Add by hand" link and sees nothing change. Normalize
+            // before Alpine paints. A seeded 'wishlist' is preserved:
+            // arriving by deep link must not move someone off wishlist mode.
+            if (this.manualOpen && this.mode !== 'add' && this.mode !== 'wishlist') {
+                this.mode = 'add';
+                localStorage.setItem('shelf_scan_mode', 'add');
+            }
+            if (!shelfSeed) this.loadRecentScans(this.mode);
+
+            if (seedCode) {
+                var isbnInput = document.getElementById('isbn-input');
+                if (isbnInput) {
+                    isbnInput.value = seedCode;
+                    isbnInput.focus();
+                }
+            }
+
+            // Both inputs to the default-status control change from more than
+            // one place (setMode, auto-detect, the restore above), so watch them.
+            this.refreshStatusLabels();
+            this.$watch('mediaType', function () { self.refreshStatusLabels(); });
+            this.$watch('mode', function () { self.refreshStatusLabels(); });
+
+            // One delegated listener for every way in (#120). A button in a
+            // swapped-in search-result fragment has no reliable Alpine scope
+            // and the CSP forbids inline onclick, so each way in is a plain
+            // button carrying three data attributes and no JS of its own —
+            // and it survives every HTMX swap.
+            document.addEventListener('click', function (e) {
+                var btn = e.target.closest ? e.target.closest('[data-manual-add]') : null;
+                if (!btn) return;
+                e.preventDefault();
+                self.manualOpen = true;
+                window.dispatchEvent(new CustomEvent('shelf:manual-add', {
+                    detail: {
+                        title: btn.dataset.manualAddTitle || '',
+                        media_type: btn.dataset.manualAddType || ''
+                    }
+                }));
+            });
             var form = document.querySelector('form[hx-post="/api/scan"]');
+            this._shelfFlow = createShelfFillFlow({
+                root: this.$el, form: form, results: document.getElementById('scan-results'),
+                node: function () { return document.getElementById('shelf-fill-location'); },
+                active: function () { return self.mode === 'shelf_fill'; }
+            });
             this.installShelfFillPicker();
             if (form) {
                 form.addEventListener('htmx:beforeRequest', function(e) {
                     if (self.mode === 'lend' && !self.borrowerId) {
                         e.preventDefault();
-                        showToast('Select a borrower first', 'error');
+                        showToast(t('Select a borrower first'), 'error');
                         return false;
                     }
-                    if ((self.mode === 'move' || self.mode === 'inventory') && !self.location) {
+                    if ((self.mode === 'move' && !self.location) || (self.mode === 'inventory' && !self.auditLocation)) {
                         e.preventDefault();
-                        showToast('Select a location first', 'error');
+                        showToast(t('Select a location first'), 'error');
                         return false;
                     }
                     if (self.mode === 'shelf_fill' && !self.shelfLocation) {
@@ -214,59 +360,78 @@ function scanPage() {
                 });
             }
 
-            // Metadata misses and magazine scans can render a second-step form.
-            // Once that form eventually creates or resolves an item, place it
-            // on the still-selected precise shelf without asking again.
-            document.body.addEventListener('htmx:afterRequest', function(e) {
-                if (self.mode !== 'shelf_fill' || !e.detail.successful) return;
-                var el = e.detail.elt;
-                if (!el || !el.closest || !el.closest('#scan-results')) return;
-                var xhr = e.detail.xhr;
-                if (xhr && xhr.responseText) self.placeDeferredResult(xhr.responseText);
-            });
-
-            document.body.addEventListener('htmx:afterSwap', function(e) {
-                var target = e.detail && e.detail.target;
-                var card = target && target.matches &&
-                    target.matches('.scan-result[data-scan-inventory-confirmed]')
-                    ? target
-                    : document.querySelector('.scan-result[data-scan-inventory-confirmed]');
-                if (!card) return;
-                self.recordInventoryItem(card);
-                card.removeAttribute('data-scan-inventory-confirmed');
-            });
-
             this.updateShelfFillVisibility();
-        },
 
-        recordInventoryItem(root) {
-            if (this.mode !== 'inventory' || !root) return;
-            var linkEl = root.querySelector('a[href^="/item/"]');
-            if (!linkEl) return;
-            var match = linkEl.getAttribute('href').match(/\/item\/(\d+)/);
-            if (!match) return;
-            var itemId = parseInt(match[1]);
-            if (this.inventoryScannedIds.indexOf(itemId) === -1) {
-                this.inventoryScannedIds.push(itemId);
-            }
-        },
-
-        async showMissing() {
-            var form = new FormData();
-            form.set('location_id', this.location);
-            form.set('scanned_ids', this.inventoryScannedIds.join(','));
-            try {
-                var resp = await fetch('/api/inventory/missing', {
-                    method: 'POST',
-                    headers: {'X-CSRF-Token': window.csrfToken()},
-                    body: form
+            // One listener for the audit strip (G6: afterSwap, not
+            // afterSettle). (a) A strip fragment landed: sync auditId from it.
+            // (b) A scan card landed in Inventory mode with an audit open —
+            // typed form or a legacy card's repost, both /api/scan — so the
+            // strip's counts are stale. The camera path refreshes itself.
+            document.body.addEventListener('htmx:afterSwap', function(e) {
+                var detail = e.detail || {};
+                var target = detail.target;
+                if (target && target.id === 'audit-strip') {
+                    self.syncAuditFromStrip(target);
+                    return;
+                }
+                var path = detail.requestConfig && detail.requestConfig.path;
+                if (path === '/api/scan' && self.mode === 'inventory' && self.auditId) {
+                    self.refreshAudit();
+                }
+            });
+            var strip = document.getElementById('audit-strip');
+            if (strip) {
+                strip.addEventListener('click', function(e) {
+                    if (e.target.closest && e.target.closest('[data-audit-leave]')) self.leaveAudit();
                 });
-                if (!resp.ok) throw new Error('HTTP ' + resp.status);
-                var html = await resp.text();
-                document.getElementById('inventory-missing').innerHTML = html;
-            } catch (e) {
-                showToast('Could not check missing items', 'error');
             }
+            if (this.mode === 'inventory') this.refreshAudit();
+        },
+
+        // The selected location's name, for the whole-library strip: there
+        // every scan files the book at this location, so it must stay in view
+        // as the user walks from room to room (QA audit-sessions Obs 1).
+        get scanLocationName() {
+            var id = this.auditLocation;
+            var select = document.getElementById('inventory-location');
+            if (!id || !select) return 'no location';
+            for (var i = 0; i < select.options.length; i++) {
+                if (select.options[i].value === id) return select.options[i].textContent.trim();
+            }
+            return 'no location';
+        },
+
+        // Ask the server for the strip: the open session's summary, or the
+        // start-or-join view when auditId is empty, finished or deleted.
+        refreshAudit() {
+            var url = '/api/audits/summary?audit_id=' + encodeURIComponent(this.auditId || '');
+            htmx.ajax('GET', url, {target: '#audit-strip', swap: 'innerHTML'});
+        },
+
+        syncAuditFromStrip(strip) {
+            var root = strip.firstElementChild;
+            if (!root || !root.dataset) return;
+            var id = root.dataset.auditId || '';
+            var auditLocation = root.dataset.auditLocation || '';
+            this.auditId = id;
+            try {
+                if (id) localStorage.setItem('shelf_audit_id', id);
+                else localStorage.removeItem('shelf_audit_id');
+            } catch (e) { /* private mode */ }
+            // A location audit takes scans only at its own location, so
+            // starting, joining or resuming one selects it — through state,
+            // so x-model keeps the select in step.
+            if (id && auditLocation && this.auditLocation !== auditLocation) {
+                this.auditLocation = auditLocation;
+                this.persistAuditLocation();
+            }
+        },
+
+        // Leave: this device stops scanning into the audit; the audit stays open.
+        leaveAudit() {
+            this.auditId = '';
+            try { localStorage.removeItem('shelf_audit_id'); } catch (e) { /* private mode */ }
+            this.refreshAudit();
         },
 
         async toggleCamera() {
@@ -302,10 +467,10 @@ function scanPage() {
                 this.scanner = false;
                 this.cameraActive = false;
                 this.scanLoading = false;
-                if (location.protocol !== 'https:' && location.hostname !== 'localhost') {
-                    showToast('Camera requires HTTPS. Access Shelf via https:// and accept the certificate.', 'error');
+                if (!window.isSecureContext) {
+                    showToast(t('Camera requires HTTPS. Open Shelf through an HTTPS reverse proxy, or leave SHELF_TLS on.'), 'error');
                 } else {
-                    showToast('Camera access denied. Check browser permissions for this site.', 'error');
+                    showToast(t('Camera access denied. Check browser permissions for this site.'), 'error');
                 }
             }
         },
@@ -321,6 +486,7 @@ function scanPage() {
         },
 
         async resumeScanning() {
+            if (this.scanLoading) return;
             this.scanResult = false;
             this.scanLoading = false;
             this.lastScanned = '';
@@ -331,15 +497,15 @@ function scanPage() {
         },
 
         async onScan(code) {
-            if (this.scanPaused) return;
+            if (this.scanPaused || this.scanLoading) return;
 
             // Client-side validation
             if (this.mode === 'lend' && !this.borrowerId) {
-                showToast('Select a borrower first', 'error');
+                showToast(t('Select a borrower first'), 'error');
                 return;
             }
-            if ((this.mode === 'move' || this.mode === 'inventory') && !this.location) {
-                showToast('Select a location first', 'error');
+            if ((this.mode === 'move' && !this.location) || (this.mode === 'inventory' && !this.auditLocation)) {
+                showToast(t('Select a location first'), 'error');
                 return;
             }
             if (this.mode === 'shelf_fill' && !this.shelfLocation) {
@@ -349,6 +515,18 @@ function scanPage() {
 
             var now = Date.now();
             if (code === this.lastScanned && now - this.lastScanTime < 3000) return;
+
+            // Snapshot before pausing the camera or any other await. The
+            // precise node never comes from the later live selection.
+            var scanMode = this.mode;
+            var shelfContext = scanMode === 'shelf_fill' ? this._shelfFlow.begin() : null;
+            if (scanMode === 'shelf_fill' && !shelfContext) return;
+            var form = document.querySelector('form[hx-post="/api/scan"]');
+            var formData = new FormData(form);
+            formData.set('isbn', code);
+            formData.set('mode', scanMode);
+            if (scanMode === 'lend') formData.set('borrower_id', this.borrowerId);
+
             this.lastScanned = code;
             this.lastScanTime = now;
 
@@ -374,31 +552,27 @@ function scanPage() {
             } catch(e) {}
 
             // Submit scan via fetch so we can capture the result
-            var form = document.querySelector('form[hx-post="/api/scan"]');
-            var formData = new FormData(form);
-            formData.set('isbn', code);
-            formData.set('mode', this.mode);
-            if (this.mode === 'lend') formData.set('borrower_id', this.borrowerId);
-            var endpoint = this.mode === 'shelf_fill' ? '/api/shelf-fill/scan' : '/api/scan';
             try {
-                var resp = await fetch(endpoint, { method: 'POST', headers: { 'X-CSRF-Token': window.csrfToken() }, body: formData });
-                if (!resp.ok) throw new Error('HTTP ' + resp.status);
-                var html = await resp.text();
+                var card;
+                if (shelfContext) card = await this._shelfFlow.scan(shelfContext, formData);
+                else {
+                    var resp = await fetch('/api/scan', { method: 'POST', headers: { 'X-CSRF-Token': window.csrfToken() }, body: formData });
+                    if (!resp.ok) throw new Error('HTTP ' + resp.status);
+                    var html = await resp.text();
+                    var results = document.getElementById('scan-results');
+                    results.insertAdjacentHTML('afterbegin', html);
+                    card = results.firstElementChild;
+                    if (card) htmx.process(card);
+                }
+                var outcome = scanCardOutcome(card) || {};
+                if (shelfContext && !this._shelfFlow.current(shelfContext)) return;
 
-                // Insert result into the scan results list
-                var results = document.getElementById('scan-results');
-                results.insertAdjacentHTML('afterbegin', html);
-                htmx.process(results.firstElementChild);
-
-                // Parse the result to show in overlay. scanCardOutcome (app.js)
-                // reads the card's own data-scan-* attributes; it is the same
-                // reader the typed/Enter toast uses, so the two paths cannot
-                // drift apart the way two class-substring parsers did.
-                var tmp = document.createElement('div');
-                tmp.innerHTML = html;
-                var outcome = scanCardOutcome(tmp.querySelector('.scan-result'));
-
-                if (outcome && outcome.status === 'legacy_ambiguous') {
+                // Both legacy cards require the user's interaction with the
+                // card below the camera — an ambiguous choice, or the five
+                // typed digits. Stop scanning so another frame cannot enqueue
+                // a second unresolved choice and swap the card out from
+                // under the user.
+                if (outcome && (outcome.status === 'legacy_ambiguous' || outcome.status === 'legacy_incomplete')) {
                     if (this.scanner) {
                         try { await this.scanner.stop(); } catch (e) {}
                         this.scanner = false;
@@ -407,13 +581,14 @@ function scanPage() {
                     this.scanPaused = false;
                     this.scanLoading = false;
                     this.scanResult = false;
-                    showToast('Choose the matching book below', 'warning');
+                    showToast(outcome.status === 'legacy_ambiguous' ? t('Choose the matching book below') : t('Type the five digits below'), 'warning');
                     return;
                 }
 
                 this.scanResult = {
                     ok: outcome.ok,
                     warn: outcome.warn,
+                    info: outcome.info,
                     label: outcome.label || 'done',
                     title: outcome.title,
                     authors: outcome.authors,
@@ -421,12 +596,15 @@ function scanPage() {
                     isbn: code
                 };
 
-                // Track item IDs for inventory mode.
-                this.recordInventoryItem(tmp);
+                // The server recorded the scan into the open audit; refresh
+                // the strip's counts (the typed path does this on afterSwap).
+                if (scanMode === 'inventory' && this.auditId) this.refreshAudit();
             } catch (err) {
-                this.scanResult = { ok: false, warn: false, label: 'error', title: 'Scan failed', isbn: code };
+                this.scanResult = { ok: false, warn: false, info: false, label: t('error'), title: t('Scan failed'), isbn: code };
+            } finally {
+                this.scanLoading = false;
+                if (shelfContext) this._shelfFlow.finish();
             }
-            this.scanLoading = false;
         }
     }
 }

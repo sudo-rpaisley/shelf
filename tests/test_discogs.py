@@ -1,8 +1,14 @@
 """Discogs collector-enrichment regression tests."""
 
+import hashlib
+import sqlite3
+
+import pytest
+
 from app.database import _run_migrations, get_setting
 from app.services import discogs, music_catalog, provider_result
 from app.services.item_write import insert_item
+from tests.lineage import MAIN_MIGRATIONS, UPSTREAM_MIGRATIONS, captured_fork_database
 
 
 MBID = "33333333-3333-3333-3333-333333333333"
@@ -62,16 +68,55 @@ def _seed(db):
 
 class TestDiscogsMigrationRecovery:
     def test_baked_discogs_column_self_heals_missing_version_row(self, db):
-        # Reproduce a restored/constructed DB where the complete table schema
-        # is present but migration 31's bookkeeping row is missing.
-        db.execute("DELETE FROM schema_version WHERE version = 31")
-        db.commit()
+        # A genuinely fresh install bootstraps the baked-in Discogs column,
+        # then verifies it before recording M31. Never erase an initialized
+        # ledger: that is corruption, not a supported self-healing fixture.
+        with sqlite3.connect(":memory:") as fresh:
+            fresh.row_factory = sqlite3.Row
+            fresh.execute("PRAGMA foreign_keys = ON")
+            assert fresh.execute("SELECT name FROM sqlite_master").fetchall() == []
+            _run_migrations(fresh)
+            assert "discogs_master_id" in {
+                row["name"] for row in fresh.execute("PRAGMA table_info(music_releases)")
+            }
+            original = next(m for m in MAIN_MIGRATIONS if m[0] == 31)
+            assert original[1] == "Add Discogs master ID"
+            row = fresh.execute(
+                "SELECT source_lineage, original_version, source_sql_sha256, disposition "
+                "FROM schema_migration_provenance WHERE version = 31"
+            ).fetchone()
+            assert tuple(row) == (
+                "fork-main43e244f5", 31, hashlib.sha256(original[2].encode()).hexdigest(), "verified-existing",
+            )
+            before = list(fresh.iterdump())
+            assert _run_migrations(fresh) == []
+            assert list(fresh.iterdump()) == before
+            with pytest.raises(sqlite3.IntegrityError, match="FOREIGN KEY"):
+                fresh.execute("DELETE FROM schema_version WHERE version = 31")
+            fresh.rollback()
+            assert list(fresh.iterdump()) == before
 
-        _run_migrations(db)
-
-        assert db.execute(
-            "SELECT 1 FROM schema_version WHERE version = 31"
-        ).fetchone() is not None
+    def test_prebridge_discogs_history_and_mapped_upstream_31_remain_distinct(self, tmp_path):
+        conn = captured_fork_database(tmp_path / "prebridge-discogs.db")
+        try:
+            conn.execute("PRAGMA foreign_keys = ON")
+            assert conn.execute("SELECT description FROM schema_version WHERE version = 31").fetchone()[0] == "Add Discogs master ID"
+            assert conn.execute("SELECT 1 FROM schema_version WHERE version = 74").fetchone() is None
+            assert conn.execute("SELECT 1 FROM sqlite_master WHERE name = 'schema_migration_provenance'").fetchone() is None
+            _run_migrations(conn)
+            row = conn.execute("SELECT source_lineage, original_version, disposition FROM schema_migration_provenance WHERE version = 31").fetchone()
+            assert tuple(row) == ("fork-main43e244f5", 31, "legacy-recorded")
+            # U31 is physical shelf position, NOT the fork's Discogs M31.
+            original = next(m for m in UPSTREAM_MIGRATIONS if m[0] == 31)
+            assert original[1] == "Add physical copy shelf position"
+            row = conn.execute("SELECT source_lineage, original_version, source_sql_sha256 FROM schema_migration_provenance WHERE version = 74").fetchone()
+            assert tuple(row) == ("upstream7e0369e7", 31, hashlib.sha256(original[2].encode()).hexdigest())
+            before = list(conn.iterdump())
+            assert _run_migrations(conn) == []
+            assert list(conn.iterdump()) == before
+            assert conn.execute("PRAGMA foreign_key_check").fetchall() == []
+        finally:
+            conn.close()
 
 
 class TestDiscogsNormalisation:
@@ -119,7 +164,9 @@ class TestDiscogsPersistence:
         hydrated = music_catalog.get_release(db, item_id)
         assert hydrated["discogs_fresh"] is True
         assert hydrated["discogs_genres"] == ["Rock"]
-        assert [x["value"] for x in hydrated["identifiers"]] == ["MANUAL-1"]
+        assert [(x["identifier_type"], x["value"], x["source"]) for x in hydrated["identifiers"]] == [
+            ("discogs_release_id", "12345", "manual"), ("matrix_runout", "MANUAL-1", "manual"),
+        ]
         assert {x["value"] for x in hydrated["discogs_identifiers"]} == {"CAT A-1", "PLANT-X"}
 
     def test_refresh_replaces_only_discogs_owned_identifiers(self, db):
@@ -134,7 +181,7 @@ class TestDiscogsPersistence:
             "SELECT value, source FROM music_identifiers WHERE item_id = ? ORDER BY value", (item_id,)
         ).fetchall()
         assert [(r["value"], r["source"]) for r in rows] == [
-            ("CAT A-2", "discogs"), ("MANUAL-1", "manual")
+            ("12345", "manual"), ("CAT A-2", "discogs"), ("MANUAL-1", "manual")
         ]
 
     def test_stale_discogs_cache_is_not_exposed_for_display(self, db):
@@ -213,7 +260,7 @@ class TestDiscogsRoutes:
         db.commit()
 
         async def fake_lookup(release_id, client, *, token):
-            assert release_id == 12345
+            assert release_id == "12345"
             assert token == "token"
             return provider_result.found("discogs", _discogs_release())
         monkeypatch.setattr(discogs, "lookup_release", fake_lookup)

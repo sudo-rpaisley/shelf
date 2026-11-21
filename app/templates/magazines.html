@@ -8,10 +8,66 @@
             <h1 class="text-3xl font-bold">Magazines</h1>
             <p class="text-shelf-muted mt-2">Browse your collection by publication, then open a title to see its issues.</p>
         </div>
-        {% if user and user.role in ('editor', 'admin') %}
+        {% if can_edit_catalogue %}
         <a href="/scan" class="px-4 py-2 bg-shelf-accent text-white rounded-lg text-sm hover:bg-shelf-accent2 transition-colors">Add or scan an issue</a>
         {% endif %}
     </div>
+
+    {% if can_edit_catalogue and barcode_libraries %}
+    <section class="bg-shelf-card border border-shelf-border rounded-xl p-4 space-y-3">
+        <h2 class="text-lg font-semibold">Find an issue by barcode</h2>
+        <p class="text-sm text-shelf-muted">Look up a magazine publication, then confirm the concrete issue before adding it.</p>
+        <form action="/api/magazines/assist/scan" method="get" hx-get="/api/magazines/assist/scan"
+              hx-target="#magazine-barcode-result" hx-swap="innerHTML" class="space-y-3">
+            <label class="block text-sm">
+                <span class="text-shelf-muted">Magazine barcode, including any add-on</span>
+                <input type="text" name="raw_barcode" required maxlength="32" inputmode="numeric"
+                       class="mt-1 w-full bg-shelf-bg border border-shelf-border rounded-lg px-3 py-2 text-shelf-text">
+            </label>
+            <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <label class="block text-sm">
+                    <span class="text-shelf-muted">Library</span>
+                    <select name="library_id" required class="mt-1 w-full bg-shelf-bg border border-shelf-border rounded-lg px-3 py-2 text-shelf-text">
+                        {% for library in barcode_libraries %}
+                        <option value="{{ library.id }}">{{ library.name }}</option>
+                        {% endfor %}
+                    </select>
+                </label>
+                <label class="block text-sm">
+                    <span class="text-shelf-muted">Mode</span>
+                    <select name="mode" class="mt-1 w-full bg-shelf-bg border border-shelf-border rounded-lg px-3 py-2 text-shelf-text">
+                        <option value="add">Add</option>
+                        <option value="wishlist">Wishlist</option>
+                    </select>
+                </label>
+                <label class="block text-sm">
+                    <span class="text-shelf-muted">Location</span>
+                    <select name="location_id" class="mt-1 w-full bg-shelf-bg border border-shelf-border rounded-lg px-3 py-2 text-shelf-text">
+                        <option value="">No location</option>
+                        {% for location in barcode_locations %}
+                        <option value="{{ location.id }}">{{ location.name }}</option>
+                        {% endfor %}
+                    </select>
+                </label>
+                <label class="block text-sm">
+                    <span class="text-shelf-muted">Tags</span>
+                    <input type="text" name="tags" class="mt-1 w-full bg-shelf-bg border border-shelf-border rounded-lg px-3 py-2 text-shelf-text">
+                </label>
+                <label class="block text-sm">
+                    <span class="text-shelf-muted">My reading status</span>
+                    <select name="reading_status" class="mt-1 w-full bg-shelf-bg border border-shelf-border rounded-lg px-3 py-2 text-shelf-text">
+                        <option value="">No status</option>
+                        <option value="want_to_read">Want to read</option>
+                        <option value="reading">Reading</option>
+                        <option value="read">Read</option>
+                    </select>
+                </label>
+            </div>
+            <button type="submit" class="px-4 py-2 bg-shelf-accent text-white rounded-lg text-sm hover:bg-shelf-accent2 transition-colors">Look up barcode</button>
+        </form>
+        <div id="magazine-barcode-result"></div>
+    </section>
+    {% endif %}
 
     {% if publications %}
     <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3" data-testid="magazine-publications">

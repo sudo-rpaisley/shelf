@@ -6,3 +6,7 @@ htmx-2.0.4.min.js sha384-HGfztofotfshcF7+8n44JQL2oJmowVChPTg48S+jvZoztPfvwD79OC/
 # CSP build verified byte-identical across jsdelivr and unpkg at download (2026-07-04)
 alpinejs-csp-3.15.9.min.js sha384-+Plaz+5c53MWWAEUhjPxE9xRB7oJEoQ7W4kqOPeqb0TohG5uxcI9t0I3FV+lWxnD
 zxing-browser-0.1.5.min.js sha384-ylLhng89kD62+PVK1cjm4rAYg69zDlGrbbSfAE2Eb8Xqf8RoAQCMcRoUXZh7pAPC
+# Inter 4.1 (https://github.com/rsms/inter, release v4.1, SIL OFL 1.1), unmodified web/Inter-Regular.woff2 + web/Inter-Bold.woff2 + LICENSE.txt from Inter-4.1.zip, verified at download (2026-09-30)
+inter-4.1-bold.woff2 sha384-j8XbBSyF8GRphybBjh3vKhWNpXigl1b54+bp81w8IZYMXUs508BYH7hXNW3fM9da
+inter-4.1-OFL.txt sha384-3Zd1nhFvzgIOPPgO6G7IBYgCapNGKd+YHzTPDhMMlAxY+zuq5GUP2IgCvdSmwShv
+inter-4.1-regular.woff2 sha384-Yn6vqlF2XIxaweyUsFM1vrs+iKM2V2CVeZrCdcfOVfU2WErmtdy957tv/papzVwR

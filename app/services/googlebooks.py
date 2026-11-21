@@ -4,6 +4,7 @@ import re
 import httpx
 
 from app.config import HTTP_TIMEOUT
+from app.services import authors as authors_svc
 from app.services import outbound, provider_result
 
 logger = logging.getLogger(__name__)
@@ -74,7 +75,9 @@ async def lookup(
         result = {
             "title": info["title"],
             "subtitle": info.get("subtitle"),
-            "authors": ", ".join(info.get("authors", [])) or None,
+            # A string here (schema violation) raises in join_names, which
+            # this function's parse guard turns into a loud no_match (G45).
+            "authors": authors_svc.join_names(info.get("authors") or []),
             "publisher": info.get("publisher"),
             "page_count": info.get("pageCount"),
             "description": info.get("description"),
@@ -235,17 +238,23 @@ async def search_by_title_author(
         logger.debug("Google Books search failed for %r: HTTP %d", query, resp.status_code)
         return []
 
-    results = []
-    for item in resp.json().get("items", []):
-        info = item.get("volumeInfo", {})
-        if not info.get("title"):
-            continue
-        results.append({
-            "title": info["title"],
-            "authors": ", ".join(info.get("authors", [])) or None,
-            "description": info.get("description"),
-        })
-    return results
+    # synopsis.fetch_description catches only httpx.HTTPError, so a malformed
+    # body (e.g. a string `authors`, which join_names rejects) must stop here.
+    try:
+        results = []
+        for item in resp.json().get("items", []):
+            info = item.get("volumeInfo", {})
+            if not info.get("title"):
+                continue
+            results.append({
+                "title": info["title"],
+                "authors": authors_svc.join_names(info.get("authors") or []),
+                "description": info.get("description"),
+            })
+        return results
+    except Exception:
+        logger.debug("Google Books search: malformed response for %r", query, exc_info=True)
+        return []
 
 
 async def search_covers(

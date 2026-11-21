@@ -1,0 +1,356 @@
+{
+  "SCHEMA": "\nCREATE TABLE IF NOT EXISTS items (\n    id              INTEGER PRIMARY KEY AUTOINCREMENT,\n    title           TEXT NOT NULL,\n    subtitle        TEXT,\n    authors         TEXT,\n    isbn            TEXT,\n    isbn10          TEXT,\n    media_type      TEXT NOT NULL DEFAULT 'book',\n    cover_path      TEXT,\n    publisher       TEXT,\n    publish_year    INTEGER,\n    page_count      INTEGER,\n    description     TEXT,\n    series_name     TEXT,\n    series_position REAL,\n    narrator        TEXT,\n    duration_mins   INTEGER,\n    location_id     INTEGER REFERENCES locations(id),\n    abs_id          TEXT,\n    source          TEXT NOT NULL DEFAULT 'manual',\n    notes           TEXT,\n    created_at      TEXT NOT NULL DEFAULT (datetime('now')),\n    updated_at      TEXT NOT NULL DEFAULT (datetime('now')),\n    UNIQUE(isbn, media_type)\n);\n\nCREATE INDEX IF NOT EXISTS idx_items_isbn ON items(isbn);\nCREATE INDEX IF NOT EXISTS idx_items_media_type ON items(media_type);\nCREATE INDEX IF NOT EXISTS idx_items_title ON items(title COLLATE NOCASE);\nCREATE INDEX IF NOT EXISTS idx_items_location ON items(location_id);\nCREATE INDEX IF NOT EXISTS idx_items_abs_id ON items(abs_id);\n\nCREATE TABLE IF NOT EXISTS locations (\n    id         INTEGER PRIMARY KEY AUTOINCREMENT,\n    name       TEXT NOT NULL UNIQUE,\n    sort_order INTEGER DEFAULT 0,\n    created_at TEXT NOT NULL DEFAULT (datetime('now'))\n);\n\nCREATE TABLE IF NOT EXISTS settings (\n    key   TEXT PRIMARY KEY,\n    value TEXT\n);\n\nCREATE TABLE IF NOT EXISTS scan_log (\n    id         INTEGER PRIMARY KEY AUTOINCREMENT,\n    isbn       TEXT,\n    media_type TEXT,\n    result     TEXT NOT NULL,\n    item_id    INTEGER REFERENCES items(id),\n    created_at TEXT NOT NULL DEFAULT (datetime('now'))\n);\n\nCREATE INDEX IF NOT EXISTS idx_items_authors ON items(authors COLLATE NOCASE);\nCREATE INDEX IF NOT EXISTS idx_items_publish_year ON items(publish_year);\nCREATE INDEX IF NOT EXISTS idx_items_series ON items(series_name COLLATE NOCASE);\n\nCREATE TABLE IF NOT EXISTS schema_version (\n    version     INTEGER PRIMARY KEY,\n    description TEXT NOT NULL,\n    applied_at  TEXT NOT NULL DEFAULT (datetime('now'))\n);\n",
+  "MIGRATION_TABLES": "\nCREATE TABLE IF NOT EXISTS reading_log (\n    id            INTEGER PRIMARY KEY AUTOINCREMENT,\n    item_id       INTEGER NOT NULL REFERENCES items(id) ON DELETE CASCADE,\n    status        TEXT NOT NULL,\n    date_started  TEXT,\n    date_finished TEXT,\n    notes         TEXT,\n    created_at    TEXT NOT NULL DEFAULT (datetime('now'))\n);\nCREATE INDEX IF NOT EXISTS idx_reading_log_item ON reading_log(item_id);\nCREATE INDEX IF NOT EXISTS idx_items_reading_status ON items(reading_status);\n\nCREATE TABLE IF NOT EXISTS share_links (\n    id         INTEGER PRIMARY KEY AUTOINCREMENT,\n    token      TEXT NOT NULL UNIQUE,\n    scope      TEXT NOT NULL DEFAULT 'wishlist',\n    label      TEXT,\n    created_at TEXT NOT NULL DEFAULT (datetime('now'))\n);\n\nCREATE TABLE IF NOT EXISTS valuation_history (\n    id           INTEGER PRIMARY KEY AUTOINCREMENT,\n    total_value  REAL NOT NULL,\n    priced_count INTEGER NOT NULL,\n    created_at   TEXT NOT NULL DEFAULT (datetime('now'))\n);\n\nCREATE TABLE IF NOT EXISTS borrowers (\n    id         INTEGER PRIMARY KEY AUTOINCREMENT,\n    name       TEXT NOT NULL UNIQUE,\n    created_at TEXT NOT NULL DEFAULT (datetime('now'))\n);\n\nCREATE TABLE IF NOT EXISTS checkouts (\n    id            INTEGER PRIMARY KEY AUTOINCREMENT,\n    item_id       INTEGER NOT NULL REFERENCES items(id) ON DELETE CASCADE,\n    borrower_id   INTEGER NOT NULL REFERENCES borrowers(id),\n    checked_out   TEXT NOT NULL DEFAULT (datetime('now')),\n    due_date      TEXT,\n    checked_in    TEXT,\n    notes         TEXT,\n    created_at    TEXT NOT NULL DEFAULT (datetime('now'))\n);\nCREATE INDEX IF NOT EXISTS idx_checkouts_item ON checkouts(item_id);\nCREATE INDEX IF NOT EXISTS idx_checkouts_borrower ON checkouts(borrower_id);\n\nCREATE INDEX IF NOT EXISTS idx_items_upc ON items(upc);\nCREATE UNIQUE INDEX IF NOT EXISTS idx_items_upc_type ON items(upc, media_type) WHERE upc IS NOT NULL;\n\nCREATE TABLE IF NOT EXISTS item_links (\n    id        INTEGER PRIMARY KEY AUTOINCREMENT,\n    item_a_id INTEGER NOT NULL REFERENCES items(id) ON DELETE CASCADE,\n    item_b_id INTEGER NOT NULL REFERENCES items(id) ON DELETE CASCADE,\n    link_type TEXT NOT NULL DEFAULT 'format',\n    created_at TEXT NOT NULL DEFAULT (datetime('now')),\n    UNIQUE(item_a_id, item_b_id)\n);\nCREATE INDEX IF NOT EXISTS idx_item_links_a ON item_links(item_a_id);\nCREATE INDEX IF NOT EXISTS idx_item_links_b ON item_links(item_b_id);\n\nCREATE INDEX IF NOT EXISTS idx_items_hardcover_book ON items(hardcover_book_id);\nCREATE INDEX IF NOT EXISTS idx_items_platform ON items(platform);\n\nCREATE TABLE IF NOT EXISTS log_entries (\n    id         INTEGER PRIMARY KEY AUTOINCREMENT,\n    timestamp  TEXT NOT NULL DEFAULT (datetime('now')),\n    level      TEXT NOT NULL,\n    module     TEXT,\n    message    TEXT NOT NULL\n);\nCREATE INDEX IF NOT EXISTS idx_log_entries_timestamp ON log_entries(timestamp);\nCREATE INDEX IF NOT EXISTS idx_log_entries_level ON log_entries(level);\n\nCREATE TABLE IF NOT EXISTS users (\n    id             INTEGER PRIMARY KEY AUTOINCREMENT,\n    username       TEXT NOT NULL UNIQUE COLLATE NOCASE,\n    password       TEXT NOT NULL,\n    display_name   TEXT,\n    role           TEXT NOT NULL DEFAULT 'viewer' CHECK(role IN ('admin','editor','viewer')),\n    token_version  INTEGER NOT NULL DEFAULT 1,\n    created_at     TEXT NOT NULL DEFAULT (datetime('now')),\n    updated_at     TEXT NOT NULL DEFAULT (datetime('now'))\n);\n\nCREATE TABLE IF NOT EXISTS game_platforms (\n    id         INTEGER PRIMARY KEY AUTOINCREMENT,\n    slug       TEXT NOT NULL UNIQUE,\n    name       TEXT NOT NULL,\n    sort_order INTEGER DEFAULT 0,\n    created_at TEXT NOT NULL DEFAULT (datetime('now'))\n);\n\nCREATE TABLE IF NOT EXISTS tags (\n    id         INTEGER PRIMARY KEY AUTOINCREMENT,\n    name       TEXT NOT NULL UNIQUE COLLATE NOCASE,\n    created_at TEXT NOT NULL DEFAULT (datetime('now'))\n);\n\nCREATE TABLE IF NOT EXISTS item_tags (\n    item_id INTEGER NOT NULL REFERENCES items(id) ON DELETE CASCADE,\n    tag_id  INTEGER NOT NULL REFERENCES tags(id) ON DELETE CASCADE,\n    PRIMARY KEY (item_id, tag_id)\n);\nCREATE INDEX IF NOT EXISTS idx_item_tags_tag ON item_tags(tag_id);\n\n-- complete/hc_total/hc_missing/hc_checked_at are also added via ALTER in\n-- MIGRATIONS (16-19) for upgrades of a database that already has this\n-- table; baked in here too (same pattern as users.token_version above) so a\n-- brand-new database gets them immediately \u2014 on first boot the MIGRATIONS\n-- ALTERs run before this script creates the table, so they're no-ops here.\nCREATE TABLE IF NOT EXISTS series_meta (\n    name          TEXT PRIMARY KEY COLLATE NOCASE,\n    description   TEXT,\n    source        TEXT,\n    updated_at    TEXT,\n    complete      INTEGER DEFAULT NULL,\n    hc_total      INTEGER DEFAULT NULL,\n    hc_missing    INTEGER DEFAULT NULL,\n    hc_checked_at TEXT DEFAULT NULL\n);\n\n-- Multiple ordered series memberships. The legacy items.series_name /\n-- series_position pair remains the primary membership for compatibility.\nCREATE TABLE IF NOT EXISTS item_series (\n    item_id      INTEGER NOT NULL REFERENCES items(id) ON DELETE CASCADE,\n    series_name  TEXT NOT NULL COLLATE NOCASE,\n    position     REAL,\n    is_primary   INTEGER NOT NULL DEFAULT 0,\n    created_at   TEXT NOT NULL DEFAULT (datetime('now')),\n    PRIMARY KEY (item_id, series_name)\n);\nCREATE INDEX IF NOT EXISTS idx_item_series_name ON item_series(series_name COLLATE NOCASE);\n\n-- Curated collections are intentionally separate from Series and Tags. They\n-- are shared library groupings and an item may belong to any number of them.\nCREATE TABLE IF NOT EXISTS collections (\n    id          INTEGER PRIMARY KEY AUTOINCREMENT,\n    name        TEXT NOT NULL UNIQUE COLLATE NOCASE,\n    description TEXT,\n    created_at  TEXT NOT NULL DEFAULT (datetime('now')),\n    updated_at  TEXT NOT NULL DEFAULT (datetime('now'))\n);\n\nCREATE TABLE IF NOT EXISTS collection_items (\n    collection_id INTEGER NOT NULL REFERENCES collections(id) ON DELETE CASCADE,\n    item_id       INTEGER NOT NULL REFERENCES items(id) ON DELETE CASCADE,\n    created_at    TEXT NOT NULL DEFAULT (datetime('now')),\n    PRIMARY KEY (collection_id, item_id)\n);\nCREATE INDEX IF NOT EXISTS idx_collection_items_item ON collection_items(item_id);\n\n-- Music is intentionally relational rather than a wide set of nullable\n-- columns on items. `items` remains the owned object; this row identifies the\n-- exact release/pressing, and child rows preserve multi-disc/multi-side track\n-- structure. CREATE IF NOT EXISTS lives in MIGRATION_TABLES so both fresh and\n-- upgraded databases receive the feature without an ALTER/table-order trap.\nCREATE TABLE IF NOT EXISTS music_releases (\n    item_id                       INTEGER PRIMARY KEY REFERENCES items(id) ON DELETE CASCADE,\n    artist_credit                 TEXT,\n    musicbrainz_release_id        TEXT UNIQUE,\n    musicbrainz_release_group_id  TEXT,\n    discogs_release_id            INTEGER,\n    discogs_master_id             INTEGER,\n    discogs_label                 TEXT,\n    discogs_catalog_number        TEXT,\n    discogs_format_summary        TEXT,\n    discogs_genres                TEXT,\n    discogs_styles                TEXT,\n    discogs_notes                 TEXT,\n    discogs_updated_at            TEXT,\n    release_type                  TEXT,\n    release_status                TEXT,\n    release_date                  TEXT,\n    first_release_date            TEXT,\n    country                       TEXT,\n    label                         TEXT,\n    catalog_number                TEXT,\n    packaging                     TEXT,\n    media_count                   INTEGER,\n    format_summary                TEXT,\n    edition_notes                 TEXT,\n    media_condition               TEXT,\n    packaging_condition           TEXT,\n    condition_notes               TEXT,\n    metadata_source               TEXT,\n    metadata_updated_at           TEXT\n);\nCREATE INDEX IF NOT EXISTS idx_music_releases_artist ON music_releases(artist_credit COLLATE NOCASE);\nCREATE INDEX IF NOT EXISTS idx_music_releases_group ON music_releases(musicbrainz_release_group_id);\nCREATE INDEX IF NOT EXISTS idx_music_releases_catalog ON music_releases(catalog_number COLLATE NOCASE);\nCREATE INDEX IF NOT EXISTS idx_music_releases_discogs ON music_releases(discogs_release_id);\nCREATE INDEX IF NOT EXISTS idx_music_releases_discogs_master ON music_releases(discogs_master_id);\n\nCREATE TABLE IF NOT EXISTS music_media (\n    id          INTEGER PRIMARY KEY AUTOINCREMENT,\n    item_id     INTEGER NOT NULL REFERENCES items(id) ON DELETE CASCADE,\n    position    INTEGER NOT NULL,\n    format      TEXT,\n    title       TEXT,\n    track_count INTEGER,\n    UNIQUE(item_id, position)\n);\nCREATE INDEX IF NOT EXISTS idx_music_media_item ON music_media(item_id);\n\nCREATE TABLE IF NOT EXISTS music_tracks (\n    id                         INTEGER PRIMARY KEY AUTOINCREMENT,\n    medium_id                  INTEGER NOT NULL REFERENCES music_media(id) ON DELETE CASCADE,\n    position                   INTEGER NOT NULL,\n    number                     TEXT,\n    title                      TEXT NOT NULL,\n    artist_credit              TEXT,\n    duration_ms                INTEGER,\n    musicbrainz_recording_id   TEXT,\n    UNIQUE(medium_id, position)\n);\nCREATE INDEX IF NOT EXISTS idx_music_tracks_medium ON music_tracks(medium_id);\nCREATE INDEX IF NOT EXISTS idx_music_tracks_recording ON music_tracks(musicbrainz_recording_id);\n\nCREATE TABLE IF NOT EXISTS music_identifiers (\n    id               INTEGER PRIMARY KEY AUTOINCREMENT,\n    item_id          INTEGER NOT NULL REFERENCES items(id) ON DELETE CASCADE,\n    identifier_type  TEXT NOT NULL,\n    value            TEXT NOT NULL,\n    description      TEXT,\n    source           TEXT NOT NULL DEFAULT 'manual',\n    UNIQUE(item_id, identifier_type, value)\n);\nCREATE INDEX IF NOT EXISTS idx_music_identifiers_item ON music_identifiers(item_id);\nCREATE INDEX IF NOT EXISTS idx_music_identifiers_value ON music_identifiers(value COLLATE NOCASE);\n\n-- The table is also created by migration 46 for upgrades. Keeping its\n-- complete definition here makes the fresh-database path explicit too.\nCREATE TABLE IF NOT EXISTS legacy_book_mappings (\n    barcode      TEXT PRIMARY KEY,\n    isbn13       TEXT NOT NULL,\n    confirmed_at TEXT NOT NULL DEFAULT (datetime('now')),\n    CHECK(length(barcode) = 17 AND barcode NOT GLOB '*[^0-9]*'),\n    CHECK(length(isbn13) = 13\n          AND isbn13 NOT GLOB '*[^0-9]*'\n          AND substr(isbn13, 1, 3) IN ('978', '979'))\n);\n",
+  "MIGRATIONS": [
+    [
+      1,
+      "Add reading_status column",
+      "ALTER TABLE items ADD COLUMN reading_status TEXT DEFAULT NULL"
+    ],
+    [
+      2,
+      "Add date_started column",
+      "ALTER TABLE items ADD COLUMN date_started TEXT DEFAULT NULL"
+    ],
+    [
+      3,
+      "Add date_finished column",
+      "ALTER TABLE items ADD COLUMN date_finished TEXT DEFAULT NULL"
+    ],
+    [
+      4,
+      "Add estimated_value column",
+      "ALTER TABLE items ADD COLUMN estimated_value REAL DEFAULT NULL"
+    ],
+    [
+      5,
+      "Add value_updated_at column",
+      "ALTER TABLE items ADD COLUMN value_updated_at TEXT DEFAULT NULL"
+    ],
+    [
+      6,
+      "Add upc column",
+      "ALTER TABLE items ADD COLUMN upc TEXT DEFAULT NULL"
+    ],
+    [
+      7,
+      "Add hardcover_book_id column",
+      "ALTER TABLE items ADD COLUMN hardcover_book_id INTEGER DEFAULT NULL"
+    ],
+    [
+      8,
+      "Add hardcover_edition_id column",
+      "ALTER TABLE items ADD COLUMN hardcover_edition_id INTEGER DEFAULT NULL"
+    ],
+    [
+      9,
+      "Add hardcover_user_book_id column",
+      "ALTER TABLE items ADD COLUMN hardcover_user_book_id INTEGER DEFAULT NULL"
+    ],
+    [
+      10,
+      "Add owned column",
+      "ALTER TABLE items ADD COLUMN owned INTEGER NOT NULL DEFAULT 1"
+    ],
+    [
+      11,
+      "Add platform column",
+      "ALTER TABLE items ADD COLUMN platform TEXT DEFAULT NULL"
+    ],
+    [
+      12,
+      "Add scan_log mode column",
+      "ALTER TABLE scan_log ADD COLUMN mode TEXT DEFAULT 'add'"
+    ],
+    [
+      13,
+      "Add users token_version column",
+      "ALTER TABLE users ADD COLUMN token_version INTEGER NOT NULL DEFAULT 1"
+    ],
+    [
+      14,
+      "Add abs_library_id column",
+      "ALTER TABLE items ADD COLUMN abs_library_id TEXT DEFAULT NULL"
+    ],
+    [
+      15,
+      "Add manual_value column",
+      "ALTER TABLE items ADD COLUMN manual_value REAL DEFAULT NULL"
+    ],
+    [
+      16,
+      "Add series_meta complete column",
+      "ALTER TABLE series_meta ADD COLUMN complete INTEGER DEFAULT NULL"
+    ],
+    [
+      17,
+      "Add series_meta hc_total column",
+      "ALTER TABLE series_meta ADD COLUMN hc_total INTEGER DEFAULT NULL"
+    ],
+    [
+      18,
+      "Add series_meta hc_missing column",
+      "ALTER TABLE series_meta ADD COLUMN hc_missing INTEGER DEFAULT NULL"
+    ],
+    [
+      19,
+      "Add series_meta hc_checked_at column",
+      "ALTER TABLE series_meta ADD COLUMN hc_checked_at TEXT DEFAULT NULL"
+    ],
+    [
+      20,
+      "Canonicalize UPC codes to EAN-13",
+      "UPDATE items SET upc = '0' || upc\n        WHERE upc IS NOT NULL AND length(upc) = 12\n          AND NOT EXISTS (SELECT 1 FROM items o\n                          WHERE o.upc = '0' || items.upc\n                            AND o.media_type = items.media_type)"
+    ],
+    [
+      21,
+      "Re-file UPC barcodes stored in the isbn column",
+      "UPDATE items SET upc = isbn, isbn = NULL, isbn10 = NULL\n        WHERE upc IS NULL AND isbn IS NOT NULL AND length(isbn) = 13\n          AND isbn NOT LIKE '978%' AND isbn NOT LIKE '979%'\n          AND NOT EXISTS (SELECT 1 FROM items o\n                          WHERE o.upc = items.isbn\n                            AND o.media_type = items.media_type)"
+    ],
+    [
+      22,
+      "Add language column",
+      "ALTER TABLE items ADD COLUMN language TEXT DEFAULT NULL"
+    ],
+    [
+      23,
+      "Backfill language from ISBN registration group",
+      "UPDATE items SET language = CASE\n            WHEN substr(isbn, 1, 5) = '97910' THEN 'fr'\n            WHEN substr(isbn, 1, 5) = '97884' THEN 'es'\n            WHEN substr(isbn, 1, 5) = '97885' THEN 'pt'\n            WHEN substr(isbn, 1, 5) = '97887' THEN 'da'\n            WHEN substr(isbn, 1, 5) = '97888' THEN 'it'\n            WHEN substr(isbn, 1, 5) = '97912' THEN 'it'\n            WHEN substr(isbn, 1, 5) = '97890' THEN 'nl'\n            WHEN substr(isbn, 1, 5) = '97891' THEN 'sv'\n            WHEN substr(isbn, 1, 5) = '97911' THEN 'ko'\n            WHEN substr(isbn, 1, 4) = '9780' THEN 'en'\n            WHEN substr(isbn, 1, 4) = '9781' THEN 'en'\n            WHEN substr(isbn, 1, 4) = '9798' THEN 'en'\n            WHEN substr(isbn, 1, 4) = '9782' THEN 'fr'\n            WHEN substr(isbn, 1, 4) = '9783' THEN 'de'\n            WHEN substr(isbn, 1, 4) = '9784' THEN 'ja'\n            WHEN substr(isbn, 1, 4) = '9785' THEN 'ru'\n            WHEN substr(isbn, 1, 4) = '9787' THEN 'zh'\n            ELSE NULL\n        END\n        WHERE language IS NULL AND isbn IS NOT NULL"
+    ],
+    [
+      24,
+      "Add komga_id column",
+      "ALTER TABLE items ADD COLUMN komga_id TEXT DEFAULT NULL"
+    ],
+    [
+      25,
+      "Add komga_library_id column",
+      "ALTER TABLE items ADD COLUMN komga_library_id TEXT DEFAULT NULL"
+    ],
+    [
+      26,
+      "Add komga_series_id column",
+      "ALTER TABLE items ADD COLUMN komga_series_id TEXT DEFAULT NULL"
+    ],
+    [
+      27,
+      "Index Komga item IDs",
+      "CREATE INDEX IF NOT EXISTS idx_items_komga_id ON items(komga_id)"
+    ],
+    [
+      28,
+      "Add romm_id column",
+      "ALTER TABLE items ADD COLUMN romm_id TEXT DEFAULT NULL"
+    ],
+    [
+      29,
+      "Add romm_platform_id column",
+      "ALTER TABLE items ADD COLUMN romm_platform_id TEXT DEFAULT NULL"
+    ],
+    [
+      30,
+      "Index RomM item IDs",
+      "CREATE INDEX IF NOT EXISTS idx_items_romm_id ON items(romm_id)"
+    ],
+    [
+      31,
+      "Add Discogs master ID",
+      "ALTER TABLE music_releases ADD COLUMN discogs_master_id INTEGER DEFAULT NULL"
+    ],
+    [
+      32,
+      "Add Discogs label",
+      "ALTER TABLE music_releases ADD COLUMN discogs_label TEXT DEFAULT NULL"
+    ],
+    [
+      33,
+      "Add Discogs catalogue number",
+      "ALTER TABLE music_releases ADD COLUMN discogs_catalog_number TEXT DEFAULT NULL"
+    ],
+    [
+      34,
+      "Add Discogs format summary",
+      "ALTER TABLE music_releases ADD COLUMN discogs_format_summary TEXT DEFAULT NULL"
+    ],
+    [
+      35,
+      "Add Discogs genres",
+      "ALTER TABLE music_releases ADD COLUMN discogs_genres TEXT DEFAULT NULL"
+    ],
+    [
+      36,
+      "Add Discogs styles",
+      "ALTER TABLE music_releases ADD COLUMN discogs_styles TEXT DEFAULT NULL"
+    ],
+    [
+      37,
+      "Add Discogs notes",
+      "ALTER TABLE music_releases ADD COLUMN discogs_notes TEXT DEFAULT NULL"
+    ],
+    [
+      38,
+      "Add Discogs cache timestamp",
+      "ALTER TABLE music_releases ADD COLUMN discogs_updated_at TEXT DEFAULT NULL"
+    ],
+    [
+      39,
+      "Add music identifier source",
+      "ALTER TABLE music_identifiers ADD COLUMN source TEXT NOT NULL DEFAULT 'manual'"
+    ],
+    [
+      40,
+      "Add item-series membership table",
+      "CREATE TABLE IF NOT EXISTS item_series (\n        item_id INTEGER NOT NULL REFERENCES items(id) ON DELETE CASCADE,\n        series_name TEXT NOT NULL COLLATE NOCASE,\n        position REAL,\n        is_primary INTEGER NOT NULL DEFAULT 0,\n        created_at TEXT NOT NULL DEFAULT (datetime('now')),\n        PRIMARY KEY (item_id, series_name)\n    )"
+    ],
+    [
+      41,
+      "Index item-series names",
+      "CREATE INDEX IF NOT EXISTS idx_item_series_name ON item_series(series_name COLLATE NOCASE)"
+    ],
+    [
+      42,
+      "Backfill primary item-series memberships",
+      "INSERT INTO item_series (item_id, series_name, position, is_primary)\n        SELECT id, TRIM(series_name), series_position, 1 FROM items\n        WHERE series_name IS NOT NULL AND TRIM(series_name) != ''\n        ON CONFLICT(item_id, series_name) DO UPDATE SET\n            position = excluded.position, is_primary = 1"
+    ],
+    [
+      43,
+      "Add collections table",
+      "CREATE TABLE IF NOT EXISTS collections (\n        id INTEGER PRIMARY KEY AUTOINCREMENT,\n        name TEXT NOT NULL UNIQUE COLLATE NOCASE,\n        description TEXT,\n        created_at TEXT NOT NULL DEFAULT (datetime('now')),\n        updated_at TEXT NOT NULL DEFAULT (datetime('now'))\n    )"
+    ],
+    [
+      44,
+      "Add collection item membership table",
+      "CREATE TABLE IF NOT EXISTS collection_items (\n        collection_id INTEGER NOT NULL REFERENCES collections(id) ON DELETE CASCADE,\n        item_id INTEGER NOT NULL REFERENCES items(id) ON DELETE CASCADE,\n        created_at TEXT NOT NULL DEFAULT (datetime('now')),\n        PRIMARY KEY (collection_id, item_id)\n    )"
+    ],
+    [
+      45,
+      "Index collection item memberships",
+      "CREATE INDEX IF NOT EXISTS idx_collection_items_item ON collection_items(item_id)"
+    ],
+    [
+      46,
+      "Add confirmed legacy book barcode mappings",
+      "CREATE TABLE IF NOT EXISTS legacy_book_mappings (\n            barcode      TEXT PRIMARY KEY,\n            isbn13       TEXT NOT NULL,\n            confirmed_at TEXT NOT NULL DEFAULT (datetime('now')),\n            CHECK(length(barcode) = 17 AND barcode NOT GLOB '*[^0-9]*'),\n            CHECK(length(isbn13) = 13\n                  AND isbn13 NOT GLOB '*[^0-9]*'\n                  AND substr(isbn13, 1, 3) IN ('978', '979'))\n        )"
+    ],
+    [
+      48,
+      "Add per-user item state table",
+      "CREATE TABLE IF NOT EXISTS user_item_state (\n    user_id         INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,\n    item_id         INTEGER NOT NULL REFERENCES items(id) ON DELETE CASCADE,\n    reading_status  TEXT CHECK(reading_status IS NULL OR reading_status IN ('want_to_read','reading','read')),\n    date_started    TEXT,\n    date_finished   TEXT,\n    rating          INTEGER CHECK(rating IS NULL OR (rating >= 1 AND rating <= 5)),\n    wishlist        INTEGER NOT NULL DEFAULT 0 CHECK(wishlist IN (0,1)),\n    favourite       INTEGER NOT NULL DEFAULT 0 CHECK(favourite IN (0,1)),\n    personal_notes  TEXT,\n    progress_value  REAL,\n    progress_total  REAL,\n    progress_unit   TEXT,\n    created_at      TEXT NOT NULL DEFAULT (datetime('now')),\n    updated_at      TEXT NOT NULL DEFAULT (datetime('now')),\n    PRIMARY KEY (user_id, item_id)\n)"
+    ],
+    [
+      49,
+      "Index per-user item state by item",
+      "CREATE INDEX IF NOT EXISTS idx_user_item_state_item ON user_item_state(item_id)"
+    ],
+    [
+      50,
+      "Index per-user consumption status",
+      "CREATE INDEX IF NOT EXISTS idx_user_item_state_status ON user_item_state(user_id, reading_status)"
+    ],
+    [
+      51,
+      "Index per-user wishlist",
+      "CREATE INDEX IF NOT EXISTS idx_user_item_state_wishlist ON user_item_state(user_id, wishlist)"
+    ],
+    [
+      52,
+      "Index per-user favourites",
+      "CREATE INDEX IF NOT EXISTS idx_user_item_state_favourite ON user_item_state(user_id, favourite)"
+    ],
+    [
+      53,
+      "Add per-user reading history table",
+      "CREATE TABLE IF NOT EXISTS user_reading_log (\n    id            INTEGER PRIMARY KEY AUTOINCREMENT,\n    user_id       INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,\n    item_id       INTEGER NOT NULL REFERENCES items(id) ON DELETE CASCADE,\n    status        TEXT NOT NULL,\n    date_started  TEXT,\n    date_finished TEXT,\n    notes         TEXT,\n    created_at    TEXT NOT NULL DEFAULT (datetime('now'))\n)"
+    ],
+    [
+      54,
+      "Index per-user reading history",
+      "CREATE INDEX IF NOT EXISTS idx_user_reading_log_user_item ON user_reading_log(user_id, item_id)"
+    ],
+    [
+      55,
+      "Snapshot legacy item state for existing users",
+      "\n        INSERT OR IGNORE INTO user_item_state (\n            user_id, item_id, reading_status, date_started, date_finished,\n            wishlist, favourite\n        )\n        SELECT u.id, i.id, i.reading_status, i.date_started, i.date_finished,\n               CASE WHEN i.owned = 0 THEN 1 ELSE 0 END, 0\n          FROM users u\n          CROSS JOIN items i\n         WHERE i.reading_status IS NOT NULL\n            OR i.date_started IS NOT NULL\n            OR i.date_finished IS NOT NULL\n            OR i.owned = 0\n    "
+    ],
+    [
+      56,
+      "Snapshot legacy reading history for existing users",
+      "\n        INSERT INTO user_reading_log (\n            user_id, item_id, status, date_started, date_finished, notes, created_at\n        )\n        SELECT u.id, r.item_id, r.status, r.date_started, r.date_finished,\n               r.notes, r.created_at\n          FROM users u\n          CROSS JOIN reading_log r\n    "
+    ],
+    [
+      57,
+      "Add Shelf libraries",
+      "CREATE TABLE IF NOT EXISTS libraries (\n    id            INTEGER PRIMARY KEY AUTOINCREMENT,\n    name          TEXT NOT NULL UNIQUE COLLATE NOCASE,\n    description   TEXT,\n    is_archived   INTEGER NOT NULL DEFAULT 0 CHECK(is_archived IN (0,1)),\n    created_at    TEXT NOT NULL DEFAULT (datetime('now')),\n    updated_at    TEXT NOT NULL DEFAULT (datetime('now'))\n)"
+    ],
+    [
+      58,
+      "Add per-library user memberships",
+      "CREATE TABLE IF NOT EXISTS library_memberships (\n    library_id    INTEGER NOT NULL REFERENCES libraries(id) ON DELETE CASCADE,\n    user_id       INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,\n    role          TEXT NOT NULL CHECK(role IN ('viewer','editor')),\n    created_at    TEXT NOT NULL DEFAULT (datetime('now')),\n    updated_at    TEXT NOT NULL DEFAULT (datetime('now')),\n    PRIMARY KEY (library_id, user_id)\n)"
+    ],
+    [
+      59,
+      "Add one-library-per-item mapping",
+      "CREATE TABLE IF NOT EXISTS library_items (\n    item_id       INTEGER PRIMARY KEY REFERENCES items(id) ON DELETE CASCADE,\n    library_id    INTEGER NOT NULL REFERENCES libraries(id) ON DELETE RESTRICT,\n    created_at    TEXT NOT NULL DEFAULT (datetime('now'))\n)"
+    ],
+    [
+      60,
+      "Create default Main Library",
+      "INSERT OR IGNORE INTO libraries (id, name, description) VALUES (1, 'Main Library', 'Default library created during upgrade')"
+    ],
+    [
+      61,
+      "Assign existing catalogue items to Main Library",
+      "INSERT OR IGNORE INTO library_items (item_id, library_id) SELECT id, 1 FROM items"
+    ],
+    [
+      62,
+      "Seed Main Library memberships from existing roles",
+      "INSERT OR IGNORE INTO library_memberships (library_id, user_id, role) SELECT 1, id, role FROM users WHERE role IN ('viewer','editor')"
+    ],
+    [
+      63,
+      "Index library memberships by user",
+      "CREATE INDEX IF NOT EXISTS idx_library_memberships_user ON library_memberships(user_id)"
+    ],
+    [
+      64,
+      "Index catalogue items by library",
+      "CREATE INDEX IF NOT EXISTS idx_library_items_library ON library_items(library_id)"
+    ],
+    [
+      65,
+      "Add connected-service series metadata",
+      "CREATE TABLE IF NOT EXISTS series_provider_meta (\n    provider              TEXT NOT NULL,\n    provider_series_id    TEXT NOT NULL,\n    series_name           TEXT NOT NULL COLLATE NOCASE,\n    kind                  TEXT NOT NULL DEFAULT 'series'\n                          CHECK(kind IN ('series','franchise')),\n    description           TEXT,\n    publisher             TEXT,\n    status                TEXT,\n    age_rating            TEXT,\n    total_items           INTEGER,\n    total_duration_mins   INTEGER,\n    metadata_json         TEXT,\n    updated_at            TEXT NOT NULL DEFAULT (datetime('now')),\n    PRIMARY KEY (provider, provider_series_id)\n)"
+    ],
+    [
+      66,
+      "Index connected-service series names",
+      "CREATE INDEX IF NOT EXISTS idx_series_provider_meta_name ON series_provider_meta(series_name COLLATE NOCASE)"
+    ]
+  ],
+  "origin": "main",
+  "commit": "43e244f542c787585187dfb862d64f5539878cae",
+  "sources": {
+    "app/database.py": "5e487a500bb043739ac0da13bd4a249b00f471aea006323b268cddfb16031597",
+    "app/services/user_state.py": "6ba2c3e57d91ec8f6d43d8e169a338800d3a49172f494d9b84519c204cee7995",
+    "app/services/libraries.py": "c0a0127f6e3fc3f384e20b9815e657c6d892ebe541ceb0288378cb10943c0310",
+    "app/services/provider_series.py": "04d71033d65bc5a3bd348589a2a43e00fcff54a74829ad623c0c7f4e44080016",
+    "app/services/holdings.py": "83ea69cc1072a5bf85f603b18741fc465ce59c8b111c8b085504760475a0a7bb"
+  },
+  "FOUNDATION_STATEMENTS": [
+    "CREATE TABLE IF NOT EXISTS location_nodes (\n        id                 INTEGER PRIMARY KEY AUTOINCREMENT,\n        parent_id          INTEGER REFERENCES location_nodes(id) ON DELETE RESTRICT,\n        name               TEXT NOT NULL,\n        sort_order         INTEGER NOT NULL DEFAULT 0,\n        legacy_location_id INTEGER UNIQUE REFERENCES locations(id) ON DELETE SET NULL,\n        created_at         TEXT NOT NULL DEFAULT (datetime('now')),\n        updated_at         TEXT NOT NULL DEFAULT (datetime('now'))\n    )",
+    "CREATE UNIQUE INDEX IF NOT EXISTS idx_location_nodes_root_name\n       ON location_nodes(name COLLATE NOCASE) WHERE parent_id IS NULL",
+    "CREATE UNIQUE INDEX IF NOT EXISTS idx_location_nodes_child_name\n       ON location_nodes(parent_id, name COLLATE NOCASE) WHERE parent_id IS NOT NULL",
+    "CREATE INDEX IF NOT EXISTS idx_location_nodes_parent\n       ON location_nodes(parent_id, sort_order, name COLLATE NOCASE)",
+    "CREATE TABLE IF NOT EXISTS item_copies (\n        id                INTEGER PRIMARY KEY AUTOINCREMENT,\n        item_id           INTEGER NOT NULL REFERENCES items(id) ON DELETE CASCADE,\n        copy_number       INTEGER NOT NULL DEFAULT 1,\n        location_id       INTEGER REFERENCES location_nodes(id) ON DELETE SET NULL,\n        position_order    INTEGER,\n        condition         TEXT,\n        notes             TEXT,\n        acquired_date     TEXT,\n        acquisition_price REAL,\n        copy_barcode      TEXT UNIQUE,\n        is_primary        INTEGER NOT NULL DEFAULT 0 CHECK(is_primary IN (0, 1)),\n        created_at        TEXT NOT NULL DEFAULT (datetime('now')),\n        updated_at        TEXT NOT NULL DEFAULT (datetime('now')),\n        UNIQUE(item_id, copy_number)\n    )",
+    "CREATE INDEX IF NOT EXISTS idx_item_copies_item ON item_copies(item_id)",
+    "CREATE INDEX IF NOT EXISTS idx_item_copies_location\n       ON item_copies(location_id, position_order, id)",
+    "CREATE TABLE IF NOT EXISTS digital_holdings (\n        id          INTEGER PRIMARY KEY AUTOINCREMENT,\n        item_id     INTEGER NOT NULL REFERENCES items(id) ON DELETE CASCADE,\n        provider    TEXT NOT NULL,\n        external_id TEXT NOT NULL,\n        library_id  TEXT,\n        format      TEXT,\n        source_url  TEXT,\n        created_at  TEXT NOT NULL DEFAULT (datetime('now')),\n        updated_at  TEXT NOT NULL DEFAULT (datetime('now')),\n        UNIQUE(item_id, provider, external_id)\n    )",
+    "CREATE INDEX IF NOT EXISTS idx_digital_holdings_item ON digital_holdings(item_id)",
+    "CREATE INDEX IF NOT EXISTS idx_digital_holdings_provider\n       ON digital_holdings(provider, external_id)",
+    "CREATE TABLE IF NOT EXISTS periodical_publications (\n        id         INTEGER PRIMARY KEY AUTOINCREMENT,\n        title      TEXT NOT NULL,\n        issn       TEXT UNIQUE COLLATE NOCASE,\n        publisher  TEXT,\n        language   TEXT,\n        created_at TEXT NOT NULL DEFAULT (datetime('now')),\n        updated_at TEXT NOT NULL DEFAULT (datetime('now'))\n    )",
+    "CREATE INDEX IF NOT EXISTS idx_periodical_publications_title\n       ON periodical_publications(title COLLATE NOCASE)",
+    "CREATE TABLE IF NOT EXISTS periodical_issues (\n        item_id             INTEGER PRIMARY KEY REFERENCES items(id) ON DELETE CASCADE,\n        publication_id      INTEGER NOT NULL REFERENCES periodical_publications(id) ON DELETE CASCADE,\n        volume              TEXT,\n        issue_number        TEXT,\n        issue_date          TEXT,\n        barcode_supplement  TEXT,\n        cover_date_label    TEXT,\n        created_at          TEXT NOT NULL DEFAULT (datetime('now')),\n        updated_at          TEXT NOT NULL DEFAULT (datetime('now'))\n    )",
+    "CREATE INDEX IF NOT EXISTS idx_periodical_issues_publication\n       ON periodical_issues(publication_id, issue_date, issue_number)"
+  ]
+}

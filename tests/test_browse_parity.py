@@ -2,7 +2,7 @@
 first fragment.
 
 Both routes now derive their filter values, WHERE clause and dropdown counts
-from `app/browse_filters.py` and `items_common.filter_counts` (see that
+from `app/browse_filters.py` and `browse_counts.filter_counts` (see that
 module's docstring and G24 in GOTCHAS.md). These tests pin the contract: the
 same query string must produce the same dropdown options, the same result
 set, the same `q` truncation, and no duplicated filter markup on `/browse`'s
@@ -13,7 +13,7 @@ import re
 
 import pytest
 
-from tests.conftest import _insert_borrower, _insert_item, _insert_location
+from tests.conftest import _assert_ownership_partition, _insert_borrower, _insert_item, _insert_location
 
 SELECT_IDS = ("type-filter", "owned-filter", "location-filter", "reading-status-filter")
 
@@ -28,7 +28,7 @@ def _opts(html, sel_id):
 
 
 @pytest.fixture
-def seeded_library(db):
+def seeded_library(db, admin_user):
     """One fixture library exercising every dimension the parity claim spans.
 
     Two media types, two locations plus an unlocated item, a wishlist item, an
@@ -43,7 +43,7 @@ def seeded_library(db):
 
     _insert_item(
         db, title="Book Read", isbn="9780000010018", media_type="book",
-        location_id=loc_a, reading_status="read", language="eng",
+        location_id=loc_a, reading_status="read", language="eng", personal_user_id=admin_user["id"],
     )
     _insert_item(
         db, title="Book Two", isbn="9780000010025", media_type="book",
@@ -59,8 +59,17 @@ def seeded_library(db):
     _insert_item(
         db, title="DVD Two", isbn="9780000020024", media_type="dvd",
     )
-    _insert_item(
+    wishlist = _insert_item(
         db, title="Wishlist Book", isbn="9780000030016", media_type="book",
+        owned=0, wishlisted=True,
+        personal_user_id=admin_user["id"], personal_state={"wishlist": 1},
+    )
+    shared_only = _insert_item(
+        db, title="Shared Wishlist Only", isbn=None, media_type="book",
+        owned=0, wishlisted=True,
+    )
+    neither = _insert_item(
+        db, title="Neither Book", isbn="9780000060013", media_type="book",
         owned=0,
     )
     deu = _insert_item(
@@ -84,13 +93,16 @@ def seeded_library(db):
     )
 
     db.commit()
-    return {"loc_a": loc_a, "loc_b": loc_b, "tagged": tagged, "deu": deu}
+    return {"loc_a": loc_a, "loc_b": loc_b, "tagged": tagged, "deu": deu,
+            "wishlist": wishlist, "shared_only": shared_only, "neither": neither}
 
 
 QUERYSTRINGS = [
     "",
     "owned=0",
     "owned=1",
+    "owned=none",
+    "owned=none&media_type_filter=book",
     "media_type_filter=dvd",
     # location_filter is filled in per-test from the seeded loc_a id.
     "reading_status=read",
@@ -126,7 +138,8 @@ def test_dropdown_parity_location_filter(admin_client, seeded_library):
 
 
 @pytest.mark.parametrize("qs", QUERYSTRINGS)
-def test_result_set_parity(admin_client, seeded_library, qs):
+def test_result_set_parity(admin_client, seeded_library, db, qs):
+    _assert_ownership_partition(db)
     b = admin_client.get(f"/browse?{qs}")
     s = admin_client.get(f"/api/search?{qs}")
     assert b.status_code == 200
@@ -156,6 +169,64 @@ def test_result_set_parity_location_filter(admin_client, seeded_library):
     assert b_cards > 0, (qs, b.text[:400])
 
 
+@pytest.mark.parametrize("path", ["/browse", "/api/search"])
+def test_owned_zero_uses_the_actors_wishlist_not_shared_membership(
+    admin_client, seeded_library, db, admin_user, path,
+):
+    """D4: preserve acquisition membership and neither, without adopting them."""
+    from app.services import lists
+
+    for name in ("wishlist", "shared_only"):
+        assert lists.is_member(db, lists.WISHLIST, seeded_library[name])
+    assert not lists.is_member(db, lists.WISHLIST, seeded_library["neither"])
+    assert db.execute(
+        "SELECT wishlist FROM user_item_state WHERE user_id = ? AND item_id = ?",
+        (admin_user["id"], seeded_library["wishlist"]),
+    ).fetchone()[0] == 1
+    assert db.execute(
+        "SELECT 1 FROM user_item_state WHERE user_id = ? AND item_id = ?",
+        (admin_user["id"], seeded_library["shared_only"]),
+    ).fetchone() is None
+
+    response = admin_client.get(path, params={"owned": "0"})
+    assert response.status_code == 200
+    ids = {int(value) for value in re.findall(r'data-item-id="(\d+)"', response.text)}
+    assert ids == {seeded_library["wishlist"]}
+    assert "Shared Wishlist Only" not in response.text
+    assert "Neither Book" not in response.text
+
+
+def test_location_filter_none_lists_only_unlocated_items(admin_client, seeded_library):
+    """"No location" is how an item that was never filed gets found and bulk
+    moved. Both routes must agree, return exactly the unlocated items, and
+    offer the option with the matching count."""
+    qs = "location_filter=none"
+    b = admin_client.get(f"/browse?{qs}")
+    s = admin_client.get(f"/api/search?{qs}")
+    for resp in (b, s):
+        assert resp.status_code == 200
+        assert "Book Unlocated" in resp.text
+        assert "DVD Two" in resp.text
+        assert "Book Two" not in resp.text  # has a location
+        assert "DVD One" not in resp.text
+    for sel in SELECT_IDS:
+        assert _opts(b.text, sel) == _opts(s.text, sel), sel
+    # The count is every unfiled item under the other filters (the wishlist
+    # and not-owned fixtures have no location either), so match any number.
+    assert re.search(r'<option value="none"\s+selected>\s*No location \(\d+\)', b.text)
+    assert any(o.startswith("No location (") for o in _opts(s.text, "location-filter"))
+
+
+def test_location_filter_offers_no_location_only_when_some_exist(admin_client, db):
+    loc = _insert_location(db, "Shelf A")
+    _insert_item(db, title="Filed", isbn="9780000010018", media_type="book",
+                 location_id=loc)
+    db.commit()
+    # Not `value="none"`: the Owned filter's "Not owned or wishlisted" uses it too.
+    opts = _opts(admin_client.get("/browse").text, "location-filter")
+    assert not any(o.startswith("No location") for o in opts), opts
+
+
 def test_q_truncation(admin_client, db, monkeypatch):
     # `q` truncation is enforced *before* the search hits the DB, so a query
     # long enough to trigger it can never literally appear as a substring of
@@ -181,11 +252,13 @@ def test_q_truncation(admin_client, db, monkeypatch):
     resp = admin_client.get(f"/browse?q={long_q}")
     html = resp.text
 
-    # The single responsive search control must carry the truncated value.
+    # D6: one real responsive control carrying the same truncated query.
     values = re.findall(
-        r'<input[^>]*type="search"[^>]*name="q"[^>]*value="([^"]*)"', html
+        r'<input type="search" name="q"[^>]*value="([^"]*)"', html
     )
-    assert values == [truncated], values
+    assert len(values) == 1, values
+    for v in values:
+        assert v == truncated, v
 
     # The load-more URL's q= must also be truncated.
     load_more_urls = re.findall(r'hx-get="(/api/search\?[^"]*)"', html)
@@ -194,6 +267,42 @@ def test_q_truncation(admin_client, db, monkeypatch):
     for url in q_bearing:
         m = re.search(r"q=([^&]*)", url)
         assert m and m.group(1) == truncated, url
+
+
+def test_tags_lookup_runs_once_per_request(admin_client, seeded_library, monkeypatch):
+    """T6: the Browse list view's Tags column feeds every row's chips from
+    one `tags_svc.tags_for_items` call -- never a per-row `item_tags` query.
+    The wrapper counts calls; `item_row.html` makes none of its own, so one
+    call per request is the whole contract.
+    """
+    from app.routers import pages as pages_module
+    from app.services import tags as tags_svc
+
+    real_tags_for_items = tags_svc.tags_for_items
+    calls = []
+
+    def counting_wrapper(db, ids):
+        calls.append(list(ids))
+        return real_tags_for_items(db, ids)
+
+    monkeypatch.setattr(tags_svc, "tags_for_items", counting_wrapper)
+    # `/browse` reads DEFAULT_PAGE_SIZE from
+    # the module at call time, so patching it here is enough; `search_items`'s
+    # `per_page` is a FastAPI parameter default bound once at def time (the
+    # "Config import trap" in CLAUDE.md), so /api/search gets an explicit
+    # per_page= instead -- either way, non-empty rows land on both pages.
+    monkeypatch.setattr(pages_module, "DEFAULT_PAGE_SIZE", 3)
+
+    for url in (
+        "/browse?view=list",
+        "/api/search?view=list&page=1&per_page=3",
+        "/api/search?view=list&page=2&per_page=3",
+    ):
+        calls.clear()
+        resp = admin_client.get(url)
+        assert resp.status_code == 200, url
+        assert len(calls) == 1, (url, calls)
+        assert calls[0], (url, "expected a non-empty id list")
 
 
 def test_no_duplicate_ids_on_initial_render(admin_client, seeded_library):
@@ -251,3 +360,94 @@ def test_an_uncastable_location_filter_does_not_500(
     r = admin_client.get(f"{path}?location_filter={value}")
     assert r.status_code == 200
     assert "Book Read" not in r.text
+
+
+# -- the author filter (#117b) ----------------------------------------------
+
+@pytest.fixture
+def authored(db, seeded_library):
+    """Index authors onto three seeded items through the write funnel, plus a
+    trashed item by the same author, and an author whose only item is trashed."""
+    from app.services.item_write import trash_item, update_item_fields
+
+    ids = {r["title"]: r["id"] for r in db.execute("SELECT id, title FROM items")}
+    update_item_fields(db, ids["Book Read"], {"authors": "Ann Author, Bob Other"})
+    update_item_fields(db, ids["DVD One"], {"authors": "Ann Author"})
+    update_item_fields(db, ids["Book Two"], {"authors": "Bob Other"})
+    gone = _insert_item(db, title="Trashed Ann", isbn="9780000070012")
+    update_item_fields(db, gone, {"authors": "Ann Author, Only Trashed"})
+    assert trash_item(db, gone)
+    db.commit()
+    author = {r["name"]: r["id"] for r in db.execute("SELECT id, name FROM authors")}
+    return {"ann": author["Ann Author"], "only_trashed": author["Only Trashed"],
+            "loc_a": seeded_library["loc_a"]}
+
+
+def _titles(html):
+    return {t for t in ("Book Read", "DVD One", "Book Two", "Trashed Ann",
+                        "Book Unlocated", "Signed Copy") if t in html}
+
+
+@pytest.mark.parametrize("path", ["/browse", "/api/search"])
+def test_author_filter_returns_that_authors_live_items(admin_client, authored, path):
+    html = admin_client.get(f"{path}?author_filter={authored['ann']}").text
+    assert _titles(html) == {"Book Read", "DVD One"}
+
+
+@pytest.mark.parametrize("path", ["/browse", "/api/search"])
+def test_author_filter_combines_with_type_and_location(admin_client, authored, path):
+    ann = authored["ann"]
+    assert _titles(admin_client.get(
+        f"{path}?author_filter={ann}&media_type_filter=dvd").text) == {"DVD One"}
+    assert _titles(admin_client.get(
+        f"{path}?author_filter={ann}&location_filter={authored['loc_a']}").text
+    ) == {"Book Read", "DVD One"}
+    assert _titles(admin_client.get(
+        f"{path}?author_filter={ann}&media_type_filter=book&location_filter="
+        f"{authored['loc_a']}").text) == {"Book Read"}
+
+
+@pytest.mark.parametrize("path", ["/browse", "/api/search"])
+@pytest.mark.parametrize("value", ["abc", "9" * 20, "99999", "only_trashed"])
+def test_author_filter_bad_unknown_or_trashed_only_is_an_empty_200(
+    admin_client, authored, path, value
+):
+    if value == "only_trashed":
+        value = authored["only_trashed"]
+    r = admin_client.get(f"{path}?author_filter={value}")
+    assert r.status_code == 200
+    assert _titles(r.text) == set()
+
+
+def test_author_filter_parity(admin_client, authored):
+    qs = f"author_filter={authored['ann']}"
+    b = admin_client.get(f"/browse?{qs}").text
+    s = admin_client.get(f"/api/search?{qs}").text
+    for sel in SELECT_IDS:
+        assert _opts(b, sel) == _opts(s, sel), sel
+    cards = len(re.findall(r"data-item-id=", b))
+    assert cards == len(re.findall(r"data-item-id=", s)) and cards > 0
+
+
+def test_browse_renders_the_author_control_with_its_name(admin_client, authored):
+    html = admin_client.get(f"/browse?author_filter={authored['ann']}").text
+    tag = re.search(r'<input type="hidden" name="author_filter"[^>]*>', html, re.S).group(0)
+    assert f'value="{authored["ann"]}"' in tag
+    assert 'data-label="Ann Author"' in tag
+    # Unfiltered: an empty control, still wired to its own request (G54).
+    bare = admin_client.get("/browse").text
+    tag = re.search(r'<input type="hidden" name="author_filter"[^>]*>', bare, re.S).group(0)
+    assert 'value=""' in tag and 'data-label=""' in tag
+    assert 'hx-get="/api/search"' in tag and 'hx-target="#item-grid"' in tag
+
+
+def test_author_label_is_escaped(admin_client, db, seeded_library):
+    from app.services.item_write import update_item_fields
+
+    item = db.execute("SELECT id FROM items WHERE title = 'Book Two'").fetchone()[0]
+    update_item_fields(db, item, {"authors": '<b>"Evil"</b>'})
+    db.commit()
+    author = db.execute("SELECT id FROM authors").fetchone()[0]
+    html = admin_client.get(f"/browse?author_filter={author}").text
+    assert "<b>\"Evil\"</b>" not in html
+    assert "&lt;b&gt;" in html

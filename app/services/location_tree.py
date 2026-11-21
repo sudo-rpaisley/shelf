@@ -1,177 +1,151 @@
-"""Queries and ordering helpers for hierarchical physical locations."""
+"""Explicit NODE-domain queries and LEGACY-flat conversion adapters."""
 
+import sqlite3
 from collections import defaultdict
+
+
+def validated_node_id(db, node_id: int | None) -> int | None:
+    from app.services.write_targets import UnknownLocationError
+
+    if node_id is None:
+        return None
+    if isinstance(node_id, bool) or not isinstance(node_id, int) or node_id <= 0:
+        raise UnknownLocationError("Invalid location", value=node_id)
+    if node_id >= 2**63 or not db.execute("SELECT 1 FROM location_nodes WHERE id = ?", (node_id,)).fetchone():
+        raise UnknownLocationError("Location not found", value=node_id)
+    return node_id
+
+
+def legacy_location_to_node(db, legacy_location_id: int | None, *,
+                             create: bool = False) -> int | None:
+    """Map a LEGACY flat ID by legacy_location_id only; never by integer/name.
+
+    ``create=True`` explicitly projects a newly added legacy location. It does
+    not install schema or create any copy, and does not claim an unrelated node.
+    """
+    if legacy_location_id is None:
+        return None
+    from app.services.write_targets import UnknownLocationError
+
+    legacy = db.execute(
+        "SELECT id, name, sort_order FROM locations WHERE id = ?", (legacy_location_id,)
+    ).fetchone()
+    if legacy is None:
+        raise UnknownLocationError("Location not found", value=legacy_location_id)
+    node = db.execute(
+        "SELECT id FROM location_nodes WHERE legacy_location_id = ?", (legacy_location_id,)
+    ).fetchone()
+    if node is not None:
+        return node["id"]
+    if not create:
+        return None
+    try:
+        return db.execute(
+            "INSERT INTO location_nodes (name, sort_order, legacy_location_id) VALUES (?, ?, ?)",
+            (legacy["name"], legacy["sort_order"], legacy_location_id),
+        ).lastrowid
+    except sqlite3.IntegrityError as exc:
+        raise ValueError("Legacy location conflicts with an unrelated location node") from exc
+
+
+def location_path(db, location_id: int | None) -> list[dict]:
+    """NODE ancestry, bounded even for externally corrupted cyclic data."""
+    result, seen = [], set()
+    while location_id is not None and location_id not in seen:
+        seen.add(location_id)
+        row = db.execute(
+            "SELECT id, parent_id, name, legacy_location_id FROM location_nodes WHERE id = ?",
+            (location_id,),
+        ).fetchone()
+        if row is None:
+            break
+        result.append(dict(row))
+        location_id = row["parent_id"]
+    return list(reversed(result))
+
+
+def node_to_legacy_location(db, node_id: int | None) -> int | None:
+    """Nearest explicitly mapped LEGACY ancestor of a NODE, or None."""
+    if node_id is None:
+        return None
+    validated_node_id(db, node_id)
+    for row in reversed(location_path(db, node_id)):
+        if row["legacy_location_id"] is not None:
+            return row["legacy_location_id"]
+    return None
+
+
+nearest_legacy_location = node_to_legacy_location
 
 
 def location_rows(db) -> list[dict]:
     rows = db.execute(
         "SELECT n.id, n.parent_id, n.name, n.sort_order, n.legacy_location_id, "
-        "COUNT(DISTINCT c.id) AS direct_copy_count "
-        "FROM location_nodes n "
-        "LEFT JOIN item_copies c ON c.location_id = n.id "
-        "GROUP BY n.id, n.parent_id, n.name, n.sort_order, n.legacy_location_id "
-        "ORDER BY n.sort_order, n.name COLLATE NOCASE, n.id"
+        "COUNT(DISTINCT c.id) AS direct_copy_count FROM location_nodes n "
+        "LEFT JOIN copies_live c ON c.location_id = n.id "
+        "GROUP BY n.id ORDER BY n.sort_order, n.name COLLATE NOCASE, n.id"
     ).fetchall()
     return [dict(row) for row in rows]
 
 
 def flattened_tree(db) -> list[dict]:
-    """Return nodes in display order with depth/path and aggregate copy counts."""
     rows = location_rows(db)
     by_id = {row["id"]: row for row in rows}
-    children: dict[int | None, list[dict]] = defaultdict(list)
+    children = defaultdict(list)
     for row in rows:
         children[row["parent_id"]].append(row)
 
-    aggregate: dict[int, int] = {}
-
-    def total(node_id: int, seen: set[int]) -> int:
-        if node_id in aggregate:
-            return aggregate[node_id]
-        if node_id in seen:  # corrupted legacy/manual SQL should not recurse forever
+    def total(node_id, seen):
+        if node_id in seen:
             return 0
-        next_seen = seen | {node_id}
-        value = by_id[node_id]["direct_copy_count"] + sum(
-            total(child["id"], next_seen) for child in children.get(node_id, [])
+        return by_id[node_id]["direct_copy_count"] + sum(
+            total(child["id"], seen | {node_id}) for child in children[node_id]
         )
-        aggregate[node_id] = value
-        return value
 
-    result: list[dict] = []
+    result, emitted = [], set()
 
-    def walk(node: dict, depth: int, path: list[str], seen: set[int]) -> None:
-        if node["id"] in seen:
+    def walk(node, ancestors, names):
+        if node["id"] in emitted:
             return
-        current_path = [*path, node["name"]]
+        emitted.add(node["id"])
+        names = [*names, node["name"]]
         result.append({
-            **node,
-            "depth": depth,
-            "path": " › ".join(current_path),
+            **node, "location_node_id": node["id"], "label": node["name"],
+            "depth": len(ancestors), "ancestor_ids": ancestors,
+            "path": " › ".join(names), "full_path": " / ".join(names),
             "copy_count": total(node["id"], set()),
         })
-        next_seen = seen | {node["id"]}
-        for child in children.get(node["id"], []):
-            walk(child, depth + 1, current_path, next_seen)
+        for child in children[node["id"]]:
+            walk(child, [*ancestors, node["id"]], names)
 
-    for root in children.get(None, []):
-        walk(root, 0, [], set())
-
-    # If a database has an orphan/cycle caused by external SQL, still expose it
-    # to an admin instead of making the record disappear from the manager.
-    emitted = {row["id"] for row in result}
+    for root in children[None]:
+        walk(root, [], [])
     for row in rows:
         if row["id"] not in emitted:
-            walk(row, 0, [], set())
+            walk(row, [], [])
     return result
-
-
-def location_path(db, location_id: int) -> list[dict]:
-    rows = db.execute(
-        "WITH RECURSIVE ancestors(id, parent_id, name, depth) AS ("
-        " SELECT id, parent_id, name, 0 FROM location_nodes WHERE id = ?"
-        " UNION ALL "
-        " SELECT n.id, n.parent_id, n.name, a.depth + 1 "
-        " FROM location_nodes n JOIN ancestors a ON a.parent_id = n.id"
-        ") SELECT id, parent_id, name, depth FROM ancestors ORDER BY depth DESC",
-        (location_id,),
-    ).fetchall()
-    return [dict(row) for row in rows]
-
-
-def nearest_legacy_location(db, location_id: int) -> int | None:
-    """Legacy flat location represented by this node or its nearest ancestor."""
-    row = db.execute(
-        "WITH RECURSIVE ancestors(id, parent_id, legacy_location_id, depth) AS ("
-        " SELECT id, parent_id, legacy_location_id, 0 FROM location_nodes WHERE id = ?"
-        " UNION ALL "
-        " SELECT n.id, n.parent_id, n.legacy_location_id, a.depth + 1 "
-        " FROM location_nodes n JOIN ancestors a ON a.parent_id = n.id"
-        ") SELECT legacy_location_id FROM ancestors "
-        "WHERE legacy_location_id IS NOT NULL ORDER BY depth LIMIT 1",
-        (location_id,),
-    ).fetchone()
-    return row["legacy_location_id"] if row else None
 
 
 def descendant_ids(db, location_id: int, *, include_self: bool = True) -> list[int]:
     rows = db.execute(
         "WITH RECURSIVE descendants(id) AS ("
-        " SELECT id FROM location_nodes WHERE id = ?"
-        " UNION ALL "
+        " SELECT id FROM location_nodes WHERE id = ? UNION "
         " SELECT n.id FROM location_nodes n JOIN descendants d ON n.parent_id = d.id"
-        ") SELECT id FROM descendants",
-        (location_id,),
+        ") SELECT id FROM descendants", (location_id,)
     ).fetchall()
-    values = [row["id"] for row in rows]
-    return values if include_self else [value for value in values if value != location_id]
+    return [r["id"] for r in rows if include_self or r["id"] != location_id]
 
 
 def direct_copies(db, location_id: int) -> list[dict]:
-    rows = db.execute(
-        "SELECT c.id AS copy_id, c.copy_number, c.position_order, c.condition, "
-        "c.copy_barcode, i.id AS item_id, i.title, i.authors, i.media_type, "
-        "i.cover_path, i.series_name, i.series_position, i.publish_year, "
-        "mr.release_date, pi.issue_date, pi.issue_number "
-        "FROM item_copies c JOIN items i ON i.id = c.item_id "
-        "LEFT JOIN music_releases mr ON mr.item_id = i.id "
-        "LEFT JOIN periodical_issues pi ON pi.item_id = i.id "
-        "WHERE c.location_id = ? "
-        "ORDER BY CASE WHEN c.position_order IS NULL THEN 1 ELSE 0 END, "
-        "c.position_order, i.title COLLATE NOCASE, c.copy_number, c.id",
-        (location_id,),
-    ).fetchall()
-    return [dict(row) for row in rows]
+    from app.services.location_order import direct_copies as query
+    return query(db, location_id)
 
 
 def apply_copy_order(db, location_id: int, copy_ids: list[int]) -> None:
-    existing = {
-        row["id"] for row in db.execute(
-            "SELECT id FROM item_copies WHERE location_id = ?", (location_id,)
-        ).fetchall()
-    }
-    supplied = set(copy_ids)
-    if len(copy_ids) != len(supplied) or supplied != existing:
-        raise ValueError("Copy order must contain every copy in this location exactly once")
-    for position, copy_id in enumerate(copy_ids, start=1):
-        db.execute(
-            "UPDATE item_copies SET position_order = ?, updated_at = datetime('now') "
-            "WHERE id = ? AND location_id = ?",
-            (position, copy_id, location_id),
-        )
-
-
-_SORT_KEYS = {
-    "title": lambda row: ((row.get("title") or "").casefold(), row["copy_id"]),
-    "author": lambda row: (
-        (row.get("authors") or "").casefold(),
-        (row.get("title") or "").casefold(),
-        row["copy_id"],
-    ),
-    "series": lambda row: (
-        (row.get("series_name") or row.get("title") or "").casefold(),
-        row.get("series_position") if row.get("series_position") is not None else float("inf"),
-        (row.get("title") or "").casefold(),
-        row["copy_id"],
-    ),
-    "release": lambda row: (
-        row.get("release_date") or (str(row["publish_year"]) if row.get("publish_year") else "9999"),
-        (row.get("title") or "").casefold(),
-        row["copy_id"],
-    ),
-    "issue": lambda row: (
-        row.get("issue_date") or "9999",
-        row.get("issue_number") or "",
-        (row.get("title") or "").casefold(),
-        row["copy_id"],
-    ),
-}
+    from app.services.location_order import apply_copy_order as apply
+    apply(db, location_id, copy_ids)
 
 
 def auto_order_copies(db, location_id: int, sort_key: str) -> list[int]:
-    if sort_key not in _SORT_KEYS:
-        raise ValueError("Unknown sort order")
-    copies = direct_copies(db, location_id)
-    ordered = sorted(copies, key=_SORT_KEYS[sort_key])
-    ids = [row["copy_id"] for row in ordered]
-    apply_copy_order(db, location_id, ids)
-    return ids
+    from app.services.location_order import auto_order_copies as arrange
+    return arrange(db, location_id, sort_key)

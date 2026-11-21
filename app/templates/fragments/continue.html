@@ -11,7 +11,7 @@
     <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
         {% for item in continue_items %}
         <article class="flex gap-4 bg-shelf-card border border-shelf-border rounded-xl p-3 min-w-0">
-            <a href="/item/{{ item.id }}?from=home" class="w-12 h-16 shrink-0 bg-shelf-hover rounded overflow-hidden flex items-center justify-center">
+            <a href="/item/{{ item.id }}?from=home" class="w-12 h-16 shrink-0 bg-shelf-hover rounded overflow-hidden flex items-center justify-center" data-cover-shape="{{ cover_shape(item.media_type) }}">
                 {% if item.cover_path %}
                 <img src="/{{ item.cover_path }}" alt="" class="w-full h-full" style="object-fit:contain">
                 {% else %}

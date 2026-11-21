@@ -53,11 +53,16 @@ RESULT_CARD_ARMS: tuple[str, ...] = ENRICH_STATES
 # other card vocabulary rather than in seven clients. A provider absent from
 # this map renders no name, which is what the cascade-wide states want.
 PROVIDER_LABELS = {
+    "librarything": "LibraryThing",
     "openlibrary": "Open Library",
     "hardcover": "Hardcover",
     "google": "Google Books",
+    "bnf": "BnF",
+    "neodb": "NeoDB",
     "dnb": "DNB",
+    "oszk": "OSZK NEKTÁR",
     "sbn": "SBN",
+    "porbase": "PORBASE",
     "tmdb": "TMDb",
     "igdb": "IGDB",
     "upcitemdb": "UPC Item DB",

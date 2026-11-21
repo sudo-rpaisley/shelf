@@ -14,6 +14,7 @@ import pytest
 
 from app.services import cover_queue
 from tests.conftest import _insert_item
+from tests.test_covers_phase4_004 import cover_stages as cover_stages
 
 
 @pytest.fixture
@@ -258,10 +259,10 @@ def test_sole_deferred_job_is_waited_out(monkeypatch, fake_clock):
 # --------------------------------------------------------------------------
 
 
-def test_hints_reach_download_cover(db, monkeypatch):
+def test_hints_reach_download_cover(db, monkeypatch, cover_stages):
     item_id = _insert_item(db, title="Hinted", isbn="9780000000125")
     db.commit()
-    download = AsyncMock(return_value="covers/x.jpg")
+    download = AsyncMock(side_effect=lambda download_id, *args, **kwargs: cover_stages.write(item_id, download_id))
 
     async def scenario():
         from app.services import covers
@@ -278,14 +279,39 @@ def test_hints_reach_download_cover(db, monkeypatch):
         await cover_queue.process_one(None)
 
     asyncio.run(scenario())
-    args, kwargs = download.await_args
-    assert args[0] == item_id
-    assert args[2] == "https://example.test/c.jpg"
-    assert args[3] == 99
-    assert kwargs["hardcover_cover_url"] == "https://hc.test/c.jpg"
+    stage = cover_stages.latest(item_id)
+    download.assert_awaited_once_with(stage.download_id, "9780000000125",
+        "https://example.test/c.jpg", 99, None, hardcover_cover_url="https://hc.test/c.jpg")
+    cover_stages.assert_published(db, item_id, principal=None,
+        kwargs={"edition": None, "user": None, "library_ids": {item_id: 1}})
 
 
-def test_without_hints_the_call_shape_is_unchanged(db, monkeypatch):
+def test_exact_cover_hint_can_skip_book_title_fallback(db, monkeypatch):
+    item_id = _insert_item(db, title="Magazine issue", media_type="magazine")
+    db.commit()
+    download = AsyncMock(return_value=None)
+    title_search = AsyncMock(return_value=("9780000000125", "https://example.test/book.jpg"))
+
+    async def scenario():
+        from app.routers import items_common
+        from app.services import covers
+
+        monkeypatch.setattr(covers, "download_cover", download)
+        monkeypatch.setattr(items_common, "_search_isbn_for_item", title_search)
+        cover_queue.enqueue(
+            item_id,
+            hints={
+                "cover_url": "https://books.google.com/missing.jpg",
+                "skip_title_search": True,
+            },
+        )
+        return await cover_queue.process_one(None)
+
+    assert asyncio.run(scenario()) is False
+    title_search.assert_not_awaited()
+
+
+def test_without_hints_the_call_shape_is_unchanged(db, monkeypatch, cover_stages):
     item_id = _insert_item(db, title="Plain", isbn="9780000000132")
     db.commit()
     download = AsyncMock(return_value=None)
@@ -301,7 +327,11 @@ def test_without_hints_the_call_shape_is_unchanged(db, monkeypatch):
         await cover_queue.process_one(None)
 
     asyncio.run(scenario())
-    assert download.await_args_list[0].args == (item_id, "9780000000132", None, None, None)
+    download.assert_awaited_once_with(cover_stages.latest(item_id).download_id,
+        "9780000000132", None, None, None)
+    assert db.execute("SELECT cover_path FROM items WHERE id = ?", (item_id,)).fetchone()[0] is None
+    assert cover_stages.stores == []
+    cover_stages.assert_clean()
 
 
 # --------------------------------------------------------------------------
@@ -408,3 +438,26 @@ def test_start_requeues_and_returns_a_task(db, monkeypatch):
     assert task is not None
     assert queued == 1
     del item_id
+
+
+class TestTheStartupRequeueHonoursADismissal:
+    def test_a_dismissed_coverless_book_is_not_requeued(self, db):
+        """Without this clause an item a human marked "there is no cover for
+        this" is handed back to the automatic chain on every boot, forever —
+        the exact non-convergence the column exists to end."""
+        from app.services import cover_queue
+        from tests.conftest import _insert_item
+
+        _insert_item(db, title="Still Wanted", media_type="book",
+                            isbn="9780000000019", cover_path=None)
+        dismissed = _insert_item(db, title="No Cover Exists", media_type="book",
+                                 isbn="9780000000026", cover_path=None)
+        db.execute("UPDATE items SET cover_review_dismissed = 1 WHERE id = ?",
+                   (dismissed,))
+        db.commit()
+
+        cover_queue.reset()
+        queued = cover_queue.requeue_recent_missing()
+
+        assert queued == 1, "only the undismissed item should be requeued"
+        assert cover_queue.stats()["queued"] == 1

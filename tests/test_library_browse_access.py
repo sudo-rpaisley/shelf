@@ -217,3 +217,76 @@ def test_personal_filter_counts_exclude_state_on_revoked_library(db, viewer_user
 
     assert total == 1
     assert counts["wishlist_count"] == 1
+
+
+def test_tag_vocabulary_retains_unused_and_authorized_trash_but_not_hidden_only(
+    editor_client, editor_user, db
+):
+    from app.database import get_db
+    from app.services import catalogue_security, tags
+
+    hidden_library = libraries.create_library(db, "Tag privacy boundary")
+    visible = _insert_item(db, title="Visible tag parent", isbn=None)
+    hidden = _insert_item(db, title="Hidden tag parent", isbn=None, _library_id=hidden_library["id"])
+    allowed_trash = _insert_item(db, title="Authorized Trash", isbn=None, deleted_at="2026-01-01")
+    hidden_trash = _insert_item(db, title="Hidden Trash", isbn=None, deleted_at="2026-01-01",
+                                _library_id=hidden_library["id"])
+    unmapped = _insert_item(db, title="Unmapped parent", isbn=None, _library_id=None)
+    for item_id, names in (
+        (visible, ["Visible vocabulary", "Mixed vocabulary"]),
+        (hidden, ["Hidden vocabulary", "Mixed vocabulary"]),
+        (allowed_trash, ["Authorized Trash vocabulary"]),
+        (hidden_trash, ["Hidden Trash vocabulary"]),
+        (unmapped, ["Unmapped vocabulary"]),
+    ):
+        tags.attach_tags(db, item_id, names)
+    tags.get_or_create_tag(db, "Unused vocabulary")
+    tags.get_or_create_tag(db, "Unused book vocabulary", media_type="book")
+    tags.get_or_create_tag(db, "Unused game vocabulary", media_type="video_game")
+    db.commit()
+    before = list(db.iterdump())
+    expected = {"Visible vocabulary": 1, "Mixed vocabulary": 1,
+                "Authorized Trash vocabulary": 0, "Unused vocabulary": 0,
+                "Unused book vocabulary": 0, "Unused game vocabulary": 0}
+    token = catalogue_security.set_actor(editor_user)
+    try:
+        with get_db() as scoped:
+            assert {r["name"]: r["count"] for r in tags.get_all_tags(scoped)} == expected
+            assert {r["name"]: r["count"] for r in tags.get_all_tags(scoped, "book")} == {
+                name: count for name, count in expected.items() if name != "Unused game vocabulary"
+            }
+    finally:
+        catalogue_security.reset_actor(token)
+    response = editor_client.get("/api/tags")
+    assert response.status_code == 200
+    assert {row["name"] for row in response.json()["tags"] if not row["starter"]} == set(expected)
+    browse = editor_client.get("/browse")
+    assert browse.status_code == 200
+    for name in expected:
+        assert name in browse.text
+    for name in ("Hidden vocabulary", "Hidden Trash vocabulary", "Unmapped vocabulary"):
+        assert name not in browse.text + response.text
+    assert list(db.iterdump()) == before
+
+    # Actor-free maintenance is deliberately unchanged, including Trash names
+    # and unmapped history; its live usage counts are not request projections.
+    trusted = {r["name"]: r["count"] for r in tags.get_all_tags(db)}
+    assert trusted == {**expected, "Mixed vocabulary": 2,
+                       "Hidden vocabulary": 1, "Hidden Trash vocabulary": 0,
+                       "Unmapped vocabulary": 1}
+
+
+def test_hidden_scoped_tag_does_not_suppress_visible_starter_suggestions(editor_client, db):
+    from app.services import tags
+
+    private = libraries.create_library(db, "Private scoped tag")
+    hidden = _insert_item(db, title="Hidden scoped parent", isbn=None, _library_id=private["id"])
+    tag_id = tags.get_or_create_tag(db, "Private scoped vocabulary", media_type="book")
+    db.execute("INSERT INTO item_tags (item_id, tag_id) VALUES (?, ?)", (hidden, tag_id))
+    db.commit()
+    before = list(db.iterdump())
+    response = editor_client.get("/api/tags")
+    assert response.status_code == 200
+    assert "Private scoped vocabulary" not in response.text
+    assert {"name": "Fiction", "media_type": "book", "starter": True} in response.json()["tags"]
+    assert list(db.iterdump()) == before

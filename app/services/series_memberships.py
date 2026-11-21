@@ -11,35 +11,19 @@ user-managed secondary memberships.
 from __future__ import annotations
 
 from collections.abc import Mapping
+from math import isfinite
+
+from app.database import ensure_series_memberships_schema as ensure_schema
 
 
 MAX_SERIES_NAME = 1000
 
-_ITEM_SERIES_SCHEMA = """
-CREATE TABLE IF NOT EXISTS item_series (
-    item_id      INTEGER NOT NULL REFERENCES items(id) ON DELETE CASCADE,
-    series_name  TEXT NOT NULL COLLATE NOCASE,
-    position     REAL,
-    is_primary   INTEGER NOT NULL DEFAULT 0,
-    created_at   TEXT NOT NULL DEFAULT (datetime('now')),
-    PRIMARY KEY (item_id, series_name)
-)
-"""
-
-
-def ensure_schema(db) -> None:
-    db.execute(_ITEM_SERIES_SCHEMA)
-    db.execute(
-        "CREATE INDEX IF NOT EXISTS idx_item_series_name "
-        "ON item_series(series_name COLLATE NOCASE)"
-    )
-
-
 def _position(value) -> float | None:
-    if value in (None, ""):
+    if value in (None, "") or isinstance(value, bool):
         return None
     try:
-        return float(value)
+        position = float(value)
+        return position if isfinite(position) else None
     except (TypeError, ValueError):
         return None
 
@@ -56,6 +40,8 @@ def normalise(memberships) -> list[dict]:
         return []
     if isinstance(memberships, (str, Mapping)):
         memberships = [memberships]
+    if not isinstance(memberships, (list, tuple)):
+        return []
 
     rows: list[dict] = []
     by_name: dict[str, dict] = {}
@@ -128,7 +114,7 @@ def sync_legacy_item(db, item_id: int) -> bool:
     """
     ensure_schema(db)
     item = db.execute(
-        "SELECT series_name, series_position FROM items WHERE id = ?", (item_id,)
+        "SELECT series_name, series_position FROM items_live WHERE id = ?", (item_id,)
     ).fetchone()
     if not item:
         return False
@@ -166,34 +152,34 @@ def sync_legacy_item(db, item_id: int) -> bool:
 def sync_all_legacy(db) -> dict:
     """Reconcile every legacy series pair and return a compact summary."""
     ensure_schema(db)
-    before = db.execute("SELECT COUNT(*) FROM item_series").fetchone()[0]
+    before = db.execute("SELECT COUNT(*) FROM item_series s JOIN items_live i ON i.id = s.item_id").fetchone()[0]
 
     # The item row is authoritative for *which* membership is primary. Drop
     # a stale former primary when that compatibility field changed, preserve true
     # secondary memberships, then upsert every current legacy pair.
     db.execute(
-        "DELETE FROM item_series WHERE is_primary = 1 AND NOT EXISTS ("
-        "SELECT 1 FROM items i WHERE i.id = item_series.item_id "
+        "DELETE FROM item_series WHERE item_id IN (SELECT id FROM items_live) AND is_primary = 1 AND NOT EXISTS ("
+        "SELECT 1 FROM items_live i WHERE i.id = item_series.item_id "
         "AND i.series_name IS NOT NULL AND TRIM(i.series_name) != '' "
         "AND TRIM(i.series_name) = item_series.series_name COLLATE NOCASE"
         ")"
     )
-    db.execute("UPDATE item_series SET is_primary = 0")
+    db.execute("UPDATE item_series SET is_primary = 0 WHERE item_id IN (SELECT id FROM items_live)")
     db.execute(
         "INSERT INTO item_series (item_id, series_name, position, is_primary) "
-        "SELECT id, TRIM(series_name), series_position, 1 FROM items "
+        "SELECT id, TRIM(series_name), series_position, 1 FROM items_live "
         "WHERE series_name IS NOT NULL AND TRIM(series_name) != '' "
         "ON CONFLICT(item_id, series_name) DO UPDATE SET "
         "position = excluded.position, is_primary = 1"
     )
 
-    after = db.execute("SELECT COUNT(*) FROM item_series").fetchone()[0]
+    after = db.execute("SELECT COUNT(*) FROM item_series s JOIN items_live i ON i.id = s.item_id").fetchone()[0]
     series_count = db.execute(
-        "SELECT COUNT(*) FROM (SELECT series_name FROM item_series "
-        "GROUP BY series_name COLLATE NOCASE)"
+        "SELECT COUNT(*) FROM (SELECT s.series_name FROM item_series s JOIN items_live i ON i.id = s.item_id "
+        "GROUP BY s.series_name COLLATE NOCASE)"
     ).fetchone()[0]
     item_count = db.execute(
-        "SELECT COUNT(DISTINCT item_id) FROM item_series"
+        "SELECT COUNT(DISTINCT s.item_id) FROM item_series s JOIN items_live i ON i.id = s.item_id"
     ).fetchone()[0]
     return {
         "created": max(0, after - before),
@@ -214,10 +200,12 @@ def add_metadata_memberships(db, item_id: int, memberships) -> int:
     rows = normalise(memberships)
     ensure_schema(db)
     item = db.execute(
-        "SELECT series_name, series_position FROM items WHERE id = ?", (item_id,)
+        "SELECT series_name, series_position FROM items_live WHERE id = ?", (item_id,)
     ).fetchone()
     if not item:
         return 0
+    from app.services.catalogue_security import require_item_role
+    require_item_role(db, item_id, "editor")
 
     legacy_name = str(item["series_name"] or "").strip()
     legacy_position = item["series_position"]

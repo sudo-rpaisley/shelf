@@ -17,7 +17,8 @@
     <td data-col="cover" class="px-3 py-2 w-10">
         <a href="{{ item.browse_series_url }}" aria-label="Open {{ item.series_name }} series">
             {% if item.cover_path %}
-            <img src="/{{ item.cover_path }}" alt="" class="w-8 h-12 object-cover rounded" loading="lazy">
+            {# Collapsed digital Comic/Manga series are portrait-only. #}
+            <img src="/{{ item.cover_path }}" alt="" class="w-8 h-12 object-cover rounded" loading="lazy" data-cover-shape="portrait">
             {% else %}
             <div class="w-8 h-12 bg-shelf-hover rounded flex items-center justify-center">
                 <svg class="w-4 h-4 text-shelf-muted" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M4 19.5A2.5 2.5 0 016.5 17H20M4 19.5A2.5 2.5 0 006.5 22H20V5a2 2 0 00-2-2H6.5A2.5 2.5 0 004 5.5v14z"/></svg>

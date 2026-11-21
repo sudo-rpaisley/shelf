@@ -1,6 +1,7 @@
 import asyncio
 import json
 import logging
+from contextvars import Context
 
 import httpx
 from fastapi import APIRouter, Depends, Request, Form
@@ -8,9 +9,11 @@ from fastapi.responses import JSONResponse, RedirectResponse
 from starlette.responses import StreamingResponse
 
 from app.auth import require_role
+from app.features import require_feature
 from app.config import HTTP_TIMEOUT
 from app.database import get_db, get_setting
-from app.services import audiobookshelf, sync_jobs
+from app.services import audiobookshelf, holdings, item_write, sync_jobs
+from app.services.catalogue_security import require_item_role
 
 logger = logging.getLogger(__name__)
 
@@ -152,72 +155,77 @@ async def save_abs_libraries(request: Request):
     return {"ok": True, "excluded": excluded}
 
 
-@router.post("/audiobookshelf/libraries/cleanup")
+@router.post("/audiobookshelf/libraries/cleanup",
+            dependencies=[Depends(require_feature("abs_sync"))])
 async def cleanup_excluded_libraries():
-    """Delete Shelf items that came from ABS libraries now marked excluded.
+    """Move to Trash the Shelf items that came from ABS libraries now excluded.
 
     Matches items two ways: by stamped abs_library_id (items synced after
     the column existed) and by live ABS listing of each excluded library
     (covers items synced before stamping). ABS itself is never touched.
     """
-    excluded = audiobookshelf.get_excluded_libraries()
-    if not excluded:
-        return {"ok": True, "deleted": 0, "message": "No libraries are excluded"}
-
-    with get_db() as db:
-        url = get_setting(db, "abs_url")
-        token = get_setting(db, "abs_token")
-    if not url or not token:
-        return {"ok": False, "message": "Audiobookshelf is not configured"}
-
-    abs_ids: set[str] = set()
+    if sync_jobs.is_running("audiobookshelf") or not audiobookshelf._sync_lock.acquire(blocking=False):
+        return JSONResponse({"ok": False, "message": "Audiobookshelf sync is running"}, status_code=409)
     try:
-        async with httpx.AsyncClient(timeout=60) as client:
-            for lib_id in excluded:
-                resp = await client.get(
-                    f"{url}/api/libraries/{lib_id}/items",
-                    headers={"Authorization": f"Bearer {token}"},
-                    params={"limit": 10000},
-                )
-                if resp.status_code == 200:
-                    abs_ids.update(
-                        item.get("id") for item in resp.json().get("results", [])
-                        if item.get("id"))
-    except httpx.HTTPError:
-        return {"ok": False, "message": f"Cannot connect to {url}"}
-
-    deleted = 0
-    with get_db() as db:
-        lib_placeholders = ",".join("?" * len(excluded))
-        rows = db.execute(
-            f"SELECT id FROM items WHERE abs_library_id IN ({lib_placeholders})",
-            tuple(excluded),
-        ).fetchall()
-        ids = {r["id"] for r in rows}
-        if abs_ids:
-            id_placeholders = ",".join("?" * len(abs_ids))
-            rows = db.execute(
-                f"SELECT id FROM items WHERE abs_id IN ({id_placeholders})",
-                tuple(abs_ids),
+        excluded = audiobookshelf.get_excluded_libraries()
+        if not excluded:
+            return {"ok": True, "deleted": 0, "detached": 0, "message": "No libraries are excluded"}
+        with get_db() as db:
+            url, token = get_setting(db, "abs_url"), get_setting(db, "abs_token")
+        if not url or not token or _validate_abs_url(url):
+            return {"ok": False, "message": "Audiobookshelf is not configured"}
+        provider_ids = set()
+        try:
+            async with httpx.AsyncClient(timeout=60) as client:
+                for library_id in excluded:
+                    rows = await audiobookshelf.fetch_library_items(client, url, token, library_id)
+                    provider_ids.update(str(row["id"]) for row in rows if row.get("id"))
+        except (httpx.HTTPError, ValueError, TypeError):
+            return {"ok": False, "message": "Could not completely read excluded Audiobookshelf libraries; nothing changed"}
+        deleted = detached = 0
+        with get_db() as db, item_write._write_scope(db):
+            records = db.execute(
+                "SELECT dh.external_id, dh.library_id, i.id, i.source FROM digital_holdings dh "
+                "JOIN items_live i ON i.id = dh.item_id WHERE dh.provider = 'audiobookshelf' "
+                "UNION SELECT abs_id, abs_library_id, id, source FROM items_live WHERE abs_id IS NOT NULL"
             ).fetchall()
-            ids.update(r["id"] for r in rows)
+            for row in records:
+                if str(row["library_id"]) not in excluded and str(row["external_id"]) not in provider_ids:
+                    continue
+                # Validate all exact identity representations, not a title or
+                # library-name guess, before modifying an attachment.
+                item = audiobookshelf._attachment(db, str(row["external_id"]))
+                if item is None or item["deleted_at"] is not None:
+                    continue
+                require_item_role(db, item["id"], "editor")
+                retained = any(other["id"] == row["id"] and other["external_id"] != row["external_id"]
+                    and str(other["library_id"]) not in excluded and str(other["external_id"]) not in provider_ids for other in records)
+                retained = retained or db.execute(
+                    "SELECT 1 FROM digital_holdings WHERE item_id = ? AND provider != 'audiobookshelf' "
+                    "UNION SELECT 1 FROM copies_live WHERE item_id = ? LIMIT 1",
+                    (item["id"], item["id"]),
+                ).fetchone() is not None or bool(item["komga_id"] or item["romm_id"])
+                if item["source"] == "audiobookshelf" and not retained:
+                    deleted += int(item_write.trash_item(db, item["id"]))
+                else:
+                    if str(item["abs_id"] or "") == str(row["external_id"]):
+                        item_write.update_item_fields(db, item["id"], {"abs_id": None, "abs_library_id": None})
+                    db.execute("DELETE FROM digital_holdings WHERE item_id = ? AND provider = 'audiobookshelf' AND external_id = ?",
+                               (item["id"], str(row["external_id"])))
+                    holdings.sync_item(db, item["id"])
+                    detached += 1
+        return {"ok": True, "deleted": deleted, "detached": detached}
+    finally:
+        audiobookshelf._sync_lock.release()
 
-        for item_id in ids:
-            db.execute("UPDATE scan_log SET item_id = NULL WHERE item_id = ?", (item_id,))
-            db.execute("DELETE FROM items WHERE id = ?", (item_id,))
-            deleted += 1
 
-    logger.info("Removed %d items from %d excluded ABS libraries", deleted, len(excluded))
-    return {"ok": True, "deleted": deleted}
-
-
-@router.get("/audiobookshelf/job")
+@router.get("/audiobookshelf/job", dependencies=[Depends(require_feature("abs_sync"))])
 async def audiobookshelf_job_status():
     """Return the current/most recent detached Audiobookshelf sync job."""
     return sync_jobs.get_status("audiobookshelf")
 
 
-@router.post("/audiobookshelf/job")
+@router.post("/audiobookshelf/job", dependencies=[Depends(require_feature("abs_sync"))])
 async def start_audiobookshelf_job():
     """Start ABS sync on the server and return without holding the browser open."""
     with get_db() as db:
@@ -238,7 +246,7 @@ async def start_audiobookshelf_job():
     return sync_jobs.start("audiobookshelf", runner, source="manual")
 
 
-@router.post("/audiobookshelf")
+@router.post("/audiobookshelf", dependencies=[Depends(require_feature("abs_sync"))])
 async def sync_audiobookshelf(request: Request):
     with get_db() as db:
         abs_url_val = get_setting(db, "abs_url")
@@ -251,11 +259,14 @@ async def sync_audiobookshelf(request: Request):
     if url_err:
         return {"error": url_err}
 
-    stats = await audiobookshelf.sync(abs_url_val, abs_token_val)
-    return stats
+    started = await start_audiobookshelf_job()
+    if started.get("state") == "error":
+        return {"error": started["error"]}
+    final = await sync_jobs.wait("audiobookshelf")
+    return {"error": final["error"]} if final.get("error") else final.get("stats", {})
 
 
-@router.get("/audiobookshelf/stream")
+@router.get("/audiobookshelf/stream", dependencies=[Depends(require_feature("abs_sync"))])
 async def sync_audiobookshelf_stream(request: Request):
     """SSE endpoint for sync with progress updates."""
     with get_db() as db:
@@ -287,13 +298,13 @@ async def sync_audiobookshelf_stream(request: Request):
     async def run_sync():
         try:
             stats = await audiobookshelf.sync(abs_url_val, abs_token_val, on_progress=on_progress)
-            await queue.put({"type": "done", **stats})
+            await queue.put({"type": "error", "message": stats["error"]} if stats.get("error") else {"type": "done", **stats})
         except Exception:
             logger.exception("Audiobookshelf sync failed")
             await queue.put({"type": "error", "message": "Sync failed — check server logs"})
 
     async def event_stream():
-        task = asyncio.create_task(run_sync())
+        task = asyncio.create_task(run_sync(), context=Context())
         try:
             while True:
                 msg = await queue.get()

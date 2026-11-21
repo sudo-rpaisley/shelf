@@ -7,6 +7,11 @@ vulnerability reporting from the repository's Security tab when it is enabled;
 otherwise contact the maintainer privately using the email address on their
 GitHub profile.
 
+For this fork, use the Security tab of
+[`sudo-rpaisley/shelf`](https://github.com/sudo-rpaisley/shelf/security).
+Upstream's private reporting channel is for upstream-owned code/releases, not
+a substitute for notifying the fork maintainer.
+
 This is a personal project with no formal SLA, but security reports should be
 handled before routine feature work.
 
@@ -24,16 +29,26 @@ it were exposed more broadly:
 - Strict Content-Security-Policy — no `unsafe-inline`, no `unsafe-eval`, no
   CDNs (all assets vendored)
 - CSRF protection on all mutating requests
-- bcrypt password hashing; JWT sessions in HTTP-only, secure cookies
+- bcrypt password hashing; JWT sessions in HTTP-only cookies, marked `Secure`
+  whenever the browser reached Shelf over HTTPS (directly, or through a proxy
+  listed in `SHELF_TRUST_PROXY`)
 - Login takes the same time whether or not the username exists, so a failed
   attempt does not reveal which accounts are real
 - Role-based access control (admin / editor / viewer)
+- API tokens are read-only: accepted only on `GET` under `/api/v1/`, never
+  above the viewer role, stored as a SHA-256 hash and shown once
+- Library membership is authoritative for non-admin catalogue access and writes;
+  token capabilities never gain writes from the owning account's admin role
+- Personal activity and notes are actor-owned, separate from shared catalogue
+  metadata and acquisition lists; imports and exports must respect that boundary
 - Third-party API credentials encrypted at rest and write-only in the UI
 - **No key material is stored in the database.** Both keys — the one that
   encrypts stored credentials and the one that signs login sessions — live as
   0600 files in the data directory, or in the environment. A database backup
-  therefore contains ciphertext and password hashes, and nothing that opens
-  either
+  therefore contains ciphertext, password hashes and API-token hashes, and
+  nothing that opens either
+  — but it also contains private catalogue/activity data and must remain private.
+  A whole-directory backup includes the key files as well
 - Outbound request URLs are not logged, so container logs can be shared when
   reporting a bug. An ntfy or Discord webhook carries its secret in the URL
   path, where blanking query values cannot reach it, so Shelf does not log the
@@ -45,5 +60,10 @@ it were exposed more broadly:
 - Container runs as a non-root user
 
 If you're exposing Shelf beyond your LAN, put it behind a reverse proxy with
-a real certificate and set `SHELF_TRUST_PROXY=1` only when that proxy
-correctly overwrites the trusted forwarding headers.
+a real certificate, set `SHELF_TLS=off` so Shelf serves plain HTTP to it, and
+set `SHELF_TRUST_PROXY` to the proxy's address.
+
+These describe the intended integrated security boundaries, not a completed
+security audit. See [integration status](docs/upstream-integration.md) for pending
+review and validation. Upstream/mixed/unknown database histories are not supported
+upgrade inputs; do not bypass lineage checks to make a backup load.

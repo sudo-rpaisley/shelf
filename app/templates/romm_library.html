@@ -33,9 +33,9 @@
     <div class="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-3 lg:grid-cols-6 gap-4">
         {% for game in games %}
         <div class="bg-shelf-card rounded-xl border border-shelf-border overflow-hidden min-w-0">
-            <a href="/item/{{ game.item_id }}" class="block aspect-[2/3] bg-shelf-bg">
+            <a href="/item/{{ game.item_id }}" class="block aspect-[2/3] bg-shelf-bg" data-cover-shape="{{ cover_shape(game.media_type) }}">
                 {% if game.cover_path %}
-                <img src="/{{ game.cover_path }}" alt="{{ game.title }}" class="w-full h-full object-cover" loading="lazy">
+                <img src="/{{ game.cover_path }}" alt="{{ game.title }}" class="w-full h-full object-cover" loading="lazy" data-cover-shape="{{ cover_shape(game.media_type) }}">
                 {% else %}
                 <div class="w-full h-full flex items-center justify-center p-4 text-center text-sm text-shelf-muted">{{ game.title }}</div>
                 {% endif %}

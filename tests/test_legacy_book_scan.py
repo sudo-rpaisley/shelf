@@ -1,13 +1,20 @@
 """Route regressions for legacy price-point UPC-A + 5 book scans."""
 
+import re
 from unittest.mock import AsyncMock, patch
 
 import pytest
 
+from app.services import lists
 from app.services import provider_result
-from tests.conftest import _insert_borrower, _insert_item, _insert_location
+from app.services import upcitemdb
+from tests.conftest import (
+    _insert_borrower, _insert_item, _insert_node_location as _insert_location, _legacy_location,
+)
+from tests.test_legacy_book import KRISTY_SUPPLEMENT, KRISTY_UPC
 
 
+KRISTY_EAN13 = "0078073003501"
 KRISTY_UPC5 = "07807300350143506"
 KRISTY_EAN13_PLUS5 = "007807300350143506"
 KRISTY_ISBN13 = "9780590435062"
@@ -263,16 +270,17 @@ class TestLegacyBookAdd:
 
 class TestLegacyBookExistingModes:
     def test_remembered_mapping_supports_every_existing_item_mode(
-        self, admin_client, db
+        self, admin_client, admin_user, db
     ):
         home = _insert_location(db, "Home")
         target = _insert_location(db, "Target")
+        target_flat = _legacy_location(db, target)
         borrower = _insert_borrower(db, "Reader")
         item_id = _insert_item(
             db,
             title="Hound at the Hospital",
             isbn=HOUND_ISBN13,
-            location_id=home,
+            location_id=_legacy_location(db, home),
         )
         db.execute(
             "INSERT INTO legacy_book_mappings (barcode, isbn13) VALUES (?, ?)",
@@ -281,6 +289,8 @@ class TestLegacyBookExistingModes:
         db.commit()
 
         no_lookup = AsyncMock(side_effect=AssertionError("mapping should win"))
+        # This is a real legacy zero-copy row, not an acquisition fixture.
+        assert db.execute("SELECT COUNT(*) FROM item_copies WHERE item_id = ?", (item_id,)).fetchone()[0] == 0
         with patch("app.routers.items_common._lookup_metadata", new=no_lookup):
             lend = admin_client.post(
                 "/api/scan",
@@ -291,8 +301,11 @@ class TestLegacyBookExistingModes:
             )
             moved = admin_client.post(
                 "/api/scan",
-                data={"isbn": HOUND_UPC5, "mode": "move", "location_id": target},
+                data={"isbn": HOUND_UPC5, "mode": "move", "location_id": target_flat},
             )
+            assert db.execute("SELECT location_id FROM items WHERE id = ?", (item_id,)).fetchone()[0] == target_flat
+            # Compatibility Move updates FLAT only; it must not acquire a copy.
+            assert db.execute("SELECT COUNT(*) FROM item_copies WHERE item_id = ?", (item_id,)).fetchone()[0] == 0
             inventoried = admin_client.post(
                 "/api/scan",
                 data={
@@ -301,6 +314,15 @@ class TestLegacyBookExistingModes:
                     "location_id": home,
                 },
             )
+            # Inventory is an explicit first physical placement at the NODE.
+            copies = db.execute("SELECT * FROM item_copies WHERE item_id = ?", (item_id,)).fetchall()
+            assert len(copies) == 1
+            primary = copies[0]
+            assert (primary["location_id"], primary["is_primary"], primary["copy_number"]) == (home, 1, 1)
+            assert all(primary[field] is None for field in (
+                "deleted_at", "missing_since", "position_order", "copy_barcode", "condition", "notes",
+                "provenance", "acquired_date", "acquisition_source", "acquisition_price",
+            ))
             looked_up = admin_client.post(
                 "/api/scan", data={"isbn": HOUND_UPC5, "mode": "lookup"}
             )
@@ -314,17 +336,67 @@ class TestLegacyBookExistingModes:
         assert "relocated" in inventoried.text
         assert "Hound at the Hospital" in looked_up.text
         assert "Marked as read" in rated.text
+        assert all(response.status_code == 200 for response in (lend, returned, moved, inventoried, looked_up, rated))
         no_lookup.assert_not_awaited()
         row = db.execute(
             "SELECT location_id, reading_status, date_finished FROM items WHERE id = ?",
             (item_id,),
         ).fetchone()
-        assert row["location_id"] == home
-        assert row["reading_status"] == "read"
-        assert row["date_finished"] is not None
+        assert row["location_id"] == _legacy_location(db, home)
+        assert row["reading_status"] is None
+        assert row["date_finished"] is None
+        personal = db.execute("SELECT reading_status, date_finished FROM user_item_state WHERE user_id = ? AND item_id = ?",
+                              (admin_user["id"], item_id)).fetchone()
+        assert personal["reading_status"] == "read"
+        assert personal["date_finished"] is not None
         assert db.execute(
             "SELECT checked_in FROM checkouts WHERE item_id = ?", (item_id,)
         ).fetchone()["checked_in"] is not None
+        assert [row["id"] for row in db.execute("SELECT id FROM item_copies WHERE item_id = ?", (item_id,))] == [primary["id"]]
+        assert db.execute("SELECT isbn13 FROM legacy_book_mappings WHERE barcode = ?", (HOUND_UPC5,)).fetchone()[0] == HOUND_ISBN13
+
+    def test_remembered_move_relocates_existing_primary_and_later_reads_keep_precise_child(
+        self, admin_client, db
+    ):
+        from app.services import item_copies
+        from app.services.item_write import update_item_fields
+
+        home = _insert_location(db, "Existing copy Home")
+        target = _insert_location(db, "Existing copy Target")
+        child = _insert_location(db, "Precise child", parent_id=target)
+        target_flat = _legacy_location(db, target)
+        assert target != target_flat
+        item_id = _insert_item(db, title="Hound at the Hospital", isbn=HOUND_ISBN13,
+                               location_id=_legacy_location(db, home))
+        copy_id = item_copies.add_copy(db, item_id, {
+            "location_id": home, "copy_barcode": "LEGACY-KEPT-COPY", "condition": "Collector A+",
+            "notes": "Original notes", "provenance": "Signed history", "acquisition_price": 12.5,
+        })
+        db.execute("INSERT INTO legacy_book_mappings (barcode, isbn13) VALUES (?, ?)", (HOUND_UPC5, HOUND_ISBN13))
+        db.commit()
+        no_lookup = AsyncMock(side_effect=AssertionError("mapping should win"))
+        with patch("app.routers.items_common._lookup_metadata", new=no_lookup):
+            moved = admin_client.post("/api/scan", data={"isbn": HOUND_UPC5, "mode": "move", "location_id": target_flat})
+            assert moved.status_code == 200 and 'data-scan-status="moved"' in moved.text
+            row = db.execute("SELECT * FROM item_copies WHERE id = ?", (copy_id,)).fetchone()
+            assert (row["location_id"], row["is_primary"]) == (target, 1)
+            assert db.execute("SELECT location_id FROM items WHERE id = ?", (item_id,)).fetchone()[0] == target_flat
+            placed = admin_client.post("/api/scan", data={"isbn": HOUND_EAN13_PLUS5, "mode": "inventory", "location_id": child})
+            assert placed.status_code == 200 and 'data-scan-status="relocated"' in placed.text
+            update_item_fields(db, item_id, {"title": "Hound precise child", "publisher": "Metadata only"})
+            db.commit()
+            looked_up = admin_client.post("/api/scan", data={"isbn": HOUND_UPC5, "mode": "lookup"})
+            rated = admin_client.post("/api/scan", data={"isbn": HOUND_EAN13_PLUS5, "mode": "quick_rate"})
+        no_lookup.assert_not_awaited()
+        assert looked_up.status_code == rated.status_code == 200
+        assert "Precise child" in looked_up.text and "Marked as read" in rated.text
+        copies = db.execute("SELECT * FROM item_copies WHERE item_id = ?", (item_id,)).fetchall()
+        assert len(copies) == 1
+        assert (copies[0]["id"], copies[0]["location_id"], copies[0]["is_primary"]) == (copy_id, child, 1)
+        assert (copies[0]["copy_barcode"], copies[0]["condition"], copies[0]["notes"], copies[0]["provenance"],
+                copies[0]["acquisition_price"], copies[0]["deleted_at"]) == (
+                    "LEGACY-KEPT-COPY", "Collector A+", "Original notes", "Signed history", 12.5, None)
+        assert db.execute("SELECT location_id FROM items WHERE id = ?", (item_id,)).fetchone()[0] == target_flat
 
     def test_ambiguous_barcode_cannot_mutate_any_existing_item_mode(
         self, admin_client, db
@@ -342,7 +414,7 @@ class TestLegacyBookExistingModes:
         mode_data = {
             "lend": {"borrower_id": borrower},
             "return": {},
-            "move": {"location_id": target},
+            "move": {"location_id": _legacy_location(db, target)},
             "inventory": {"location_id": target},
             "lookup": {},
             "quick_rate": {},
@@ -364,20 +436,24 @@ class TestLegacyBookExistingModes:
         assert row["location_id"] is None
         assert row["reading_status"] is None
         assert row["date_finished"] is None
+        assert db.execute("SELECT 1 FROM user_item_state WHERE item_id = ?", (item_id,)).fetchone() is None
         assert db.execute(
             "SELECT COUNT(*) FROM checkouts WHERE item_id = ?", (item_id,)
         ).fetchone()[0] == 0
 
-    def test_inventory_confirmation_marks_the_item_for_camera_accounting(
+    def test_a_legacy_confirmed_inventory_scan_in_an_open_audit_writes_one_entry(
         self, admin_client, db
     ):
+        from app.services import audits
+
         location = _insert_location(db, "Shelf A")
         item_id = _insert_item(
             db,
             title="Hound at the Hospital",
             isbn=HOUND_ISBN13,
-            location_id=location,
+            location_id=_legacy_location(db, location),
         )
+        audit_id = audits.create_session(db, scope="location", location_id=location)
         db.commit()
 
         async def lookup(isbn, hc_token, client, *, google_api_key=None):
@@ -397,6 +473,7 @@ class TestLegacyBookExistingModes:
                     "isbn": HOUND_UPC5,
                     "mode": "inventory",
                     "location_id": location,
+                    "audit_id": audit_id,
                 },
             )
             assert "Which book is this?" in ambiguous.text
@@ -408,11 +485,276 @@ class TestLegacyBookExistingModes:
                     "isbn": HOUND_UPC5,
                     "mode": "inventory",
                     "location_id": location,
+                    "audit_id": audit_id,
                     "legacy_confirm_isbn13": HOUND_ISBN13,
                 },
             )
 
         assert confirmed.status_code == 200
         assert "Confirmed at Shelf A" in confirmed.text
-        assert 'data-scan-inventory-confirmed="true"' in confirmed.text
         assert f'href="/item/{item_id}"' in confirmed.text
+        assert [tuple(r) for r in db.execute(
+            "SELECT session_id, item_id, result FROM audit_entries"
+        ).fetchall()] == [(audit_id, item_id, "confirmed")]
+
+
+class TestBareLegacyUpc:
+    """#90 — a known legacy UPC scanned without its five-digit supplement.
+
+    The bare code names a publisher/price family, not a title, so the old
+    behaviour (fall through to the ordinary UPC path) filed a confident wrong
+    answer: a DVD. These pin the stop-and-ask card and its continuation.
+    """
+
+    @pytest.fixture(autouse=True)
+    def _no_upc_lookup(self, monkeypatch):
+        """Any UPC Item DB call from this class is the defect (#90)."""
+
+        async def _forbidden(upc, client):
+            raise AssertionError("no UPC lookup")
+
+        monkeypatch.setattr(upcitemdb, "lookup", _forbidden)
+
+    @pytest.mark.parametrize("mode", ["add", "wishlist"])
+    def test_a_bare_legacy_upc_asks_for_its_digits_instead_of_filing_a_dvd(
+        self, admin_client, db, mode
+    ):
+        lookup_mock = AsyncMock(side_effect=AssertionError("no metadata cascade"))
+        with patch("app.routers.items_common._lookup_metadata", new=lookup_mock), \
+             patch("app.routers.items.cover_queue.enqueue") as enqueue:
+            response = admin_client.post(
+                "/api/scan",
+                data={"isbn": KRISTY_UPC, "media_type": "book", "mode": mode},
+            )
+
+        assert response.status_code == 200
+        assert 'data-scan-status="legacy_incomplete"' in response.text
+        assert 'name="legacy_supplement"' in response.text
+        assert "five more digits" in response.text
+        lookup_mock.assert_not_awaited()
+        enqueue.assert_not_called()
+        assert db.execute("SELECT COUNT(*) FROM items").fetchone()[0] == 0
+        assert db.execute("SELECT COUNT(*) FROM scan_log").fetchone()[0] == 0
+
+    @pytest.mark.parametrize("bare", [KRISTY_UPC, KRISTY_EAN13])
+    def test_the_typed_supplement_re_enters_the_ambiguous_resolver(
+        self, admin_client, db, bare
+    ):
+        async def lookup(isbn, hc_token, client, *, google_api_key=None):
+            return _found(isbn)
+
+        with patch(
+            "app.routers.items_common._lookup_metadata",
+            new=AsyncMock(side_effect=lookup),
+        ), patch("app.routers.items.cover_queue.enqueue"):
+            ambiguous = admin_client.post(
+                "/api/scan",
+                data={
+                    "isbn": bare,
+                    "media_type": "book",
+                    "mode": "add",
+                    "legacy_supplement": KRISTY_SUPPLEMENT,
+                },
+            )
+
+            assert ambiguous.status_code == 200
+            assert "Which book is this?" in ambiguous.text
+            assert f'name="isbn" value="{KRISTY_UPC5}"' in ambiguous.text
+            assert db.execute("SELECT COUNT(*) FROM items").fetchone()[0] == 0
+
+            confirmed = admin_client.post(
+                "/api/scan",
+                data={
+                    "isbn": KRISTY_UPC5,
+                    "media_type": "book",
+                    "mode": "add",
+                    "legacy_confirm_isbn13": KRISTY_ISBN13,
+                },
+            )
+
+        assert confirmed.status_code == 200
+        row = db.execute(
+            "SELECT title FROM items WHERE isbn = ?", (KRISTY_ISBN13,)
+        ).fetchone()
+        assert row is not None
+        mapping = db.execute(
+            "SELECT isbn13 FROM legacy_book_mappings WHERE barcode = ?",
+            (KRISTY_UPC5,),
+        ).fetchone()
+        assert mapping["isbn13"] == KRISTY_ISBN13
+
+    def test_a_single_verified_candidate_resolves_the_bare_scan_outright(
+        self, admin_client, db
+    ):
+        async def lookup(isbn, hc_token, client, *, google_api_key=None):
+            if isbn == KRISTY_ISBN13:
+                return _found(isbn, "Kristy and the Mother's Day Surprise")
+            return None, "manual", {}, provider_result.no_match("openlibrary")
+
+        with patch(
+            "app.routers.items_common._lookup_metadata",
+            new=AsyncMock(side_effect=lookup),
+        ), patch("app.routers.items.cover_queue.enqueue"):
+            response = admin_client.post(
+                "/api/scan",
+                data={
+                    "isbn": KRISTY_UPC,
+                    "media_type": "book",
+                    "mode": "add",
+                    "legacy_supplement": KRISTY_SUPPLEMENT,
+                },
+            )
+
+        assert response.status_code == 200
+        row = db.execute(
+            "SELECT isbn FROM items WHERE isbn = ?", (KRISTY_ISBN13,)
+        ).fetchone()
+        assert row is not None
+
+    @pytest.mark.parametrize("supplement", ["4350", "abcde", " "])
+    def test_a_malformed_supplement_re_renders_the_card_and_never_looks_up(
+        self, admin_client, db, supplement
+    ):
+        lookup_mock = AsyncMock(side_effect=AssertionError("no metadata cascade"))
+        with patch("app.routers.items_common._lookup_metadata", new=lookup_mock):
+            response = admin_client.post(
+                "/api/scan",
+                data={
+                    "isbn": KRISTY_UPC,
+                    "media_type": "book",
+                    "mode": "add",
+                    "legacy_supplement": supplement,
+                },
+            )
+
+        assert response.status_code == 200
+        assert 'data-scan-status="legacy_incomplete"' in response.text
+        assert "Enter exactly five digits." in response.text
+        lookup_mock.assert_not_awaited()
+        assert db.execute("SELECT COUNT(*) FROM items").fetchone()[0] == 0
+
+    @pytest.mark.parametrize(
+        "mode,column",
+        [("add", "location_id"), ("wishlist", "wishlisted")],
+    )
+    def test_the_cards_hidden_fields_round_trip_what_the_user_chose(
+        self, admin_client, db, mode, column
+    ):
+        location = _insert_location(db, "Shelf B")
+        flat_location = _legacy_location(db, location)
+        db.commit()  # G48: release the seed write lock before the request
+
+        async def lookup(isbn, hc_token, client, *, google_api_key=None):
+            if isbn == KRISTY_ISBN13:
+                return _found(isbn, "Kristy and the Mother's Day Surprise")
+            return None, "manual", {}, provider_result.no_match("openlibrary")
+
+        with patch(
+            "app.routers.items_common._lookup_metadata",
+            new=AsyncMock(side_effect=lookup),
+        ), patch("app.routers.items.cover_queue.enqueue"):
+            card = admin_client.post(
+                "/api/scan",
+                data={
+                    "isbn": KRISTY_UPC,
+                    "media_type": "book",
+                    "mode": mode,
+                    "location_id": flat_location,
+                },
+            )
+            assert 'data-scan-status="legacy_incomplete"' in card.text
+
+            # G36: re-post exactly what the card rendered, not what we sent.
+            payload = {
+                name: value
+                for name, value in re.findall(
+                    r'<input type="hidden" name="([^"]+)" value="([^"]*)"', card.text
+                )
+            }
+            payload["legacy_supplement"] = KRISTY_SUPPLEMENT
+            assert payload["location_id"] == str(flat_location)
+            admin_client.post("/api/scan", data=payload)
+
+        row = db.execute(
+            f"SELECT i.location_id, {lists.WISHLISTED_SQL} AS wishlisted "
+            "FROM items i WHERE i.isbn = ?",
+            (KRISTY_ISBN13,),
+        ).fetchone()
+        assert row is not None
+        expected = flat_location if column == "location_id" else 1
+        assert row[column] == expected
+
+    def test_existing_item_modes_still_reach_a_row_filed_under_the_bare_upc(
+        self, admin_client, db
+    ):
+        # The canonical 13-digit form `_scan_upc` writes, not the 12-digit
+        # literal — this is the row a user filed before the fix landed.
+        item_id = _insert_item(
+            db, title="Clifford s First Snow Day", isbn=None, upc=KRISTY_EAN13
+        )
+        borrower = _insert_borrower(db, "Pat")
+        db.commit()  # G48: release the seed write lock before the request
+
+        found = admin_client.post(
+            "/api/scan", data={"isbn": KRISTY_UPC, "mode": "lookup"}
+        )
+        assert found.status_code == 200
+        assert 'data-scan-status="found"' in found.text
+        assert "legacy_incomplete" not in found.text
+
+        lent = admin_client.post(
+            "/api/scan",
+            data={"isbn": KRISTY_UPC, "mode": "lend", "borrower_id": borrower},
+        )
+        assert lent.status_code == 200
+        assert 'data-scan-status="checked_out"' in lent.text
+        assert "legacy_incomplete" not in lent.text
+        assert db.execute(
+            "SELECT borrower_id FROM checkouts "
+            "WHERE item_id = ? AND checked_in IS NULL",
+            (item_id,),
+        ).fetchone()["borrower_id"] == borrower
+
+    def test_the_card_offers_manual_add_and_refuses_an_empty_supplement(
+        self, admin_client
+    ):
+        """diff-review codex B1/B2, the `/api/scan` half.
+
+        On `/scan` the manual-add escape is live (`scan.js:122` is loaded), so
+        the card offers it. And the five-digit field carries `required`:
+        `pattern` alone does not reject an empty value, so without it the
+        submit button posts an untouched field and the same card comes back
+        with nothing to say.
+        """
+        response = admin_client.post(
+            "/api/scan",
+            data={"isbn": KRISTY_UPC, "media_type": "book", "mode": "add"},
+        )
+
+        assert 'data-scan-status="legacy_incomplete"' in response.text
+        assert "data-manual-add" in response.text
+        field = re.search(
+            r'<input type="text" name="legacy_supplement"[^>]*>', response.text
+        )
+        assert field is not None
+        assert "required" in field.group(0)
+
+    def test_an_unknown_prefix_still_falls_through_to_the_ordinary_upc_path(
+        self, admin_client, db, monkeypatch
+    ):
+        called = []
+
+        async def _lookup(upc, client):
+            called.append(upc)
+            return provider_result.no_match("upcitemdb")
+
+        monkeypatch.setattr(upcitemdb, "lookup", _lookup)
+
+        response = admin_client.post(
+            "/api/scan",
+            data={"isbn": "025192107801", "media_type": "book", "mode": "add"},
+        )
+
+        assert response.status_code == 200
+        assert called == ["025192107801"]
+        assert 'data-scan-status="not_found"' in response.text

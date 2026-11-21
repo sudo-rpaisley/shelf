@@ -5,12 +5,20 @@
 can be added to the wishlist via the existing add-to-shelf endpoint.
 """
 import logging
+from dataclasses import asdict
 
-from fastapi import APIRouter, Depends, Form, Request
+from fastapi import APIRouter, Depends, Form, HTTPException, Request
+from fastapi.responses import Response
 
-from app.auth import require_role
+from app.features import feature_enabled, require_feature
+from app.config import BOOK_MEDIA_TYPES
 from app.database import gc_orphaned_series_meta, get_db, get_setting
-from app.services import hardcover
+from app.routers import items_common
+from app.services import lists
+from app.services import buy_links, hardcover
+from app.services.item_write import update_item_fields
+from app.database import ensure_series_memberships_schema
+from app.services.catalogue_security import require_item_role, require_catalogue_role as require_role
 
 logger = logging.getLogger(__name__)
 
@@ -21,50 +29,59 @@ router = APIRouter()
 # introducing a second, different limit for the same field.
 MAX_SERIES_NAME = 1000
 
-# Media types that can belong to a series. Deliberately a local literal,
-# not an import of items.BOOK_MEDIA_TYPES / synopsis.BOOK_MEDIA_TYPES (which
-# already disagree about comics) — see docs: issue #31 design plan §1.
-UNASSIGNED_MEDIA_TYPES = ("book", "kids_book", "audiobook", "ebook", "comic", "digital_comic")
+# Media types that can belong to a series. Keep this derived from the canonical
+# config declaration so new book-family types cannot silently disappear here.
+UNASSIGNED_MEDIA_TYPES = tuple(sorted(BOOK_MEDIA_TYPES))
 # Covers shown in the Unassigned strip; the heading always shows the true total.
 UNASSIGNED_STRIP_CAP = 12
 
 
-def _sync_item_series_memberships(db) -> None:
-    """Reconcile legacy primary series fields into ``item_series``.
+_sync_item_series_memberships = ensure_series_memberships_schema
 
-    Migrations backfill existing libraries at startup. This lightweight
-    reconciliation also covers imports/tests/older edit paths that may write
-    ``items.series_name`` directly after startup, while preserving secondary
-    memberships.
+# Read-only compatibility projection. Old primary-only rows remain usable even
+# when no membership was materialized; GETs must never backfill shared data.
+LIVE_SERIES_MEMBERSHIPS = """(
+    SELECT s.item_id, s.series_name, s.position, s.is_primary
+    FROM item_series s JOIN items_live member ON member.id = s.item_id
+    UNION ALL
+    SELECT member.id, TRIM(member.series_name), member.series_position, 1
+    FROM items_live member
+    WHERE TRIM(COALESCE(member.series_name, '')) != ''
+      AND NOT EXISTS (SELECT 1 FROM item_series existing
+                      WHERE existing.item_id = member.id
+                        AND existing.series_name = TRIM(member.series_name) COLLATE NOCASE)
+)"""
+
+# Only for a non-disclosing ordering/collision census. Never render these rows
+# before individual visibility/liveness checks (Continue stops at a blocker).
+PHYSICAL_SERIES_MEMBERSHIPS = LIVE_SERIES_MEMBERSHIPS.replace("items_live", "items")
+
+
+def _require_series_role(db, name, role="editor"):
+    """Shared series metadata cannot be used to edit a hidden library by name.
+
+    The complete source set is authorized under the same lock; a name spanning
+    a hidden/read-only library refuses atomically rather than partly renaming.
     """
-    db.execute(
-        """CREATE TABLE IF NOT EXISTS item_series (
-            item_id INTEGER NOT NULL REFERENCES items(id) ON DELETE CASCADE,
-            series_name TEXT NOT NULL COLLATE NOCASE,
-            position REAL,
-            is_primary INTEGER NOT NULL DEFAULT 0,
-            created_at TEXT NOT NULL DEFAULT (datetime('now')),
-            PRIMARY KEY (item_id, series_name)
-        )"""
-    )
-    db.execute(
-        "CREATE INDEX IF NOT EXISTS idx_item_series_name "
-        "ON item_series(series_name COLLATE NOCASE)"
-    )
-    db.execute(
-        "DELETE FROM item_series WHERE is_primary = 1 AND NOT EXISTS ("
-        "SELECT 1 FROM items i WHERE i.id = item_series.item_id "
-        "AND i.series_name IS NOT NULL AND TRIM(i.series_name) != '' "
-        "AND TRIM(i.series_name) = item_series.series_name COLLATE NOCASE"
-        ")"
-    )
-    db.execute(
-        "INSERT INTO item_series (item_id, series_name, position, is_primary) "
-        "SELECT id, TRIM(series_name), series_position, 1 FROM items "
-        "WHERE series_name IS NOT NULL AND TRIM(series_name) != '' "
-        "ON CONFLICT(item_id, series_name) DO UPDATE SET "
-        "position = excluded.position, is_primary = 1"
-    )
+    if not db.in_transaction:
+        db.execute("BEGIN IMMEDIATE")
+    else:
+        # Upgrade a caller's deferred transaction before the authority census.
+        db.execute("UPDATE series_meta SET name = name WHERE 0")
+    ensure_series_memberships_schema(db)
+    # Deliberate physical census: hidden and trashed members must prevent a
+    # partial shared-name edit. The primary legacy seam is checked as well so
+    # a stale/missing membership cannot become an authorization bypass.
+    rows = db.execute(
+        "SELECT i.id, i.deleted_at FROM items i WHERE TRIM(i.series_name) = ? COLLATE NOCASE "
+        "OR EXISTS (SELECT 1 FROM item_series s WHERE s.item_id = i.id "
+        "AND s.series_name = ? COLLATE NOCASE) ORDER BY i.id", (name, name),
+    ).fetchall()
+    for row in rows:
+        require_item_role(db, row["id"], role, include_deleted=True)
+    if any(row["deleted_at"] is not None for row in rows):
+        raise HTTPException(409, "Series has unavailable members")
+    return [row["id"] for row in rows]
 
 
 def _promote_primary_membership(db, item_id: int) -> None:
@@ -81,17 +98,9 @@ def _promote_primary_membership(db, item_id: int) -> None:
             "WHERE item_id = ?",
             (replacement["series_name"], item_id),
         )
-        db.execute(
-            "UPDATE items SET series_name = ?, series_position = ?, "
-            "updated_at = datetime('now') WHERE id = ?",
-            (replacement["series_name"], replacement["position"], item_id),
-        )
+        update_item_fields(db, item_id, {"series_name": replacement["series_name"], "series_position": replacement["position"]})
     else:
-        db.execute(
-            "UPDATE items SET series_name = NULL, series_position = NULL, "
-            "updated_at = datetime('now') WHERE id = ?",
-            (item_id,),
-        )
+        update_item_fields(db, item_id, {"series_name": None, "series_position": None})
 
 
 def find_gaps(positions: list) -> list[int]:
@@ -113,15 +122,16 @@ def find_gaps(positions: list) -> list[int]:
 
 
 @router.get("/series")
-async def series_page(request: Request, _=Depends(require_role("viewer"))):
+async def series_page(request: Request, _=Depends(require_role("viewer")),
+                      __=Depends(require_feature("series"))):
     templates = request.app.state.templates
     with get_db() as db:
         _sync_item_series_memberships(db)
         rows = db.execute(
             "SELECT i.id, i.title, i.authors, i.cover_path, "
             "s.series_name, s.position AS series_position, "
-            "i.owned, i.reading_status FROM item_series s "
-            "JOIN items i ON i.id = s.item_id "
+            f"i.owned, i.reading_status, {lists.WISHLISTED_SQL} AS wishlisted FROM {LIVE_SERIES_MEMBERSHIPS} s "
+            "JOIN items_live i ON i.id = s.item_id "
             "ORDER BY s.series_name COLLATE NOCASE, "
             "s.position IS NULL, s.position, i.title COLLATE NOCASE"
         ).fetchall()
@@ -134,16 +144,22 @@ async def series_page(request: Request, _=Depends(require_role("viewer"))):
             ).fetchall()
         }
         _unassigned_where = (
-            "NOT EXISTS (SELECT 1 FROM item_series s WHERE s.item_id = items.id) "
+            "TRIM(COALESCE(i.series_name, '')) = '' "
+            "AND NOT EXISTS (SELECT 1 FROM item_series s WHERE s.item_id = i.id) "
             f"AND media_type IN ({','.join('?' * len(UNASSIGNED_MEDIA_TYPES))})"
         )
+        watches = {
+            r["series_name"].casefold(): r["check_state"]
+            for r in db.execute("SELECT series_name, check_state FROM release_watches").fetchall()
+        }
         unassigned_total = db.execute(
-            f"SELECT COUNT(*) FROM items WHERE {_unassigned_where}",
+            f"SELECT COUNT(*) FROM items_live i WHERE {_unassigned_where}",
             UNASSIGNED_MEDIA_TYPES,
         ).fetchone()[0]
         unassigned_items = [dict(r) for r in db.execute(
             "SELECT id, title, authors, cover_path, series_name, series_position, "
-            f"owned, reading_status FROM items WHERE {_unassigned_where} "
+            f"owned, reading_status, {lists.WISHLISTED_SQL} AS wishlisted "
+            f"FROM items_live i WHERE {_unassigned_where} "
             "ORDER BY title COLLATE NOCASE LIMIT ?",
             (*UNASSIGNED_MEDIA_TYPES, UNASSIGNED_STRIP_CAP),
         ).fetchall()]
@@ -173,6 +189,7 @@ async def series_page(request: Request, _=Depends(require_role("viewer"))):
 
     for entry in series.values():
         entry["owned_count"] = sum(1 for i in entry["items"] if i["owned"])
+        entry["wishlist_count"] = sum(1 for i in entry["items"] if i["wishlisted"])
         entry["gaps"] = find_gaps([i["series_position"] for i in entry["items"]])
         meta = meta_ci.get(entry["name"].casefold())
         entry["description"] = meta["description"] if meta else None
@@ -180,6 +197,9 @@ async def series_page(request: Request, _=Depends(require_role("viewer"))):
         entry["hc_total"] = meta["hc_total"] if meta else None
         entry["hc_missing"] = meta["hc_missing"] if meta else None
         entry["hc_checked_at"] = meta["hc_checked_at"] if meta else None
+        key = entry["name"].casefold()
+        entry["watched"] = key in watches
+        entry["watch_state"] = watches.get(key) or ""
 
     # Largest series first; ties alphabetical
     series_list = sorted(series.values(), key=lambda s: (-len(s["items"]), s["name"].casefold()))
@@ -189,6 +209,8 @@ async def series_page(request: Request, _=Depends(require_role("viewer"))):
         {
             "series_list": series_list,
             "has_hardcover": has_hardcover,
+            # The radar needs both flags; every watch control hides otherwise.
+            "radar_on": feature_enabled("release_radar") and feature_enabled("hardcover"),
             "unassigned_items": unassigned_items,
             "unassigned_total": unassigned_total,
         },
@@ -196,7 +218,8 @@ async def series_page(request: Request, _=Depends(require_role("viewer"))):
 
 
 @router.get("/api/series/check")
-async def check_series(name: str = "", _=Depends(require_role("viewer"))):
+async def check_series(name: str = "", _=Depends(require_role("viewer")),
+                       __=Depends(require_feature("series"))):
     """Compare a local series against Hardcover's full listing."""
     name = name.strip()
     if not name:
@@ -204,12 +227,15 @@ async def check_series(name: str = "", _=Depends(require_role("viewer"))):
 
     with get_db() as db:
         _sync_item_series_memberships(db)
+        authorized_ids = _require_series_role(db, name, "viewer")
         token = get_setting(db, "hardcover_token")
         if not token:
             return {"ok": False, "message": "Hardcover integration not configured"}
+        on = feature_enabled("buy_links")
+        cfg = buy_links.configured(db) if on else None
         local = db.execute(
-            "SELECT i.title, i.owned, i.hardcover_book_id FROM item_series s "
-            "JOIN items i ON i.id = s.item_id "
+            f"SELECT i.id, i.title, i.owned, i.hardcover_book_id, {lists.WISHLISTED_SQL} AS wishlisted FROM {LIVE_SERIES_MEMBERSHIPS} s "
+            "JOIN items_live i ON i.id = s.item_id "
             "WHERE s.series_name = ? COLLATE NOCASE",
             (name,),
         ).fetchall()
@@ -225,23 +251,76 @@ async def check_series(name: str = "", _=Depends(require_role("viewer"))):
     for b in books:
         match = by_hc_id.get(b["hardcover_book_id"]) or by_title.get(b["title"].casefold().strip())
         if match:
-            status = "owned" if match["owned"] else "wishlist"
+            status = "owned" if match["owned"] else "wishlist" if match["wishlisted"] else "missing"
         else:
             status = "missing"
-        out.append({**b, "status": status, "series_name": name})
+        row = {**b, "status": status, "series_name": name}
+        if status == "missing":
+            row["buy_links"] = [
+                asdict(l) for l in buy_links.for_book(
+                    cfg, title=b["title"], authors=b.get("authors") or "", isbn13=None)
+            ] if cfg else []
+        out.append(row)
 
     missing = sum(1 for b in out if b["status"] == "missing")
 
-    # Cache the result only for a series the library actually holds. This is a
-    # viewer-role GET, so without the guard any name Hardcover recognises would
-    # let a viewer create series_meta rows for series that do not exist here —
-    # and a check against an empty local set is meaningless anyway (every book
-    # would read as "missing"). Same not-found rule the complete endpoint uses.
+    # A remote-only lookup can classify every volume as missing, but this
+    # viewer-role GET may cache results only for a series held locally. The
+    # physical membership census above still refuses hidden/unavailable names
+    # before the provider call, and cache writes reauthorize after that call.
     if local:
         with get_db() as db:
+            if _require_series_role(db, name, "viewer") != authorized_ids:
+                return {"ok": False, "message": "Series changed; check again"}
             _upsert_series_check(db, name, len(out), missing)
 
-    return {"ok": True, "series": name, "total": len(out), "missing": missing, "books": out}
+    # The CSP build refuses arrow functions, so the template cannot ask
+    # "does any row carry a Bookshop link"; the server answers it here.
+    links = [l for b in out for l in b.get("buy_links", ())]
+    disclosure = {"bookshop": any(l["store"] == "bookshop" for l in links)} if links else None
+
+    return {"ok": True, "series": name, "total": len(out), "missing": missing,
+            "books": out, "buy_links_disclosure": disclosure}
+
+
+@router.post("/api/series/watch-all")
+async def watch_all_complete_series(_=Depends(require_role("editor")),
+                                    __=Depends(require_feature("series")),
+                                    ___=Depends(require_feature("release_radar")),
+                                    ____=Depends(require_feature("hardcover"))):
+    """Watch every series whose last Hardcover check found nothing missing.
+
+    Declared above every `{name:path}` route (G119). `hc_missing = 0` is the
+    only stored Hardcover fact about completeness; a manual "complete" flag
+    does not count. Called by HTMX only: an empty body (the button carries
+    `hx-swap="none"`, G54), a toast, and a refresh when anything was added.
+    """
+    candidates = (
+        "FROM series_meta m WHERE m.hc_missing = 0 "
+        f"AND EXISTS (SELECT 1 FROM {LIVE_SERIES_MEMBERSHIPS} s "
+        "WHERE s.series_name = m.name COLLATE NOCASE)"
+    )
+    with get_db() as db:
+        db.execute("BEGIN IMMEDIATE")
+        names = [row[0] for row in db.execute("SELECT m.name " + candidates)]
+        for name in names:
+            _require_series_role(db, name)
+        eligible = len(names)
+        added = sum(db.execute(
+            "INSERT OR IGNORE INTO release_watches (series_name) VALUES (?)", (name,)
+        ).rowcount for name in names)
+    if not added:
+        # rowcount 0 means either nothing qualifies or everything that does is
+        # already watched; the second must not send the user off to re-check.
+        message = (f"All {eligible} complete series are already watched" if eligible
+                   else "No checked, complete series to add — run Check completeness first")
+        return Response(status_code=200, headers={"HX-Trigger": items_common._toast_header(
+            message, "info")})
+    return Response(status_code=200, headers={
+        "HX-Trigger": items_common._toast_header(
+            f"Watching {added} more series"),
+        "HX-Refresh": "true",
+    })
 
 
 def _upsert_series_check(db, name: str, hc_total: int, hc_missing: int) -> None:
@@ -304,7 +383,8 @@ def _upsert_series_description(db, name: str, description: str, source: str) -> 
 
 @router.post("/api/series/{name:path}/description")
 async def set_series_description(name: str, description: str = Form(""),
-                                  _=Depends(require_role("editor"))):
+                                  _=Depends(require_role("editor")),
+                                  __=Depends(require_feature("series"))):
     """Upsert the free-text synopsis for a series in series_meta.
 
     `{name:path}` (not a plain `{name}`) so series names containing a slash
@@ -326,6 +406,7 @@ async def set_series_description(name: str, description: str = Form(""),
     description = (description or "").strip()
 
     with get_db() as db:
+        _require_series_role(db, name)
         if description:
             _upsert_series_description(db, name, description, "manual")
         else:
@@ -354,7 +435,8 @@ def _upsert_series_complete(db, name: str, complete: int | None) -> None:
 
 @router.post("/api/series/{name:path}/complete")
 async def set_series_complete(name: str, complete: str = Form(...),
-                              _=Depends(require_role("editor"))):
+                              _=Depends(require_role("editor")),
+                              __=Depends(require_feature("series"))):
     """Set or clear the manual "series complete" override in series_meta.
 
     This is the top-priority signal in the three-state completeness model
@@ -384,11 +466,7 @@ async def set_series_complete(name: str, complete: str = Form(...),
 
     with get_db() as db:
         _sync_item_series_memberships(db)
-        count = db.execute(
-            "SELECT COUNT(*) AS c FROM item_series "
-            "WHERE series_name = ? COLLATE NOCASE",
-            (name,),
-        ).fetchone()["c"]
+        count = len(_require_series_role(db, name))
         if not count:
             return {"ok": False, "message": "Series not found"}
 
@@ -397,9 +475,59 @@ async def set_series_complete(name: str, complete: str = Form(...),
         return {"ok": True, "name": name, "complete": bool(value)}
 
 
+@router.post("/api/series/{name:path}/watch")
+async def set_series_watch(request: Request, name: str, watch: str = Form(...),
+                           _=Depends(require_role("editor")),
+                           __=Depends(require_feature("series")),
+                           ___=Depends(require_feature("release_radar")),
+                           ____=Depends(require_feature("hardcover"))):
+    """Watch (`watch=1`) or stop watching (`watch=0`) a series for new volumes.
+
+    JSON for the Series card's `fetch`. An HTMX request (the `/upcoming`
+    Stop watching button) gets an empty body (`hx-swap="none"` on the button,
+    G54), a toast, and a refresh. Stopping a watch deletes its announced rows
+    with it (ON DELETE CASCADE).
+    """
+    is_htmx = request.headers.get("HX-Request") == "true"
+    name = name.strip()
+    watch = (watch or "").strip()
+
+    def refuse(message):
+        if is_htmx:
+            return Response(status_code=200, headers={
+                "HX-Trigger": items_common._toast_header(message, "error")})
+        return {"ok": False, "message": message}
+
+    if not name:
+        return refuse("Series name required")
+    if watch not in ("0", "1"):
+        return refuse("watch must be '0' or '1'")
+
+    with get_db() as db:
+        ids = _require_series_role(db, name)
+        if watch == "1":
+            if not ids:
+                return refuse("Series not found")
+            db.execute("INSERT OR IGNORE INTO release_watches (series_name) VALUES (?)", (name,))
+        else:
+            # No live-series guard: an item edit can empty a watched series,
+            # and /upcoming still shows its rows, so Stop watching must work.
+            db.execute("DELETE FROM release_watches WHERE series_name = ? COLLATE NOCASE", (name,))
+
+    watched = watch == "1"
+    if is_htmx:
+        message = f"Watching {name}" if watched else f"Stopped watching {name}"
+        return Response(status_code=200, headers={
+            "HX-Trigger": items_common._toast_header(message),
+            "HX-Refresh": "true",
+        })
+    return {"ok": True, "watched": watched}
+
+
 @router.post("/api/series/{name:path}/rename")
 async def rename_series(name: str, new_name: str = Form(""),
-                        _=Depends(require_role("editor"))):
+                        _=Depends(require_role("editor")),
+                        __=Depends(require_feature("series"))):
     """Move every item in a series to another series name.
 
     Renaming onto a name that already has books *merges* the two — the direct
@@ -428,17 +556,28 @@ async def rename_series(name: str, new_name: str = Form(""),
 
     with get_db() as db:
         _sync_item_series_memberships(db)
+        _require_series_role(db, name)
+        _require_series_role(db, new_name)
         source_rows = db.execute(
-            "SELECT item_id, position, is_primary FROM item_series "
-            "WHERE series_name = ? COLLATE NOCASE ORDER BY item_id",
+            f"SELECT s.item_id, s.position, s.is_primary FROM {LIVE_SERIES_MEMBERSHIPS} s "
+            "WHERE s.series_name = ? COLLATE NOCASE ORDER BY s.item_id",
             (name,),
         ).fetchall()
         count = len(source_rows)
         if not count:
             return {"ok": False, "message": "Series not found"}
 
+        # Validate all overlaps before the first rename, not midway through it.
+        for source in source_rows:
+            target = db.execute(
+                f"SELECT position FROM {LIVE_SERIES_MEMBERSHIPS} WHERE item_id = ? AND series_name = ? COLLATE NOCASE",
+                (source["item_id"], new_name),
+            ).fetchone()
+            if target and target["position"] is not None and source["position"] is not None and target["position"] != source["position"]:
+                raise HTTPException(409, "Series memberships conflict")
+
         merged = bool(db.execute(
-            "SELECT 1 FROM item_series WHERE series_name = ? COLLATE NOCASE LIMIT 1",
+            f"SELECT 1 FROM {LIVE_SERIES_MEMBERSHIPS} WHERE series_name = ? COLLATE NOCASE LIMIT 1",
             (new_name,),
         ).fetchone())
         src_meta = db.execute(
@@ -454,7 +593,7 @@ async def rename_series(name: str, new_name: str = Form(""),
 
         for source in source_rows:
             target = db.execute(
-                "SELECT position, is_primary FROM item_series "
+                f"SELECT position, is_primary FROM {LIVE_SERIES_MEMBERSHIPS} "
                 "WHERE item_id = ? AND series_name = ? COLLATE NOCASE",
                 (source["item_id"], new_name),
             ).fetchone()
@@ -475,9 +614,14 @@ async def rename_series(name: str, new_name: str = Form(""),
                 position = source["position"]
                 is_primary = int(source["is_primary"])
                 db.execute(
-                    "UPDATE item_series SET series_name = ? "
-                    "WHERE item_id = ? AND series_name = ? COLLATE NOCASE",
-                    (new_name, source["item_id"], name),
+                    "INSERT INTO item_series (item_id, series_name, position, is_primary) "
+                    "VALUES (?, ?, ?, ?) ON CONFLICT(item_id, series_name) DO UPDATE SET "
+                    "series_name = excluded.series_name",
+                    (source["item_id"], new_name, position, is_primary),
+                )
+                db.execute(
+                    "DELETE FROM item_series WHERE item_id = ? AND series_name = ? COLLATE NOCASE",
+                    (source["item_id"], name),
                 )
 
             if is_primary:
@@ -487,11 +631,7 @@ async def rename_series(name: str, new_name: str = Form(""),
                     "WHERE item_id = ?",
                     (new_name, source["item_id"]),
                 )
-                db.execute(
-                    "UPDATE items SET series_name = ?, series_position = ?, "
-                    "updated_at = datetime('now') WHERE id = ?",
-                    (new_name, position, source["item_id"]),
-                )
+                update_item_fields(db, source["item_id"], {"series_name": new_name, "series_position": position})
 
         src_desc = (src_meta["description"] or "").strip() if src_meta else ""
         dst_desc = (dst_meta["description"] or "").strip() if dst_meta else ""
@@ -506,12 +646,23 @@ async def rename_series(name: str, new_name: str = Form(""),
                 db, new_name, src_meta["hc_total"], src_meta["hc_missing"], src_meta["hc_checked_at"]
             )
 
+        # The watch follows the series. Onto an already-watched name the
+        # UPDATE is a no-op and the DELETE drops the source watch (its rows
+        # cascade), so the target's snapshot survives.
+        db.execute(
+            "UPDATE OR IGNORE release_watches SET series_name = ? "
+            "WHERE series_name = ? COLLATE NOCASE",
+            (new_name, name),
+        )
+        db.execute("DELETE FROM release_watches WHERE series_name = ? COLLATE NOCASE", (name,))
+
         gc_orphaned_series_meta(db, name)
         return {"ok": True, "name": new_name, "merged": merged, "count": count}
 
 
 @router.post("/api/series/{name:path}/remove-all")
-async def remove_all_from_series(name: str, _=Depends(require_role("editor"))):
+async def remove_all_from_series(name: str, _=Depends(require_role("editor")),
+                                 __=Depends(require_feature("series"))):
     """Disband a series: clear series_name on every item that belongs to it.
 
     The items themselves are untouched — only the series link is dropped.
@@ -524,8 +675,9 @@ async def remove_all_from_series(name: str, _=Depends(require_role("editor"))):
 
     with get_db() as db:
         _sync_item_series_memberships(db)
+        _require_series_role(db, name)
         rows = db.execute(
-            "SELECT item_id, is_primary FROM item_series "
+            f"SELECT item_id, is_primary FROM {LIVE_SERIES_MEMBERSHIPS} "
             "WHERE series_name = ? COLLATE NOCASE",
             (name,),
         ).fetchall()
@@ -534,19 +686,29 @@ async def remove_all_from_series(name: str, _=Depends(require_role("editor"))):
             return {"ok": False, "message": "Series not found"}
 
         primary_item_ids = [row["item_id"] for row in rows if row["is_primary"]]
+        for item_id in primary_item_ids:
+            replacement = db.execute(
+                "SELECT series_name FROM item_series WHERE item_id = ? "
+                "AND series_name != ? COLLATE NOCASE "
+                "ORDER BY created_at, series_name COLLATE NOCASE LIMIT 1", (item_id, name),
+            ).fetchone()
+            if replacement:
+                _require_series_role(db, replacement["series_name"])
         db.execute(
             "DELETE FROM item_series WHERE series_name = ? COLLATE NOCASE",
             (name,),
         )
         for item_id in primary_item_ids:
             _promote_primary_membership(db, item_id)
+        db.execute("DELETE FROM release_watches WHERE series_name = ? COLLATE NOCASE", (name,))
 
         gc_orphaned_series_meta(db, name)
         return {"ok": True, "count": count}
 
 
 @router.post("/api/series/{name:path}/fetch-description")
-async def fetch_series_description(name: str, _=Depends(require_role("editor"))):
+async def fetch_series_description(name: str, _=Depends(require_role("editor")),
+                                   __=Depends(require_feature("series"))):
     """Fetch a series' synopsis from Hardcover and persist it (source='hardcover').
 
     Mirrors check_series's token lookup. Never writes a row on failure — a
@@ -558,6 +720,7 @@ async def fetch_series_description(name: str, _=Depends(require_role("editor")))
         return {"ok": False, "message": "Series name required"}
 
     with get_db() as db:
+        authorized_ids = _require_series_role(db, name)
         token = get_setting(db, "hardcover_token")
         if not token:
             return {"ok": False, "message": "Hardcover integration not configured"}
@@ -571,6 +734,8 @@ async def fetch_series_description(name: str, _=Depends(require_role("editor")))
                 "message": "Hardcover has no synopsis for this series — add one below"}
 
     with get_db() as db:
+        if _require_series_role(db, name) != authorized_ids:
+            return {"ok": False, "message": "Series changed; check again"}
         _upsert_series_description(db, name, description, "hardcover")
 
     return {"ok": True, "description": description}

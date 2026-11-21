@@ -1,5 +1,7 @@
 """Komga settings, request boundaries and browser-link regressions."""
 # Cover batching and stall protection live in the sync-focused regressions.
+import re
+
 import httpx
 import respx
 
@@ -29,7 +31,12 @@ class TestKomgaSettingsUI:
         assert 'Komga Internal / API URL' in html
         assert 'Komga Browser / Public URL' in html
         assert 'Audiobookshelf Internal / API URL' in html
-        assert 'Audiobookshelf Browser / Public URL' in html
+        # The composed native card labels the actual control, not the retired
+        # standalone fragment's heading. An unrelated text occurrence cannot pass.
+        label = re.search(r'<label\b[^>]*for="abs_public_url"[^>]*>(.*?)</label>', html, re.S)
+        assert label is not None
+        assert re.sub(r"<[^>]+>", "", label[1]).strip() == "Browser URL (optional)"
+        assert '<input type="url" id="abs_public_url" name="abs_public_url"' in html
 
     def test_generic_settings_normalizes_url_and_keeps_api_key_write_only(
         self, admin_client, db

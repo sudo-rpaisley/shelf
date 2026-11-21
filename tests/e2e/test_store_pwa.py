@@ -13,14 +13,20 @@ from tests.e2e.conftest import (
     assert_page_clean,
     attach_page_guard,
     insert_item,
+    wait_for_service_worker_control,
     wait_for_video_ready,
 )
 
 pytestmark = pytest.mark.e2e
 
-OWNED_ISBN = "9780901000018"
-WISHLIST_ISBN = "9780901000025"
-UNKNOWN_ISBN = "9780901000033"
+
+def _wait_for_sw_control(pg, timeout_ms: int = 10_000) -> None:
+    """CSP-safe real activation + page-control wait, with bounded diagnostics."""
+    wait_for_service_worker_control(pg, timeout_ms)
+
+OWNED_ISBN = "9789010000187"
+WISHLIST_ISBN = "9789010000255"
+UNKNOWN_ISBN = "9789010000323"
 
 
 def _login(live_server, ctx, setup_admin):
@@ -29,13 +35,14 @@ def _login(live_server, ctx, setup_admin):
     pg.fill("input[name=username]", setup_admin["username"])
     pg.fill("input[name=password]", setup_admin["password"])
     pg.click("button[type=submit]")
-    pg.wait_for_url(f"{live_server['url']}/browse", timeout=10_000)
+    pg.wait_for_url(f"{live_server['url']}/", timeout=10_000)
     return pg
 
 
 def test_offline_verdicts_and_queue_flush(live_server, browser, setup_admin):
     insert_item(live_server["data_dir"], title="Store Owned Book", isbn=OWNED_ISBN)
-    insert_item(live_server["data_dir"], title="Store Wishlist Book", isbn=WISHLIST_ISBN, owned=0)
+    insert_item(live_server["data_dir"], title="Store Wishlist Book", isbn=WISHLIST_ISBN, owned=0,
+                wishlisted=True)
 
     ctx = browser.new_context()
     try:
@@ -44,9 +51,7 @@ def test_offline_verdicts_and_queue_flush(live_server, browser, setup_admin):
         # Load store mode online: SW installs, library data lands in localStorage
         pg.goto(f"{live_server['url']}/store")
         expect(pg.get_by_test_id("status-line")).to_contain_text("titles cached", timeout=10_000)
-        pg.wait_for_function(
-            "navigator.serviceWorker.ready.then(r => !!navigator.serviceWorker.controller)"
-        )
+        _wait_for_sw_control(pg)
 
         # Go offline; the page must reload from the service worker cache
         ctx.set_offline(True)
@@ -70,10 +75,15 @@ def test_offline_verdicts_and_queue_flush(live_server, browser, setup_admin):
         expect(pg.get_by_test_id("verdict")).to_contain_text("NOT IN LIBRARY")
         expect(pg.get_by_test_id("queue-count")).to_have_text("1")
 
-        # Going back online automatically flushes the queue. Observe that
-        # request rather than racing the auto-flush with a manual button click.
-        with pg.expect_response("**/api/store/queue") as resp_info:
+        # Back online: flush the queue (fake ISBN -> lookup fails -> bare
+        # wishlist add; the scan must never be lost)
+        with pg.expect_response(
+            lambda r: r.url == f"{live_server['url']}/api/store/queue" and r.request.method == "POST"
+        ) as resp_info, pg.expect_response(
+            lambda r: r.url == f"{live_server['url']}/api/store/data" and r.request.method == "GET"
+        ) as refreshed:
             ctx.set_offline(False)
+        assert resp_info.value.request.post_data_json == {"isbns": [UNKNOWN_ISBN]}
         result = resp_info.value.json()["results"][0]
         assert result["status"] in ("wishlisted", "added_bare"), result
 
@@ -89,6 +99,80 @@ def test_offline_verdicts_and_queue_flush(live_server, browser, setup_admin):
 
         # Queue drained in the UI
         expect(pg.get_by_test_id("queue-count")).to_have_text("0", timeout=10_000)
+        assert refreshed.value.status == 200
+        expect(pg.get_by_test_id("status-line")).not_to_have_attribute("aria-busy", "true")
+        expect(pg.get_by_test_id("status-line")).to_contain_text(f"{refreshed.value.json()['count']} titles cached")
+
+        # Independently exercise the manual control after a failed automatic
+        # turn has settled. Seed AFTER the manifest so the browser must queue
+        # it, but the real server can answer without any metadata provider.
+        manual_code = "9789010001009"
+        manual_id = insert_item(live_server["data_dir"], title="Manual Queue Retry",
+                                isbn=manual_code, owned=0, wishlisted=True)
+        held = []
+
+        def hold_queue(route):
+            held.append(route)
+
+        pg.route("**/api/store/queue", hold_queue)
+        with pg.expect_request(
+            lambda r: r.url == f"{live_server['url']}/api/store/queue" and r.method == "POST"
+        ):
+            check(manual_code)
+        expect(pg.get_by_test_id("sync-now")).to_be_disabled()
+        assert len(held) == 1
+        assert held[0].request.post_data_json == {"isbns": [manual_code]}
+        held[0].abort()
+        expect(pg.get_by_test_id("sync-now")).to_be_enabled()
+        expect(pg.get_by_test_id("queue-count")).to_have_text("1")
+        pg.unroute("**/api/store/queue", hold_queue)
+        with pg.expect_response(
+            lambda r: r.url == f"{live_server['url']}/api/store/queue" and r.request.method == "POST"
+        ) as manual:
+            pg.get_by_test_id("sync-now").click()
+        assert manual.value.request.post_data_json == {"isbns": [manual_code]}
+        result = manual.value.json()["results"][0]
+        assert (result["code"], result["status"], result["owned"], result["item_id"]) == (
+            manual_code, "duplicate", False, manual_id,
+        )
+        expect(pg.get_by_test_id("queue-count")).to_have_text("0")
+        with sqlite3.connect(str(live_server["data_dir"] / "shelf.db")) as conn:
+            assert conn.execute("SELECT id, owned FROM items WHERE isbn = ?", (manual_code,)).fetchall() == [(manual_id, 0)]
+        assert_page_clean(pg)
+    finally:
+        ctx.close()
+
+
+NEITHER_ISBN = "9789010000392"
+
+
+def test_a_neither_item_reads_not_in_library_offline(live_server, browser, setup_admin):
+    """Issue #125 T11: a row that is neither owned nor wishlisted is left out
+    of the store manifest (`store.py::store_data`) exactly like an ISBN with
+    no row at all, so it reads NOT IN LIBRARY offline even though the title
+    is already tracked on the server. Unique ISBN — never matches any other
+    seeded row, so the verdict holds no matter what else the session-scoped
+    server has accumulated (G34)."""
+    insert_item(
+        live_server["data_dir"], title="Store Neither Book", isbn=NEITHER_ISBN, owned=0,
+    )
+
+    ctx = browser.new_context()
+    try:
+        pg = _login(live_server, ctx, setup_admin)
+
+        pg.goto(f"{live_server['url']}/store")
+        expect(pg.get_by_test_id("status-line")).to_contain_text("titles cached", timeout=10_000)
+        _wait_for_sw_control(pg)
+
+        ctx.set_offline(True)
+        pg.reload()
+        expect(pg.get_by_test_id("status-line")).to_contain_text("offline", timeout=10_000)
+
+        pg.get_by_test_id("isbn-input").fill(NEITHER_ISBN)
+        pg.get_by_test_id("check-button").click()
+        expect(pg.get_by_test_id("verdict")).to_contain_text("NOT IN LIBRARY")
+
         assert_page_clean(pg)
     finally:
         ctx.close()
@@ -192,6 +276,178 @@ def test_store_camera_uses_html5_qrcode_by_default(live_server, browser, setup_a
         # html5-qrcode injects its own <video> into #reader once live.
         wait_for_video_ready(pg, "#reader video")
         expect(pg.locator("body")).not_to_contain_text("Camera unavailable")
+        assert_page_clean(pg)
+    finally:
+        ctx.close()
+
+
+# --- Queue flush: verdict, ISBN-10, single flight, drain ---------------------
+#
+# Server-side rows are seeded AFTER the manifest loads, so the device's index
+# does not have them and the check goes through the queue (G83: wait on the
+# response, not on a sleep). Every ISBN below is unique to this block (G34).
+
+C1_WISHLIST_ISBN = "9789010000606"
+C1_OWNED_ISBN = "9789010000705"
+ISBN10_BASE = "9789010000507"
+SINGLE_FLIGHT_CODES = ("9789030001003", "9789030002000", "9789030003007")
+
+
+BASELINE_ISBN = "9789010000804"
+
+
+def _store_loaded(live_server, ctx, setup_admin):
+    # The status line reads "titles cached" only for a non-empty library, so
+    # seed one row up front; the test's own row lands after the load.
+    if not _baseline_seeded(live_server):
+        insert_item(live_server["data_dir"], title="Flush Baseline Book", isbn=BASELINE_ISBN)
+    pg = _login(live_server, ctx, setup_admin)
+    pg.goto(f"{live_server['url']}/store")
+    expect(pg.get_by_test_id("status-line")).to_contain_text("titles cached", timeout=10_000)
+    return pg
+
+
+def _baseline_seeded(live_server):
+    conn = sqlite3.connect(str(live_server["data_dir"] / "shelf.db"))
+    try:
+        return conn.execute("SELECT 1 FROM items WHERE isbn = ?", (BASELINE_ISBN,)).fetchone() is not None
+    finally:
+        conn.close()
+
+
+def _check_via_queue(pg, code):
+    pg.get_by_test_id("isbn-input").fill(code)
+    with pg.expect_response("**/api/store/queue"):
+        pg.get_by_test_id("check-button").click()
+
+
+def test_flush_reads_wishlisted_row_as_on_wishlist(live_server, browser, setup_admin):
+    ctx = browser.new_context()
+    try:
+        pg = _store_loaded(live_server, ctx, setup_admin)
+        insert_item(live_server["data_dir"], title="Flush Wishlist Book", isbn=C1_WISHLIST_ISBN,
+                    owned=0, wishlisted=True)
+
+        _check_via_queue(pg, C1_WISHLIST_ISBN)
+        expect(pg.get_by_test_id("verdict")).to_contain_text("ON WISHLIST")
+        expect(pg.get_by_test_id("verdict")).not_to_contain_text("OWNED")
+        expect(pg.get_by_test_id("queue-count")).to_have_text("0")
+
+        # Scan again: the index now answers it, still not OWNED.
+        pg.get_by_test_id("isbn-input").fill(C1_WISHLIST_ISBN)
+        pg.get_by_test_id("check-button").click()
+        expect(pg.get_by_test_id("verdict")).to_contain_text("ON WISHLIST")
+        expect(pg.get_by_test_id("verdict")).not_to_contain_text("OWNED")
+        assert_page_clean(pg)
+    finally:
+        ctx.close()
+
+
+def test_flush_reads_owned_row_as_owned(live_server, browser, setup_admin):
+    ctx = browser.new_context()
+    try:
+        pg = _store_loaded(live_server, ctx, setup_admin)
+        insert_item(live_server["data_dir"], title="Flush Owned Book", isbn=C1_OWNED_ISBN)
+
+        _check_via_queue(pg, C1_OWNED_ISBN)
+        expect(pg.get_by_test_id("verdict")).to_contain_text("OWNED")
+        expect(pg.get_by_test_id("verdict")).not_to_contain_text("ON WISHLIST")
+        assert_page_clean(pg)
+    finally:
+        ctx.close()
+
+
+def test_flush_matches_an_isbn10_scan_to_its_isbn13_row(live_server, browser, setup_admin):
+    from app.services.isbn import isbn13_to_isbn10
+
+    isbn10 = isbn13_to_isbn10(ISBN10_BASE)
+    ctx = browser.new_context()
+    try:
+        pg = _store_loaded(live_server, ctx, setup_admin)
+        insert_item(live_server["data_dir"], title="Flush Ten Book", isbn=ISBN10_BASE)
+
+        _check_via_queue(pg, isbn10)
+        expect(pg.get_by_test_id("queue-count")).to_have_text("0")
+        expect(pg.get_by_test_id("verdict")).not_to_contain_text("NOT IN LIBRARY")
+        expect(pg.get_by_test_id("verdict")).to_contain_text("OWNED")
+        assert_page_clean(pg)
+    finally:
+        ctx.close()
+
+
+def test_flush_is_single_flight_and_picks_up_mid_flight_scans(live_server, browser, setup_admin):
+    a, b, c = SINGLE_FLIGHT_CODES
+    bodies = []
+    held = []
+
+    def handler(route):
+        body = route.request.post_data_json
+        bodies.append(body)
+        if len(bodies) == 1:
+            held.append(route)  # unanswered until the test says so
+            return
+        route.fulfill(json={"results": [
+            {"code": x, "isbn": x, "status": "added_bare", "title": None, "owned": False}
+            for x in body["isbns"]
+        ]})
+
+    ctx = browser.new_context()
+    try:
+        pg = _store_loaded(live_server, ctx, setup_admin)
+        pg.route("**/api/store/queue", handler)
+
+        def scan(code):
+            pg.get_by_test_id("isbn-input").fill(code)
+            pg.get_by_test_id("check-button").click()
+
+        scan(a)
+        expect(pg.get_by_test_id("queue-count")).to_have_text("1")
+        scan(b)
+        scan(c)
+        expect(pg.get_by_test_id("queue-count")).to_have_text("3")
+        assert len(bodies) == 1 and bodies[0]["isbns"] == [a], bodies
+        assert len(held) == 1
+
+        held[0].fulfill(json={"results": [
+            {"code": a, "isbn": a, "status": "added_bare", "title": None, "owned": False}
+        ]})
+        expect(pg.get_by_test_id("queue-count")).to_have_text("0")
+        assert len(bodies) == 2, bodies
+        assert bodies[1]["isbns"] == [b, c], bodies
+        assert_page_clean(pg)
+    finally:
+        ctx.close()
+
+
+def test_flush_drains_a_51_code_queue_in_two_rounds(live_server, browser, setup_admin):
+    def check_digit(base):
+        s = sum(int(d) * (1 if i % 2 == 0 else 3) for i, d in enumerate(base))
+        return base + str((10 - s % 10) % 10)
+
+    codes = [check_digit("97890200%04d" % i) for i in range(51)]
+    bodies = []
+
+    def handler(route):
+        body = route.request.post_data_json
+        bodies.append(body)
+        route.fulfill(json={"results": [
+            {"code": x, "isbn": x, "status": "added_bare", "title": None, "owned": False}
+            for x in body["isbns"]
+        ]})
+
+    ctx = browser.new_context()
+    try:
+        pg = _store_loaded(live_server, ctx, setup_admin)
+        pg.route("**/api/store/queue", handler)
+        # G52: seed after load and reload; no add_init_script.
+        pg.evaluate(
+            "(codes) => localStorage.setItem('shelf-store-queue',"
+            " JSON.stringify(codes.map(c => ({isbn: c, at: new Date().toISOString()}))))",
+            codes,
+        )
+        pg.reload()
+        expect(pg.get_by_test_id("queue-count")).to_have_text("0", timeout=10_000)
+        assert [len(x["isbns"]) for x in bodies] == [50, 1], [len(x["isbns"]) for x in bodies]
         assert_page_clean(pg)
     finally:
         ctx.close()

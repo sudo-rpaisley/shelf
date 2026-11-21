@@ -1,0 +1,17 @@
+<div data-testid="inventory-missing-report">
+    {% if missing_items %}
+    <p class="text-sm text-shelf-warning mb-3">{{ _('%(count)s item(s) at %(place)s not scanned:', count=missing_items|length, place=location_name) }}</p>
+    {% for item in missing_items %}
+    <div class="bg-shelf-card rounded-lg border border-shelf-border p-3 flex items-center gap-3" data-missing-item="{{ item.item_id }}">
+        {% if item.cover_path %}<img src="/{{ item.cover_path }}" class="w-10 h-14 object-contain rounded" alt="" data-cover-shape="{{ cover_shape(item.media_type) }}">{% endif %}
+        <div class="flex-1 min-w-0">
+            <a href="/item/{{ item.item_id }}" class="font-medium text-sm hover:text-shelf-accent2">{{ item.title or _('Untitled') }}</a>
+            {% if item.authors %}<p class="text-xs text-shelf-muted truncate">{{ item.authors }}</p>{% endif %}
+        </div>
+        <span class="text-xs text-shelf-error">{{ _('missing') }}</span>
+    </div>
+    {% endfor %}
+    {% else %}
+    <p class="text-sm text-shelf-success">{{ _('All items at %(place)s accounted for!', place=location_name) }}</p>
+    {% endif %}
+</div>

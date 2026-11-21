@@ -1,9 +1,16 @@
 """Tests for the stats dashboard: SVG chart builders and page aggregations."""
+import re
 from unittest.mock import AsyncMock, patch
 
 from app.currency import invalidate_cache
 from app.services.charts import area_chart, column_chart, hbar_chart, _nice_step
 from tests.conftest import _insert_item
+
+
+def _kpi_text(html):
+    """Plain text of the Finished-in-year KPI card, tags stripped."""
+    card = html.split('data-testid="stats-finished-year"')[1].split("</div>")[0]
+    return re.sub(r"<[^>]+>", "", card)
 
 
 def _set_currency(db, code):
@@ -77,11 +84,11 @@ class TestChartBuilders:
 
 
 class TestStatsPage:
-    def test_charts_render(self, admin_client, db):
+    def test_charts_render(self, admin_client, admin_user, db):
         _insert_item(db, title="Read One", isbn="9789030000112", authors="Frank Herbert",
-                     reading_status="read", date_finished="2024-03-01")
+                     reading_status="read", date_finished="2024-03-01", personal_user_id=admin_user["id"])
         _insert_item(db, title="Read Two", isbn="9789030000280", authors="Frank Herbert, Brian Herbert",
-                     reading_status="read", date_finished="2025-01-15")
+                     reading_status="read", date_finished="2025-01-15", personal_user_id=admin_user["id"])
         _insert_item(db, title="Unread", isbn="9789030000358", authors="Ursula K. Le Guin")
         db.execute("COMMIT")
 
@@ -96,13 +103,65 @@ class TestStatsPage:
         assert ">Frank Herbert<" in html
         assert ">Brian Herbert<" not in html
 
-    def test_read_this_year_kpi(self, admin_client, db):
+    def test_finished_this_year_kpi(self, admin_client, admin_user, db):
         from datetime import date
         _insert_item(db, title="This Year", isbn="9789030000426",
-                     reading_status="read", date_finished=f"{date.today().year}-02-01")
+                     reading_status="read", date_finished=f"{date.today().year}-02-01", personal_user_id=admin_user["id"])
         db.execute("COMMIT")
         html = admin_client.get("/stats").text
-        assert f"Read in {date.today().year}" in html
+        assert f"Finished in {date.today().year}" in html
+
+    def test_finished_this_year_kpi_splits_by_verb(self, admin_client, admin_user, db):
+        from datetime import date
+        year = date.today().year
+        _insert_item(db, title="Book One", isbn="9789030000501", media_type="book",
+                     reading_status="read", date_finished=f"{year}-01-05", personal_user_id=admin_user["id"])
+        _insert_item(db, title="Book Two", isbn="9789030000518", media_type="book",
+                     reading_status="read", date_finished=f"{year}-02-05", personal_user_id=admin_user["id"])
+        _insert_item(db, title="A DVD", isbn="9789030000525", media_type="dvd",
+                     reading_status="read", date_finished=f"{year}-03-05", personal_user_id=admin_user["id"])
+        _insert_item(db, title="A Game", isbn="9789030000532", media_type="video_game",
+                     reading_status="read", date_finished=f"{year}-04-05", personal_user_id=admin_user["id"])
+        db.execute("COMMIT")
+        html = admin_client.get("/stats").text
+        kpi = _kpi_text(html)
+        assert kpi.count("read") == 1
+        assert kpi.count("watched") == 1
+        assert kpi.count("played") == 1
+        assert "2 read" in kpi
+        assert "1 watched" in kpi
+        assert "1 played" in kpi
+
+    def test_finished_this_year_kpi_books_only_omits_watch_and_play(self, admin_client, admin_user, db):
+        from datetime import date
+        year = date.today().year
+        _insert_item(db, title="Only Book", isbn="9789030000549", media_type="book",
+                     reading_status="read", date_finished=f"{year}-01-05", personal_user_id=admin_user["id"])
+        db.execute("COMMIT")
+        html = admin_client.get("/stats").text
+        kpi = _kpi_text(html)
+        assert "read" in kpi
+        assert "watched" not in kpi
+        assert "played" not in kpi
+
+    def test_books_read_chart_counts_books_only(self, admin_client, admin_user, db):
+        from datetime import date
+        year = date.today().year
+        _insert_item(db, title="Chart Book", isbn="9789030000556", media_type="book",
+                     reading_status="read", date_finished=f"{year}-01-05", personal_user_id=admin_user["id"])
+        for i, media_type in enumerate(("dvd", "dvd", "dvd", "cd", "vinyl", "cassette",
+                                         "digital_music", "magazine")):
+            _insert_item(db, title=f"Non Book {i}", isbn=f"97890300006{i:02d}", media_type=media_type,
+                         reading_status="read", date_finished=f"{year}-06-{(i % 27) + 1:02d}", personal_user_id=admin_user["id"])
+        db.execute("COMMIT")
+        html = admin_client.get("/stats").text
+        assert f"<title>{year}: 1</title>" in html
+
+        kpi = _kpi_text(html)
+        # 1 book + cd + vinyl + cassette + digital_music + magazine all default to "read".
+        assert "6 read" in kpi
+        # the 3 dvds default to "watch".
+        assert "3 watched" in kpi
 
     def test_valuation_chart_needs_two_snapshots(self, admin_client, db):
         html = admin_client.get("/stats").text

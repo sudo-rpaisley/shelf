@@ -45,43 +45,15 @@ _GROUP_KEY = (
     "ELSE 'item:' || CAST(i.id AS TEXT) END"
 )
 
-# Only nodes that actually occur in item_links seed the recursive walk. That
-# keeps an installation with thousands of unlinked catalogue rows cheap while
-# still deriving the full transitive component for every linked item.
-_MEDIA_ROOTS_CTE = """WITH RECURSIVE
-linked_nodes(id) AS (
-    SELECT item_a_id FROM item_links
-    UNION
-    SELECT item_b_id FROM item_links
-),
-media_walk(seed, node) AS (
-    SELECT id, id FROM linked_nodes
-    UNION
-    SELECT media_walk.seed,
-           CASE
-             WHEN il.item_a_id = media_walk.node THEN il.item_b_id
-             ELSE il.item_a_id
-           END
-      FROM media_walk
-      JOIN item_links il
-        ON il.item_a_id = media_walk.node OR il.item_b_id = media_walk.node
-),
-media_roots(id, root) AS (
-    SELECT seed, MIN(node)
-      FROM media_walk
-     GROUP BY seed
-)"""
-
-
 def _media_roots_cte(visibility_sql: str = "") -> str:
-    """Return the linked-media CTE, optionally restricted to visible nodes."""
-    normalized = (visibility_sql or "").strip().replace(" ", "")
-    if not normalized or normalized == "1=1":
-        return _MEDIA_ROOTS_CTE
+    """Build components only through live, actor-visible catalogue nodes.
 
+    An optional predicate can narrow this further, never bypass the scoped view.
+    Hidden or trashed nodes must not bridge otherwise separate visible groups.
+    """
     return f"""WITH RECURSIVE
 visible_items(id) AS (
-    SELECT i.id FROM items i WHERE {visibility_sql}
+    SELECT i.id FROM items_live i WHERE {visibility_sql or '1=1'}
 ),
 linked_edges(item_a_id, item_b_id) AS (
     SELECT il.item_a_id, il.item_b_id
@@ -149,7 +121,7 @@ def _plain_page(db, where: str, params: list, order_clause: str, *, limit: int, 
     from app.routers.checkouts import OVERDUE_CONDITION, get_overdue_days
 
     raw_total = db.execute(
-        f"SELECT COUNT(*) AS c FROM items i {where}", params
+        f"SELECT COUNT(*) AS c FROM items_live i {where}", params
     ).fetchone()["c"]
     rows = db.execute(
         f"SELECT i.*, l.name as location_name, "
@@ -157,7 +129,7 @@ def _plain_page(db, where: str, params: list, order_clause: str, *, limit: int, 
         f" WHERE c.item_id = i.id AND c.checked_in IS NULL LIMIT 1) AS lent_to, "
         f"(SELECT 1 FROM checkouts c WHERE c.item_id = i.id "
         f" AND {OVERDUE_CONDITION} LIMIT 1) AS lent_overdue "
-        f"FROM items i LEFT JOIN locations l ON i.location_id = l.id "
+        f"FROM items_live i LEFT JOIN locations l ON i.location_id = l.id "
         f"{where} ORDER BY {order_clause} LIMIT ? OFFSET ?",
         [get_overdue_days(db)] + list(params) + [limit, offset],
     ).fetchall()
@@ -194,7 +166,7 @@ def _earliest_group_covers(
                        ORDER BY (series_position IS NULL), series_position ASC,
                                 (publish_year IS NULL), publish_year ASC, id ASC
                    ) AS issue_rank
-              FROM items i
+              FROM items_live i
              WHERE media_type IN ('digital_comic', 'digital_manga')
                AND series_name IS NOT NULL AND TRIM(series_name) != ''
                AND {_GROUP_KEY} IN ({placeholders})
@@ -226,7 +198,7 @@ def _media_group_metadata(
     rows = db.execute(
         f"""{cte}
         SELECT mr.root, i.id, i.title, i.authors, i.cover_path, i.media_type
-          FROM items i
+          FROM items_live i
           JOIN media_roots mr ON mr.id = i.id
          WHERE mr.root IN ({placeholders})
          ORDER BY mr.root, i.id""",
@@ -240,8 +212,8 @@ def _media_group_metadata(
     result: dict[int, dict] = {}
     for root, members in by_root.items():
         canonical = next((row for row in members if row["id"] == root), members[0])
-        cover_path = canonical["cover_path"] or next(
-            (row["cover_path"] for row in members if row["cover_path"]), None
+        cover_owner = canonical if canonical["cover_path"] else next(
+            (row for row in members if row["cover_path"]), canonical
         )
         media_types = []
         media_labels = []
@@ -256,7 +228,8 @@ def _media_group_metadata(
             "browse_media_count": len(members),
             "browse_media_title": canonical["title"],
             "browse_media_authors": canonical["authors"],
-            "browse_media_cover_path": cover_path,
+            "browse_media_cover_path": cover_owner["cover_path"],
+            "browse_media_cover_media_type": cover_owner["media_type"],
             "browse_media_types": media_types,
             "browse_media_labels": media_labels,
             "browse_media_url": f"/item/{root}",
@@ -297,7 +270,7 @@ def fetch_page(
     from app.routers.checkouts import OVERDUE_CONDITION, get_overdue_days
 
     raw_total = db.execute(
-        f"SELECT COUNT(*) AS c FROM items i {where}", params
+        f"SELECT COUNT(*) AS c FROM items_live i {where}", params
     ).fetchone()["c"]
 
     display_key = _display_group_key(group_comics, group_media)
@@ -308,7 +281,7 @@ def fetch_page(
         display_total = db.execute(
             f"""{media_cte}
             SELECT COUNT(DISTINCT {display_key}) AS c
-              FROM items i
+              FROM items_live i
               {media_join}
               {where}""",
             vis_params + list(params),
@@ -317,7 +290,7 @@ def fetch_page(
         ranked_prefix_params = vis_params
     else:
         display_total = db.execute(
-            f"SELECT COUNT(DISTINCT {display_key}) AS c FROM items i {where}",
+            f"SELECT COUNT(DISTINCT {display_key}) AS c FROM items_live i {where}",
             params,
         ).fetchone()["c"]
         grouped_prefix = "WITH grouped AS ("
@@ -334,13 +307,13 @@ def fetch_page(
                        PARTITION BY {display_key}
                        ORDER BY {order_clause}
                    ) AS browse_group_rank
-              FROM items i
+              FROM items_live i
               {media_join}
               {where}
         )
         SELECT g.id, g.browse_group_key, g.browse_group_count
           FROM grouped g
-          JOIN items i ON i.id = g.id
+          JOIN items_live i ON i.id = g.id
          WHERE g.browse_group_rank = 1
          ORDER BY {order_clause}
          LIMIT ? OFFSET ?""",
@@ -358,7 +331,7 @@ def fetch_page(
         f" WHERE c.item_id = i.id AND c.checked_in IS NULL LIMIT 1) AS lent_to, "
         f"(SELECT 1 FROM checkouts c WHERE c.item_id = i.id "
         f" AND {OVERDUE_CONDITION} LIMIT 1) AS lent_overdue "
-        f"FROM items i LEFT JOIN locations l ON i.location_id = l.id "
+        f"FROM items_live i LEFT JOIN locations l ON i.location_id = l.id "
         f"WHERE i.id IN ({placeholders})",
         [get_overdue_days(db)] + ids,
     ).fetchall()

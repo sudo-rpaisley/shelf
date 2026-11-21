@@ -1,10 +1,21 @@
 {% extends "base.html" %}
 {% block title %}Series — Shelf{% endblock %}
 {% block content %}
-{% set can_edit = user and user.role in ('admin', 'editor') %}
+{% set can_edit = can_edit_catalogue|default(false) %}
+{% set radar = radar_on and has_hardcover and feature_on('hardcover') and feature_on('release_radar') %}
 <div class="mb-6">
     <h1 class="text-2xl font-bold">Series <span class="text-shelf-muted text-lg font-normal">({{ series_list|length }})</span></h1>
     <p class="text-sm text-shelf-muted mt-1">Your library grouped by series. Gaps are inferred from position numbers{% if has_hardcover %}; use <span class="text-shelf-accent2">Check completeness</span> to compare against Hardcover's full series listing{% endif %}.</p>
+    {% if radar %}
+    <div class="flex flex-wrap items-center gap-3 mt-3">
+        <a href="/upcoming" class="text-sm text-shelf-accent2 hover:underline" data-testid="upcoming-link">Upcoming releases</a>
+        {% if can_edit %}
+        <button type="button" hx-post="/api/series/watch-all" hx-swap="none"
+                class="px-3 py-1.5 bg-shelf-card border border-shelf-border text-shelf-muted rounded-lg text-xs hover:text-shelf-text hover:border-shelf-accent/50 transition-colors"
+                data-testid="watch-all">Watch all complete series</button>
+        {% endif %}
+    </div>
+    {% endif %}
 </div>
 
 {% if not series_list %}
@@ -39,6 +50,8 @@
          data-hc-total="{{ s.hc_total if s.hc_total is not none else '' }}"
          data-hc-missing="{{ s.hc_missing if s.hc_missing is not none else '' }}"
          data-hc-checked-at="{{ s.hc_checked_at or '' }}"
+         data-watched="{{ '1' if s.watched else '' }}"
+         data-watch-state="{{ s.watch_state }}"
          data-testid="series-card">
         <div class="flex items-start justify-between gap-3 flex-wrap">
             <div>
@@ -56,15 +69,25 @@
                           class="ml-1 align-middle inline-block whitespace-nowrap px-2 py-0.5 rounded-full text-xs font-medium bg-shelf-warning/20 text-shelf-warning"></span>
                 </h2>
                 <p class="text-xs text-shelf-muted mt-0.5">
-                    {{ s.owned_count }} owned{% if s['items']|length != s.owned_count %} · {{ s['items']|length - s.owned_count }} wishlisted{% endif %}
+                    {{ s.owned_count }} owned{% if s.wishlist_count %} · {{ s.wishlist_count }} wishlisted{% endif %}
                     {% if s.gaps %}
                     · <span class="text-shelf-warning">possibly missing
                         {%- for g in s.gaps[:8] %} #{{ g }}{% if not loop.last %},{% endif %}{% endfor %}
                         {%- if s.gaps|length > 8 %} +{{ s.gaps|length - 8 }} more{% endif %}</span>
                     {% endif %}
                 </p>
+                {% if radar and s.watch_state == 'not_found' %}
+                <p class="text-xs text-shelf-warning mt-0.5" data-testid="watch-not-found">Not found on Hardcover</p>
+                {% endif %}
             </div>
-            <div class="flex items-center gap-2 shrink-0">
+            <div class="flex flex-wrap items-center gap-2">
+                {% if radar and can_edit %}
+                <button type="button" @click="toggleWatch" :disabled="watching" :aria-pressed="watchPressed"
+                        class="px-3 py-1.5 bg-shelf-card border border-shelf-border text-shelf-muted rounded-lg text-xs hover:text-shelf-text hover:border-shelf-accent/50 transition-colors disabled:opacity-50"
+                        data-testid="watch-series" x-text="watchLabel">{{ 'Watching' if s.watched else 'Watch for new volumes' }}</button>
+                {% elif radar and s.watched %}
+                <span class="inline-block whitespace-nowrap px-2 py-0.5 rounded-full text-xs font-medium bg-shelf-accent/20 text-shelf-accent2" data-testid="watching-pill">Watching</span>
+                {% endif %}
                 {% if has_hardcover and can_edit %}
                 <button @click="fetchDescription"
                         :disabled="fetching"
@@ -114,7 +137,7 @@
         <div x-show="renaming" style="display:none" class="mt-3 border-t border-shelf-border pt-3">
             <p class="text-xs text-shelf-muted mb-1">Rename this series. Typing the name of another series merges the two.</p>
             <input type="text" x-model="renameDraft" list="series-names" placeholder="Series name"
-                   class="w-full bg-shelf-bg border border-shelf-border rounded-lg px-3 py-2 text-sm text-shelf-text focus:ring-2 focus:ring-shelf-accent focus:border-transparent outline-none placeholder-shelf-muted/50"
+                   class="w-full bg-shelf-bg border border-shelf-border rounded-lg px-3 py-2 text-sm text-shelf-text focus:ring-2 focus:ring-shelf-accent focus:border-transparent outline-hidden placeholder-shelf-muted/50"
                    data-testid="rename-input">
             <p x-show="mergeTarget" style="display:none" class="text-xs text-shelf-warning mt-1">
                 Both series' items will be combined under <span x-text="mergeTarget"></span>, keeping their positions as-is.
@@ -167,7 +190,7 @@
             {% if can_edit %}
             <div x-show="editing" style="display:none">
                 <textarea x-model="draft" rows="4" placeholder="What is this series about?"
-                          class="w-full bg-shelf-bg border border-shelf-border rounded-lg px-3 py-2 text-sm text-shelf-text focus:ring-2 focus:ring-shelf-accent focus:border-transparent outline-none placeholder-shelf-muted/50"
+                          class="w-full bg-shelf-bg border border-shelf-border rounded-lg px-3 py-2 text-sm text-shelf-text focus:ring-2 focus:ring-shelf-accent focus:border-transparent outline-hidden placeholder-shelf-muted/50"
                           data-testid="synopsis-input"></textarea>
                 <div class="flex items-center gap-2 mt-2">
                     <button @click="saveDescription" :disabled="saving"
@@ -197,10 +220,10 @@
                     </div>
                     {% endif %}
                     {% if item.series_position is not none %}
-                    <span class="absolute top-1 left-1 bg-black/70 text-white text-[10px] px-1 rounded">#{{ item.series_position|int if item.series_position == item.series_position|int else item.series_position }}</span>
+                    <span class="absolute top-1 left-1 bg-black/70 text-white text-[10px] px-1 rounded-sm">#{{ item.series_position|int if item.series_position == item.series_position|int else item.series_position }}</span>
                     {% endif %}
-                    {% if not item.owned %}
-                    <span class="absolute bottom-1 left-1 bg-shelf-warning/90 text-black text-[9px] px-1 rounded font-medium">Wishlist</span>
+                    {% if item.wishlisted %}
+                    <span class="absolute bottom-1 left-1 bg-shelf-warning/90 text-black text-[9px] px-1 rounded-sm font-medium">Wishlist</span>
                     {% endif %}
                 </div>
             </a>
@@ -220,21 +243,39 @@
                 </p>
                 <div class="space-y-1.5">
                     <template x-for="b in missingBooks" :key="b.hardcover_book_id">
-                        <div class="flex items-center gap-2 text-sm">
+                        <!-- Wraps on a narrow screen: the title group keeps at least
+                             12rem, so the store links and + Wishlist drop to a second
+                             line instead of squeezing the title to one letter. -->
+                        <div class="flex flex-wrap items-center gap-x-2 gap-y-1 text-sm" data-testid="series-missing-row">
                             <span class="text-shelf-muted w-10 shrink-0 text-right" x-text="b.series_position !== null ? '#' + b.series_position : ''"></span>
-                            <span class="text-shelf-text truncate" x-text="b.title"></span>
-                            <span class="text-shelf-muted text-xs truncate" x-text="b.authors || ''"></span>
+                            <div class="flex min-w-0 flex-1 basis-48 items-center gap-2">
+                                <span class="text-shelf-text truncate" x-text="b.title"></span>
+                                <span class="text-shelf-muted text-xs truncate" x-text="b.authors || ''"></span>
+                            </div>
+                            <div class="ml-auto flex shrink-0 items-center gap-2">
+                            <template x-for="l in b.buy_links" :key="l.store">
+                                <a :href="l.url" x-text="l.label" target="_blank" rel="noopener sponsored"
+                                   data-testid="series-buy-link"
+                                   class="text-xs text-shelf-accent2 hover:underline shrink-0"></a>
+                            </template>
                             {% if can_edit %}
                             <button x-show="!added[b.hardcover_book_id]"
                                     @click="addToWishlist(b)"
-                                    class="ml-auto px-2 py-0.5 bg-shelf-accent/20 text-shelf-accent2 rounded text-xs hover:bg-shelf-accent/30 transition-colors shrink-0">
+                                    class="ml-auto px-2 py-0.5 bg-shelf-accent/20 text-shelf-accent2 rounded-sm text-xs hover:bg-shelf-accent/30 transition-colors shrink-0">
                                 + Wishlist
                             </button>
                             <span x-show="added[b.hardcover_book_id]" style="display:none" class="ml-auto text-xs text-shelf-success shrink-0">Wishlisted</span>
                             {% endif %}
+                            </div>
                         </div>
                     </template>
                 </div>
+                <template x-if="result.buy_links_disclosure">
+                    <p class="text-xs text-shelf-muted mt-2" data-testid="series-buy-links-disclosure">
+                        Affiliate links carrying your own tags (Settings → Library → Buy links).
+                        <span x-show="result.buy_links_disclosure.bookshop">Bookshop.org supports independent bookstores.</span>
+                    </p>
+                </template>
             </div>
         </template>
     </div>
@@ -258,8 +299,8 @@
                         <span class="text-[10px] text-shelf-muted text-center leading-tight">{{ item.title[:40] }}</span>
                     </div>
                     {% endif %}
-                    {% if not item.owned %}
-                    <span class="absolute bottom-1 left-1 bg-shelf-warning/90 text-black text-[9px] px-1 rounded font-medium">Wishlist</span>
+                    {% if item.wishlisted %}
+                    <span class="absolute bottom-1 left-1 bg-shelf-warning/90 text-black text-[9px] px-1 rounded-sm font-medium">Wishlist</span>
                     {% endif %}
                 </div>
             </a>

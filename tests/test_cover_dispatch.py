@@ -2,13 +2,9 @@
 
 `search_covers` is the seam: `dvd` reaches TMDb's poster set, `video_game`
 reaches IGDB cover art and artwork, and **everything else** — including an
-unrecognised string, `None` and `""` — reaches `search_cover_by_title`
-unchanged. `media_type` has no CHECK constraint in the schema, so that default
+unrecognised string, `None` and `""` — reaches `search_book_covers`.
+`media_type` has no CHECK constraint in the schema, so that default
 branch is load-bearing.
-
-The regression that matters most is the book path: 1057 of 1057 real items take
-it, and it must reach exactly the same function with exactly the same arguments
-as before the seam existed.
 
 Service-level throughout — no HTTP client, no FastAPI app (G14). The providers
 are patched as attributes on `covers`, which is the G37-correct target because
@@ -23,10 +19,14 @@ import pytest
 from app.services import covers, provider_result
 
 
-BOOK_FAMILY = ["book", "ebook", "audiobook", "kids_book", "comic"]
+BOOK_FAMILY = ["book", "ebook", "audiobook", "manga", "comic"]
 
 TMDB_CREDS = {"tmdb_api_key": "k"}
 IGDB_CREDS = {"igdb_client_id": "cid", "igdb_client_secret": "secret"}
+
+
+def _book_result(candidates):
+    return provider_result.found("book_covers", candidates)
 
 
 def _item(**over):
@@ -78,10 +78,10 @@ def no_providers(monkeypatch):
 
 @pytest.fixture
 def book_search(monkeypatch):
-    """`search_cover_by_title` patched by module attribute, as the picker's
+    """`search_book_covers` patched by module attribute, as the picker's
     own tests do — the patch the seam must not detach."""
-    stub = AsyncMock(return_value=[{"url": "u", "thumbnail": "t", "source": "Google Books"}])
-    monkeypatch.setattr(covers, "search_cover_by_title", stub)
+    stub = AsyncMock(return_value=_book_result([{"url": "u", "thumbnail": "t", "source": "Google Books"}]))
+    monkeypatch.setattr(covers, "search_book_covers", stub)
     return stub
 
 
@@ -89,13 +89,13 @@ class TestTheBookPathIsUnchanged:
     """The regression that would matter most."""
 
     @pytest.mark.parametrize("media_type", BOOK_FAMILY)
-    async def test_every_book_family_type_reaches_search_cover_by_title(
+    async def test_every_book_family_type_reaches_search_book_covers(
         self, media_type, book_search, no_providers
     ):
         tmdb, igdb = no_providers
 
         result = await covers.search_covers(
-            _item(media_type=media_type), "Dune", object(), creds={}
+            _item(media_type=media_type, title="Dune"), "Dune", object(), creds={}
         )
 
         book_search.assert_awaited_once()
@@ -119,6 +119,16 @@ class TestTheBookPathIsUnchanged:
         assert tmdb.mock_calls == []
         assert igdb.mock_calls == []
 
+    async def test_stored_title_passes_isbn_but_custom_query_searches_by_title(
+        self, book_search, no_providers
+    ):
+        item = _item(isbn="9780441172719")
+        await covers.search_covers(item, "A Title", object(), creds={})
+        assert book_search.await_args.args[2] == "9780441172719"
+
+        await covers.search_covers(item, "Different edition", object(), creds={})
+        assert book_search.await_args.args[2] is None
+
     @pytest.mark.parametrize("media_type", ["vinyl_lp", None, ""])
     async def test_an_unknown_media_type_takes_the_book_branch(
         self, media_type, book_search, no_providers
@@ -137,9 +147,9 @@ class TestTheBookPathIsUnchanged:
         self, monkeypatch, no_providers
     ):
         """A local alias or a from-import would detach the eight existing
-        `monkeypatch.setattr(covers, "search_cover_by_title", ...)` tests."""
-        late = AsyncMock(return_value=[])
-        monkeypatch.setattr(covers, "search_cover_by_title", late)
+        `monkeypatch.setattr(covers, "search_book_covers", ...)` tests."""
+        late = AsyncMock(return_value=_book_result([]))
+        monkeypatch.setattr(covers, "search_book_covers", late)
 
         await covers.search_covers(_item(), "Q", object(), creds={})
 
@@ -494,9 +504,29 @@ class TestTheRowShapesItActuallyGets:
     ):
         row = _row(_full=False, media_type="book", title="T", authors="Le Guin, Ursula")
 
-        await covers.search_covers(row, "Q", object(), creds={})
+        await covers.search_covers(row, "T", object(), creds={})
 
         assert book_search.await_args.args[1] == "Le Guin, Ursula"
+
+    async def test_a_typed_query_drops_the_authors_and_the_isbn(
+        self, book_search, no_providers
+    ):
+        item = _item(media_type="book", title="Dune", authors="Frank Herbert", isbn="9780441013593")
+
+        await covers.search_covers(item, "Different edition", object(), creds={})
+
+        assert book_search.await_args.args[1] is None
+        assert book_search.await_args.args[2] is None
+
+    async def test_the_default_query_keeps_authors_and_isbn_despite_whitespace(
+        self, book_search, no_providers
+    ):
+        item = _item(media_type="book", title="Dune", authors="Frank Herbert", isbn="9780441013593")
+
+        await covers.search_covers(item, "  Dune ", object(), creds={})
+
+        assert book_search.await_args.args[1] == "Frank Herbert"
+        assert book_search.await_args.args[2] == "9780441013593"
 
 
 class TestTheCandidateContract:
@@ -573,12 +603,10 @@ class TestTheProviderOutcomeReachesThePicker:
         assert result.found
         assert result.payload == []
 
-    async def test_the_book_branch_is_wrapped_as_found(self, no_providers, book_search):
-        """Not re-typed — the book path fans out over two sources that each
-        swallow their own failure, so it has no single outcome to report."""
-        book_search.return_value = [
+    async def test_the_book_branch_preserves_provider_result(self, no_providers, book_search):
+        book_search.return_value = _book_result([
             {"url": "u", "thumbnail": "t", "source": "Open Library"}
-        ]
+        ])
 
         result = await covers.search_covers(
             _item(media_type="book"), "Q", object(), creds={}

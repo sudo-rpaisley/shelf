@@ -15,101 +15,27 @@ LIBRARY_ROLE_LEVELS = {"viewer": 1, "editor": 2, "admin": 3}
 DEFAULT_LIBRARY_ID = 1
 DEFAULT_LIBRARY_NAME = "Main Library"
 
-_CREATE_LIBRARIES = """CREATE TABLE IF NOT EXISTS libraries (
-    id            INTEGER PRIMARY KEY AUTOINCREMENT,
-    name          TEXT NOT NULL UNIQUE COLLATE NOCASE,
-    description   TEXT,
-    is_archived   INTEGER NOT NULL DEFAULT 0 CHECK(is_archived IN (0,1)),
-    created_at    TEXT NOT NULL DEFAULT (datetime('now')),
-    updated_at    TEXT NOT NULL DEFAULT (datetime('now'))
-)"""
-
-_CREATE_LIBRARY_MEMBERSHIPS = """CREATE TABLE IF NOT EXISTS library_memberships (
-    library_id    INTEGER NOT NULL REFERENCES libraries(id) ON DELETE CASCADE,
-    user_id       INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-    role          TEXT NOT NULL CHECK(role IN ('viewer','editor')),
-    created_at    TEXT NOT NULL DEFAULT (datetime('now')),
-    updated_at    TEXT NOT NULL DEFAULT (datetime('now')),
-    PRIMARY KEY (library_id, user_id)
-)"""
-
-# A one-to-one mapping table is intentional for the first implementation.
-# ``item_id`` is the primary key, so an item can belong to exactly one Shelf
-# library. This gives us real foreign keys without a risky rebuild of Shelf's
-# large historical ``items`` table merely to add a NOT NULL library_id column.
-_CREATE_LIBRARY_ITEMS = """CREATE TABLE IF NOT EXISTS library_items (
-    item_id       INTEGER PRIMARY KEY REFERENCES items(id) ON DELETE CASCADE,
-    library_id    INTEGER NOT NULL REFERENCES libraries(id) ON DELETE RESTRICT,
-    created_at    TEXT NOT NULL DEFAULT (datetime('now'))
-)"""
-
-_SCHEMA_STATEMENTS = (
-    _CREATE_LIBRARIES,
-    _CREATE_LIBRARY_MEMBERSHIPS,
-    _CREATE_LIBRARY_ITEMS,
-    "CREATE INDEX IF NOT EXISTS idx_library_memberships_user ON library_memberships(user_id)",
-    "CREATE INDEX IF NOT EXISTS idx_library_items_library ON library_items(library_id)",
-)
-
-_LIBRARY_MIGRATIONS = (
-    (57, "Add Shelf libraries", _CREATE_LIBRARIES),
-    (58, "Add per-library user memberships", _CREATE_LIBRARY_MEMBERSHIPS),
-    (59, "Add one-library-per-item mapping", _CREATE_LIBRARY_ITEMS),
-    (
-        60,
-        "Create default Main Library",
-        "INSERT OR IGNORE INTO libraries (id, name, description) "
-        "VALUES (1, 'Main Library', 'Default library created during upgrade')",
-    ),
-    (
-        61,
-        "Assign existing catalogue items to Main Library",
-        "INSERT OR IGNORE INTO library_items (item_id, library_id) "
-        "SELECT id, 1 FROM items",
-    ),
-    (
-        62,
-        "Seed Main Library memberships from existing roles",
-        "INSERT OR IGNORE INTO library_memberships (library_id, user_id, role) "
-        "SELECT 1, id, role FROM users WHERE role IN ('viewer','editor')",
-    ),
-    (
-        63,
-        "Index library memberships by user",
-        "CREATE INDEX IF NOT EXISTS idx_library_memberships_user "
-        "ON library_memberships(user_id)",
-    ),
-    (
-        64,
-        "Index catalogue items by library",
-        "CREATE INDEX IF NOT EXISTS idx_library_items_library "
-        "ON library_items(library_id)",
-    ),
-)
+from app.database import ensure_library_schema as ensure_schema
 
 
-def _register_migrations() -> None:
-    """Register library migrations with Shelf's central atomic runner."""
-    from app import database
+def __getattr__(name):
+    if name == "_LIBRARY_MIGRATIONS":
+        # Read-only legacy introspection API. SQL/history has exactly one real
+        # owner; importing this service never mutates the migration registry.
+        from app.database import MIGRATIONS
 
-    existing = {version for version, _description, _sql in database.MIGRATIONS}
-    pending = tuple(m for m in _LIBRARY_MIGRATIONS if m[0] not in existing)
-    if pending:
-        database.MIGRATIONS = tuple(database.MIGRATIONS) + pending
-
-
-_register_migrations()
+        return tuple(m for m in MIGRATIONS if 57 <= m[0] <= 64)
+    raise AttributeError(name)
 
 
-def ensure_schema(db) -> None:
-    """Create the library tables/indexes without granting any new access.
+def _account_admin(user: dict) -> bool:
+    return user.get("account_role", user.get("role")) == "admin"
 
-    Upgrade data backfills deliberately live in migrations 60-62. Re-running
-    this helper must never silently restore a membership an administrator has
-    intentionally removed.
-    """
-    for statement in _SCHEMA_STATEMENTS:
-        db.execute(statement)
+
+def _cap_allows(user: dict, role: str) -> bool:
+    # Bearer tokens retain their account's read visibility only. Neither a
+    # library editor membership nor an admin account lifts the viewer cap.
+    return role == "viewer" or not user.get("api_token_id")
 
 
 def list_libraries(db, *, include_archived: bool = False) -> list[dict]:
@@ -189,18 +115,26 @@ def membership_role(db, user: dict, library_id: int) -> str | None:
     input, not a permanent permission ceiling.
     """
     ensure_schema(db)
-    if user.get("role") == "admin":
+    if _account_admin(user):
+        if not db.execute("SELECT 1 FROM libraries WHERE id = ?", (library_id,)).fetchone():
+            return None
+        if user.get("api_token_id"):
+            return "viewer"
         return "admin"
     row = db.execute(
         "SELECT role FROM library_memberships WHERE library_id = ? AND user_id = ?",
         (library_id, int(user["id"])),
     ).fetchone()
-    return row["role"] if row else None
+    if row is None:
+        return None
+    return "viewer" if user.get("api_token_id") else row["role"]
 
 
 def has_library_role(db, user: dict, library_id: int, minimum_role: str = "viewer") -> bool:
     if minimum_role not in LIBRARY_ROLE_LEVELS:
         raise ValueError("Unknown library role")
+    if not _cap_allows(user, minimum_role):
+        return False
     effective = membership_role(db, user, library_id)
     return LIBRARY_ROLE_LEVELS.get(effective, 0) >= LIBRARY_ROLE_LEVELS[minimum_role]
 
@@ -209,7 +143,7 @@ def accessible_library_ids(db, user: dict, *, include_archived: bool = False) ->
     """Return libraries visible to a user in stable name order."""
     ensure_schema(db)
     archived_clause = "" if include_archived else "AND l.is_archived = 0"
-    if user.get("role") == "admin":
+    if _account_admin(user):
         rows = db.execute(
             "SELECT l.id FROM libraries l WHERE 1=1 "
             f"{archived_clause} ORDER BY l.name COLLATE NOCASE"
@@ -225,13 +159,22 @@ def accessible_library_ids(db, user: dict, *, include_archived: bool = False) ->
     return [int(row["id"]) for row in rows]
 
 
-def assign_item(db, item_id: int, library_id: int) -> None:
+def assign_item(db, item_id: int, library_id: int, *, new_item: bool = False) -> None:
     """Assign or move one catalogue item to exactly one Shelf library."""
     ensure_schema(db)
     if not db.execute("SELECT 1 FROM items WHERE id = ?", (item_id,)).fetchone():
         raise LookupError("Item not found")
     if not db.execute("SELECT 1 FROM libraries WHERE id = ?", (library_id,)).fetchone():
         raise LookupError("Library not found")
+    from app.services.catalogue_security import current_actor, require_item_role, require_library_role
+
+    if current_actor() is not None:
+        existing = item_library_id(db, item_id)
+        # New items are not mapped until this call; the insert funnel has
+        # already authorized the destination. A move checks BOTH boundaries.
+        if existing is not None or not new_item:
+            require_item_role(db, item_id, "editor", include_deleted=True)
+        require_library_role(db, library_id, "editor")
     db.execute(
         """INSERT INTO library_items (item_id, library_id) VALUES (?, ?)
            ON CONFLICT(item_id) DO UPDATE SET library_id = excluded.library_id""",
@@ -249,13 +192,91 @@ def item_library_id(db, item_id: int) -> int | None:
 
 
 def has_item_role(db, user: dict, item_id: int, minimum_role: str = "viewer") -> bool:
-    """Check item access, denying unmapped items to non-admins by default."""
-    if user.get("role") == "admin":
-        return bool(db.execute("SELECT 1 FROM items WHERE id = ?", (item_id,)).fetchone())
+    """Check item access; a missing security mapping always denies."""
     library_id = item_library_id(db, item_id)
     if library_id is None:
         return False
     return has_library_role(db, user, library_id, minimum_role)
+
+
+def require_recovery_admin(db, user: dict) -> dict:
+    """Explicit recovery boundary; never extend ordinary orphan visibility.
+
+    A copied role claim, deleted account or bearer viewer capability is not a
+    native administrator. Retain the original principal/caps and validate it
+    against the current account on the caller's connection.
+    """
+    from fastapi import HTTPException
+    from app.services.catalogue_security import current_actor
+
+    actor = current_actor()
+    if (not user or user.get("api_token_id") or user.get("role") != "admin"
+            or user.get("account_role", "admin") != "admin"
+            or (actor is not None and (actor.get("api_token_id")
+                or actor.get("role") != "admin" or actor["id"] != user["id"]))):
+        raise HTTPException(403, "Forbidden")
+    account = db.execute(
+        "SELECT username, role, token_version FROM users WHERE id = ?", (user["id"],)
+    ).fetchone()
+    if (account is None or account["role"] != "admin"
+            or ("username" in user and user["username"].casefold() != account["username"].casefold())
+            or ("token_version" in user and user["token_version"] != account["token_version"])
+            or (actor is not None and "token_version" in actor
+                and actor["token_version"] != account["token_version"])):
+        raise HTTPException(403, "Forbidden")
+    return user
+
+
+def can_recover_item(db, user: dict, item_id: int) -> bool:
+    """Native-admin capability probe for an existing, genuinely unmapped row."""
+    from fastapi import HTTPException
+
+    try:
+        require_recovery_admin(db, user)
+    except HTTPException:
+        return False
+    if isinstance(item_id, int) and not -(2**63) <= item_id < 2**63:
+        return False
+    return db.execute(
+        "SELECT 1 FROM items i WHERE i.id = ? "
+        "AND NOT EXISTS (SELECT 1 FROM library_items li WHERE li.item_id = i.id)",
+        (item_id,),
+    ).fetchone() is not None
+
+
+def recovery_items(db, user: dict) -> list[dict]:
+    """Deliberate physical read for the authenticated admin recovery screen."""
+    require_recovery_admin(db, user)
+    return [dict(row) for row in db.execute(
+        "SELECT i.id, i.title, i.media_type, i.deleted_at FROM items i "
+        "WHERE NOT EXISTS (SELECT 1 FROM library_items li WHERE li.item_id = i.id) "
+        "ORDER BY i.title COLLATE NOCASE, i.id"
+    ).fetchall()]
+
+
+def recover_item(db, user: dict, item_id: int, library_id: int) -> None:
+    """Map an orphan only; retain item, Trash, copy and private-history identity."""
+    from fastapi import HTTPException
+    from app.services.item_write import _write_scope
+
+    with _write_scope(db):
+        require_recovery_admin(db, user)
+        if isinstance(item_id, int) and not -(2**63) <= item_id < 2**63:
+            raise HTTPException(404, "Item not found")
+        if isinstance(library_id, int) and not -(2**63) <= library_id < 2**63:
+            raise HTTPException(404, "Library not found")
+        if not db.execute("SELECT i.id FROM items i WHERE i.id = ?", (item_id,)).fetchone():
+            raise HTTPException(404, "Item not found")
+        if item_library_id(db, item_id) is not None:
+            raise HTTPException(409, "Item already belongs to a library")
+        if not db.execute(
+            "SELECT 1 FROM libraries WHERE id = ? AND is_archived = 0", (library_id,)
+        ).fetchone():
+            raise HTTPException(404, "Library not found")
+        # assign_item deliberately denies unmapped HTTP targets. This is its
+        # single native-admin recovery exception, not a more permissive move.
+        db.execute("INSERT INTO library_items (item_id, library_id) VALUES (?, ?)",
+                   (item_id, library_id))
 
 
 def item_access_condition(
@@ -274,8 +295,13 @@ def item_access_condition(
         raise ValueError("Unknown library role")
     if not item_alias or not item_alias.replace("_", "").isalnum():
         raise ValueError("Invalid SQL item alias")
-    if user.get("role") == "admin":
-        return "1 = 1", []
+    if not _cap_allows(user, minimum_role):
+        return "1 = 0", []
+    if _account_admin(user):
+        return (
+            "EXISTS (SELECT 1 FROM library_items li JOIN libraries l ON l.id = li.library_id "
+            f"WHERE li.item_id = {item_alias}.id)", []
+        )
 
     if minimum_role == "viewer":
         membership_roles = "('viewer','editor')"
@@ -288,6 +314,7 @@ def item_access_condition(
     return (
         "EXISTS ("
         "SELECT 1 FROM library_items li "
+        "JOIN libraries l ON l.id = li.library_id "
         "JOIN library_memberships lm ON lm.library_id = li.library_id "
         f"WHERE li.item_id = {item_alias}.id AND lm.user_id = ? "
         f"AND lm.role IN {membership_roles}"
@@ -319,7 +346,7 @@ def accessible_item_ids(
     )
     placeholders = ",".join("?" for _ in ordered)
     rows = db.execute(
-        f"SELECT i.id FROM items i WHERE i.id IN ({placeholders}) AND ({condition})",
+        f"SELECT i.id FROM items_live i WHERE i.id IN ({placeholders}) AND ({condition})",
         ordered + access_params,
     ).fetchall()
     allowed = {int(row["id"]) for row in rows}

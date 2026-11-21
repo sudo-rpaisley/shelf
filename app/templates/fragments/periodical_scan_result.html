@@ -1,0 +1,111 @@
+<div class="scan-result bg-shelf-card rounded-lg border border-shelf-border p-4" data-scan-status="periodical_confirm" hx-include="#periodical-continuation-{{ raw_barcode }}"{% if location_node_id %} data-shelf-fill-node="{{ location_node_id }}"{% endif %}>
+    <div class="flex items-start justify-between gap-3 mb-3">
+        <div>
+            <p class="text-xs text-shelf-muted" data-scan-detail>{{ _('Confirm the issue below') }}</p>
+            <h3 class="font-semibold mt-1" data-scan-title>{{ candidate.publication_title or 'Publication title needed' }}</h3>
+            <p class="text-xs text-shelf-muted mt-1">ISSN {{ candidate.issn or _('unknown') }} · {{ candidate.barcode_ean or raw_barcode[:13] }}{% if candidate.barcode_supplement %} + {{ candidate.barcode_supplement }}{% endif %}</p>
+        </div>
+        <span class="text-xs px-2 py-1 bg-shelf-hover rounded-sm text-shelf-muted" data-scan-badge>{{ _('Magazine') }}</span>
+    </div>
+
+    {% if notice %}
+    <div class="mb-3 rounded-lg border border-shelf-border bg-shelf-bg px-3 py-2 text-xs text-shelf-warning">{{ notice }}</div>
+    {% endif %}
+
+    <p class="text-sm text-shelf-muted mb-4">{{ _('The printed carrier and add-on identify the scan. Confirm the publication and concrete issue separately; Shelf will not guess what a publisher-specific supplement means.') }}</p>
+
+    <details class="mb-4 rounded-lg border border-shelf-border bg-shelf-bg p-3"{% if native_assisted_candidates is defined %} open{% endif %}>
+        <summary class="cursor-pointer text-sm font-medium text-shelf-accent2">{{ _('Wrong or missing publication? Search magazines') }}</summary>
+        <p class="text-xs text-shelf-muted mt-2">{{ _('Search Google Books by magazine title. Selecting a candidate only fills this card; nothing is added until you confirm below.') }}</p>
+        <form action="/api/periodicals/assist/search" method="get" class="flex gap-2 mt-3"
+              hx-get="/api/periodicals/assist/search"
+              hx-target="#periodical-assisted-{{ raw_barcode }}"
+              hx-swap="innerHTML">
+            <input type="hidden" name="raw_barcode" value="{{ raw_barcode }}">
+            {% if location_id %}<input type="hidden" name="location_id" value="{{ location_id }}">{% endif %}
+            <input type="hidden" name="mode" value="{{ mode }}">
+            {% if location_node_id %}<input type="hidden" name="location_node_id" value="{{ location_node_id }}">{% endif %}
+            <input type="hidden" name="shelf_fill_origin" value="{{ shelf_fill_origin or '' }}">
+            {% if library_id %}<input type="hidden" name="library_id" value="{{ library_id }}">{% endif %}
+            <input type="hidden" name="tags" value="{{ tags or '' }}">
+            <input type="hidden" name="reading_status" value="{{ reading_status or '' }}">
+            <input name="q" type="search" maxlength="120" placeholder="{{ _('Magazine title…') }}"
+                   class="min-w-0 flex-1 bg-shelf-card border border-shelf-border rounded-lg px-3 py-2 text-sm text-shelf-text outline-hidden">
+            <button type="submit" class="px-3 py-2 bg-shelf-hover text-shelf-text rounded-lg text-sm">{{ _('Search') }}</button>
+        </form>
+        <div id="periodical-assisted-{{ raw_barcode }}" class="mt-3">
+            {% if native_assisted_candidates is defined %}
+                {% for issue in native_assisted_candidates %}
+                <form action="/api/periodicals/assist/select" method="get" class="mb-2 flex items-center justify-between gap-3">
+                    <input type="hidden" name="volume_id" value="{{ issue.google_volume_id }}">
+                    <input type="hidden" name="raw_barcode" value="{{ raw_barcode }}">
+                    {% if location_id %}<input type="hidden" name="location_id" value="{{ location_id }}">{% endif %}
+                    <input type="hidden" name="mode" value="{{ mode }}">
+                    <input type="hidden" name="location_node_id" value="{{ location_node_id }}">
+                    <input type="hidden" name="shelf_fill_origin" value="{{ shelf_fill_origin }}">
+                    {% if library_id %}<input type="hidden" name="library_id" value="{{ library_id }}">{% endif %}
+                    <input type="hidden" name="tags" value="{{ tags or '' }}">
+                    <input type="hidden" name="reading_status" value="{{ reading_status or '' }}">
+                    <span class="text-sm">{{ issue.title }}{% if issue.issue_date %} · {{ issue.issue_date }}{% endif %}</span>
+                    <button type="submit" class="px-3 py-1.5 border border-shelf-border rounded-lg text-xs">{{ _('Use result') }}</button>
+                </form>
+                {% else %}<p class="text-xs text-shelf-muted">{{ _('No matching magazine issues found. Try another title or confirm the issue below.') }}</p>{% endfor %}
+            {% endif %}
+        </div>
+        <div class="flex flex-wrap gap-3 mt-3 text-xs">
+            <a href="https://www.google.com/search?q={{ raw_barcode|urlencode }}" target="_blank" rel="noopener" class="text-shelf-accent2 hover:text-shelf-accent">{{ _('Search exact barcode on the web ↗') }}</a>
+        </div>
+    </details>
+
+    <form method="post" action="/api/periodicals/confirm"{% if location_node_id %} hx-post="/api/periodicals/confirm" hx-target="closest .scan-result" hx-swap="outerHTML"{% endif %} hx-include="this" class="space-y-3">
+        {% include "fragments/csrf_field.html" %}
+        <input type="hidden" name="raw_barcode" value="{{ raw_barcode }}">
+        <input type="hidden" name="publisher" value="{{ candidate.publisher or '' }}">
+        <input type="hidden" name="language" value="{{ candidate.language or '' }}">
+        <input type="hidden" name="cover_url" value="{{ candidate.cover_url or '' }}">
+        <input type="hidden" name="location_id" value="{{ location_id or '' }}">
+        <input type="hidden" name="mode" value="{{ mode }}">
+        <div id="periodical-continuation-{{ raw_barcode }}">
+            {% if location_node_id %}<input type="hidden" name="location_node_id" value="{{ location_node_id }}">{% endif %}
+            <input type="hidden" name="shelf_fill_origin" value="{{ shelf_fill_origin or '' }}">
+            {% if library_id %}<input type="hidden" name="library_id" value="{{ library_id }}">{% endif %}
+            <input type="hidden" name="tags" value="{{ tags or '' }}">
+            <input type="hidden" name="reading_status" value="{{ reading_status or '' }}">
+        </div>
+
+        <div>
+            <label class="block text-xs font-medium text-shelf-muted mb-1" for="periodical-publication-title-{{ raw_barcode }}">{{ _('Publication') }}</label>
+            <input id="periodical-publication-title-{{ raw_barcode }}" name="publication_title" required value="{{ candidate.publication_title or '' }}" placeholder="{{ _('Publication title') }}"
+                   class="w-full bg-shelf-bg border border-shelf-border rounded-lg px-3 py-2 text-sm text-shelf-text outline-hidden">
+        </div>
+        <div>
+            <label class="block text-xs font-medium text-shelf-muted mb-1" for="periodical-publication-issn-{{ raw_barcode }}">{{ _('Publication ISSN') }}</label>
+            <input id="periodical-publication-issn-{{ raw_barcode }}" name="publication_issn" value="{{ candidate.issn or '' }}" placeholder="1234-567X"
+                   class="w-full bg-shelf-bg border border-shelf-border rounded-lg px-3 py-2 text-sm font-mono text-shelf-text outline-hidden">
+            <p class="text-xs text-shelf-muted mt-1">{{ _('This may differ from the 977-derived hint when a trusted result or the printed masthead proves otherwise.') }}</p>
+        </div>
+
+        <div class="space-y-3">
+            <div>
+                <label class="block text-xs font-medium text-shelf-muted mb-1" for="periodical-volume-{{ raw_barcode }}">{{ _('Volume') }}</label>
+                <input id="periodical-volume-{{ raw_barcode }}" name="volume" placeholder="{{ _('Optional') }}" class="w-full bg-shelf-bg border border-shelf-border rounded-lg px-3 py-2 text-sm text-shelf-text outline-hidden">
+            </div>
+            <div>
+                <label class="block text-xs font-medium text-shelf-muted mb-1" for="periodical-issue-number-{{ raw_barcode }}">{{ _('Issue number') }}</label>
+                <input id="periodical-issue-number-{{ raw_barcode }}" name="issue_number" placeholder="{{ _('Optional') }}" class="w-full bg-shelf-bg border border-shelf-border rounded-lg px-3 py-2 text-sm text-shelf-text outline-hidden">
+            </div>
+            <div>
+                <label class="block text-xs font-medium text-shelf-muted mb-1" for="periodical-issue-date-{{ raw_barcode }}">{{ _('Issue date') }}</label>
+                <input id="periodical-issue-date-{{ raw_barcode }}" name="issue_date" type="date"
+                       value="{% if candidate.issue_date and candidate.issue_date|length >= 10 %}{{ candidate.issue_date[:10] }}{% endif %}"
+                       class="w-full bg-shelf-bg border border-shelf-border rounded-lg px-3 py-2 text-sm text-shelf-text outline-hidden">
+            </div>
+            <div>
+                <label class="block text-xs font-medium text-shelf-muted mb-1" for="periodical-cover-date-{{ raw_barcode }}">{{ _('Cover date / label') }}</label>
+                <input id="periodical-cover-date-{{ raw_barcode }}" name="cover_date_label" placeholder="{{ _('September 2026, Summer Special…') }}" class="w-full bg-shelf-bg border border-shelf-border rounded-lg px-3 py-2 text-sm text-shelf-text outline-hidden">
+            </div>
+        </div>
+
+        <button type="submit" class="px-4 py-2 bg-shelf-accent text-white rounded-lg text-sm">{{ _('Add confirmed issue') }}</button>
+    </form>
+</div>

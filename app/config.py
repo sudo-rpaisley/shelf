@@ -1,33 +1,112 @@
+import logging
 import os
+from dataclasses import dataclass
 from pathlib import Path
+
+from app.i18n import N_
+
+logger = logging.getLogger(__name__)
 
 DATA_DIR = Path(os.environ.get("DATA_DIR", "/data"))
 DATABASE_PATH = DATA_DIR / "shelf.db"
 COVERS_DIR = DATA_DIR / "covers"
 
 MEDIA_TYPES = {
-    "book": "Book",
-    "kids_book": "Kids Book",
-    "audiobook": "Audiobook",
-    "ebook": "eBook",
-    "magazine": "Magazine",
-    "dvd": "DVD / Blu-ray",
-    "vinyl": "Vinyl",
-    "cassette": "Cassette",
-    "cd": "CD",
-    "digital_music": "Digital Music",
-    "music_other": "Other Music Format",
-    "comic": "Comic / Graphic Novel",
-    "digital_comic": "Digital Comic",
-    "manga": "Manga",
-    "digital_manga": "Digital Manga",
-    "video_game": "Video Game",
-    "digital_game": "Digital Game",
+    "book": N_("Book"),
+    # Existing fork rows retain their identity until a lossless type migration
+    # is available. New incoming aliases still canonicalize to book below.
+    "kids_book": N_("Kids Book"),
+    "audiobook": N_("Audiobook"),
+    "ebook": N_("eBook"),
+    "magazine": N_("Magazine"),
+    "dvd": N_("DVD / Blu-ray"),
+    "vinyl": N_("Vinyl"),
+    "cassette": N_("Cassette"),
+    "cd": N_("CD"),
+    "digital_music": N_("Digital Music"),
+    "music_other": N_("Other Music Format"),
+    "comic": N_("Comic / Graphic Novel"),
+    "digital_comic": N_("Digital Comic"),
+    "manga": N_("Manga"),
+    "digital_manga": N_("Digital Manga"),
+    "video_game": N_("Video Game"),
+    "digital_game": N_("Digital Game"),
 }
 
+# The book family: media types that are read, carry ISBNs, and belong to a
+# series. Everything else is deliberately outside it and, where it needs one,
+# names its own family below — periodicals are issue-based, music is
+# release-based. `dvd` and `video_game` belong to no family; `cd` belongs to
+# the music one. Declared here, beside the types themselves.
+BOOK_MEDIA_TYPES = frozenset({
+    "book", "kids_book", "audiobook", "ebook", "comic", "digital_comic",
+    "manga", "digital_manga",
+})
+
+
+# The words a stored reading_status value is shown as. The stored values stay
+# want_to_read / reading / read for every type; only the words change. A Python
+# map rather than a Jinja macro because plan-wrapups renders the same words in
+# Python.
+@dataclass(frozen=True)
+class StatusLabels:
+    key: str
+    want: str
+    doing: str
+    done: str
+    done_lower: str
+
+    def label(self, value):
+        """The word for a stored reading_status value; "" for None or unknown."""
+        return {"want_to_read": self.want, "reading": self.doing, "read": self.done}.get(value, "")
+
+
+READ_LABELS = StatusLabels("read", N_("Want to Read"), N_("Reading"), N_("Read"), N_("read"))
+WATCH_LABELS = StatusLabels("watch", N_("Want to Watch"), N_("Watching"), N_("Watched"), N_("watched"))
+PLAY_LABELS = StatusLabels("play", N_("Want to Play"), N_("Playing"), N_("Played"), N_("played"))
+# For places that show several types at once.
+NEUTRAL_LABELS = StatusLabels("neutral", N_("Want to"), N_("In progress"), N_("Finished"), N_("finished"))
+
+# Overrides only, as CREATOR_LABELS does; every other type reads.
+STATUS_VERBS = {"dvd": WATCH_LABELS, "video_game": PLAY_LABELS, "digital_game": PLAY_LABELS}
+
+# A type with its own verb gets its own status control on the item page.
+STATUS_MEDIA_TYPES = BOOK_MEDIA_TYPES | frozenset(STATUS_VERBS)
+
+
+def status_labels(media_type):
+    """The verb set for a media type: neutral for None or "", read by default."""
+    if not media_type:
+        return NEUTRAL_LABELS
+    return STATUS_VERBS.get(media_type, READ_LABELS)
+
+# Retired physical types, mapped to the canonical value that replaced them.
+# New input uses upstream's canonical book category. Existing fork kids_book
+# records remain recognized at rest: deleting/merging an ISBN twin at startup
+# would discard catalogue IDs, library assignments and private child state.
+# Writers updating an existing legacy row must not silently change its type.
+MEDIA_TYPE_ALIASES = {"kids_book": "book"}
+
+
+def canonical_media_type(value):
+    """Map a retired media type onto the one that replaced it.
+
+    Anything else — including None, '' and an outright unknown value — is
+    returned unchanged, so this never decides whether a value is *valid*.
+    That stays with the caller's own membership test, which runs after.
+    """
+    return MEDIA_TYPE_ALIASES.get(value, value)
+
+# Periodicals are modelled as publication + concrete issue records. The
+# family is named separately even though the first supported format is
+# magazine, leaving room for journals/newspapers later without redesigning
+# every consumer.
+PERIODICAL_MEDIA_TYPES = frozenset({"magazine"})
+
 # Music is a first-class media family. Keep this declaration beside
-# MEDIA_TYPES so routes/templates/services can share one membership test
-# instead of scattering near-identical tuples across the application.
+# MEDIA_TYPES so routes/templates/services can share one membership test.
+# `cd` is the existing upstream CD type; adding music does not create a
+# second incompatible CD identity.
 MUSIC_MEDIA_TYPES = frozenset({
     "vinyl",
     "cassette",
@@ -36,51 +115,113 @@ MUSIC_MEDIA_TYPES = frozenset({
     "music_other",
 })
 
+# What to call the person on the cover. `items.authors` is one column for
+# every media type, but "Author(s)" is only right for the book family, so the
+# label the add form puts on that field is declared here — once — rather than
+# as a ternary in whichever template needs it. Two templates read it today and
+# the Browse/Music cards (#119) are the third.
+#
+# Only the overrides live in the map; everything else takes the default. Read
+# it through creator_label() rather than indexing it.
+#
+# `magazine` is deliberately absent, so it reads "Author(s)": a magazine's
+# `authors` column holds contributors, and the publication itself already has
+# its own `publisher` field. This is the intended answer, not an omission.
+DEFAULT_CREATOR_LABEL = N_("Author(s)")
+
+CREATOR_LABELS = {
+    "video_game": N_("Developer"),
+    "digital_game": N_("Developer"),
+    "dvd": N_("Director"),
+    # Derived from MUSIC_MEDIA_TYPES rather than retyped, so a fifth music
+    # format added above cannot silently fall back to "Author(s)".
+    **{media_type: N_("Artist") for media_type in MUSIC_MEDIA_TYPES},
+}
+
+
+def creator_label(media_type):
+    """The label for the creator field of `media_type`."""
+    return CREATOR_LABELS.get(media_type, DEFAULT_CREATOR_LABEL)
+
+
+# Media types whose artwork is square. Derived from MUSIC_MEDIA_TYPES, not
+# retyped, so a fifth music format cannot silently fall back to portrait —
+# the same rule CREATOR_LABELS applies above. Read it through cover_shape().
+SQUARE_COVER_MEDIA_TYPES = frozenset(MUSIC_MEDIA_TYPES)
+
+
+def cover_shape(media_type):
+    """"square" or "portrait": the box a cover of `media_type` is shown in."""
+    return "square" if media_type in SQUARE_COVER_MEDIA_TYPES else "portrait"
+
+
+# Browse's creator column header and author sort option. They follow the Type
+# filter, borrowing CREATOR_LABELS' overrides, but keep Browse's own default:
+# with no single type picked the column mixes every type, and it has always
+# read "Author", not the add form's per-item "Author(s)". One function, so the
+# header and the sort option cannot disagree.
+BROWSE_CREATOR_DEFAULT = N_("Author")
+
+
+def browse_creator_label(media_type):
+    """The creator column's label on Browse when filtered to `media_type`."""
+    return CREATOR_LABELS.get(media_type, BROWSE_CREATOR_DEFAULT)
+
+# Starter tag suggestions offered per media type by
+# app.services.tags.suggestions_for(), shown only until the user scopes a
+# tag of their own to that type. The three music formats share one list
+# since a genre vocabulary does not vary by physical format.
+MUSIC_GENRES = ["Rock", "Pop", "Jazz", "Classical", "Hip-hop", "Country",
+                "Electronic", "Folk", "Soundtrack", "Kids"]
+
+TAG_SUGGESTIONS = {
+    "book": ["Fiction", "Non-fiction", "Kids", "Cookbook", "Reference",
+             "Signed", "First edition", "Book club"],
+    "dvd": ["Movie", "TV series", "Kids", "Documentary", "Blu-ray", "4K"],
+    "video_game": ["Multiplayer", "Co-op", "Kids", "Collector's edition", "Sealed"],
+    "cd": MUSIC_GENRES,
+    "vinyl": MUSIC_GENRES,
+    "cassette": MUSIC_GENRES,
+}
+
 # Shelf's user-facing library sections are broader than storage formats.
 # Keep family membership here so Home, Collection filters, statistics and
 # future integrations all agree on where a media type belongs. Tuples are
 # deliberately ordered for predictable display and query construction.
 MEDIA_FAMILIES = {
     "books": {
-        "label": "Books",
+        "label": N_("Books"),
         "types": ("book", "kids_book", "ebook"),
     },
     "magazines": {
-        "label": "Magazines",
+        "label": N_("Magazines"),
         "types": ("magazine",),
     },
     "comics": {
-        "label": "Comics",
+        "label": N_("Comics"),
         "types": ("comic", "digital_comic"),
     },
     "manga": {
-        "label": "Manga",
+        "label": N_("Manga"),
         "types": ("manga", "digital_manga"),
     },
     "music": {
-        "label": "Music",
+        "label": N_("Music"),
         "types": ("vinyl", "cassette", "cd", "digital_music", "music_other"),
     },
     "film": {
-        "label": "Film & TV",
+        "label": N_("Film & TV"),
         "types": ("dvd",),
     },
     "games": {
-        "label": "Games",
+        "label": N_("Games"),
         "types": ("video_game", "digital_game"),
     },
     "audiobooks": {
-        "label": "Audiobooks",
+        "label": N_("Audiobooks"),
         "types": ("audiobook",),
     },
 }
-
-# The book-shaped family: media types that are read, carry ISBN identity and
-# participate in series/reading workflows. Digital comics belong here for
-# validation and controls even though they live in the Comics browse family.
-BOOK_MEDIA_TYPES = frozenset({
-    "book", "kids_book", "audiobook", "ebook", "comic", "digital_comic"
-})
 
 # Seed data — runtime platform list comes from game_platforms table
 GAME_PLATFORMS = {
@@ -196,12 +337,24 @@ HOST_RATE_LIMITS: dict[str, float] = {
     # limited one. Do not lower below 3.0.
     "covers.openlibrary.org": 3.0,
     "services.dnb.de": 1.0,  # DNB SRU catalog — good citizenship
+    "tagetes2.oszk.hu": 1.0,  # OSZK NEKTÁR Z39.50 catalog
     "portal.dnb.de": 1.0,  # DNB cover host, same citizenship
     "opac.sbn.it": 1.0,  # SBN publishes no rate limit; matches DNB, a comparable national library
+    "data.bibliotheken.nl": 1.0,  # KB Dutch National Bibliography SPARQL endpoint
+    "catalogue.bnf.fr": 1.0,  # BnF SRU catalogue; publishes no limit, matches the other national libraries
+    "neodb.social": 1.0,  # NeoDB catalogue search (Chinese ISBNs) and its cover images; publishes no limit
+    "urn.porbase.org": 1.0,  # PORBASE (Biblioteca Nacional de Portugal) URN resolver; publishes no limit
+    "rnod.bnportugal.gov.pt": 1.0,  # PORBASE cover scans, same library; publishes no limit
     "api.hardcover.app": 1.0,  # 60/min API limit
+    # Audnexus (hosted API) answered with x-ratelimit-limit: 300 per 60 s;
+    # its README states 100/min for a self-hosted instance. 1 req/s stays
+    # under both.
+    "api.audnex.us": 1.0,
     "api2.isbndb.com": 3.0,  # was isbndb's own 3s post-request sleep
+    "www.librarything.com": 1.0,
     "www.googleapis.com": 0.25,  # Google Books quota is per-day; light pacing only
     "images-na.ssl-images-amazon.com": 0.5,  # image CDN; politeness only
+    "m.media-amazon.com": 0.5,  # Audible cover CDN (audible-cli cover hints); politeness only
     "api.igdb.com": 0.25,  # IGDB publishes 4 req/s
     "api.themoviedb.org": 0.1,  # no hard per-second cap
     # MusicBrainz requires ordinary clients to stay at or below one request
@@ -225,14 +378,73 @@ HOST_RATE_LIMITS: dict[str, float] = {
     "api.upcitemdb.com": 10.0,
 }
 
+# The keyless trial endpoint `services/upcitemdb.py` calls. Overridable so a
+# test harness can point the app at a local stub; read at call time so the
+# override is honoured by a process that set it before import and by a test
+# that sets it after. Pacing is keyed on the URL's *host* (outbound.py), so an
+# override to 127.0.0.1 is unpaced by design — never add the stub host to
+# HOST_RATE_LIMITS above. Not a production setting: leave it unset.
+UPC_LOOKUP_URL_DEFAULT = "https://api.upcitemdb.com/prod/trial/lookup"
+
+
+def upc_lookup_url() -> str:
+    """The UPC Item DB lookup endpoint: `SHELF_UPC_LOOKUP_URL`, else the trial URL."""
+    return os.environ.get("SHELF_UPC_LOOKUP_URL") or UPC_LOOKUP_URL_DEFAULT
+
+
+ISSN_PORTAL_URL_DEFAULT = "https://portal.issn.org/resource/ISSN/{issn}"
+
+
+def issn_portal_url() -> str:
+    """The ISSN Portal resource template (`{issn}` placeholder): `SHELF_ISSN_PORTAL_URL`, else the portal.
+
+    For the test suite only: the E2E server points it at a local stub.
+    """
+    return os.environ.get("SHELF_ISSN_PORTAL_URL") or ISSN_PORTAL_URL_DEFAULT
+
+
+AUDNEXUS_URL_DEFAULT = "https://api.audnex.us"
+
+
+def audnexus_url() -> str:
+    """The Audnexus API base URL: `SHELF_AUDNEXUS_URL`, else the hosted API.
+
+    For the test suite only: the E2E server points it at a local stub.
+    """
+    return os.environ.get("SHELF_AUDNEXUS_URL") or AUDNEXUS_URL_DEFAULT
+
+
 # HTTP client defaults
 HTTP_TIMEOUT = 15  # seconds for external API calls
 DEFAULT_PAGE_SIZE = 60
+MAX_PAGE_SIZE = 200
+MAX_PAGE = 1_000_000
 
 # Auth
 SECRET_KEY = os.environ.get("SECRET_KEY", "")  # auto-generated into DATA_DIR/signing.key if empty
 JWT_ALGORITHM = "HS256"
-JWT_EXPIRY_SECONDS = 7 * 24 * 3600  # 7 days
+SESSION_DAYS_DEFAULT = 7
+SESSION_DAYS_MAX = 365
+
+
+def session_days(raw: str | None) -> int:
+    """Parse SHELF_SESSION_DAYS. Unset or empty (compose passes "") is the default, silently."""
+    if raw is None or not raw.strip():
+        return SESSION_DAYS_DEFAULT
+    try:
+        days = int(raw)
+    except ValueError:
+        days = 0
+    if not 1 <= days <= SESSION_DAYS_MAX:
+        logger.warning(
+            "SHELF_SESSION_DAYS=%r is not an integer from 1 to %d; using %d",
+            raw, SESSION_DAYS_MAX, SESSION_DAYS_DEFAULT,
+        )
+        return SESSION_DAYS_DEFAULT
+    return days
+
+
+JWT_EXPIRY_SECONDS = session_days(os.environ.get("SHELF_SESSION_DAYS")) * 24 * 3600
 
 # API secret env var overrides (take priority over DB settings when set)
 # Map: settings key -> env var name
@@ -244,8 +456,10 @@ SECRET_ENV_VARS = {
     "komga_api_key": "KOMGA_API_KEY",
     "romm_url": "ROMM_URL",
     "romm_api_token": "ROMM_API_TOKEN",
+    "romm_token": "ROMM_TOKEN",
     "hardcover_token": "HARDCOVER_TOKEN",
     "google_books_api_key": "GOOGLE_BOOKS_API_KEY",
+    "librarything_token": "LIBRARYTHING_TOKEN",
     "isbndb_api_key": "ISBNDB_API_KEY",
     "tmdb_api_key": "TMDB_API_KEY",
     "igdb_client_id": "IGDB_CLIENT_ID",
@@ -255,24 +469,14 @@ SECRET_ENV_VARS = {
 
 
 def get_client_ip(request) -> str:
-    """Extract the real client IP for rate limiting and auth logs.
+    """Return the client IP for rate limiting and auth logs: the socket peer.
 
-    Proxy headers (CF-Connecting-IP, X-Forwarded-For) are client-controlled and
-    trivially spoofable, so they are only honored when SHELF_TRUST_PROXY is set —
-    i.e. the operator has a reverse proxy in front that overwrites them. In the
-    default direct-connection deployment we use the socket peer address.
+    No header is read here, because every header is client-controlled. Behind a
+    trusted reverse proxy the peer is already the real client: uvicorn's
+    proxy-headers middleware rewrites it for peers listed in FORWARDED_ALLOW_IPS
+    (set from SHELF_TRUST_PROXY by entrypoint.sh), walking X-Forwarded-For from
+    the right and skipping trusted hops.
     """
-    if os.environ.get("SHELF_TRUST_PROXY"):
-        # Cloudflare sets this to the actual visitor IP
-        cf_ip = request.headers.get("cf-connecting-ip")
-        if cf_ip:
-            return cf_ip.strip()
-
-        # Standard proxy header — first entry is the original client
-        xff = request.headers.get("x-forwarded-for")
-        if xff:
-            return xff.split(",")[0].strip()
-
     return request.client.host if request.client else "unknown"
 
 

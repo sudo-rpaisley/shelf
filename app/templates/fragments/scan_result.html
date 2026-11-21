@@ -1,321 +1,64 @@
 {% if status == 'legacy_ambiguous' %}
-<div class="scan-result bg-shelf-card rounded-lg border border-shelf-border p-4"
-     data-scan-status="{{ status }}">
-    <div class="flex items-start gap-3">
-        <div class="flex-1 min-w-0">
-            <p class="font-medium" data-scan-title>Which book is this?</p>
-            <p class="text-sm text-shelf-muted mt-1" data-scan-detail>
-                Older book barcode matches more than one book. Choose the exact title printed on this copy; Shelf will remember this barcode.
-            </p>
-        </div>
-        <span class="text-xs px-2 py-1 rounded-full shrink-0 bg-shelf-warning/20 text-shelf-warning"
-              data-scan-badge>choose</span>
-    </div>
-
-    <div class="space-y-2 mt-4">
-        {% for candidate in legacy_candidates %}
-        <form hx-post="/api/scan" hx-target="closest .scan-result" hx-swap="outerHTML">
-            <input type="hidden" name="isbn" value="{{ isbn }}">
-            <input type="hidden" name="legacy_confirm_isbn13" value="{{ candidate.isbn13 }}">
-            <input type="hidden" name="media_type" value="{{ media_type }}">
-            <input type="hidden" name="mode" value="{{ mode }}">
-            {% if location_id %}<input type="hidden" name="location_id" value="{{ location_id }}">{% endif %}
-            {% if platform %}<input type="hidden" name="platform" value="{{ platform }}">{% endif %}
-            {% if borrower_id %}<input type="hidden" name="borrower_id" value="{{ borrower_id }}">{% endif %}
-            <button type="submit"
-                    class="w-full text-left bg-shelf-bg border border-shelf-border rounded-lg px-4 py-3 hover:border-shelf-accent hover:bg-shelf-hover transition-colors">
-                <span class="block font-medium text-shelf-text">{{ candidate.title }}</span>
-                {% if candidate.authors %}
-                <span class="block text-sm text-shelf-muted mt-0.5">{{ candidate.authors }}</span>
-                {% endif %}
-                <span class="block text-xs text-shelf-muted mt-1">ISBN {{ candidate.isbn10 or candidate.isbn13 }}</span>
-            </button>
+<div class="scan-result bg-shelf-card rounded-lg border border-shelf-border p-4" data-scan-status="{{ status }}"{% if location_node_id %} data-shelf-fill-node="{{ location_node_id }}"{% endif %}>
+    <div class="flex items-start gap-3"><div class="flex-1 min-w-0"><p class="font-medium" data-scan-title>{{ _('Which book is this?') }}</p><p class="text-sm text-shelf-muted mt-1" data-scan-detail>{{ _('Older book barcode matches more than one book. Choose the exact title printed on this copy; Shelf will remember this barcode.') }}</p></div><span class="text-xs px-2 py-1 rounded-full bg-shelf-warning/20 text-shelf-warning" data-scan-badge>{{ _('choose') }}</span></div>
+    <div class="space-y-2 mt-4">{% for candidate in legacy_candidates %}
+        <form action="{{ scan_action|default('/api/scan', true) }}" method="post" hx-post="{{ scan_action|default('/api/scan', true) }}" hx-target="closest .scan-result" hx-swap="outerHTML">
+            <input type="hidden" name="isbn" value="{{ isbn }}"><input type="hidden" name="legacy_confirm_isbn13" value="{{ candidate.isbn13 }}"><input type="hidden" name="media_type" value="{{ media_type }}"><input type="hidden" name="mode" value="{{ mode }}">
+            {% include "fragments/scan_continuation_fields.html" %}
+            <button type="submit" class="w-full text-left bg-shelf-bg border border-shelf-border rounded-lg px-4 py-3 hover:border-shelf-accent"><span class="block font-medium">{{ candidate.title }}</span>{% if candidate.authors %}<span class="block text-sm text-shelf-muted">{{ candidate.authors }}</span>{% endif %}<span class="block text-xs text-shelf-muted mt-1">{{ _('ISBN %(isbn)s', isbn=candidate.isbn10 or candidate.isbn13) }}</span></button>
         </form>
-        {% endfor %}
-    </div>
-
-    <p class="text-xs text-shelf-muted mt-3">If none matches, scan the printed ISBN instead.</p>
+    {% endfor %}</div>
+    <p class="text-xs text-shelf-muted mt-3">{{ _('If none matches, scan the printed ISBN instead.') }}</p>
 </div>
-
+{% elif status == 'legacy_incomplete' %}
+<div class="scan-result bg-shelf-card rounded-lg border border-shelf-border p-4" data-scan-status="{{ status }}"{% if location_node_id %} data-shelf-fill-node="{{ location_node_id }}"{% endif %}>
+    <div class="flex items-start gap-3"><div class="flex-1 min-w-0"><p class="font-medium" data-scan-title>{{ _('Older book barcode: five more digits needed') }}</p><p class="text-sm text-shelf-muted mt-1" data-scan-detail>{{ _('This UPC is shared by many Scholastic-era titles. The five digits printed to the right of the barcode say which book — type them and Shelf will look it up.') }}</p></div><span class="text-xs px-2 py-1 rounded-full bg-shelf-warning/20 text-shelf-warning" data-scan-badge>{{ _('incomplete') }}</span></div>
+    {% if supplement_rejected %}<p class="text-sm text-shelf-error mt-3">{{ _('Enter exactly five digits.') }}</p>{% endif %}
+    <form action="{{ scan_action|default('/api/scan', true) }}" method="post" hx-post="{{ scan_action|default('/api/scan', true) }}" hx-target="closest .scan-result" hx-swap="outerHTML" class="mt-4 flex gap-2"><input type="hidden" name="isbn" value="{{ isbn }}"><input type="hidden" name="media_type" value="{{ media_type }}"><input type="hidden" name="mode" value="{{ mode }}">{% include "fragments/scan_continuation_fields.html" %}<input type="text" name="legacy_supplement" inputmode="numeric" pattern="[0-9]{5}" maxlength="5" required autocomplete="off" autofocus placeholder="{{ _('5 digits') }}" aria-label="{{ _('Five-digit supplement') }}" class="flex-1 min-w-0 bg-shelf-bg border border-shelf-border rounded-lg px-3 py-2"><button type="submit" class="px-4 py-2 bg-shelf-accent text-white rounded-lg text-sm">{{ _('Look it up') }}</button></form>
+    {% if scan_action %}<p class="text-xs text-shelf-muted mt-3">{{ _("Can't read them? Scan the printed ISBN instead.") }}</p>{% else %}<p class="text-xs text-shelf-muted mt-3">{{ _("Can't read them? Scan the printed ISBN instead, or") }} <button type="button" data-manual-add data-manual-add-title="" class="px-3 py-1.5 border border-shelf-border rounded-lg text-xs">{{ _('Add it by hand') }}</button></p>{% endif %}
+</div>
 {% elif status == 'not_found' %}
-<div class="scan-result bg-shelf-card rounded-lg border border-shelf-border p-4"
-     data-scan-status="{{ status }}" x-data="manualAddForm">
-    <div class="flex items-center gap-4 mb-3">
-        {% if preview_cover %}
-        <img src="/{{ preview_cover }}" class="w-12 h-16 object-cover rounded" alt="" data-scan-cover>
-        {% else %}
-        <div class="w-12 h-16 bg-shelf-hover rounded flex items-center justify-center text-shelf-muted text-lg">?</div>
-        {% endif %}
-        <div class="flex-1 min-w-0">
-            <p class="font-medium font-mono" data-scan-title>{{ isbn }}</p>
-            <p class="text-sm text-shelf-muted">{{ message }}{% if preview_cover %} (cover found on Amazon){% endif %}</p>
-            {# G58: a state name and a bare provider name from the router, the
-               copy here. Two arms, because two are all this card can be
-               given: the router suppresses `no_match` (it would repeat the
-               message above in a second vocabulary), and no branch that
-               renders this card can produce `no_credential` — the ISBN
-               cascade always runs at least one credential-free leg, and both
-               UPC branches project from a product lookup that needs no key.
-               A third arm would be live-looking dead copy, which is the class
-               of defect this card's history is made of. `offline` is absent
-               for the same reason and not by oversight: every branch that
-               renders this card checks `transport_failed` first and renders
-               the connectivity card instead, so the state cannot arrive here
-               (G65's corollary). `no_lookup` is absent for the same kind of
-               reason: it is assigned only on the film branch's file-it path,
-               which renders the result card below, never this one — a
-               hardware detection needs a product title to name, and every
-               branch that renders this card returns above detection when
-               there is none. `enrich_provider` is
-               the leg that actually answered, so `rejected` names it; the
-               quota copy names nobody, because any subset of a four-source
-               cascade can be starved and a rate-limited UPC product lookup
-               lands here too. #}
-            {% if enrich_status == 'rejected' %}
-            <p class="text-xs text-shelf-warning mt-1">{{ enrich_provider }} rejected the configured key &mdash; this may not be a genuine miss. Check it in <a href="/settings" class="text-shelf-accent2 hover:text-shelf-accent underline">Settings</a> &rarr; Integrations, or add it below.</p>
-            {% elif enrich_status == 'quota' %}
-            <p class="text-xs text-shelf-warning mt-1">A metadata source is rate-limiting us right now &mdash; this may not be a genuine miss. Try again later, or add it below.</p>
-            {% endif %}
-        </div>
-        <span class="text-xs px-2 py-1 rounded-full shrink-0 bg-shelf-warning/20 text-shelf-warning"
-              data-scan-badge>not found</span>
+<div class="scan-result bg-shelf-card rounded-lg border border-shelf-border p-4" data-scan-status="{{ status }}" x-data="manualAddForm"{% if location_node_id %} data-shelf-fill-node="{{ location_node_id }}"{% endif %}>
+    <div class="flex items-center gap-4 mb-3">{% if preview_cover %}<img src="/{{ preview_cover }}" class="w-12 h-16 object-cover rounded-sm" alt="" data-scan-cover data-cover-shape="{{ cover_shape(media_type) }}">{% else %}<div class="w-12 h-16 bg-shelf-hover rounded-sm flex items-center justify-center text-shelf-muted text-lg" data-cover-shape="{{ cover_shape(media_type) }}">?</div>{% endif %}
+        <div class="flex-1 min-w-0"><p class="font-medium font-mono" data-scan-title>{{ isbn }}</p><p class="text-sm text-shelf-muted">{{ message }}{% if preview_cover %} {{ _('(cover found on Amazon)') }}{% endif %}</p>
+            {% if enrich_status == 'rejected' %}<p class="text-xs text-shelf-warning mt-1">{{ _('%(provider)s rejected the configured key &mdash; this may not be a genuine miss. Check it in <a href="/settings" class="text-shelf-accent2 hover:text-shelf-accent underline">Settings</a> &rarr; Integrations, or add it below.', provider=enrich_provider) }}</p>{% elif enrich_status == 'quota' %}<p class="text-xs text-shelf-warning mt-1">{{ _('A metadata source is rate-limiting us right now &mdash; this may not be a genuine miss. Try again later, or add it below.') }}</p>{% endif %}
+        </div><span class="text-xs px-2 py-1 rounded-full bg-shelf-warning/20 text-shelf-warning" data-scan-badge>{{ _('not found') }}</span>
     </div>
-
-    <!-- Manual entry form -->
-    <div x-show="showForm" x-transition>
-        <form hx-post="/api/items/manual" hx-target="closest .scan-result" hx-swap="outerHTML" enctype="multipart/form-data"
-              class="border-t border-shelf-border pt-3 space-y-3">
-            <input type="hidden" name="isbn" value="{{ isbn }}">
-            <input type="hidden" name="media_type" value="{{ media_type }}">
-            <p class="text-sm text-shelf-muted">Add this item manually:</p>
-
-            {# "Copy from…" picker (#19): prefills the shared fields from an
-               existing item so series entry isn't retyped book by book. #}
-            <div class="relative">
-                <input type="text" x-model="copyQuery" @input="onCopyInput()" autocomplete="off"
-                       placeholder="Copy from an existing item (optional)"
-                       class="w-full bg-shelf-bg border border-shelf-border rounded-lg px-3 py-2 text-sm text-shelf-text focus:ring-2 focus:ring-shelf-accent outline-none">
-                <div x-show="suggestions.length > 0" x-transition
-                     class="absolute z-20 mt-1 w-full max-h-56 overflow-y-auto bg-shelf-card border border-shelf-border rounded-lg shadow-lg">
-                    <template x-for="s in suggestions" :key="s.id">
-                        <button type="button" @click="pick(s)"
-                                class="block w-full text-left px-3 py-2 text-sm hover:bg-shelf-hover">
-                            <span class="text-shelf-text" x-text="s.title"></span>
-                            <span class="text-xs text-shelf-muted ml-1" x-text="s.authors"></span>
-                        </button>
-                    </template>
-                </div>
-                <p x-show="copiedFrom" class="text-xs text-shelf-success mt-1">
-                    Copied fields from <span x-text="copiedFrom"></span> — edit anything below before adding.
-                </p>
-                <p x-show="copyError" class="text-xs text-shelf-error mt-1" x-text="copyError"></p>
-            </div>
-
-            <div class="grid grid-cols-2 gap-3">
-                <input type="text" name="title" placeholder="Title *" required
-                       class="bg-shelf-bg border border-shelf-border rounded-lg px-3 py-2 text-sm text-shelf-text focus:ring-2 focus:ring-shelf-accent outline-none">
-                <input type="text" name="authors" placeholder="{% if media_type in ('video_game', 'digital_game') %}Developer{% else %}Author(s){% endif %}"
-                       class="bg-shelf-bg border border-shelf-border rounded-lg px-3 py-2 text-sm text-shelf-text focus:ring-2 focus:ring-shelf-accent outline-none">
-            </div>
-            <div class="grid grid-cols-2 gap-3">
-                <input type="text" name="publisher" placeholder="Publisher"
-                       class="bg-shelf-bg border border-shelf-border rounded-lg px-3 py-2 text-sm text-shelf-text focus:ring-2 focus:ring-shelf-accent outline-none">
-                <input type="number" name="publish_year" placeholder="Year"
-                       class="bg-shelf-bg border border-shelf-border rounded-lg px-3 py-2 text-sm text-shelf-text focus:ring-2 focus:ring-shelf-accent outline-none">
-            </div>
-            {% if media_type in ('video_game', 'digital_game') %}
-            <div>
-                <select name="platform" class="w-full bg-shelf-bg border border-shelf-border rounded-lg px-3 py-2 text-sm text-shelf-text focus:ring-2 focus:ring-shelf-accent outline-none">
-                    <option value="">Platform (optional)</option>
-                    <option value="atari2600">Atari 2600</option>
-                    <option value="atari5200">Atari 5200</option>
-                    <option value="atari7800">Atari 7800</option>
-                    <option value="nes">NES</option>
-                    <option value="snes">SNES</option>
-                    <option value="n64">Nintendo 64</option>
-                    <option value="gamecube">GameCube</option>
-                    <option value="wii">Wii</option>
-                    <option value="wiiu">Wii U</option>
-                    <option value="switch">Nintendo Switch</option>
-                    <option value="gameboy">Game Boy</option>
-                    <option value="gba">Game Boy Advance</option>
-                    <option value="nds">Nintendo DS</option>
-                    <option value="3ds">Nintendo 3DS</option>
-                    <option value="genesis">Sega Genesis</option>
-                    <option value="saturn">Sega Saturn</option>
-                    <option value="dreamcast">Dreamcast</option>
-                    <option value="ps1">PlayStation</option>
-                    <option value="ps2">PlayStation 2</option>
-                    <option value="ps3">PlayStation 3</option>
-                    <option value="ps4">PlayStation 4</option>
-                    <option value="ps5">PlayStation 5</option>
-                    <option value="psp">PSP</option>
-                    <option value="vita">PS Vita</option>
-                    <option value="xbox">Xbox</option>
-                    <option value="xbox360">Xbox 360</option>
-                    <option value="xboxone">Xbox One</option>
-                    <option value="xboxsx">Xbox Series X/S</option>
-                    <option value="pc">PC</option>
-                    <option value="other">Other</option>
-                </select>
-            </div>
-            {% endif %}
-            <div class="grid grid-cols-2 gap-3">
-                {# Short placeholders to match the fields above ("Publisher",
-                   "Year") — only Title is marked required. "Location
-                   (optional)" was truncated by the select at phone width. #}
-                <input type="text" name="series_name" placeholder="Series"
-                       class="bg-shelf-bg border border-shelf-border rounded-lg px-3 py-2 text-sm text-shelf-text focus:ring-2 focus:ring-shelf-accent outline-none">
-                <select name="location_id"
-                        class="bg-shelf-bg border border-shelf-border rounded-lg px-3 py-2 text-sm text-shelf-text focus:ring-2 focus:ring-shelf-accent outline-none">
-                    <option value="">Location</option>
-                    {% for loc in locations or [] %}
-                    <option value="{{ loc.id }}">{{ loc.name }}</option>
-                    {% endfor %}
-                </select>
-            </div>
-            <div>
-                <select name="language" class="w-full bg-shelf-bg border border-shelf-border rounded-lg px-3 py-2 text-sm text-shelf-text focus:ring-2 focus:ring-shelf-accent outline-none">
-                    <option value="">Language (unknown)</option>
-                    {% for code, label in search_langs.items() %}
-                    <option value="{{ code }}">{{ label }}</option>
-                    {% endfor %}
-                </select>
-            </div>
-            <div>
-                <label class="text-xs text-shelf-muted">Cover image (optional)</label>
-                <input type="file" name="cover" accept="image/*"
-                       class="block w-full text-sm text-shelf-muted file:mr-3 file:py-1.5 file:px-3 file:rounded-lg file:border-0 file:text-sm file:bg-shelf-hover file:text-shelf-text hover:file:bg-shelf-border mt-1">
-            </div>
-            <div class="flex gap-2">
-                <button type="submit" class="px-4 py-1.5 bg-shelf-accent text-white rounded-lg text-sm hover:bg-shelf-accent2 transition-colors">
-                    Add to Collection
-                </button>
-                <button type="button" @click="showForm = false" class="px-4 py-1.5 bg-shelf-hover text-shelf-muted rounded-lg text-sm hover:bg-shelf-border transition-colors">
-                    Skip
-                </button>
-            </div>
-        </form>
-    </div>
+    {% include "fragments/manual_add_form.html" with context %}
 </div>
-
 {% else %}
-<div class="scan-result bg-shelf-card rounded-lg border border-shelf-border p-4 flex items-center gap-4"
-     data-scan-status="{{ status }}"{% if inventory_confirmation %} data-scan-inventory-confirmed="true"{% endif %}>
-    {# Cover image or placeholder #}
-    {% if cover_pending %}
-    {# Scan queues its cover, so the card renders first and this polls it in. #}
-    {% set attempt = 0 %}
-    {% include "fragments/cover_thumb.html" %}
-    {% elif cover_path %}
-    <img src="/{{ cover_path }}" class="w-12 h-16 object-cover rounded" alt="" data-scan-cover>
-    {% else %}
-    <div class="w-12 h-16 bg-shelf-hover rounded flex items-center justify-center text-shelf-muted text-xs">
-        {% if status == 'added' or status == 'wishlisted' %}+
-        {% elif status == 'duplicate' %}=
-        {% elif status in ('checked_out', 'returned', 'moved', 'confirmed', 'relocated', 'found', 'marked_read') %}&check;
-        {% else %}!{% endif %}
-    </div>
-    {% endif %}
-
+<div class="scan-result bg-shelf-card rounded-lg border border-shelf-border p-4 flex items-center gap-4" data-scan-status="{{ status }}"{% if inventory_confirmation %} data-scan-inventory-confirmed="true"{% endif %}{% if item_id %} data-scan-item-id="{{ item_id }}"{% endif %}{% if location_node_id %} data-shelf-fill-node="{{ location_node_id }}"{% endif %}{% if shelf_fill_placed %} data-shelf-fill-placed-node="{{ location_node_id }}"{% endif %}{% if status == 'saved_unplaced' %} data-saved-item-id="{{ item_id }}"{% endif %}>
+    {% if cover_pending %}{% set attempt = 0 %}{% include "fragments/cover_thumb.html" %}{% elif cover_path %}<img src="/{{ cover_path }}" class="w-12 h-16 object-cover rounded-sm" alt="" data-scan-cover data-cover-shape="{{ cover_shape(media_type) }}">{% else %}<div class="w-12 h-16 bg-shelf-hover rounded-sm flex items-center justify-center text-shelf-muted text-xs" data-cover-shape="{{ cover_shape(media_type) }}">{% if status in ('added', 'wishlisted', 'promoted', 'restored') %}+{% elif status == 'duplicate' %}={% elif status == 'in_trash' %}&#8634;{% elif status in ('checked_out', 'returned', 'moved', 'confirmed', 'relocated', 'found', 'marked_read', 'elsewhere') %}&check;{% else %}!{% endif %}</div>{% endif %}
     <div class="flex-1 min-w-0">
-        {# Statuses with a title link #}
-        {% if status in ('added', 'wishlisted', 'duplicate', 'checked_out', 'returned', 'moved', 'confirmed', 'relocated', 'found', 'marked_read', 'already_checked_out', 'not_checked_out') %}
-        <p class="font-medium truncate" data-scan-title>
-            {% if item_id %}<a href="/item/{{ item_id }}" class="hover:text-shelf-accent2">{{ title }}</a>
-            {% else %}{{ title }}{% endif %}
-        </p>
-        {% if authors %}<p class="text-sm text-shelf-muted truncate" data-scan-authors>{{ authors }}</p>{% endif %}
+        {% if status in ('added', 'wishlisted', 'duplicate', 'checked_out', 'returned', 'moved', 'confirmed', 'relocated', 'found', 'marked_read', 'already_checked_out', 'not_checked_out', 'elsewhere', 'promoted', 'restored', 'in_trash', 'saved_unplaced') %}<p class="font-medium truncate" data-scan-title>{% if item_id and status != 'in_trash' %}<a href="/item/{{ item_id }}" class="hover:text-shelf-accent2">{{ title }}</a>{% else %}{{ title }}{% endif %}</p>{% if authors %}<p class="text-sm text-shelf-muted truncate" data-scan-authors>{{ authors }}</p>{% endif %}{% endif %}
+        {% if status == 'restored' %}<span data-scan-detail>{{ _('Restored from Trash') }}</span>
+        {% elif status == 'in_trash' and copy_in_trash %}<p class="text-xs text-shelf-muted" data-scan-detail>{{ _('Copy %(n)s is in Trash &mdash; restore it from the Trash page', n=copy_number) }}</p><a href="/trash" data-testid="scan-copy-in-trash" class="inline-block mt-2 px-3 py-1.5 bg-shelf-accent/20 text-shelf-accent2 rounded-lg text-xs">{{ _('Open Trash') }}</a>
+        {% elif status == 'in_trash' %}<p class="text-xs text-shelf-muted" data-scan-detail>{{ _('In Trash since %(date)s &mdash; restore it to lend, move or rate it', date=(deleted_at or '')[:10]) }}</p><form action="/api/trash/items/{{ item_id }}/restore" method="post" hx-post="/api/trash/items/{{ item_id }}/restore" hx-target="closest .scan-result" hx-swap="outerHTML" class="mt-2"><input type="hidden" name="isbn" value="{{ isbn }}"><input type="hidden" name="mode" value="{{ mode }}"><input type="hidden" name="render" value="scan">{% include "fragments/scan_continuation_fields.html" %}<button type="submit" data-testid="scan-restore-from-trash" class="px-3 py-1.5 bg-shelf-accent/20 text-shelf-accent2 rounded-lg text-xs">{{ _('Restore') }}</button></form>
+        {% elif status == 'saved_unplaced' %}<p class="text-sm text-shelf-warning" data-scan-detail>{{ _('Saved, but not yet shelved. Retry shelving this saved item; do not add it again.') }}</p><p class="text-xs text-shelf-muted">{{ message }}</p><form action="/api/shelf-fill/place" method="post" hx-post="/api/shelf-fill/place" hx-target="closest .scan-result" hx-swap="outerHTML" class="mt-2">{% include "fragments/csrf_field.html" %}<input type="hidden" name="item_id" value="{{ item_id }}"><input type="hidden" name="location_node_id" value="{{ location_node_id }}"><input type="hidden" name="shelf_fill_origin" value="{{ shelf_fill_origin }}"><button type="submit" class="px-3 py-1.5 border border-shelf-border rounded-lg text-xs">{{ _('Retry shelving saved item') }}</button></form>
+        {% elif shelf_fill_placed %}<p class="text-xs text-shelf-muted" data-scan-detail>{% if newly_added %}{{ _('Added and shelved at %(place)s', place=location_path or location_name) }}{% elif was_wishlist %}{{ _('Moved from wishlist and shelved at %(place)s', place=location_path or location_name) }}{% else %}{{ _('Shelved at %(place)s', place=location_path or location_name) }}{% endif %} · {{ _('position %(n)s', n=position_order) }}{% if copy_number and copy_number > 1 %} · {{ _('copy %(n)s', n=copy_number) }}{% endif %}</p>
+        {% elif status == 'added' %}<p class="text-xs text-shelf-muted">{{ _('%(type)s via %(source)s', type=media_type_label, source=source) }}</p>
+        {% elif status == 'wishlisted' %}<p class="text-xs text-shelf-muted">{{ _('Added to wishlist') }} · {{ _('%(type)s via %(source)s', type=media_type_label, source=source) }}</p>
+        {% elif status == 'promoted' %}<p class="text-xs text-shelf-muted" data-scan-detail>{{ _('Now owned &mdash; was on your wishlist') }}</p>
+        {% elif status == 'duplicate' %}<p class="text-sm text-shelf-muted">{{ _('Already in collection') }}</p>
+        {% elif status in ('checked_out', 'returned', 'moved', 'confirmed', 'relocated', 'already_checked_out', 'not_checked_out', 'elsewhere', 'found') %}<p class="text-xs text-shelf-muted" data-scan-detail>{{ message }}</p>
+        {% elif status == 'marked_read' %}<p class="text-xs text-shelf-muted">{{ message }}</p>
+        {% elif status == 'not_owned' %}<p class="font-medium font-mono" data-scan-title>{{ isbn }}</p><p class="text-sm text-shelf-muted">{{ message }}</p>
+        {% else %}<p class="font-medium font-mono">{{ isbn }}</p><p class="text-sm text-shelf-error" data-scan-error>{{ message }}</p>{% if offer_manual %}<button type="button" data-manual-add data-manual-add-title="{{ manual_add_text }}" class="mt-2 px-3 py-1.5 border border-shelf-border rounded-lg text-xs">{{ _('Add it by hand') }}</button>{% endif %}
         {% endif %}
-
-        {# Status-specific detail line #}
-        {% if status == 'added' %}
-        <p class="text-xs text-shelf-muted">{{ media_type_label }} via {{ source }}</p>
-        {% elif status == 'wishlisted' %}
-        <p class="text-xs text-shelf-muted">Added to wishlist &middot; {{ media_type_label }} via {{ source }}</p>
-        {% elif status == 'duplicate' %}
-        <p class="text-sm text-shelf-muted">Already in collection</p>
-        {% elif status in ('checked_out', 'returned', 'moved', 'confirmed', 'relocated', 'already_checked_out', 'not_checked_out') %}
-        {# The toast reads DECLARED ATTRIBUTES ONLY — app.js matches no classes.
-           data-scan-detail carries what the title cannot: a lend names its
-           borrower, a move its destination, a Lookup hit its location. The
-           error arm's equivalent is data-scan-error, which app.js prefers over
-           the whole assembled string. not_owned and marked_read deliberately
-           declare no detail: their message restates what the badge already
-           says, so a toast carrying both would say it twice. Issue #50. #}
-        <p class="text-xs text-shelf-muted" data-scan-detail>{{ message }}</p>
-        {% elif status == 'found' %}
-        <p class="text-xs text-shelf-muted" data-scan-detail>{{ message }}</p>
-        {% elif status == 'marked_read' %}
-        <p class="text-xs text-shelf-muted">{{ message }}</p>
-        {% elif status == 'not_owned' %}
-        <p class="font-medium font-mono" data-scan-title>{{ isbn }}</p>
-        <p class="text-sm text-shelf-muted">{{ message }}</p>
-        {% else %}
-        <p class="font-medium font-mono">{{ isbn }}</p>
-        <p class="text-sm text-shelf-error" data-scan-error>{{ message }}</p>
-        {% endif %}
-
-        {# Enrichment notice slot (issue #36 T5) — thin metadata and/or a
-           media-type override, below the authors line so scan.js's
-           first-match `.text-sm.text-shelf-muted` extraction never reads
-           this as the author.
-
-           The copy lives here rather than in the router so that nothing on
-           this line is ever rendered `|safe`: the card also renders a title
-           that came off a scanned barcode, and a notice assembled in Python
-           would be one interpolation away from stored XSS. The router sends
-           a state and a provider name; Jinja escapes both. #}
-        {# `no_lookup` carries the media-type correction itself rather than
-           leaning on `detect_reason` below, because that line renders only
-           when the detection overrode the dropdown — so a console scanned
-           under an explicit `dvd` hint would otherwise be told nothing could
-           be corrected. Self-contained here, suppressed there. #}
-        {% if enrich_status == 'no_lookup' %}
-        <p class="text-xs text-shelf-warning mt-1">Added with title only &mdash; the title names console hardware, so no film or game lookup was attempted. Change the type on the item if that's wrong.</p>
-        {% elif enrich_status == 'no_credential' %}
-        <p class="text-xs text-shelf-warning mt-1">Added with title only. Add {{ 'an' if enrich_provider == 'IGDB' else 'a' }} {{ enrich_provider }} API key in <a href="/settings" class="text-shelf-accent2 hover:text-shelf-accent underline">Settings</a> &rarr; Integrations for descriptions and cover art.</p>
-        {% elif enrich_status == 'rejected' %}
-        <p class="text-xs text-shelf-warning mt-1">Added with title only &mdash; {{ enrich_provider }} rejected the configured key.</p>
-        {% elif enrich_status == 'quota' %}
-        <p class="text-xs text-shelf-warning mt-1">Added with title only &mdash; a metadata provider is rate-limiting us right now. Re-scan later to fill it in.</p>
-        {% elif enrich_status == 'offline' %}
-        <p class="text-xs text-shelf-warning mt-1">Added with title only &mdash; could not reach {{ enrich_provider }}. Check connectivity and re-scan later to fill it in.</p>
-        {% elif enrich_status == 'no_provider' %}
-        <p class="text-xs text-shelf-warning mt-1">Added with title only &mdash; Shelf has no metadata source for this format yet.</p>
-        {% elif enrich_status == 'no_match' %}
-        <p class="text-xs text-shelf-warning mt-1">Added with title only &mdash; no {{ enrich_provider }} match for this barcode.</p>
-        {% endif %}
-        {# Suppressed under `no_lookup`: that arm already names console hardware
-           as the cause and says how to correct the type, so rendering
-           `detect_reason` too printed the same fact twice — three amber lines
-           on desktop and seven on mobile for one idea (test drive, #43
-           Observation 1). Every other state keeps it: their copy explains the
-           *enrichment*, and the override is a separate thing that happened. #}
-        {% if detect_overrode and detect_reason and enrich_status != 'no_lookup' %}
-        <p class="text-xs text-shelf-warning mt-1">{{ detect_reason }}</p>
-        {% endif %}
+        {# State and provider remain escaped template inputs, never router HTML. #}
+        {% if enrich_status == 'no_lookup' %}<p class="text-xs text-shelf-warning mt-1">{{ _("Added with title only &mdash; the title names console hardware, so no film or game lookup was attempted. Change the type on the item if that's wrong.") }}</p>
+        {% elif enrich_status == 'no_credential' %}<p class="text-xs text-shelf-warning mt-1">{% if enrich_provider == 'IGDB' %}{{ _('Added with title only. Add an %(provider)s API key in <a href="/settings" class="text-shelf-accent2 hover:text-shelf-accent underline">Settings</a> &rarr; Integrations for descriptions and cover art.', provider=enrich_provider) }}{% else %}{{ _('Added with title only. Add a %(provider)s API key in <a href="/settings" class="text-shelf-accent2 hover:text-shelf-accent underline">Settings</a> &rarr; Integrations for descriptions and cover art.', provider=enrich_provider) }}{% endif %}</p>
+        {% elif enrich_status == 'rejected' %}<p class="text-xs text-shelf-warning mt-1">{{ _('Added with title only &mdash; %(provider)s rejected the configured key.', provider=enrich_provider) }}</p>
+        {% elif enrich_status == 'quota' %}<p class="text-xs text-shelf-warning mt-1">{{ _('Added with title only &mdash; a metadata provider is rate-limiting us right now. Re-scan later to fill it in.') }}</p>
+        {% elif enrich_status == 'offline' %}<p class="text-xs text-shelf-warning mt-1">{{ _('Added with title only &mdash; could not reach %(provider)s. Check connectivity and re-scan later to fill it in.', provider=enrich_provider) }}</p>
+        {% elif enrich_status == 'no_provider' %}<p class="text-xs text-shelf-warning mt-1">{{ _('Added with title only &mdash; Shelf has no metadata source for this format yet.') }}</p>
+        {% elif enrich_status == 'no_match' %}<p class="text-xs text-shelf-warning mt-1">{{ _('Added with title only &mdash; no %(provider)s match for this barcode.', provider=enrich_provider) }}</p>{% endif %}
+        {% if detect_overrode and detect_reason and enrich_status != 'no_lookup' %}<p class="text-xs text-shelf-warning mt-1">{{ detect_reason }}</p>{% endif %}
     </div>
-
-    <span data-scan-badge class="text-xs px-2 py-1 rounded-full shrink-0
-        {% if status in ('added', 'returned', 'confirmed', 'marked_read') %}bg-shelf-success/20 text-shelf-success
-        {% elif status == 'wishlisted' %}bg-purple-500/20 text-purple-400
-        {% elif status in ('duplicate', 'already_checked_out', 'not_checked_out') %}bg-shelf-warning/20 text-shelf-warning
-        {% elif status == 'checked_out' %}bg-orange-500/20 text-orange-400
-        {% elif status in ('moved', 'found', 'relocated') %}bg-blue-500/20 text-blue-400
-        {% else %}bg-shelf-error/20 text-shelf-error{% endif %}">
-        {% if status == 'wishlisted' %}wishlisted
-        {% elif status == 'checked_out' %}lent
-        {% elif status == 'returned' %}returned
-        {% elif status == 'moved' %}moved
-        {% elif status == 'confirmed' %}confirmed
-        {% elif status == 'relocated' %}relocated
-        {% elif status == 'found' %}found
-        {% elif status == 'not_owned' %}not found
-        {% elif status == 'marked_read' %}read
-        {% elif status == 'already_checked_out' %}already lent
-        {% elif status == 'not_checked_out' %}not lent
-        {% else %}{{ status }}{% endif %}
+    {% if shelf_fill_placed %}<span data-testid="shelf-fill-position" title="{{ _('Position on this shelf') }}" class="text-xs px-2 py-1 rounded-full bg-shelf-hover text-shelf-muted font-mono">#{{ position_order }}</span>{% endif %}
+    <span data-scan-badge class="text-xs px-2 py-1 rounded-full shrink-0 {% if status in ('added', 'returned', 'confirmed', 'marked_read', 'promoted', 'restored') or shelf_fill_placed %}bg-shelf-success/20 text-shelf-success{% elif status == 'wishlisted' %}bg-purple-500/20 text-purple-400{% elif status in ('duplicate', 'already_checked_out', 'not_checked_out', 'in_trash', 'saved_unplaced') %}bg-shelf-warning/20 text-shelf-warning{% elif status == 'checked_out' %}bg-orange-500/20 text-orange-400{% elif status in ('moved', 'found', 'relocated', 'elsewhere') %}bg-blue-500/20 text-blue-400{% else %}bg-shelf-error/20 text-shelf-error{% endif %}">
+        {% if shelf_fill_placed %}{{ _('shelved') }}{% elif status == 'marked_read' %}{{ _(status_labels(media_type or none).done_lower) }}{% else %}{% set labels = {'restored': 'restored', 'wishlisted': 'wishlisted', 'promoted': 'owned', 'checked_out': 'lent', 'returned': 'returned', 'moved': 'moved', 'confirmed': 'confirmed', 'relocated': 'relocated', 'elsewhere': 'elsewhere', 'found': 'found', 'not_owned': 'not found', 'already_checked_out': 'already lent', 'not_checked_out': 'not lent', 'in_trash': 'in Trash', 'added': 'added', 'duplicate': 'duplicate', 'error': 'error', 'saved_unplaced': 'saved; not shelved'} %}{{ _(labels.get(status, status)) }}{% endif %}
     </span>
 </div>
 {% endif %}
+{% if shelf_fill_placed and render_oob_summary %}{% include "fragments/shelf_fill_summary.html" %}{% endif %}

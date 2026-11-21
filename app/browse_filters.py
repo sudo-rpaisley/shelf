@@ -26,6 +26,10 @@ from dataclasses import dataclass
 from typing import Callable, Mapping, Sequence
 from urllib.parse import quote
 
+from app import i18n
+from app.i18n import N_
+from app.services import lists
+
 from markupsafe import Markup
 
 from app.config import MEDIA_FAMILIES
@@ -79,11 +83,25 @@ def _column(column: str, cast: Callable[[str], object] = str) -> ConditionBuilde
     return build
 
 
+#: `location_filter` value that selects items with no location at all. Not an
+#: id, so it cannot collide with one; it is the same spelling `owned` uses for
+#: its "neither" arm.
+NO_LOCATION = "none"
+
+
+def _location(value):
+    """A location id, or `none` for items that have no location (the ones to
+    pick when tagging a library's locations after the fact)."""
+    if value == NO_LOCATION:
+        return "i.location_id IS NULL", []
+    return _column("i.location_id", cast=int)(value)
+
+
 def _search(value):
     like = f"%{value}%"
     return (
-        "(i.title LIKE ? OR i.authors LIKE ? OR i.isbn LIKE ? OR i.narrator LIKE ?)",
-        [like, like, like, like],
+        "(i.title LIKE ? OR i.authors LIKE ? OR i.isbn LIKE ? OR i.narrator LIKE ? OR i.asin LIKE ?)",
+        [like, like, like, like, like],
     )
 
 
@@ -98,13 +116,19 @@ def _media_family(value):
 
 
 def _owned(value):
-    # Tri-state: "" (either), "1" (owned), "0" (wishlist). With a user-aware
-    # Browse request, build_where handles the wishlist branch specially so it
-    # can resolve user_item_state while keeping owned inventory shared.
+    # Four values: "" (all), "1" (owned), "0" (wishlist), "none" (neither).
+    # The filter's name and URL contract are unchanged for the first three,
+    # but `owned = 0` no longer means "wishlist" — membership lives in
+    # `list_items` (#125), so the "0" arm reads the list and "none" reads its
+    # negation. "1" is still possession. None binds a parameter, so the
+    # condition and its params are built together — which is the whole
+    # reason this returns both.
     if value == "1":
         return "i.owned = 1", []
     if value == "0":
-        return "i.owned = 0", []
+        return lists.WISHLISTED_SQL, []
+    if value == "none":
+        return lists.NEITHER_SQL, []
     return None
 
 
@@ -158,6 +182,21 @@ def personal_wishlist_sql(user_id: int) -> tuple[str, list]:
     return expression, [int(user_id)]
 
 
+def _author(value):
+    """One author from the index (#117b) — an id, cast exactly as
+    `location_filter` is, so a hand-edited or stale value gives an empty grid
+    rather than a 500 (#40). `i` is already `items_live`, so a trashed item
+    cannot match whatever its index rows say."""
+    built = _column("ia.author_id", cast=int)(value)
+    if built == _NEVER:
+        return _NEVER
+    return (
+        "EXISTS (SELECT 1 FROM item_authors ia "
+        "WHERE ia.item_id = i.id AND ia.author_id = ?)",
+        built[1],
+    )
+
+
 @dataclass(frozen=True)
 class BrowseFilter:
     """One Browse filter, in every form the app needs it.
@@ -209,18 +248,26 @@ class BrowseFilter:
 
 
 FILTERS: tuple[BrowseFilter, ...] = (
-    BrowseFilter("q", prefix="Search", condition=_search),
-    BrowseFilter("media_family_filter", prefix="Family", condition=_media_family),
-    BrowseFilter("media_type_filter", prefix="Type", condition=_column("i.media_type")),
-    BrowseFilter("location_filter", prefix="Location", condition=_column("i.location_id", cast=int)),
-    BrowseFilter("sort", prefix="Sort", default="newest", clear_to="newest"),
-    BrowseFilter("reading_status", prefix="Status", condition=_column("i.reading_status")),
+    BrowseFilter("q", prefix=N_("Search"), condition=_search),
+    BrowseFilter("media_family_filter", prefix=N_("Family"), condition=_media_family),
+    BrowseFilter("media_type_filter", prefix=N_("Type"), condition=_column("i.media_type")),
+    BrowseFilter("source_filter", prefix=N_("Source"), condition=_column("i.source")),
+    BrowseFilter("location_filter", prefix=N_("Location"), condition=_location),
+    BrowseFilter("sort", prefix=N_("Sort"), default="newest", clear_to="newest"),
+    BrowseFilter("reading_status", prefix=N_("Status"), condition=_column("i.reading_status")),
     BrowseFilter("owned", condition=_owned),
     BrowseFilter("lent_out", condition=_lent_out),
-    BrowseFilter("tag", prefix="Tag", condition=_tag, quote_in_qs=True),
-    BrowseFilter("language", prefix="Language", condition=_column("i.language")),
-    BrowseFilter("series", prefix="Series", condition=_series, quote_in_qs=True),
-    BrowseFilter("collection", prefix="Collection", condition=_collection, quote_in_qs=True),
+    BrowseFilter("tag", prefix=N_("Tag"), condition=_tag, quote_in_qs=True),
+    # Set from an item page's author link; a hidden control, since hundreds
+    # of authors make no usable dropdown. The chip shows the author's name
+    # (the control's data-label), never the id.
+    BrowseFilter("author_filter", prefix=N_("Author"), condition=_author),
+    BrowseFilter("language", prefix=N_("Language"), condition=_column("i.language")),
+    BrowseFilter("series", prefix=N_("Series"), condition=_series, quote_in_qs=True),
+    BrowseFilter("collection", prefix=N_("Collection"), condition=_collection, quote_in_qs=True),
+    # `view` is the odd one: client-owned state (localStorage) that is sent to
+    # the server so it can pick the grid or list template. It is not a filter
+    # the user clears, chips, or reads out of the URL — hence all three opt-outs.
     BrowseFilter("view", chip=False, clear_to=None, in_url=False),
 )
 
@@ -262,6 +309,12 @@ def build_where(
     empty for users created later. Owned inventory remains a shared catalogue
     fact.
     """
+    if user_id is None:
+        from app.services.catalogue_security import current_actor
+
+        actor = current_actor()
+        if actor is not None:
+            user_id = int(actor["id"])
     skip = _excluded(exclude)
     conditions: list[str] = []
     params: list = []
@@ -279,9 +332,12 @@ def build_where(
             params.append(value)
             continue
 
-        if user_id is not None and f.name == "owned" and value == "0":
+        if user_id is not None and f.name == "owned" and value in {"0", "none"}:
             expression, expression_params = personal_wishlist_sql(user_id)
-            conditions.append(f"{expression} = 1")
+            if value == "0":
+                conditions.append(f"{expression} = 1")
+            else:
+                conditions.append(f"(i.owned = 0 AND {expression} = 0)")
             params.extend(expression_params)
             continue
 
@@ -333,7 +389,7 @@ def client_config() -> list[dict]:
     return [
         {
             "name": f.name,
-            "prefix": f.prefix,
+            "prefix": i18n.gettext(f.prefix),
             "default": f.default,
             "chip": f.chip,
             "clearTo": f.clear_to,

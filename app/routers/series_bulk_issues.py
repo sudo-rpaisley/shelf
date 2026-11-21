@@ -4,13 +4,16 @@ from __future__ import annotations
 
 from urllib.parse import urlencode
 
-from fastapi import Depends, Form
+from fastapi import APIRouter, Depends, Form
 from fastapi.responses import RedirectResponse
 
-from app.auth import require_role
+from app.features import require_feature
 from app.database import get_db
-from app.routers.series import router
+from app.routers.series import _require_series_role
 from app.services import bulk_issues
+from app.services.catalogue_security import require_catalogue_role
+
+router = APIRouter()
 
 
 def _detail_url(name: str, **feedback) -> str:
@@ -27,13 +30,13 @@ def _publication_url(publication_id: int, **feedback) -> str:
     return f"{url}?{query}" if query else url
 
 
-@router.post("/api/series/bulk-add-issues")
+@router.post("/api/series/bulk-add-issues", dependencies=[Depends(require_feature("series"))])
 async def bulk_add_comic_issues(
     name: str = Form(""),
     media_type: str = Form("comic"),
     from_issue: str = Form(""),
     to_issue: str = Form(""),
-    _=Depends(require_role("editor")),
+    _=Depends(require_catalogue_role("editor")),
 ):
     """Add an inclusive physical-comic range, skipping existing positions."""
     clean_name = (name or "").strip()
@@ -49,6 +52,7 @@ async def bulk_add_comic_issues(
     try:
         with get_db() as db:
             db.execute("BEGIN IMMEDIATE")
+            _require_series_role(db, clean_name)
             result = bulk_issues.add_comic_issue_range(
                 db,
                 series_name=clean_name,
@@ -71,18 +75,22 @@ async def bulk_add_comic_issues(
     )
 
 
-@router.post("/api/magazines/publications/{publication_id}/bulk-add-issues")
+@router.post("/api/magazines/publications/{publication_id}/bulk-add-issues",
+             dependencies=[Depends(require_feature("periodicals"))])
 async def bulk_add_magazine_issues(
     publication_id: int,
     from_issue: str = Form(""),
     to_issue: str = Form(""),
     volume: str = Form(""),
-    _=Depends(require_role("editor")),
+    _=Depends(require_catalogue_role("editor")),
 ):
     """Add an inclusive issue range to one magazine publication and volume."""
     try:
         with get_db() as db:
             db.execute("BEGIN IMMEDIATE")
+            # The range service preflights its actual live, visible source set
+            # and explicit library under this same transaction. Hidden/trashed
+            # issues must not supply duplicate counts, placement or authority.
             result = bulk_issues.add_magazine_issue_range(
                 db,
                 publication_id=publication_id,

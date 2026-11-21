@@ -3,7 +3,7 @@
    Like series cards, stacks are deliberately not bulk-selection targets. #}
 <a href="{{ item.browse_media_url }}" class="group relative"
    data-media-group="{{ item.browse_media_root }}">
-    <div class="cover-card bg-shelf-card rounded-lg overflow-hidden border border-shelf-border group-hover:border-shelf-accent/50 transition-colors shadow-lg">
+    <div class="cover-card bg-shelf-card rounded-lg overflow-hidden border border-shelf-border group-hover:border-shelf-accent/50 transition-colors shadow-lg" data-cover-shape="{{ cover_shape(item.browse_media_cover_media_type) }}">
         <span class="absolute top-2 right-2 z-10 px-2 py-1 rounded-md text-[10px] font-semibold bg-shelf-card/95 text-shelf-text border border-shelf-border shadow">
             {{ item.browse_media_count }} linked
         </span>

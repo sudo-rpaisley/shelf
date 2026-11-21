@@ -14,7 +14,7 @@ def _create_link(admin_client, scope="wishlist", label="Test Link"):
 
 class TestShareLinkLifecycle:
     def test_create_and_view(self, admin_client, client, db):
-        _insert_item(db, title="Wish Book", isbn="9789040000119", owned=0)
+        _insert_item(db, title="Wish Book", isbn="9789040000119", owned=0, wishlisted=True)
         db.execute("COMMIT")
         link = _create_link(admin_client)
         assert len(link["token"]) >= 20  # token_urlsafe(16)
@@ -74,7 +74,7 @@ class TestShareLinkLifecycle:
 class TestShareScoping:
     def test_wishlist_scope_excludes_owned(self, admin_client, client, db):
         _insert_item(db, title="Owned Thing", isbn="9789040000287", owned=1)
-        _insert_item(db, title="Wished Thing", isbn="9789040000355", owned=0)
+        _insert_item(db, title="Wished Thing", isbn="9789040000355", owned=0, wishlisted=True)
         db.execute("COMMIT")
         link = _create_link(admin_client, scope="wishlist")
         client.cookies.clear()
@@ -84,7 +84,7 @@ class TestShareScoping:
 
     def test_collection_scope_excludes_wishlist(self, admin_client, client, db):
         _insert_item(db, title="Owned Thing", isbn="9789040000287", owned=1)
-        _insert_item(db, title="Wished Thing", isbn="9789040000355", owned=0)
+        _insert_item(db, title="Wished Thing", isbn="9789040000355", owned=0, wishlisted=True)
         db.execute("COMMIT")
         link = _create_link(admin_client, scope="collection")
         client.cookies.clear()

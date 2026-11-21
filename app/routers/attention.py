@@ -1,4 +1,4 @@
-"""Catalogue data-quality workflow attached to the existing pages router.
+"""Separately mounted catalogue data-quality workflow.
 
 The page is intentionally diagnostic. It centralises common incomplete-record
 states and sends editors to the existing item editor rather than inventing a
@@ -7,12 +7,13 @@ model so digital media is never reported as missing a shelf and magazines are
 judged by issue metadata rather than a generic publication year.
 """
 
-from fastapi import Depends, Query, Request
+from fastapi import APIRouter, Depends, Query, Request
 
-from app.auth import require_role
+from app.services.catalogue_security import require_catalogue_role as require_role
 from app.database import get_db
-from app.routers import pages
 from app.services import holdings
+
+router = APIRouter()
 
 
 _CATEGORIES = {
@@ -44,7 +45,7 @@ def _category_where(category: str) -> tuple[str, list]:
         # accidentally told to choose a room/shelf.
         return (
             "i.owned = 1 AND EXISTS ("
-            "SELECT 1 FROM item_copies c "
+            "SELECT 1 FROM copies_live c "
             "WHERE c.item_id = i.id AND c.location_id IS NULL"
             ")",
             [],
@@ -73,7 +74,7 @@ def attention_counts(db) -> dict[str, int]:
     for key in _CATEGORIES:
         where, params = _category_where(key)
         counts[key] = db.execute(
-            "SELECT COUNT(DISTINCT i.id) AS c FROM items i "
+            "SELECT COUNT(DISTINCT i.id) AS c FROM items_live i "
             "LEFT JOIN periodical_issues pi ON pi.item_id = i.id "
             f"WHERE {where}",
             params,
@@ -81,7 +82,7 @@ def attention_counts(db) -> dict[str, int]:
     return counts
 
 
-@pages.router.get("/attention")
+@router.get("/attention")
 async def attention_page(
     request: Request,
     category: str = Query("cover"),
@@ -92,15 +93,14 @@ async def attention_page(
 
     where, params = _category_where(category)
     with get_db() as db:
-        # Installs the additive tables and performs the one-time legacy copy /
-        # provider backfill before any quality rule reasons about holdings.
+        # Central initialization owns schema and one-time seeds.
         holdings.ensure_foundation(db)
         counts = attention_counts(db)
         items = db.execute(
             "SELECT i.id, i.title, i.authors, i.media_type, i.cover_path, "
             "i.publish_year, i.location_id, l.name AS location_name, "
             "pi.issue_number, pi.issue_date "
-            "FROM items i "
+            "FROM items_live i "
             "LEFT JOIN locations l ON l.id = i.location_id "
             "LEFT JOIN periodical_issues pi ON pi.item_id = i.id "
             f"WHERE {where} "

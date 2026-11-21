@@ -88,28 +88,58 @@ class TestLibraryEndpoints:
         assert get_excluded_libraries() == {"lib_junk"}
 
     @respx.mock
-    def test_cleanup_deletes_only_excluded(self, admin_client, db):
+    def test_cleanup_moves_only_excluded_to_trash(self, admin_client, db):
         _set_setting(db, "abs_url", ABS)
         _set_setting(db, "abs_token", "tok")
         _set_setting(db, "abs_excluded_libraries", json.dumps(["lib_junk"]))
         # One stamped item, one legacy (NULL library, matched via live ABS
         # listing), one item from the kept library
         _insert_item(db, title="junk-stamped", isbn=None, media_type="ebook",
-                     abs_id="li_j1", abs_library_id="lib_junk")
+                     abs_id="li_j1", abs_library_id="lib_junk", source="audiobookshelf")
         _insert_item(db, title="junk-legacy", isbn=None, media_type="ebook",
-                     abs_id="li_j2")
+                     abs_id="li_j2", source="audiobookshelf")
         keep = _insert_item(db, title="Real Audiobook", isbn=None,
-                            media_type="audiobook", abs_id="li_a1",
-                            abs_library_id="lib_audio")
+                             media_type="audiobook", abs_id="li_a1",
+                             abs_library_id="lib_audio", source="audiobookshelf")
         db.execute("COMMIT")
         respx.get(f"{ABS}/api/libraries/lib_junk/items").mock(
             return_value=_abs_items_response(("li_j1", "junk-stamped"),
                                              ("li_j2", "junk-legacy")))
 
+        stamped = db.execute("SELECT id FROM items WHERE abs_id = 'li_j1'").fetchone()["id"]
+        db.execute(
+            "INSERT INTO scan_log (isbn, media_type, result, item_id) VALUES (?, ?, ?, ?)",
+            ("li_j1", "ebook", "added", stamped),
+        )
+        db.execute("COMMIT")
+
         data = admin_client.post("/api/sync/audiobookshelf/libraries/cleanup").json()
-        assert data == {"ok": True, "deleted": 2}
-        remaining = [r["id"] for r in db.execute("SELECT id FROM items").fetchall()]
+        assert data == {"ok": True, "deleted": 2, "detached": 0}
+        remaining = [r["id"] for r in db.execute("SELECT id FROM items_live").fetchall()]
         assert remaining == [keep]
+        # Moved to Trash, not deleted — and the scan history keeps its link.
+        trashed = db.execute(
+            "SELECT title FROM items WHERE deleted_at IS NOT NULL ORDER BY title"
+        ).fetchall()
+        assert [r["title"] for r in trashed] == ["junk-legacy", "junk-stamped"]
+        assert db.execute(
+            "SELECT item_id FROM scan_log WHERE isbn = 'li_j1'"
+        ).fetchone()["item_id"] == stamped
+
+    @respx.mock
+    def test_cleanup_counts_only_rows_it_moved(self, admin_client, db):
+        _set_setting(db, "abs_url", ABS)
+        _set_setting(db, "abs_token", "tok")
+        _set_setting(db, "abs_excluded_libraries", json.dumps(["lib_junk"]))
+        _insert_item(db, title="junk-once", isbn=None, media_type="ebook",
+                     abs_id="li_j3", abs_library_id="lib_junk", source="audiobookshelf")
+        db.execute("COMMIT")
+        respx.get(f"{ABS}/api/libraries/lib_junk/items").mock(
+            return_value=_abs_items_response(("li_j3", "junk-once")))
+        first = admin_client.post("/api/sync/audiobookshelf/libraries/cleanup").json()
+        second = admin_client.post("/api/sync/audiobookshelf/libraries/cleanup").json()
+        assert first == {"ok": True, "deleted": 1, "detached": 0}
+        assert second == {"ok": True, "deleted": 0, "detached": 0}
 
     def test_cleanup_noop_without_exclusions(self, admin_client, db):
         data = admin_client.post("/api/sync/audiobookshelf/libraries/cleanup").json()

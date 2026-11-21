@@ -17,10 +17,8 @@ before the request (G48); `_lookup_metadata`/`_save_item` are patched on
 import io
 from unittest.mock import AsyncMock, patch
 
-import pytest
 
-from app.database import get_db
-from tests.conftest import _insert_item, _insert_location
+from tests.conftest import _insert_item
 from tests.test_items import _rendered_form
 
 BAD_ISBN = "9780441172710"   # well-formed ISBN-13, bad check digit
@@ -85,9 +83,20 @@ class TestBadIsbnRefusedAtEveryBoundary:
         ).fetchone()["c"] == 1
 
     def test_store_queue(self, editor_client, db):
-        resp = editor_client.post("/api/store/queue", json={"isbns": [BAD_ISBN]})
-        assert resp.json()["results"][0] == {"isbn": BAD_ISBN, "status": "invalid"}
-        assert db.execute("SELECT COUNT(*) c FROM items").fetchone()["c"] == 0
+        """Invalid scans are explicit refusals, never ISBN-less placeholders."""
+        with patch("app.routers.items_common._lookup_metadata", new=AsyncMock()) as lookup:
+            resp = editor_client.post("/api/store/queue", json={"isbns": [BAD_ISBN]})
+        assert resp.status_code == 200
+        assert resp.json()["results"] == [{
+            "isbn": BAD_ISBN, "code": BAD_ISBN, "status": "invalid", "owned": False,
+        }]
+        lookup.assert_not_called()
+        lookup.assert_not_awaited()
+        assert db.execute(
+            "SELECT COUNT(*) c FROM items WHERE isbn = ?", (BAD_ISBN,)
+        ).fetchone()["c"] == 0
+        for table in ("items", "library_items", "list_items", "user_item_state", "user_reading_log"):
+            assert db.execute(f"SELECT COUNT(*) FROM {table}").fetchone()[0] == 0, table
 
     def test_item_edit_form(self, editor_client, db):
         item_id = _insert_item(db, title="Edit Boundary", isbn="9780000000026")

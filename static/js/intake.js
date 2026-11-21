@@ -41,7 +41,24 @@ function intakePage() {
         // or A's rows land under B's preview.
         photoGeneration: 0,
 
+        // media_type -> creator-noun map ("Artist", "Developer", …), read once
+        // from the root's dataset below. Falls back to {} so creatorLabelFor()
+        // still has a default to fall back to.
+        creatorLabels: {},
+
         init() {
+            // Found by id, like the video element below — this file avoids
+            // the Alpine root/element magics entirely (G2; enforced by
+            // test_intake_js_has_no_el_or_root_magics), and intakePage has
+            // exactly one root per page (intake.html), so the lookup needs
+            // no host gate. The parse still tolerates the attribute being
+            // absent.
+            var pageEl = document.getElementById('intake-page');
+            try {
+                this.creatorLabels = JSON.parse((pageEl && pageEl.dataset.creatorLabels) || '{}');
+            } catch (e) {
+                this.creatorLabels = {};
+            }
             // Capability, not user-agent: an Android tablet in desktop mode and
             // a touchscreen Chromebook both get the right path this way.
             this.supportsCapture = 'capture' in document.createElement('input');
@@ -166,8 +183,8 @@ function intakePage() {
             } catch (err) {
                 this.viewfinder = false;
                 showToast(err && err.name === 'NotFoundError'
-                    ? 'No camera found. Use Choose photo instead.'
-                    : 'Camera access denied. Check browser permissions for this site.',
+                    ? t('No camera found. Use Choose photo instead.')
+                    : t('Camera access denied. Check browser permissions for this site.'),
                     'error');
             }
         },
@@ -177,7 +194,7 @@ function intakePage() {
             try {
                 blob = await this.capture.grab();
             } catch (e) {
-                showToast('Could not capture a frame \u2014 try again.', 'error');
+                showToast(t('Could not capture a frame \u2014 try again.'), 'error');
                 return;
             }
             await this.closeViewfinder();
@@ -342,11 +359,11 @@ function intakePage() {
                         source: b.source || 'read', media_type: 'book', include: true,
                     }));
                 } else {
-                    this.error = data.message || 'Analysis failed';
+                    this.error = data.message || t('Analysis failed');
                 }
             } catch (e) {
                 if (gen !== this.photoGeneration) return;
-                this.error = 'Analysis failed: ' + e.message;
+                this.error = t('Analysis failed') + ': ' + e.message;
             }
             this.analyzing = false;
         },
@@ -377,6 +394,12 @@ function intakePage() {
             this.books[i].media_type = value;
         },
 
+        // Mirrors components-item.js's manualAddForm.creatorLabel getter, but
+        // as a method since this needs a per-row argument.
+        creatorLabelFor(mediaType) {
+            return this.creatorLabels[mediaType] || t('Author(s)');
+        },
+
         selectAll() {
             this.books.forEach(b => b.include = true);
         },
@@ -388,6 +411,9 @@ function intakePage() {
         async confirm() {
             this.confirming = true;
             this.error = false;
+            // Read synchronously, before the await, so a re-render mid-request
+            // cannot leave this stale (G2).
+            var tags = ((document.getElementById('default-tags') || {}).value || '').split(';');
             try {
                 var resp = await fetch('/api/intake/confirm', {
                     method: 'POST',
@@ -404,18 +430,19 @@ function intakePage() {
                         })),
                         location_id: this.locationId ? parseInt(this.locationId) : null,
                         owned: this.owned,
+                        tags: tags,
                     }),
                 });
                 var data = await resp.json();
                 if (data.ok) {
                     this.result = data;
                     this.books = [];
-                    showToast('Added ' + data.added.length + ' items');
+                    showToast(t('Added {count} items').replace('{count}', data.added.length));
                 } else {
-                    this.error = data.message || 'Add failed';
+                    this.error = data.message || t('Add failed');
                 }
             } catch (e) {
-                this.error = 'Add failed: ' + e.message;
+                this.error = t('Add failed') + ': ' + e.message;
             }
             this.confirming = false;
         },

@@ -13,6 +13,7 @@ periodical issue. Shelf preserves the add-on verbatim rather than guessing its
 publisher-specific issue/date meaning.
 """
 
+import re
 from dataclasses import dataclass
 
 from app.services.upc import normalize_barcode
@@ -59,6 +60,19 @@ def issn_from_seven_digits(stem: str) -> str | None:
     value = (11 - (weighted % 11)) % 11
     check = "X" if value == 10 else str(value)
     return f"{stem[:4]}-{stem[4:]}{check}"
+
+
+def normalise_issn(value: str | None) -> str | None:
+    """Validate a supplied publication ISSN, without inferring issue identity."""
+    compact = re.sub(r"[^0-9Xx]", "", value or "").upper()
+    if not compact:
+        return None
+    if len(compact) != 8 or not compact[:7].isdigit() or compact[7] not in "0123456789X":
+        raise ValueError("ISSN must contain seven digits and a valid check character")
+    expected = issn_from_seven_digits(compact[:7])
+    if expected is None or compact[7] != expected[-1]:
+        raise ValueError("ISSN check digit is invalid")
+    return expected
 
 
 def parse_barcode(raw: str) -> PeriodicalBarcode | None:

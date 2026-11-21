@@ -49,6 +49,32 @@ class UnknownLocationError(ItemValueError):
     field = "location_id"
 
 
+class IdentifierInTrash(ItemValueError):
+    """The ISBN or UPC this write claims is held by an item in Trash.
+
+    Raised by the insert funnel when the caller passed
+    `restore_trashed=False` — a machine re-syncing, which must not resurrect
+    something a person deleted — and by the update funnel always, since an
+    edit is moving a *different* item onto the slot and restoring someone
+    else's row would be the wrong repair.
+
+    Carries `item_id` and `title` of the trashed row so the surface can name
+    it. The message states both ways out, because "that ISBN is taken" is
+    unactionable when the thing taking it is invisible.
+    """
+
+    code = "identifier_in_trash"
+
+    def __init__(self, message: str, *, value: Any = None, field: str = "isbn",
+                 item_id: int | None = None, title: str | None = None):
+        super().__init__(message, value=value)
+        # Per-instance: the slot is an ISBN on one write and a UPC on the
+        # next, so unlike its siblings this one cannot be a class attribute.
+        self.field = field
+        self.item_id = item_id
+        self.title = title
+
+
 def validated_location_id(db, location_id: int | None) -> int | None:
     """Return a usable location id, or ``None`` for the no-location sentinel.
 
@@ -60,7 +86,7 @@ def validated_location_id(db, location_id: int | None) -> int | None:
     """
     if location_id is None or location_id <= 0:
         return None
-    row = db.execute(
+    row = None if location_id >= 2**63 else db.execute(
         "SELECT 1 FROM locations WHERE id = ?",
         (location_id,),
     ).fetchone()

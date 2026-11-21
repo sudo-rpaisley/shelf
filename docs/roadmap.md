@@ -2,6 +2,10 @@
 
 What Shelf is likely to grow next, grouped by theme.
 
+This page combines upstream direction with fork capabilities. Upstream version
+links describe upstream releases, not published fork packages. For current
+compatibility and unverified integration work, see [Integration](upstream-integration.md).
+
 **This is direction, not a schedule.** There are no dates and no order here. Items
 move, merge and get dropped as the project learns things — a group appearing on
 this page is not a commitment that it ships, and its absence is not a refusal.
@@ -17,24 +21,31 @@ building it. *Exploring* means the idea is accepted but the shape is not.
 
 ## Choose your features
 
-**Planned.** Shelf has grown a lot of surface, and not everyone wants all of it.
+**Available in source; integration validation pending.** Shelf has grown a lot of surface, and not everyone wants all of it.
 A setup step and a settings page to turn whole feature areas on and off, so an
 install that only catalogues books does not carry lending, valuation, store mode
-and the rest in its navigation.
+and the rest in its navigation. The settings page shipped in 0.55.0 as
+Settings → **Features**, and the setup wizard now asks for a profile —
+Minimal, Standard or Everything — which Features can change later.
 
 Most of the groups below arrive switched off behind this, which is why it comes
 early.
 
+**Grouped navigation goes with it.** The fork groups collection views, intake
+tools and account actions rather than adding everything to one row. Accessibility
+and responsive behavior remain required as more features arrive.
+
 ## Homelab integration
 
-**Planned.** Shelf should behave like the rest of your stack.
+**Planned.** Shelf should behave like the rest of your stack. The first part shipped in 0.74.0.
 
-- **API tokens and a documented JSON API.** Shelf is FastAPI, so a schema exists
-  in principle, but every endpoint today wants a browser session cookie — no use
-  from `curl`, a script, or a dashboard. A revocable token you paste into another
-  tool, and a stable read-mostly surface that will not move under you.
-- **Dashboard widgets** — Homepage and Homarr — and a **Home Assistant** recipe.
-  Both are thin layers over the token-authed API, so they follow it directly.
+- **API tokens and a dashboard document — shipped in 0.74.0.** Read-only
+  tokens you make from your account menu, `GET /api/v1/stats`, and tested
+  recipes for Homepage and Home Assistant. See
+  [Homelab integration](homelab-integration.md).
+- **The rest of the read API** — items, loans, wishlist, series and upcoming
+  releases under the same tokens, with a published schema. A stable
+  read-mostly surface that will not move under you.
 - **SSO via OIDC** ([#89](https://github.com/dgahagan/shelf/issues/89)) — sign in
   with the identity provider you already run instead of Shelf keeping its own
   user list. This one builds on the account rework in *Multi-user & households*,
@@ -49,16 +60,14 @@ work below and arrives well before full OIDC.
 **Planned.** [#48](https://github.com/dgahagan/shelf/issues/48) — the largest
 thing on this page, and it will arrive over several releases rather than one.
 
-Today every account shares one library. The goal is that one Shelf install can
-host several households — family, friends — each with its own complete library,
-and each able to share it with chosen people at chosen access levels. Individual
-items and whole locations can be marked private so they never appear to an
-outside viewer. On top of that: borrow requests with a lending ledger, wishlists
-visible for gift-buying with secret claims, and "who owns this?" search across
-the households you can see.
+The fork already has first-class libraries, per-user membership and private
+activity; this integration must preserve those boundaries across modern upstream
+routes. Collections and physical locations are not permission containers.
+Broader household invitations, secret gift claims and cross-household lending
+remain separate design work, not implied by library membership support.
 
-Existing installs upgrade without noticing. Your data becomes the first
-household, and nothing visibly changes until you invite someone.
+Only recognized fork/common-prefix databases and fresh installs are admitted.
+No transparent upstream-database conversion is promised.
 
 ## More sources and languages
 
@@ -66,65 +75,70 @@ household, and nothing visibly changes until you invite someone.
 Library, and thinner otherwise.
 
 - **More national sources.** German ISBNs already route to the Deutsche
-  Nationalbibliothek and Italian ones to Italy's national network. Other
+  Nationalbibliothek, French ones to the BnF, Italian ones to Italy's national
+  network, Dutch ones to
+  the Koninklijke Bibliotheek, Hungarian ones to OSZK NEKTÁR and Portuguese
+  ones to PORBASE, and Chinese-language ones to NeoDB. Other
   countries deserve the same.
-- **A translated interface.** The UI is English-only today. Translating the
-  templates and letting the browser or a per-user setting pick the language.
-- **Music** ([#81](https://github.com/dgahagan/shelf/issues/81)) — CDs and records
-  can be catalogued now, but nothing looks them up, because Shelf has no music
-  metadata provider. MusicBrainz and the Cover Art Archive would fix that.
+- **A translated interface.** In progress. The translation machinery and the
+  first catalog have landed, and each user can pick a language or follow the
+  browser. Other languages come next. The page shell (navigation, sign-in,
+  setup, the Account dialog), Browse, the item page, item edit, manual add, Scan,
+  Photo Intake, Shelf Fill and Store Mode are translated; the other feature pages
+  follow area by area. Until then it sits behind `SHELF_I18N`, off by default.
 
 ## Import and migration
 
-**Planned.** Goodreads, StoryGraph, CSV and a portable archive are supported
-today. Adding **LibraryThing** and **Libib**, and an importer for an
-**Audible/Libation library export** so an audiobook collection can be catalogued
-without retyping it. Shelf stores the catalogue record, never the audio.
+LibraryThing/Libib (beta) and Audible export import join CSV, Goodreads,
+StoryGraph and portable archives. Remaining integration work includes library
+scoping, actor-owned history and precise copy-location round-trips. This does not
+mean unsupported database histories can be converted by editing migration rows.
 
 ## Collectors and inventory
 
-**Planned.** For collections where the individual copy matters, not just the
-title: per-copy condition, edition and provenance fields, printable accession
-labels, a reconciliation report for a shelf audit, and a duplicate audit across
-the whole collection.
+Copy metadata, Shelf Fill, ordering, labels, audits and duplicate tools are
+present in source. Preserve node IDs and the last-owned-copy refusal while
+integrating reversible Trash. MusicBrainz release identity, periodical issues,
+provider series and the fork's Collections must coexist rather than replace one
+another.
 
 ## Reading life
 
-**Planned.** Ratings, did-not-finish and paused states, re-reads, a reading
-journal, yearly goals and an Up Next list. This needs per-user state to mean
-anything, so it follows the households work.
+The fork retains per-user ratings, history, private notes, paused/dropped state,
+My List and Continue / Up Next. Broader journaling and goals can build on that
+private state; they are not a reason to reintroduce global reading activity.
 
 ## Alerts and discovery
 
 **Exploring.**
 
-- **New-release alerts** for the series and authors you follow, plus a calendar
-  of what is coming.
-- **Price alerts** on wishlist items.
-- **Buy links** on wishlist and series-gap rows — off by default, with
-  Bookshop.org first because it supports independent bookshops. If you turn them
-  on you enter *your own* affiliate tags, not the project's, and the link says
-  what it is. Shelf takes nothing from it.
+- **New-release alerts for authors** you follow, beyond the series you watch
+  (series watching and the Upcoming releases page shipped in 0.73.0).
+- Price alerts and buy links for the shared acquisition list are present
+  upstream features; they do not publish a user's personal wishlist or notes.
 
 ---
 
 ## Recently shipped
 
-The last five releases. Full detail in the [changelog](../CHANGELOG.md).
+The last five **upstream** releases that changed something you can see. Some releases change
+only security or foundations — 0.50.1 and 0.51.0 hardened sign-in and fixed a
+security issue without changing what you see — and those are left out here
+rather than listed as "nothing visible". Full detail on every release, visible
+or not, is in the [changelog](../CHANGELOG.md).
 
 | Version | What landed |
 |---|---|
-| [0.34.0](https://github.com/dgahagan/shelf/releases/tag/v0.34.0) | An optional browser URL for Audiobookshelf, so **Listen** and **Read** links work when Shelf reaches your server at a different address than your browser does |
-| [0.33.1](https://github.com/dgahagan/shelf/releases/tag/v0.33.1) | Adding the same item twice at once reports the duplicate instead of filing it twice |
-| [0.33.0](https://github.com/dgahagan/shelf/releases/tag/v0.33.0) | CSV import recognises a book it already holds whatever form the ISBN is written in, and refuses an import mode it does not know instead of overwriting |
-| [0.32.0](https://github.com/dgahagan/shelf/releases/tag/v0.32.0) | Legacy Scholastic price-point book barcodes scan properly instead of filing whatever product shares the code |
-| [0.31.0](https://github.com/dgahagan/shelf/releases/tag/v0.31.0) | Photo Intake looks up DVDs and video games, not just books |
-
+| [0.81.0](https://github.com/dgahagan/shelf/releases/tag/v0.81.0) | **Shelf on a Raspberry Pi.** The Docker image is published for `arm64` as well as `amd64`, so an ARM64 machine such as a Raspberry Pi pulls it directly instead of building it. Contributed by @Chrisser73. |
+| [0.80.0](https://github.com/dgahagan/shelf/releases/tag/v0.80.0) | **Audiobook covers and details from Audible.** An audiobook with an ASIN, such as one from a Libation or audible-cli import, gets its cover from the Audible catalogue, and **Fill details from Audible** fills its empty fields. Choose your Audible marketplace in Settings. Also: Photo Intake, Shelf Fill and Store Mode in Italian, contributed by @vjandrea. |
+| [0.79.1](https://github.com/dgahagan/shelf/releases/tag/v0.79.1) | **"Also available as" follows Related Media.** Linking or unlinking another format on an item updates its "Also available as" links straight away, without a reload. Contributed by @sudo-rpaisley. |
+| [0.79.0](https://github.com/dgahagan/shelf/releases/tag/v0.79.0) | **The Scan page in Italian.** The mode tabs, the form, and every card and message a scan returns are translated, and the labels follow the mode and the media type. Contributed by @vjandrea. |
+| [0.78.3](https://github.com/dgahagan/shelf/releases/tag/v0.78.3) | **Keyboard-shortcut help in every language.** In Italian or Chinese, the **?** button now opens the shortcut list, and its close button and backdrop close it. The list opens centred and fits a phone screen. Shortcuts also stop firing while Ctrl, Cmd or Alt is held, so Ctrl+F and the browser's other shortcuts work again. |
 ---
 
 ## Suggesting something
 
-Open a [feature request](https://github.com/dgahagan/shelf/issues/new?template=feature_request.yml).
+Open a [fork feature request](https://github.com/sudo-rpaisley/shelf/issues/new/choose).
 Requests are read and answered, and the ones that fit get folded into a group
 above — several already have. Saying what problem you are trying to solve helps
 more than proposing a solution, because the fix that lands is often not the one

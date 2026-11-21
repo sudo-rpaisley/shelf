@@ -50,7 +50,7 @@ def _artist_credit(values: Any) -> str | None:
     if not isinstance(values, list):
         return None
     parts: list[str] = []
-    for artist in values:
+    for index, artist in enumerate(values):
         if not isinstance(artist, dict):
             continue
         name = _display_name(artist)
@@ -60,7 +60,7 @@ def _artist_credit(values: Any) -> str | None:
         join = str(artist.get("join") or "").strip()
         if join:
             parts.append(f" {join} ")
-        elif artist is not values[-1]:
+        elif index < len(values) - 1:
             parts.append(", ")
     text = "".join(parts).strip(" ,")
     return text or None
@@ -294,7 +294,6 @@ async def _request_json(
     except Exception:
         logger.debug("Discogs request failed", exc_info=True)
         return provider_result.transport_failed("discogs")
-
     classified = provider_result.classify_response(
         "discogs", response, auth_statuses=(401, 403)
     )
@@ -373,6 +372,8 @@ async def lookup_release(
     if not result.found:
         return result
     if not isinstance(result.payload, dict) or not result.payload.get("id"):
+        return provider_result.no_match("discogs")
+    if str(result.payload["id"]) != str(release_id):
         return provider_result.no_match("discogs")
     return result.with_payload(normalise_release(result.payload))
 

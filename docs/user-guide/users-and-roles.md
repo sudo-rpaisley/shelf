@@ -1,87 +1,94 @@
-# Users & roles
+# Users, libraries & roles
 
-Shelf is multi-user: one shared catalogue can have several logins with three
-site roles.
+Shelf separates site administration, library authority and personal activity.
+See the [integration status](../upstream-integration.md) for pending independent
+review and runtime validation.
 
-| Role | Can |
+## Site roles and library membership
+
+| Authority | Can |
 |---|---|
-| **Admin** | Everything — settings, users, integrations, locations, borrowers, sync, bulk ops, backup/restore, logs, plus all editor rights |
-| **Editor** | Add / edit / delete catalogue items, all scan modes, covers, lend and return, tags, import / export CSV and archives, plus their own personal media state |
-| **Viewer** | Browse, search, Series, Stats, Store Mode, export CSV, and manage their own status, progress, rating, favourite, wishlist and personal notes |
+| **Global Admin** | Manage settings, accounts, integrations, backups and logs; access libraries; permanently purge / empty expired Trash; manage global administrative features |
+| **Library Editor** | Read and change catalogue items in that library: add/edit, scan, manage covers/copies, lend/return, apply tags, delete to Trash and restore, subject to feature gates |
+| **Library Viewer** | Browse/search accessible items, read enabled feature pages and manage their own personal activity; no shared catalogue writes |
+| **No membership** | No access to that library's catalogue, except for a global administrator |
 
-Cover controls — **Find cover**, **Upload**, **Remove cover**, **Retry
-cover** — are editor+; a viewer doesn't see them on the item page at all.
-The same goes for **Lend** / **Check in** and **Push to Hardcover** on the item
-page, the Series page's rename, merge and disband actions, and Discover's
-add-to-wishlist buttons: viewers get the read-only view of each, with the
-loan context and the Series list still shown.
+For a non-admin, **library membership is authoritative**, not the site's old
+Editor/Viewer label. A global Viewer can be an Editor of one library; a global
+Editor with only Viewer membership cannot edit that library. A move between
+libraries needs authority over both source and destination. Bulk operations,
+copies, restore, imports and exports do not bypass this boundary.
 
-The first account created in the setup wizard is an admin. There must always
-be at least one admin.
+Libraries are not Collections, locations or external connector libraries.
+Collections organize items, precise locations describe physical placement, and
+provider-library IDs identify remote holdings; none grants catalogue access.
+Missing, unmapped and inaccessible items are not disclosed as collision details.
+
+**Trash** is the normal deletion lifecycle. Restoring needs Editor authority in
+the parent library. Only a global admin can permanently purge or empty expired
+rows. No timer permanently deletes them. The last live copy of an owned physical
+item cannot be removed through ordinary copy controls.
 
 ## Managing users
 
-Settings → **Users** (admin): add a user with username, display name, role
-and initial password; change a role; reset a password; delete a user.
-Deleting a user doesn't delete shared catalogue items. Account-specific media
-state is tied to that user and is removed with the account.
+The first setup account is a global admin; at least one must remain.
+Settings → **Users** lets admins add accounts, set site roles, reset passwords
+and delete users. Manage library memberships separately. Deleting an account
+does not delete shared catalogue items; it removes that user's account-bound
+personal state and API tokens. Admins can revoke tokens from the Users tab to
+stop a leaked token without its owner.
 
-Every local user changes their **own** display name and password from the
-account menu in the nav.
+Each user changes their own display name/password from the account menu, whose
+trigger identifies the signed-in account. Administrative controls remain
+admin-only even when someone has Editor membership in a library.
 
 ## Shared catalogue vs personal state
 
-Shelf keeps the catalogue shared while storing personal activity separately
-for each account.
+Shared data includes title/edition metadata, physical and digital holdings,
+copies, lending, tags, Collections and series membership. Writes require the
+appropriate library authority.
 
-**Shared catalogue data** includes title and edition metadata, physical and
-digital holdings, physical copies and locations, lending, tags and collections.
-Changing shared catalogue data therefore requires editor or admin access.
+Personal data belongs to the signed-in account:
 
-**Personal media state** belongs only to the signed-in account:
+- reading / watching / listening / playing status, start/finish dates and history;
+- progress, optional total and unit;
+- rating, favourites and private notes;
+- personal wishlist, Want-to / My List and Continue / Up Next activity.
 
-- reading / watching / listening / playing status;
-- start and finish dates and completion history;
-- progress, including a value, optional total and unit;
-- rating;
-- favourite;
-- personal wishlist; and
-- private personal notes.
+A library Viewer can update these personal values without gaining catalogue
+write permission. One user's activity never replaces another's. The personal
+**wishlist** can include an item already owned by the household. The **shared
+acquisition wishlist** is a different list (`wishlisted`); it excludes owned
+items. See [Wishlist & Store Mode](wishlist-and-store-mode.md).
 
-A viewer can change their own personal state without gaining permission to
-edit the shared catalogue. One user's status, rating, wishlist, progress or
-notes never replaces another user's values.
+Recognized fork upgrades run any genuinely pending legacy activity snapshot
+once. Accounts created afterwards start clean. Restarting, reading a page or
+calling a schema helper does not copy legacy activity to later users or regrant
+revoked memberships. Goodreads/StoryGraph reading activity belongs to the
+importing user; duplicate Skip can preserve shared metadata while applying that
+user's personal state. Import/privacy paths still require final integration
+verification; an archive is not a full private-state backup.
 
-On upgrade, accounts that already exist receive a one-time snapshot of the
-old shared reading status, wishlist intent and reading history. Users created
-after that migration start with clean personal state and do not inherit another
-account's legacy activity.
+## API tokens
 
-Goodreads and StoryGraph imports also treat reading state as personal to the
-account performing the import. In duplicate `skip` mode, Shelf can leave an
-existing catalogue record untouched while still importing that user's status.
+With the feature enabled, every account can manage tokens from its account
+dialog. The plaintext is shown once; only its hash is stored. A token permits
+read-only **GET under `/api/v1/`**, never catalogue writes or UI mutation routes.
+The owning account determines library read visibility, but neither an admin
+identity nor Editor membership lifts the token above its viewer capability cap.
 
-## Sessions
+Password/role changes do not revoke a token: revoke it explicitly. Database
+backups contain token hashes; portable archives do not. See
+[Homelab integration](../homelab-integration.md).
 
-Login sets an HTTP-only, secure cookie with a 7-day JWT that refreshes while
-you're active, so a device you use regularly stays logged in. **Log out**
-from the account menu; to force every device out, change your password.
-Login attempts are rate-limited per IP.
+## Sessions and logs
 
-OIDC/SSO work is being developed separately; OIDC sessions have their own
-revalidation behaviour.
+Login uses an HTTP-only cookie, marked Secure over HTTPS, with a sliding expiry
+(7 days by default; `SHELF_SESSION_DAYS` changes it). Log out from the account
+menu; changing your password signs out existing browser sessions. A database
+restore invalidates earlier sessions but does not itself revoke restored API
+token rows. Login attempts are rate-limited per IP.
 
-## The log viewer
-
-**Logs** in the nav (admin) tails Shelf's application log in the browser:
-auth events (logins, failures, role changes), sync runs, metadata and cover
-lookups, errors. Handy for "why didn't that cover load" without touching
-`docker compose logs`.
-
-## Library-specific permissions
-
-Site roles are currently global. First-class Shelf libraries with per-user
-`None / Viewer / Editor` access are planned separately in
-[issue #106](https://github.com/sudo-rpaisley/shelf/issues/106). That work will
-make libraries the catalogue security boundary without turning Collections or
-physical locations into permission containers.
+**Logs** (admin account menu) shows auth events, sync activity, lookups and
+errors. Review/redact logs before sharing; do not attach credentials, private
+activity or databases to a public issue. See [Support](../../SUPPORT.md).

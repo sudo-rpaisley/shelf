@@ -14,11 +14,18 @@ Set these in your `.env` file next to `docker-compose.yml`, or with `-e` on
 |---|---|---|
 | `CERT_SAN` | `DNS:shelf,DNS:localhost` | Subject Alternative Names for the self-signed certificate. Comma-separated `DNS:<name>` and `IP:<addr>` entries. Add your server's LAN IP and any hostname you'll type in the browser. Only read when the certificate is first generated — delete `data/certs/` to regenerate |
 | `SHELF_PORT` | `18888` | Port the app listens on *inside* the container. Usually leave it and change the Compose port mapping instead |
-| `SHELF_TRUST_PROXY` | *(unset)* | Set to `1` **only** when a reverse proxy in front of Shelf overwrites `X-Forwarded-For` / `CF-Connecting-IP`. Without a proxy this lets clients spoof their IP past login rate limiting |
+| `SHELF_TLS` | `on` | `on` serves HTTPS with the self-signed certificate in `data/certs/` (generated if absent). `off` serves plain HTTP, for a reverse proxy that terminates TLS itself; existing certificates are left in place. Any other value stops the container at startup. Plain HTTP without a proxy loses the camera scanner and offline Store Mode — see [HTTPS and reverse proxies](https-and-reverse-proxy.md#plain-http-without-a-proxy) |
+| `SHELF_TRUST_PROXY` | *(unset)* | The reverse proxy's address as Shelf sees it: comma-separated IPs or CIDRs (e.g. `127.0.0.1`, `172.17.0.1`, `10.0.0.5,127.0.0.1`), or `*`, which is not recommended. Forwarded headers are honoured only from these peers, and `X-Forwarded-For` is read from the right. The legacy `1` means `127.0.0.1` and prints a startup warning. Leave unset without a proxy. Outside Docker, set uvicorn's `FORWARDED_ALLOW_IPS` instead, since `entrypoint.sh` does the hand-over. See [HTTPS and reverse proxies](https-and-reverse-proxy.md#2-reverse-proxy-with-a-real-certificate) |
 | `SECRET_KEY` | *(auto)* | JWT signing key. If unset, generated at `data/signing.key` (0600) on first start; an existing key from before 0.30 is moved there from the database on the first start after upgrading, so sessions survive. Set it explicitly to run several instances against one database |
+| `SHELF_SESSION_DAYS` | `7` | How long a login lasts, in whole days, `1`–`365`. The window slides: a session in use is renewed once it is past half its length, so someone who opens Shelf every few days is never logged out. A value that is not a whole number in range logs a warning at startup and uses 7. Existing sessions keep their old expiry until their next renewal |
 | `SHELF_ENCRYPTION_KEY` | *(auto)* | Key for API credentials stored in the database. If unset, generated at `data/encryption.key`. Set it (`openssl rand -hex 32`) so the data directory alone can't decrypt credentials |
 | `DATA_DIR` | `/data` | Where the database, covers and certs live. Only relevant outside Docker |
-| `SHELF_DISABLE_RATE_LIMIT` | *(unset)* | Turns off per-IP rate limiting. For tests and local development only |
+| `SHELF_I18N` | *(unset)* | `on` turns on the translated interface: each user's Language choice in the Account dialog, else the browser's language. Unset, `off` or any other value keeps Shelf in English and hides the picker. Temporary: only part of the interface is translated so far, and the setting goes once all of it is |
+| `SHELF_DISABLE_RATE_LIMIT` | *(unset)* | Turns off rate limiting — the per-IP limit and the per-token limit on `/api/v1`. For tests and local development only |
+| `SHELF_DISABLE_PRICE_ALERTS` | *(unset)* | Stops the nightly wishlist price-alert check from starting, so it never calls ISBNdb. For tests only — the test suite sets it; leave it unset in production |
+| `SHELF_DISABLE_RELEASE_RADAR` | *(unset)* | Stops the daily release-radar check from starting, so it never calls Hardcover. For tests only — the test suite sets it; leave it unset in production |
+| `SHELF_UPC_LOOKUP_URL` | *(unset)* | Overrides the UPC Item DB lookup endpoint. For the test suite only — the E2E gate points it at a local stub. Leave it unset in production; the trial endpoint is used and paced when it is |
+| `SHELF_ISSN_PORTAL_URL` | *(unset)* | Overrides the ISSN Portal resource URL (a template with an `{issn}` placeholder). For the test suite only — the E2E gate points it at a local stub. Leave it unset in production |
 
 ### Credential overrides
 
@@ -32,9 +39,13 @@ priority** over anything stored:
 | `GOOGLE_BOOKS_API_KEY` | Optional Google Books API key; anonymous lookups remain available when unset |
 | `ABS_URL`, `ABS_TOKEN` | Audiobookshelf server URL and API token |
 | `ABS_PUBLIC_URL` | Optional browser-facing Audiobookshelf URL, for **Listen** / **Read** links only. Set it when `ABS_URL` is an internal Docker or LAN address |
-| `ISBNDB_API_KEY` | ISBNdb key (valuation) |
+| `KOMGA_URL`, `KOMGA_API_KEY` | Komga server URL and API key |
+| `ROMM_URL`, `ROMM_API_TOKEN` | RomM server URL and API token |
+| `ISBNDB_API_KEY` | ISBNdb key (valuation, price alerts) |
 | `TMDB_API_KEY` | TMDb credential (DVD / Blu-ray metadata **and** DVD cover search) — either the 32-character v3 API Key or the v4 Read Access Token |
 | `IGDB_CLIENT_ID`, `IGDB_CLIENT_SECRET` | Twitch developer credentials (video game metadata **and** game cover search — both fields are required) |
+| `LIBRARYTHING_TOKEN` | LibraryThing API token, for the English related-edition cover fallback (non-commercial use unless LibraryThing grants permission) |
+| `DISCOGS_TOKEN` | Optional Discogs exact-pressing lookup token |
 
 Useful with Docker secrets or a secrets manager. Vision-provider keys (Photo
 Intake) are Settings-only.
@@ -62,31 +73,36 @@ a second copy into the form to check it.
 
 ## The Settings page
 
-**Settings** (gear icon, admin only) has four tabs. This is where each option
+**Settings** (gear icon, admin only) has five tabs. This is where each option
 lives:
 
 ### Library
 
 | Card | Options |
 |---|---|
-| **Collection** | Display currency (20 choices; formatting only, never conversion). Preferred language for title searches |
-| **Navigation** | Which tabs appear in the nav. Tabs for unconfigured integrations hide themselves automatically; you can also hide any tab manually |
-| **Locations** | Add, rename and delete shelves/rooms. Names must be unique and non-blank — a clash is refused with a message rather than saved. Deleting a location unassigns its items |
+| **Collection** | Display currency (20 choices; formatting only, never conversion). Preferred language for title searches. Audible marketplace (10 choices, default United States) — used to look up audiobook covers and details by ASIN |
+| **Navigation** | Which tabs appear in the nav. Tabs for unconfigured integrations hide themselves automatically; you can also hide any tab manually. Hiding a tab here only hides it — its pages keep working. A tab whose feature is turned off under [Features](#features) reads "Turned off in Features" |
+| **Locations** | Manage precise room/bookcase/shelf nodes and legacy flat location bindings. Copy/node IDs differ from item-level flat IDs; see [Physical copies](item-copies.md) |
 | **Borrowers** | People you lend to. Deleting a borrower keeps their loan history |
 | **Game Platforms** | The platform list used for video games — 30 built in, add your own |
-| **Lending** | "Overdue after N days" for loans without a due date (0 disables). Notification URL (ntfy topic or JSON webhook) for the daily overdue digest, with a **Send test** button |
+| **Lending** | "Overdue after N days" for loans without a due date (0 disables). Notification URL (ntfy topic or JSON webhook) for the daily overdue digest, the wishlist price-drop digest and the release-radar digest, with a **Send test** button |
+| **Buy links** | Your own affiliate tags for the [buy links](user-guide/wishlist-and-store-mode.md#buy-links): `buy_links_bookshop_id` (digits, up to 12), `buy_links_bookshop_host` (`bookshop.org` or `uk.bookshop.org`), `buy_links_amazon_tag` (letters, digits and hyphens, up to 40) and `buy_links_amazon_host` (one of ten Amazon marketplaces, default `www.amazon.com`). A blank tag turns that store off. Not secrets: they are shown as saved |
+| **Trash** | "Prompt to empty Trash after N days" (`trash_retention_days`, default 180; 0 never prompts). Past the window, admins see a dismissable banner linking to the expired rows; nothing is deleted automatically. See [Trash](user-guide/items.md#trash) |
 
 ### Integrations
 
 | Card | Options |
 |---|---|
 | **Audiobookshelf Sync** | Server URL, optional browser URL, API token, **Test**, per-library include/exclude, sync interval, manual sync |
-| **Hardcover** | API token, import your Hardcover library, reading-status sync direction and schedule, export to Hardcover |
-| **Collection Valuation** | ISBNdb API key, valuate all / test key |
+| **Hardcover** | API token, import your Hardcover library, reading-status sync direction and schedule, export to Hardcover. Its **Release radar** block sets the series checked per day (`release_radar_cap`, 1–200, default 50) and shows the last run. See [Series → Watching for new volumes](user-guide/series.md#watching-for-new-volumes) |
+| **Collection Valuation** | ISBNdb API key, valuate all / test key. Its **Price alerts** block sets the drop threshold (`price_alert_threshold_pct`, 1–100, default 15) and books checked per night (`price_alert_nightly_cap`, 1–500, default 100), and shows the last run. See [Price alerts](user-guide/wishlist-and-store-mode.md#price-alerts) |
+| **Komga / RomM** | Server credentials, selected provider libraries and sync controls; exact attachments and plural holdings are preserved. Provider libraries do not grant Shelf library access |
 | **Google Books** | Optional API key, **Test Key**. Authenticates the Google Books requests Shelf already makes; keyless access stays enabled without it |
 | **Movie Database (TMDb)** | API key for DVD / Blu-ray lookups, for **Find cover** on a DVD, and for the lookup a Photo Intake row typed DVD runs when you confirm it |
 | **Photo Intake (Vision)** | Provider: Anthropic (API key + model), OpenAI-compatible (base URL, optional key, model, ingest long-edge), or Ollama (URL, model, ingest long-edge) |
 | **IGDB (Video Games)** | Twitch client ID + secret, for game lookups, for **Find cover** on a video game, and for the lookup a Photo Intake row typed Video Game runs when you confirm it |
+| **LibraryThing** | API token for the English related-edition cover fallback: a book whose own ISBN has no cover gets one from a verified English edition, in **Retry Missing Covers** and as extra **Find cover** tiles. Non-commercial use unless LibraryThing grants permission |
+| **Discogs** | Personal access token for optional exact-pressing lookup on Music item pages. MusicBrainz remains the canonical release identity; Shelf stores only the selected Discogs Release ID and fetches provider details on demand |
 
 Each card has a short inline setup guide for obtaining its credential. Keys
 are **write-only** — once saved you see a masked placeholder and a "clear"
@@ -96,30 +112,110 @@ checkbox, never the value. See [Integrations](user-guide/integrations.md).
 
 | Card | Options |
 |---|---|
-| **Maintenance** | Retry missing covers, backfill synopses, re-run value lookups — each with a live progress stream |
-| **Import / Export** | CSV export; CSV / Goodreads / StoryGraph import with "fetch covers" and "to-read → wishlist" options |
+| **Maintenance** | Retry missing covers (book-shaped rows only), **Review covers needing attention** (the manual queue, every media type), backfill synopses, re-run value lookups — the sweeps each with a live progress stream |
+| **Import / Export** | CSV export; CSV / Goodreads / StoryGraph / LibraryThing / Libib / Audible (audible-cli or Libation) import with "fetch covers" and "to-read → wishlist" options |
 | **Sharing** | Create and revoke public read-only wishlist / collection links |
 | **Backup & Restore** | Download a database backup (optionally passphrase-encrypted), restore from one |
-| **Portable archive** | Export the whole library as a zip including covers; import with a preview step |
+| **Portable archive** | Export the whole library as a zip including physical copies and covers; import with a preview step |
 
 ### Users
 
 Add users, set roles, reset passwords. See [Users & roles](user-guide/users-and-roles.md).
 
+### Features
+
+Turn optional parts of Shelf on or off: Lending, Series, Statistics, Store
+Mode, Sharing, Valuation, Price alerts, Buy links, Music, Periodicals, Shelf Fill, Photo
+Intake, Hardcover, Release radar, Audiobookshelf sync, Komga, RomM,
+Collector tools and API tokens. An
+upgrade leaves every existing feature as it was. A feature new in a release
+starts on, except where an upgrade would switch on something the install's
+profile left out: Price alerts, Buy links and Collector tools start off on an
+upgrade where Valuation is off, and Release radar starts off on an upgrade where
+Hardcover is off. API tokens start off on every upgrade: turn them on to use
+[Homelab integration](homelab-integration.md). Release radar also needs
+Hardcover on to do anything. A new
+install starts with the profile chosen in the
+setup wizard.
+Scanning, Browse, items, locations, tags, Trash, settings, users, backups and
+logs are core and cannot be turned off.
+Buy links can be on and still show nothing: no link appears until a tag is
+saved under Library → **Buy links**.
+
+**Profiles.** A profile is a starting set of features:
+
+| Profile | Features on |
+|---|---|
+| **Minimal** | None — only the core above |
+| **Standard** | Lending, Series, Statistics, Store Mode, Music, Periodicals, Shelf Fill |
+| **Everything** | Standard, plus Sharing, Valuation, Price alerts, Buy links, Photo Intake, Hardcover, Release radar, Audiobookshelf sync, Komga, RomM, Collector tools and API tokens |
+
+The **Profiles** row at the top of Features applies one in a single step and
+shows which one the install matches. After you turn one feature on or off by
+hand, it may match none and reads **Custom**. A profile is not stored: it is
+only a way to set the switches below it. Each profile lists what applying it
+would turn on and turn off from where the install is now. Applying one asks
+first when it would turn off Sharing or Lending while they have something to
+lose, as the individual switches do. It does not ask before turning off an
+integration you have set up, such as Hardcover or Audiobookshelf sync — check
+its **Turns off** line first.
+
+A feature that is off:
+
+- **hides its tab** from the nav,
+- **refuses its pages and actions** — a page says the feature is turned off
+  (an admin gets a **Turn on** button there),
+- **disappears from the pages that stay on** — the item page, Home, Browse,
+  Scan and Stats drop its buttons, badges, links and read-outs. Fields you
+  typed onto an item stay, such as a series name or a manual value,
+- **pauses its background job** — Audiobookshelf sync, Hardcover sync, the
+  overdue-loan digest, the nightly price-alert check and the daily
+  release-radar check skip their runs until it is back on,
+- **keeps all its data.** Turning it back on shows everything again,
+  including anything added while it was off.
+
+This is stronger than hiding a tab under **Navigation**, which only takes the
+tab out of the nav bar. An integration's own card under **Integrations** stays
+usable while its feature is off, so you can set it up and test the connection
+before you turn it on; its row here says **Needs setup** until it is
+configured. The card says the feature is turned off, links back here, and
+keeps only its setup controls: sync, import, export and run buttons go until
+the feature is back on.
+
+**Collector tools** covers copy labels, the **Audits** pages and the
+**Duplicates** page (admin only). The audit
+strip on Scan → Inventory is not part of it: with Collector tools off you can
+still start an audit, scan into it and finish it, and its scans are kept; only
+reading the report waits until the feature is on. See [Audits](user-guide/audits.md).
+
+Two features ask before they turn off, because the change reaches other
+people: **Sharing** says how many share links will stop working, and
+**Lending** says how many loans are open and that overdue reminders will
+pause.
+
 ## Account settings
 
-Every user (any role) can change their own display name and password from
-the account menu — not from Settings.
+Every user (any role) can change their own display name and password, and
+manage their own API tokens, from the account menu — not from Settings.
 
 ## Where things are *not* configurable
 
 - Metadata source order (a national bibliography where one covers the ISBN —
-  DNB for German ISBNs, SBN for Italian ones → Open Library → Hardcover →
-  Google Books) is fixed; see [Architecture](architecture.md). National
+  DNB for German ISBNs, BnF for French ones, SBN for Italian ones, KB for Dutch
+  ones, NeoDB for Chinese-language ones → Open Library →
+  Hardcover → Google Books) is fixed; see [Architecture](architecture.md). National
   routing follows the ISBN's registration group and has no on/off switch, for
-  SBN or for DNB.
+  SBN, DNB, BnF, KB or NeoDB.
 - Outbound API pacing per host is fixed to each provider's published limit.
-- Media types are a fixed list: book, kids book, audiobook, eBook, DVD /
-  Blu-ray, CD, comic / graphic novel, video game. The scan tab's **Auto** is a
-  choice about how to scan, not a ninth type — it is never stored on an item;
-  see [Scanning → Media types](user-guide/scanning.md#media-types).
+- The Audible catalogue (Audnexus) has no on/off switch. It is called only
+  for an audiobook with an ASIN that has no cover, from the cover picker for
+  such an audiobook, or when you press **Fill details from Audible**.
+- Media types include the fork's retained children's-book and digital families
+  alongside upstream music and periodicals. Existing `kids_book` identities stay
+  visible; startup does not rewrite/merge them into books. A `Kids` tag remains
+  useful but is not a destructive conversion mandate. The scan tab's **Auto** is
+  a detection choice, not a stored media type. See [Integration](upstream-integration.md).
+
+Library permissions and personal activity are not instance-wide Settings
+defaults: membership authorizes catalogue access and each user's activity stays
+private. See [Users, libraries & roles](user-guide/users-and-roles.md).

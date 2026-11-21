@@ -9,18 +9,13 @@ from __future__ import annotations
 
 import asyncio
 import re
+from urllib.parse import quote
 
 import httpx
 
 from app.database import get_db
 from app.services import provider_series
 from app.services import series_memberships as series_memberships_svc
-
-_INSTALLED = False
-_ORIGINAL_ABS_SYNC = None
-_ORIGINAL_KOMGA_SYNC = None
-_ORIGINAL_ROMM_IMPORT_BATCH = None
-
 
 def _clean(value) -> str | None:
     if value is None:
@@ -54,7 +49,7 @@ async def sync_audiobookshelf_series(abs_url: str, token: str) -> int:
         library_ids = [
             str(row["abs_library_id"])
             for row in db.execute(
-                "SELECT DISTINCT abs_library_id FROM items "
+                "SELECT DISTINCT abs_library_id FROM items_live "
                 "WHERE abs_id IS NOT NULL AND abs_library_id IS NOT NULL"
             ).fetchall()
             if row["abs_library_id"]
@@ -68,7 +63,7 @@ async def sync_audiobookshelf_series(abs_url: str, token: str) -> int:
         for library_id in library_ids:
             try:
                 response = await client.get(
-                    f"{abs_url}/api/libraries/{library_id}/series",
+                    f"{abs_url}/api/libraries/{quote(library_id, safe='')}/series",
                     headers=headers,
                     params={"limit": 10000, "page": 0},
                 )
@@ -115,7 +110,7 @@ async def _fetch_komga_series_one(
 ) -> dict | None:
     try:
         response = await client.get(
-            f"{komga_url}/api/v1/series/{series_id}",
+            f"{komga_url}/api/v1/series/{quote(series_id, safe='')}",
             headers={"X-API-Key": api_key, "Accept": "application/json"},
         )
     except Exception:
@@ -135,7 +130,9 @@ async def sync_komga_series(komga_url: str, api_key: str) -> int:
         ids = [
             str(row["komga_series_id"])
             for row in db.execute(
-                "SELECT DISTINCT komga_series_id FROM items "
+                "SELECT DISTINCT kr.series_id AS komga_series_id FROM komga_records kr "
+                "JOIN items_live i ON i.id = kr.item_id WHERE kr.series_id IS NOT NULL "
+                "UNION SELECT DISTINCT komga_series_id FROM items_live "
                 "WHERE komga_id IS NOT NULL AND komga_series_id IS NOT NULL"
             ).fetchall()
             if row["komga_series_id"]
@@ -166,11 +163,12 @@ async def sync_komga_series(komga_url: str, api_key: str) -> int:
                 # Older/newer Komga shapes can omit the top-level name. The
                 # local item relation is still a safe stable-ID fallback.
                 local = db.execute(
-                    "SELECT series_name FROM items WHERE komga_series_id = ? "
-                    "AND series_name IS NOT NULL ORDER BY id LIMIT 1",
-                    (series_id,),
-                ).fetchone()
-                name = _clean(local["series_name"]) if local else None
+                    "SELECT DISTINCT i.series_name FROM items_live i WHERE i.series_name IS NOT NULL "
+                    "AND (i.komga_series_id = ? OR EXISTS (SELECT 1 FROM komga_records kr "
+                    "WHERE kr.item_id = i.id AND kr.series_id = ?))",
+                    (series_id, series_id),
+                ).fetchall()
+                name = _clean(local[0]["series_name"]) if len(local) == 1 else None
             if not name:
                 continue
             total_items = (
@@ -263,9 +261,11 @@ def enrich_romm_batch(db, roms: list[dict]) -> int:
         groupings = romm_groupings(metadata)
         if not romm_id or not groupings:
             continue
-        item = db.execute(
-            "SELECT id FROM items WHERE romm_id = ?", (romm_id,)
-        ).fetchone()
+        items = db.execute(
+            "SELECT i.id FROM items_live i JOIN romm_records rr ON rr.item_id = i.id WHERE rr.romm_id = ? "
+            "UNION SELECT id FROM items_live WHERE romm_id = ?", (romm_id, romm_id),
+        ).fetchall()
+        item = items[0] if len(items) == 1 else None
         if not item:
             continue
         # No position is supplied. Continue/Up Next intentionally considers
@@ -290,51 +290,13 @@ def enrich_romm_batch(db, roms: list[dict]) -> int:
 
 
 def install() -> None:
-    """Install narrow enrichment wrappers once for application-process syncs."""
-    global _INSTALLED, _ORIGINAL_ABS_SYNC, _ORIGINAL_KOMGA_SYNC, _ORIGINAL_ROMM_IMPORT_BATCH
-    if _INSTALLED:
-        return
+    """Explicit parent composition: callbacks, never import-time monkey patches.
 
-    from app.services import audiobookshelf, komga, romm
+    app.main calls this once after composing routers. Repeating the composition
+    is harmless and never wraps an already wrapped writer/scheduler.
+    """
+    from app.services import audiobookshelf, komga_sync, romm_records
 
-    _ORIGINAL_ABS_SYNC = audiobookshelf.sync
-    _ORIGINAL_KOMGA_SYNC = komga.sync
-    _ORIGINAL_ROMM_IMPORT_BATCH = romm._import_rom_batch
-
-    async def abs_sync(abs_url: str, abs_token: str, on_progress=None):
-        result = await _ORIGINAL_ABS_SYNC(abs_url, abs_token, on_progress=on_progress)
-        if isinstance(result, dict) and not result.get("error"):
-            await sync_audiobookshelf_series(abs_url, abs_token)
-        return result
-
-    async def komga_sync(komga_url: str, api_key: str, on_progress=None):
-        result = await _ORIGINAL_KOMGA_SYNC(komga_url, api_key, on_progress=on_progress)
-        if isinstance(result, dict) and not result.get("error"):
-            await sync_komga_series(komga_url, api_key)
-        return result
-
-    def romm_import_batch(
-        db,
-        romm_url,
-        roms,
-        shelf_platform,
-        platform_id,
-        adoption_candidates,
-        stats,
-    ):
-        result = _ORIGINAL_ROMM_IMPORT_BATCH(
-            db,
-            romm_url,
-            roms,
-            shelf_platform,
-            platform_id,
-            adoption_candidates,
-            stats,
-        )
-        enrich_romm_batch(db, roms)
-        return result
-
-    audiobookshelf.sync = abs_sync
-    komga.sync = komga_sync
-    romm._import_rom_batch = romm_import_batch
-    _INSTALLED = True
+    audiobookshelf.set_series_enricher(sync_audiobookshelf_series)
+    komga_sync.set_series_enricher(sync_komga_series)
+    romm_records.set_series_enricher(enrich_romm_batch)

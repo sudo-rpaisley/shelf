@@ -1,0 +1,16 @@
+<div id="item-copies" class="col-span-2 border border-shelf-border rounded-lg p-3 bg-shelf-bg/40">
+    {% if copy_error %}<p role="alert" class="text-sm text-shelf-error mb-3">{{ copy_error }}</p>{% endif %}
+    <p class="text-sm font-medium mb-3">{{ _('Copy #%(n)s', n=copy.copy_number) }}{% if copy.is_primary %} · {{ _('Primary') }}{% endif %}</p>
+    {% if can_edit_item %}
+    <form action="/api/items/{{ item_id }}/copies/{{ copy.id }}" method="post" hx-post="/api/items/{{ item_id }}/copies/{{ copy.id }}" hx-target="#item-copies" hx-swap="outerHTML" class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+        {% include "fragments/csrf_field.html" %}
+        {% include "fragments/item_copy_fields.html" %}
+        <div class="sm:col-span-2 flex flex-wrap gap-2">
+            <button type="submit" data-testid="save-copy" class="px-3 py-2 bg-shelf-accent text-white rounded-lg text-sm">{{ _('Save copy') }}</button>
+            <button type="button" data-testid="cancel-copy" hx-get="/api/items/{{ item_id }}/copies" hx-target="#item-copies" hx-swap="outerHTML" class="px-3 py-2 border border-shelf-border rounded-lg text-sm">{{ _('Cancel') }}</button>
+            {% if feature_on('collector') and not copy.copy_barcode %}<button type="button" data-testid="assign-copy-code" hx-post="/api/items/{{ item_id }}/copies/{{ copy.id }}/assign-code" hx-target="#item-copies" hx-swap="outerHTML" class="px-3 py-2 border border-shelf-border rounded-lg text-sm">{{ _('Assign code') }}</button>{% endif %}
+            {% if can_remove_copy %}<button type="button" data-testid="remove-copy" hx-delete="/api/items/{{ item_id }}/copies/{{ copy.id }}" hx-target="#item-copies" hx-swap="outerHTML" hx-confirm="{{ _('Move copy #%(n)s to Trash? Restore it from Trash to get it back.', n=copy.copy_number) }}" class="px-3 py-2 border border-shelf-error/30 text-shelf-error rounded-lg text-sm ml-auto">{{ _('Remove copy') }}</button>{% else %}<p class="text-xs text-shelf-muted self-center">{{ _('The final owned copy cannot be removed. Move the item to Trash instead.') }}</p>{% endif %}
+        </div>
+    </form>
+    {% else %}<p class="text-sm text-shelf-muted">{{ _('This item is read-only in its library.') }}</p>{% endif %}
+</div>

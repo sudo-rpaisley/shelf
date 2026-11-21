@@ -14,7 +14,7 @@ credentials.
 The `:disabled` attribute and `startSync()`'s early return are two layers
 over one property, and a disabled button cannot be clicked — so the two
 "reaches sync" cases below don't stop at asserting the button renders
-enabled. Each wraps the click in `page.expect_request(...)`, with the job
+enabled. Each wraps the click in `page.expect_request(...)`, with the stream
 route aborted first so the click assertion still exercises `startSync()`
 without the test reaching `app/services/audiobookshelf.py`'s real
 `httpx.AsyncClient` against a made-up ABS URL.
@@ -33,11 +33,26 @@ def _login(browser, base_url, credentials):
     the session-scoped live_server."""
     ctx = browser.new_context()
     page = attach_page_guard(ctx.new_page())
+    attempts = []
+
+    def block_provider_work(route):
+        # The live UI polls this read-only local job-status endpoint at init.
+        # Let the real status read complete; no provider can run from this GET.
+        if route.request.method == "GET" and route.request.url == f"{base_url}/api/sync/audiobookshelf/job":
+            route.continue_()
+            return
+        attempts.append((route.request.method, route.request.url))
+        route.abort()
+
+    # All four credential configurations are intercepted before any Settings
+    # traffic, not only the positive clicks (and never the obsolete /stream).
+    page.route("**/api/sync/audiobookshelf/**", block_provider_work)
+    page._shelf_abs_attempts = attempts
     page.goto(f"{base_url}/login")
     page.fill("input[name=username]", credentials["username"])
     page.fill("input[name=password]", credentials["password"])
     page.click("button[type=submit]")
-    page.wait_for_url(f"{base_url}/browse", timeout=10_000)
+    page.wait_for_url(f"{base_url}/", timeout=10_000)
     return ctx, page
 
 
@@ -110,9 +125,13 @@ def test_sync_now_enabled_for_db_saved_credentials(browser, server_factory):
     expect(sync_btn).to_be_enabled()
     expect(_sync_label(page)).to_have_text("Sync Now")
 
-    page.route("**/api/sync/audiobookshelf/job", lambda route: route.abort())
-    with page.expect_request("**/api/sync/audiobookshelf/job"):
+    with page.expect_request(
+        lambda r: r.url == f"{server['url']}/api/sync/audiobookshelf/job" and r.method == "POST"
+    ), page.expect_event(
+        "requestfailed", predicate=lambda r: r.url == f"{server['url']}/api/sync/audiobookshelf/job"
+    ):
         sync_btn.click()
+    assert page._shelf_abs_attempts == [("POST", f"{server['url']}/api/sync/audiobookshelf/job")]
 
     assert_page_clean(page)
     ctx.close()
@@ -134,9 +153,13 @@ def test_sync_now_enabled_for_env_only_credentials(browser, server_factory):
     expect(sync_btn).to_be_enabled()
     expect(_sync_label(page)).to_have_text("Sync Now")
 
-    page.route("**/api/sync/audiobookshelf/job", lambda route: route.abort())
-    with page.expect_request("**/api/sync/audiobookshelf/job"):
+    with page.expect_request(
+        lambda r: r.url == f"{server['url']}/api/sync/audiobookshelf/job" and r.method == "POST"
+    ), page.expect_event(
+        "requestfailed", predicate=lambda r: r.url == f"{server['url']}/api/sync/audiobookshelf/job"
+    ):
         sync_btn.click()
+    assert page._shelf_abs_attempts == [("POST", f"{server['url']}/api/sync/audiobookshelf/job")]
 
     assert_page_clean(page)
     ctx.close()
@@ -156,6 +179,7 @@ def test_unconfigured_offers_neither_sync_nor_test(browser, server_factory):
     expect(sync_btn).to_be_disabled()
     expect(test_btn).to_be_disabled()
     expect(_sync_label(page)).to_have_text("Enter URL and token to sync")
+    assert page._shelf_abs_attempts == []
 
     assert_page_clean(page)
     ctx.close()
@@ -179,6 +203,7 @@ def test_typed_but_unsaved_distinguishes_test_from_sync(browser, server_factory)
     expect(test_btn).to_be_enabled()
     expect(sync_btn).to_be_disabled()
     expect(_sync_label(page)).to_have_text("Save your settings to sync")
+    assert page._shelf_abs_attempts == []
 
     assert_page_clean(page)
     ctx.close()

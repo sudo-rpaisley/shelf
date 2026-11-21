@@ -19,7 +19,7 @@ class TestSetupWizard:
             "password_confirm": "password123",
         }, follow_redirects=False)
         assert resp.status_code == 303
-        assert resp.headers["location"] == "/browse"
+        assert resp.headers["location"] == "/"
         # Cookie should be set
         assert "access_token" in resp.cookies
 
@@ -64,6 +64,97 @@ class TestSetupWizard:
         assert b"at least 2 characters" in resp.content
 
 
+class TestSetupProfile:
+    """The setup form's profile radio: written with the admin, in one transaction."""
+
+    _ACCOUNT = {
+        "username": "admin",
+        "display_name": "Admin",
+        "password": "password123",
+        "password_confirm": "password123",
+    }
+    _STANDARD = {"lending", "series", "stats", "store", "music", "periodicals", "shelf_fill"}
+
+    @staticmethod
+    def _rows():
+        from app.database import get_db
+        with get_db() as conn:
+            return dict(conn.execute(
+                "SELECT key, value FROM settings WHERE key LIKE 'feature.%'"
+            ).fetchall())
+
+    def _expected(self, profile):
+        from app.features import FEATURES
+        on = {"minimal": set(), "standard": self._STANDARD,
+              "everything": set(FEATURES)}[profile]
+        return {f"feature.{k}": "1" if k in on else "0" for k in FEATURES}
+
+    @staticmethod
+    def _radios(html):
+        """(value, checked) for each profile radio, in document order."""
+        import re
+        tags = re.findall(r'<input\b[^>]*\bname="profile"[^>]*>', html)
+        return [(re.search(r'\bvalue="([^"]*)"', t).group(1),
+                 re.search(r'\schecked\b', t) is not None) for t in tags]
+
+    @pytest.mark.parametrize("profile", ["minimal", "standard", "everything"])
+    def test_each_profile_writes_all_nineteen_rows(self, client, profile):
+        from app.auth import get_user_count
+        resp = client.post("/setup", data={**self._ACCOUNT, "profile": profile},
+                           follow_redirects=False)
+        assert resp.status_code == 303
+        assert resp.headers["location"] == "/"
+        assert get_user_count() == 1
+        assert self._rows() == self._expected(profile)
+
+    def test_absent_profile_means_standard(self, client):
+        resp = client.post("/setup", data=self._ACCOUNT, follow_redirects=False)
+        assert resp.status_code == 303
+        assert self._rows() == self._expected("standard")
+
+    def test_unknown_profile_writes_nothing(self, client):
+        from app.auth import get_user_count
+        resp = client.post("/setup", data={**self._ACCOUNT, "profile": "nope"})
+        assert resp.status_code == 200
+        assert b"Choose how much of Shelf to start with" in resp.content
+        assert get_user_count() == 0
+        assert self._rows() == {}
+
+    def test_rendered_default_round_trips(self, client):
+        """G36: post back the radio the form rendered checked."""
+        html = client.get("/setup").text
+        radios = self._radios(html)
+        assert [v for v, _ in radios] == ["minimal", "standard", "everything"]
+        checked = [v for v, c in radios if c]
+        assert checked == ["standard"]
+        resp = client.post("/setup", data={**self._ACCOUNT, "profile": checked[0]},
+                           follow_redirects=False)
+        assert resp.status_code == 303
+        assert self._rows() == self._expected("standard")
+
+    def test_password_mismatch_keeps_the_chosen_profile(self, client):
+        resp = client.post("/setup", data={
+            **self._ACCOUNT, "password_confirm": "password456", "profile": "minimal",
+        })
+        assert resp.status_code == 200
+        assert b"do not match" in resp.content
+        assert [v for v, c in self._radios(resp.text) if c] == ["minimal"]
+
+    def test_failed_profile_write_leaves_no_admin(self, client, monkeypatch):
+        """G118: the admin row and the profile commit together or not at all."""
+        from app import features
+        from app.auth import get_user_count
+
+        def boom(db, name):
+            raise RuntimeError("profile write failed")
+
+        monkeypatch.setattr(features, "apply_profile", boom)
+        with pytest.raises(RuntimeError):
+            client.post("/setup", data={**self._ACCOUNT, "profile": "standard"})
+        assert get_user_count() == 0
+        assert self._rows() == {}
+
+
 # --- Login ---
 
 
@@ -78,7 +169,7 @@ class TestLogin:
             "password": "password123",
         }, follow_redirects=False)
         assert resp.status_code == 303
-        assert resp.headers["location"] == "/browse"
+        assert resp.headers["location"] == "/"
         assert "access_token" in resp.cookies
 
     def test_login_invalid_password(self, client, admin_user):

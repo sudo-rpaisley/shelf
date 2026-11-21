@@ -5,11 +5,19 @@ on:
     branches: [main]
   pull_request:
 
+# All jobs are read-only; generated artifacts are submitted by their author.
+permissions:
+  contents: read
+
 jobs:
+  # Fork policy: CI verifies the submitted tree with a read-only token. Generated
+  # CSS/SW/badges are committed by the author, not a second automatic bot push.
+  # Retain all test/lint/build gates and pin the supported browser runner image.
+
   # Unit/integration suite plus the offline lints. These are the cheap gates and
   # they run together because they share one dependency install.
   test:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v7
 
@@ -19,7 +27,19 @@ jobs:
           cache: pip
 
       - name: Install dependencies
-        run: pip install -r requirements-dev.txt
+        run: pip install -r requirements.txt -r requirements-dev.txt
+
+      # requirements*.txt are generated from the .in files (make lock). A PR
+      # that edits a .in file must carry the relocked .txt; this is what
+      # enforces it. Needs the package index, hence not in checks-fast.
+      - name: Check the dependency locks are current
+        run: make check-lock
+
+      # The self-test mutates one digest in a temp copy and fails unless
+      # check-lock goes red. It needs the index, so it lives here and in
+      # `make checks`, not in checks-fast.
+      - name: Prove the lock check catches a bad hash
+        run: make check-lock-selftest
 
       - name: Run unit and integration tests
         run: make test
@@ -35,8 +55,11 @@ jobs:
   # Nothing caught a forgotten `make css` before: the stale stylesheet is valid
   # CSS, every unit test passes, and the missing rule only shows up as a broken
   # layout in a browser.
+  #
+  # Rebuild and compare on both events: this fork permits generated output in
+  # pull requests and never silently fixes a stale submitted artifact.
   css:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v7
 
@@ -73,7 +96,7 @@ jobs:
   # that sees rendered geometry, so a failure here should be attributable at a
   # glance rather than buried behind a unit-test run.
   e2e:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v7
 
@@ -83,10 +106,24 @@ jobs:
           cache: pip
 
       - name: Install dependencies
-        run: pip install -r requirements-dev.txt
+        run: pip install -r requirements.txt -r requirements-dev.txt
 
       - name: Install Chromium
         run: playwright install --with-deps chromium
+
+      # Serve the CSS built from this exact submitted tree on every event.
+      # The separate css job also verifies the committed output matches it.
+      # Nothing built here is pushed anywhere.
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+
+      - name: Install Tailwind
+        run: npm ci
+
+      - name: Rebuild the stylesheet the tests will be served
+        run: make css
 
       # Spins up its own uvicorn per session — no dev server needed.
       - name: Run E2E tests

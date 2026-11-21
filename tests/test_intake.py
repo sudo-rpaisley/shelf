@@ -9,7 +9,7 @@ import pytest
 import respx
 
 from app.services import vision
-from tests.conftest import _insert_item
+from tests.conftest import _assert_ownership_partition, _insert_item
 
 OL_SEARCH_URL = "https://openlibrary.org/search.json"
 ANTHROPIC_URL = "https://api.anthropic.com/v1/messages"
@@ -580,6 +580,25 @@ class TestAnalyzeEndpoint:
         ])
         assert resp.json()["ok"] is False
 
+    def test_rejects_tiles_whose_combined_size_exceeds_the_budget(self, admin_client, monkeypatch):
+        """B-4: no cap on the *combined* size of a tiled submission let an
+        editor force arbitrarily many near-per-file-limit tiles into one
+        request — RAM plus billed vision calls. The third tile here must
+        never reach vision.detect_spines."""
+        monkeypatch.setattr(vision, "MAX_TOTAL_INTAKE_BYTES", 250)  # two tiles fit, a third does not
+        seen = []
+        async def fake_detect(images, settings):
+            seen.extend(images)
+            return []
+        monkeypatch.setattr(vision, "detect_spines", fake_detect)
+        resp = admin_client.post("/api/intake/analyze", files=[
+            ("photos", ("tile-0.jpg", b"tile0" + FAKE_JPEG, "image/jpeg")),
+            ("photos", ("tile-1.jpg", b"tile1" + FAKE_JPEG, "image/jpeg")),
+            ("photos", ("tile-2.jpg", b"tile2" + FAKE_JPEG, "image/jpeg")),
+        ])
+        assert resp.json()["ok"] is False
+        assert seen == []
+
     @respx.mock
     def test_language_persisted_from_preferred_language_match(self, admin_client, db):
         """T4/R2: intake's own INSERT captures language — a preferred-language
@@ -823,10 +842,11 @@ class TestConfirmEndpoint:
         row = db.execute("SELECT * FROM items WHERE title = 'Obscure Zine'").fetchone()
         assert row["isbn"] is None
         assert row["owned"] == 0
+        _assert_ownership_partition(db)
 
     def test_unknown_media_type_rejected(self, admin_client):
         resp = admin_client.post("/api/intake/confirm", json={
-            "books": [{"title": "Something", "media_type": "laserdisc"}],
+            "books": [{"title": "Something", "media_type": "not-a-media-type"}],
         })
         assert resp.status_code == 422
 
@@ -859,7 +879,7 @@ class TestConfirmEndpoint:
         }]}))
 
         resp = admin_client.post("/api/intake/confirm", json={
-            "books": [{"title": "Goodnight Moon", "authors": None, "media_type": "kids_book"}],
+            "books": [{"title": "Goodnight Moon", "authors": None, "media_type": "ebook"}],
         })
         data = resp.json()
         assert data["skipped"] == []
@@ -922,6 +942,102 @@ class TestConfirmEndpoint:
         assert resp.status_code in (401, 403)
 
 
+class TestConfirmDefaultTags:
+    @respx.mock
+    def test_tags_every_confirmed_row(self, admin_client, db):
+        respx.get(OL_SEARCH_URL).mock(return_value=httpx.Response(200, json={"docs": []}))
+        resp = admin_client.post("/api/intake/confirm", json={
+            "books": [
+                {"title": "Cookbook One", "authors": None},
+                {"title": "Cookbook Two", "authors": None},
+            ],
+            "tags": ["Cookbook"],
+        })
+        data = resp.json()
+        assert len(data["added"]) == 2
+        for entry in data["added"]:
+            row = db.execute(
+                "SELECT t.name FROM tags t JOIN item_tags it ON it.tag_id = t.id "
+                "WHERE it.item_id = ?", (entry["id"],)
+            ).fetchall()
+            assert [r["name"] for r in row] == ["Cookbook"]
+
+    @respx.mock
+    def test_skipped_duplicate_is_not_tagged(self, admin_client, db):
+        _insert_item(db, title="Dune", isbn="9780441172719", authors="Frank Herbert")
+        db.execute("COMMIT")
+        respx.get(OL_SEARCH_URL).mock(return_value=httpx.Response(200, json={"docs": []}))
+        resp = admin_client.post("/api/intake/confirm", json={
+            "books": [{"title": "dune", "authors": "frank herbert"}],
+            "tags": ["Cookbook"],
+        })
+        data = resp.json()
+        assert data["added"] == []
+        assert data["skipped"][0]["reason"] == "already in library"
+        row = db.execute("SELECT id FROM tags WHERE name = 'Cookbook'").fetchone()
+        assert row is None
+
+    @respx.mock
+    def test_omitted_tags_creates_no_tag(self, admin_client, db):
+        respx.get(OL_SEARCH_URL).mock(return_value=httpx.Response(200, json={"docs": []}))
+        resp = admin_client.post("/api/intake/confirm", json={
+            "books": [{"title": "No Tags Here", "authors": None}],
+        })
+        assert len(resp.json()["added"]) == 1
+        assert db.execute("SELECT id FROM tags").fetchall() == []
+
+    @respx.mock
+    def test_empty_tags_list_creates_no_tag(self, admin_client, db):
+        respx.get(OL_SEARCH_URL).mock(return_value=httpx.Response(200, json={"docs": []}))
+        resp = admin_client.post("/api/intake/confirm", json={
+            "books": [{"title": "Empty Tags List", "authors": None}],
+            "tags": [],
+        })
+        assert len(resp.json()["added"]) == 1
+        assert db.execute("SELECT id FROM tags").fetchall() == []
+
+    @respx.mock
+    def test_case_variant_tags_dedupe_to_one(self, admin_client, db):
+        respx.get(OL_SEARCH_URL).mock(return_value=httpx.Response(200, json={"docs": []}))
+        resp = admin_client.post("/api/intake/confirm", json={
+            "books": [{"title": "Dedupe Me", "authors": None}],
+            "tags": ["Cookbook", "cookbook "],
+        })
+        assert len(resp.json()["added"]) == 1
+        assert len(db.execute("SELECT id FROM tags").fetchall()) == 1
+
+    @respx.mock
+    def test_tag_write_failure_commits_no_untagged_row_and_retry_files_it(
+            self, admin_client, db):
+        # G118: each row and its tags commit together, so a failed tag write
+        # leaves no untagged row for the retry to skip as a duplicate.
+        from unittest.mock import patch
+
+        from app.services import tags as tags_svc
+
+        respx.get(OL_SEARCH_URL).mock(return_value=httpx.Response(200, json={"docs": []}))
+        payload = {"books": [{"title": "Atomic Intake", "authors": None}],
+                   "tags": ["Cookbook"]}
+        with patch.object(tags_svc, "attach_tags",
+                          side_effect=RuntimeError("simulated tag write failure")):
+            try:
+                resp = admin_client.post("/api/intake/confirm", json=payload)
+                assert resp.status_code >= 500
+            except RuntimeError:
+                pass
+        assert db.execute(
+            "SELECT COUNT(*) FROM items WHERE title = 'Atomic Intake'"
+        ).fetchone()[0] == 0
+
+        data = admin_client.post("/api/intake/confirm", json=payload).json()
+        assert len(data["added"]) == 1
+        row = db.execute(
+            "SELECT t.name FROM tags t JOIN item_tags it ON it.tag_id = t.id "
+            "WHERE it.item_id = ?", (data["added"][0]["id"],)
+        ).fetchall()
+        assert [r["name"] for r in row] == ["Cookbook"]
+
+
 ISBN13 = "9780441172719"
 ISBN10 = "0441172717"
 
@@ -957,21 +1073,22 @@ class TestConfirmWithIsbn:
         route = respx.get(OL_SEARCH_URL).mock(return_value=httpx.Response(200, json={"docs": []}))
         resp = admin_client.post("/api/intake/confirm", json={
             "books": [{"title": "DUNE", "authors": "F. Herbert",
-                       "isbn": "978-0-441-17271-9", "media_type": "kids_book"}],
+                       "isbn": "978-0-441-17271-9", "media_type": "ebook"}],
             "owned": False,
         })
         data = resp.json()
         assert data["added"] == [{
             "title": "Dune", "id": data["added"][0]["id"],
-            "matched": True, "lookup": "matched"}]
+            "matched": True, "lookup": "matched", "restored": False}]
         row = db.execute("SELECT * FROM items WHERE isbn = ?", (ISBN13,)).fetchone()
         assert row["title"] == "Dune"                 # catalogue's, not the row's
         assert row["subtitle"] == "A Novel"
         assert row["description"] == "Spice."
         assert row["series_name"] == "Dune Chronicles"
-        assert row["media_type"] == "kids_book"
+        assert row["media_type"] == "ebook"
         assert row["source"] == "photo_intake"
         assert row["owned"] == 0
+        _assert_ownership_partition(db)
         assert row["hardcover_book_id"] == 42
         assert route.called is False                  # no weak-path search
 
@@ -1146,7 +1263,13 @@ class TestConfirmWithIsbn:
         strong = db.execute("SELECT id FROM items WHERE title = 'Dune'").fetchone()["id"]
         weak = db.execute("SELECT id FROM items WHERE title = 'Solaris'").fetchone()["id"]
         # Called, not awaited: create_task schedules on the TestClient portal loop.
-        enrich.assert_called_once_with([strong, weak])
+        admin_id = db.execute("SELECT id FROM users WHERE username = 'admin'").fetchone()["id"]
+        enrich.assert_called_once_with(
+            [strong, weak],
+            user={"id": admin_id, "username": "admin", "role": "admin",
+                  "display_name": "Admin User", "token_version": 1, "language": None},
+            library_ids={strong: 1, weak: 1},
+        )
 
     @respx.mock
     def test_bad_location_on_strong_path_is_rejected_before_cascade(
@@ -1168,7 +1291,11 @@ class TestConfirmWithIsbn:
 
     @respx.mock
     def test_integrity_error_is_classified_on_strong_path(self, admin_client, db, monkeypatch):
-        """The cascade await is the window a rival writer can commit in."""
+        """The cascade await lets a rival commit; locked preflight catches it.
+
+        The real SQLite constraint fallback is pinned separately in
+        test_intake_candidate003_regressions.py, not inferred from this race.
+        """
         from app.routers import items_common
         from tests.conftest import _insert_item as insert
 
@@ -1274,6 +1401,21 @@ class TestIntakePage:
         for key in MEDIA_TYPES:
             assert f'<option value="{key}">' in html
         assert 'data-testid="intake-no-metadata"' in html
+
+    def test_confirm_row_renders_default_tags_control(self, admin_client, db):
+        import re
+
+        db.execute("INSERT INTO settings (key, value) VALUES ('vision_provider', 'ollama')")
+        db.execute("COMMIT")
+        html = admin_client.get("/intake").text
+        tag = re.search(r'<input[^>]*id="default-tags"[^>]*>', html, re.S).group(0)
+        assert 'name="tags"' in tag
+        assert 'list="tag-suggestions"' in tag
+        assert 'data-storage-key="shelf.intake.tags"' in tag
+        # Decision 7: no type source — Intake's type is per row.
+        assert 'data-type-source' not in tag
+        assert '<datalist id="tag-suggestions">' in html
+        assert '/static/js/tag-suggest.js' in html
 
     def test_chooser_renders_two_inputs_and_two_buttons(self, admin_client, db):
         db.execute("INSERT INTO settings (key, value) VALUES ('vision_provider', 'ollama')")
@@ -1953,10 +2095,11 @@ def _install_blind_once(monkeypatch, module, predicate):
     though a rival row already sits there, so the second defensive layer
     (the `except sqlite3.IntegrityError:` handler) is what has to catch it.
     """
+    import sqlite3
     from contextlib import contextmanager
 
     real_get_db = module.get_db
-    state = {"blinded": False}
+    state = {"blinded": False, "integrity_errors": [], "classification_connections": []}
 
     class _EmptyCursor:
         def fetchone(self):
@@ -1976,7 +2119,13 @@ def _install_blind_once(monkeypatch, module, predicate):
             if not state["blinded"] and predicate(sql):
                 state["blinded"] = True
                 return _EmptyCursor()
-            return self._conn.execute(sql, *args, **kwargs)
+            if state["integrity_errors"] and predicate(sql):
+                state["classification_connections"].append(self._conn)
+            try:
+                return self._conn.execute(sql, *args, **kwargs)
+            except sqlite3.IntegrityError as exc:
+                state["integrity_errors"].append((exc, self._conn))
+                raise
 
     @contextmanager
     def blinding_get_db():
@@ -1984,6 +2133,7 @@ def _install_blind_once(monkeypatch, module, predicate):
             yield BlindingConnection(conn)
 
     monkeypatch.setattr(module, "get_db", blinding_get_db)
+    return state
 
 
 class TestConfirmRaces:
@@ -2032,11 +2182,9 @@ class TestConfirmRaces:
     def test_weak_path_isbn_guard_blinded_once_still_classifies_the_integrity_error(
         self, admin_client, db, monkeypatch,
     ):
-        """Layer 2: the strong path's `IntegrityError` classification
-        (`_save_item`) is pinned at :1170; this pins the weak insert path's
-        own copy, in this block's `except sqlite3.IntegrityError:` handler.
-        Blind the query, not the route — `_confirm_one` and the router run
-        for real throughout."""
+        """Blind the sole preflight query and observe the real SQLite UNIQUE
+        error and same-connection fallback, not merely a duplicate response.
+        `_confirm_one` and the canonical insert run for real throughout."""
         import app.routers.intake as intake_mod
         from app.services import openlibrary
         from tests.conftest import _insert_item as insert
@@ -2049,7 +2197,7 @@ class TestConfirmRaces:
                       "languages": []}]
 
         monkeypatch.setattr(openlibrary, "search_by_title_author", fake_search)
-        _install_blind_once(monkeypatch, intake_mod, lambda sql: "isbn = ?" in sql)
+        state = _install_blind_once(monkeypatch, intake_mod, lambda sql: "isbn = ?" in sql)
 
         resp = admin_client.post("/api/intake/confirm", json={
             "books": [{"title": "Dune", "authors": "Frank Herbert", "media_type": "book"}],
@@ -2060,6 +2208,10 @@ class TestConfirmRaces:
         assert data["skipped"][0]["reason"] == "ISBN already in library"
         assert db.execute(
             "SELECT COUNT(*) c FROM items WHERE isbn = ?", (ISBN13,)).fetchone()["c"] == 1
+        assert len(state["integrity_errors"]) == 1
+        error, failed_connection = state["integrity_errors"][0]
+        assert str(error) == "UNIQUE constraint failed: items.isbn, items.media_type"
+        assert state["classification_connections"] == [failed_connection]
 
 
 class TestBooksAreUnchanged:
@@ -2094,14 +2246,21 @@ class TestBooksAreUnchanged:
 
 def _stub_download_to_item(monkeypatch, result):
     """Hand-written async stub on the module that *defines* it (G37) — never
-    a bare AsyncMock (G56)."""
+    a bare AsyncMock (G56). A success writes real bytes at the passed staging
+    ID, just as the native downloader does; the caller must publish them."""
+    from app import config
     from app.services import covers
 
     calls = []
 
     async def _download(item_id, url, client):
         calls.append({"item_id": item_id, "url": url, "client": client})
-        return result
+        if result is None:
+            return None
+        config.COVERS_DIR.mkdir(parents=True, exist_ok=True)
+        path = config.COVERS_DIR / f"{item_id}.jpg"
+        path.write_bytes(result)
+        return f"covers/{item_id}.jpg"
 
     monkeypatch.setattr(covers, "_download_to_item", _download)
     return calls
@@ -2110,19 +2269,22 @@ def _stub_download_to_item(monkeypatch, result):
 def _run_background_tasks_inline(monkeypatch):
     """Make `intake`'s `asyncio.create_task` run its coroutine to completion
     immediately instead of merely scheduling it on the TestClient portal's
-    loop. `_enrich_import_covers` has no internal `await` -- `filter_cover_
-    eligible` and `enqueue_many` are both sync -- so one `send(None)` runs it
-    to `StopIteration`: deterministic, where relying on the portal's own next
+    loop. `_enrich_import_covers` has no internal `await` -- eligibility and
+    `enqueue` are synchronous -- so one `send(None)` must run it to
+    `StopIteration`: deterministic, where relying on the portal's own next
     tick would only be probabilistic (see :1148's "Called, not awaited"
     comment, which sidesteps this by mocking the hand-off itself instead)."""
     from app.routers import intake
+    from contextvars import copy_context
 
-    def _immediate(coro):
+    def _immediate(coro, *, context=None):
         try:
-            coro.send(None)
+            (context if context is not None else copy_context()).run(coro.send, None)
         except StopIteration:
-            pass
-        return None
+            return None
+        finally:
+            coro.close()
+        raise AssertionError("background coroutine unexpectedly suspended")
 
     monkeypatch.setattr(intake.asyncio, "create_task", _immediate)
 
@@ -2140,7 +2302,7 @@ class TestCoverDownloadOnAcceptedHit:
         respx.get(OL_SEARCH_URL).mock(return_value=httpx.Response(200, json={"docs": []}))
         _stub_tmdb(monkeypatch, provider_result.found("tmdb", FILM_META))
         _set_provider_creds(monkeypatch)
-        calls = _stub_download_to_item(monkeypatch, "covers/42.jpg")
+        calls = _stub_download_to_item(monkeypatch, FAKE_JPEG)
 
         resp = admin_client.post("/api/intake/confirm", json={
             "books": [{"title": "MAD MAX FURY ROAD", "media_type": "dvd"}],
@@ -2150,8 +2312,16 @@ class TestCoverDownloadOnAcceptedHit:
         assert len(calls) == 1
         assert calls[0]["url"] == FILM_META["cover_url"]
         row = db.execute("SELECT * FROM items WHERE media_type = 'dvd'").fetchone()
-        assert calls[0]["item_id"] == row["id"]
-        assert row["cover_path"] == "covers/42.jpg"
+        from app import config
+
+        assert row["id"] == resp.json()["added"][0]["id"]
+        assert calls[0]["item_id"] < 0
+        assert isinstance(calls[0]["client"], httpx.AsyncClient)
+        assert row["cover_path"] == f"covers/{row['id']}.jpg"
+        assert (config.COVERS_DIR / f"{row['id']}.jpg").read_bytes() == FAKE_JPEG
+        assert not (config.COVERS_DIR / f"{calls[0]['item_id']}.jpg").exists()
+        assert db.execute("SELECT library_id FROM library_items WHERE item_id = ?",
+                          (row["id"],)).fetchone()["library_id"] == 1
 
     @respx.mock
     def test_accepted_hit_without_cover_url_makes_no_download_call(
@@ -2221,8 +2391,7 @@ class TestCoverDownloadOnAcceptedHit:
 
 
 class TestNonBookRowStaysOffTheCoverQueueHandOff:
-    """G31 pin: this must go red when `_enrich_import_covers` bypasses
-    `filter_cover_eligible` -- verified by hand, see the task report."""
+    """Observe the actual single-item queue boundary with a book control."""
 
     @respx.mock
     def test_a_dvd_row_never_reaches_enqueue_many(
@@ -2233,7 +2402,7 @@ class TestNonBookRowStaysOffTheCoverQueueHandOff:
         respx.get(OL_SEARCH_URL).mock(return_value=httpx.Response(200, json={"docs": []}))
         _stub_tmdb(monkeypatch, provider_result.found("tmdb", FILM_META))
         _set_provider_creds(monkeypatch)
-        _stub_download_to_item(monkeypatch, "covers/42.jpg")
+        _stub_download_to_item(monkeypatch, FAKE_JPEG)
         # confirm_books skips the hand-off entirely under this env var, which
         # the `client` fixture sets for every test -- unset it here or the
         # pin asserts nothing.
@@ -2241,13 +2410,14 @@ class TestNonBookRowStaysOffTheCoverQueueHandOff:
         _run_background_tasks_inline(monkeypatch)
 
         queued_ids = []
-        real_enqueue_many = cover_queue.enqueue_many
+        real_enqueue = cover_queue.enqueue
 
-        def _capture(item_ids):
-            queued_ids.extend(item_ids)
-            return real_enqueue_many(item_ids)
+        def _capture(item_ids, *, hints=None):
+            # Retain the inherited helper parameter; enqueue passes one ID.
+            queued_ids.append(item_ids)
+            return real_enqueue(item_ids, hints=hints)
 
-        monkeypatch.setattr(cover_queue, "enqueue_many", _capture)
+        monkeypatch.setattr(cover_queue, "enqueue", _capture)
 
         resp = admin_client.post("/api/intake/confirm", json={
             "books": [{"title": "MAD MAX FURY ROAD", "media_type": "dvd"}],
@@ -2255,3 +2425,57 @@ class TestNonBookRowStaysOffTheCoverQueueHandOff:
 
         assert resp.status_code == 200
         assert queued_ids == []
+        dvd_id = resp.json()["added"][0]["id"]
+        control = admin_client.post("/api/intake/confirm", json={
+            "books": [{"title": "Queue-positive book control", "media_type": "book"}],
+        })
+        assert control.status_code == 200
+        book_id = control.json()["added"][0]["id"]
+        assert queued_ids == [book_id]
+        assert dvd_id not in queued_ids
+
+
+class TestTheRetiredKidsBookAlias:
+    """The intake validator canonicalises before its membership test, so a
+    plan built before the retirement still confirms — and every later step,
+    the ISBN dupe guard included, sees one spelling."""
+
+    @respx.mock
+    def test_a_kids_book_row_confirms_and_stores_a_book(self, admin_client, db):
+        respx.get(OL_SEARCH_URL).mock(return_value=httpx.Response(200, json={"docs": [{
+            "title": "Goodnight Moon", "author_name": None, "isbn": ["9780060775858"],
+        }]}))
+
+        resp = admin_client.post("/api/intake/confirm", json={
+            "books": [{"title": "Goodnight Moon", "authors": None,
+                       "media_type": "kids_book"}],
+        })
+
+        assert resp.status_code == 200, resp.text
+        data = resp.json()
+        assert data["skipped"] == []
+        assert len(data["added"]) == 1
+        row = db.execute(
+            "SELECT media_type FROM items WHERE title = ?", ("Goodnight Moon",)
+        ).fetchone()
+        assert row["media_type"] == "book"
+
+    @respx.mock
+    def test_it_dedupes_against_an_existing_book_isbn(self, admin_client, db):
+        """Without canonicalisation in the validator the request would 422
+        outright; with the raw value reaching the guard it would miss the
+        stored `book` row and add a duplicate."""
+        _insert_item(db, title="Goodnight Moon (1st ed)",
+                     isbn="9780060775858", media_type="book")
+        db.execute("COMMIT")
+        respx.get(OL_SEARCH_URL).mock(return_value=httpx.Response(200, json={"docs": [{
+            "title": "Goodnight Moon", "author_name": None, "isbn": ["9780060775858"],
+        }]}))
+
+        resp = admin_client.post("/api/intake/confirm", json={
+            "books": [{"title": "Goodnight Moon", "authors": None,
+                       "media_type": "kids_book"}],
+        })
+
+        assert resp.status_code == 200, resp.text
+        assert resp.json()["skipped"][0]["reason"] == "ISBN already in library"

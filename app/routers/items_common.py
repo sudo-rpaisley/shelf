@@ -16,204 +16,197 @@ rather than `from ... import resolve_missing_cover`. Tests patch these by
 attribute, and a from-import binds a copy that patching cannot reach.
 """
 
-import asyncio
 import json
 import logging
 import sqlite3
+from dataclasses import dataclass
 
 import httpx
 
-from fastapi import Request
+from fastapi import HTTPException, Request
 
-from app import browse_filters
+from app import i18n
 from app.config import HTTP_TIMEOUT, MEDIA_TYPES
 from app.database import get_db, get_setting
-from app.services import covers, detect, googlebooks, hardcover, national, openlibrary, provider_result
+from app.i18n import N_
+from app.services import audnexus, covers, detect, metadata_lookup, openlibrary, provider_result
 from app.services import cover_queue
 from app.services import authors as authors_svc
-from app.services import igdb, scan_outcome, title_lookup, tmdb, upcitemdb
+from app.services import scan_outcome, title_lookup, upcitemdb
 from app.services import upc as upc_svc
 from app.services import isbn as isbn_svc
 from app.services.item_write import ItemValueError, insert_item, update_item_fields
+from app.services import item_write  # promote_wishlisted (scan) — call through the module (patchable)
+from app.services import catalogue_security, libraries, restore_report
+from app.services import tags as tags_svc
+from app.services.catalogue_security import require_item_role
 
 logger = logging.getLogger(__name__)
+COVER_MEDIA_TYPES = tuple(dict.fromkeys((*cover_queue.COVER_REQUEUE_MEDIA_TYPES, "kids_book")))
 
 SORT_OPTIONS = {
-    "newest": ("Most Recent", "i.created_at DESC"),
-    "oldest": ("Oldest First", "i.created_at ASC"),
-    "title_asc": ("Title A\u2013Z", "i.title COLLATE NOCASE ASC"),
-    "title_desc": ("Title Z\u2013A", "i.title COLLATE NOCASE DESC"),
-    "author": ("Author", "i.authors COLLATE NOCASE ASC, i.title COLLATE NOCASE ASC"),
-    "year_desc": ("Year (Newest)", "(i.publish_year IS NULL), i.publish_year DESC, i.title COLLATE NOCASE ASC"),
-    "year_asc": ("Year (Oldest)", "(i.publish_year IS NULL), i.publish_year ASC, i.title COLLATE NOCASE ASC"),
+    "newest": (N_("Most Recent"), "i.created_at DESC"),
+    "oldest": (N_("Oldest First"), "i.created_at ASC"),
+    "title_asc": (N_("Title A\u2013Z"), "i.title COLLATE NOCASE ASC"),
+    "title_desc": (N_("Title Z\u2013A"), "i.title COLLATE NOCASE DESC"),
+    "author": (N_("Author"), "i.authors COLLATE NOCASE ASC, i.title COLLATE NOCASE ASC"),
+    "year_desc": (N_("Year (Newest)"), "(i.publish_year IS NULL), i.publish_year DESC, i.title COLLATE NOCASE ASC"),
+    "year_asc": (N_("Year (Oldest)"), "(i.publish_year IS NULL), i.publish_year ASC, i.title COLLATE NOCASE ASC"),
 }
-
-
-def filter_counts(db, values: dict, total: int) -> dict:
-    """Cross-filter dropdown counts: each group is build_where minus its own filter.
-
-    `values` is the dict `browse_filters.values_from` produced; `total` is the
-    row count for the *unexcluded* where-clause, which every caller has already
-    run. Both `/browse` and `/api/search` render their dropdowns from this dict,
-    so the numbers cannot disagree between the first paint and the first swap.
-    """
-    def _count_where(exclude):
-        return browse_filters.build_where(values, exclude=exclude)
-
-    type_where, type_params = _count_where("media_type_filter")
-    type_counts = {
-        row["media_type"]: row["c"]
-        for row in db.execute(
-            f"SELECT media_type, COUNT(*) as c FROM items i {type_where} GROUP BY media_type",
-            type_params,
-        ).fetchall()
-    }
-    type_total = sum(type_counts.values())
-
-    own_where, own_params = _count_where("owned")
-    _own_join = " AND" if own_where else " WHERE"
-    owned_count = db.execute(
-        f"SELECT COUNT(*) as c FROM items i {own_where}{_own_join} i.owned = 1",
-        own_params,
-    ).fetchone()["c"]
-    wishlist_count = db.execute(
-        f"SELECT COUNT(*) as c FROM items i {own_where}{_own_join} i.owned = 0",
-        own_params,
-    ).fetchone()["c"]
-
-    loc_where, loc_params = _count_where("location_filter")
-    _loc_join = " AND" if loc_where else " WHERE"
-    location_counts = {
-        row["location_id"]: row["c"]
-        for row in db.execute(
-            f"SELECT location_id, COUNT(*) as c FROM items i {loc_where}"
-            f"{_loc_join} location_id IS NOT NULL GROUP BY location_id",
-            loc_params,
-        ).fetchall()
-    }
-    no_location_count = db.execute(
-        f"SELECT COUNT(*) as c FROM items i {loc_where}{_loc_join} location_id IS NULL",
-        loc_params,
-    ).fetchone()["c"]
-
-    rs_where, rs_params = _count_where("reading_status")
-    _rs_join = " AND" if rs_where else " WHERE"
-    reading_status_counts = {
-        row["reading_status"]: row["c"]
-        for row in db.execute(
-            f"SELECT reading_status, COUNT(*) as c FROM items i {rs_where}"
-            f"{_rs_join} reading_status IS NOT NULL AND reading_status != '' "
-            "GROUP BY reading_status",
-            rs_params,
-        ).fetchall()
-    }
-
-    locations = db.execute(
-        "SELECT * FROM locations ORDER BY sort_order, name"
-    ).fetchall()
-
-    return {
-        "type_counts": type_counts,
-        "type_total": type_total,
-        "owned_count": owned_count,
-        "wishlist_count": wishlist_count,
-        "location_counts": location_counts,
-        "no_location_count": no_location_count,
-        "reading_status_counts": reading_status_counts,
-        "locations": locations,
-        "filtered_total": total,
-        "active_type": values["media_type_filter"],
-        "active_owned": values["owned"],
-        "active_location": values["location_filter"],
-        "active_reading_status": values["reading_status"],
-    }
-
 
 def _toast_header(message: str, toast_type: str = "success") -> str:
     return json.dumps({"showToast": {"message": message, "type": toast_type}})
 
 
+def authorize_item_targets(db, item_ids, *, user=None, library_ids=None):
+    """Preflight the COMPLETE selection under the caller's write lock.
+
+    Background callers pass their captured principal and parent bindings, never
+    rediscover a broader selection after dropping the request context. A moved,
+    hidden, deleted or missing target refuses the job, not a partial success.
+    """
+    if not db.in_transaction:
+        raise RuntimeError("Item authority requires a write scope")
+    actor = catalogue_security.current_actor()
+    captured = user if user is not None else actor
+    if captured is not None:
+        if actor is not None and int(captured["id"]) != int(actor["id"]):
+            raise HTTPException(403, "Forbidden")
+        # A captured HTTP principal is not a permanent administrator grant.
+        # Recheck it on this locked connection at producer admission AND after
+        # provider awaits, even while the same HTTP actor is installed. Retain the original
+        # capability dictionary (especially its bearer cap), never rehydrate a
+        # viewer token into an unrestricted account or turn a missing user into
+        # trusted service work. Internal explicit-account calls may have no
+        # session version; real queued HTTP principals always carry one.
+        account = db.execute(
+            "SELECT username, role, token_version FROM users WHERE id = ?", (captured["id"],)
+        ).fetchone()
+        if (account is None
+                or captured.get("account_role", captured.get("role")) != account["role"]
+                or ("username" in captured and str(captured["username"]).casefold() != account["username"].casefold())
+                or ("token_version" in captured and captured["token_version"] != account["token_version"])):
+            raise HTTPException(403, "Forbidden")
+    bindings = {}
+    for item_id in dict.fromkeys(item_ids):
+        row = require_item_role(db, item_id, "editor", user=user)
+        if row is None or row["deleted_at"] is not None:
+            raise HTTPException(404, "Item not found")
+        parent = libraries.item_library_id(db, item_id)
+        if library_ids is not None and library_ids.get(item_id) != parent:
+            raise HTTPException(404, "Item not found")
+        bindings[item_id] = parent
+    return bindings
+
+
+def store_item_cover(db, item_id, cover_path, *, edition=None, dismissed=None,
+                     user=None, library_ids=None):
+    """Keep cover provenance/managed fields in the authoritative item writer."""
+    with item_write._write_scope(db):
+        authorize_item_targets(db, [item_id], user=user, library_ids=library_ids)
+        fields = {"cover_path": cover_path, "cover_edition_isbn": None,
+                  "cover_edition_language": None}
+        if edition:
+            fields.update(cover_edition_isbn=edition[0], cover_edition_language=edition[1])
+        if dismissed is not None:
+            fields["cover_review_dismissed"] = dismissed
+        update_item_fields(db, item_id, fields)
+
+
+class CoverStage(covers.CoverStage):
+    """HTTP adapter: retain exact principal/parent checks at publication."""
+    def __init__(self, item_id):
+        super().__init__(item_id)
+        actor = catalogue_security.current_actor()
+        self._captured_user = dict(actor) if actor is not None else None
+
+    def store(self, db, cover_path, **kwargs):
+        if kwargs.get("user") is None and self._captured_user is not None:
+            kwargs["user"] = self._captured_user
+        if not self.owns(cover_path):
+            # Established service adapters may return an already stored path.
+            # This is a DB-only handoff, never a second filesystem publisher.
+            store_item_cover(db, self.item_id, cover_path, **kwargs)
+            return cover_path
+        return covers.publish_staged_cover(
+            db, self, cover_path,
+            authorize=lambda conn: authorize_item_targets(
+                conn, [self.item_id], user=kwargs.get("user"), library_ids=kwargs.get("library_ids")),
+            store=lambda conn, path: store_item_cover(conn, self.item_id, path, **kwargs),
+        )
+
+
+@dataclass(frozen=True)
+class _QueuedCoverAuthority:
+    user: dict | None
+    library_id: int | None
+
+
+def media_type_candidates(media_type):
+    """Recognise retained children's-book identities without retyping them."""
+    return ("book", "kids_book") if media_type in ("book", "kids_book") else (media_type,)
+
+
 async def _lookup_metadata(isbn13: str, hc_token: str | None, client: httpx.AsyncClient,
                            *, google_api_key: str | None = None
                            ) -> tuple[dict | None, str, dict, provider_result.ProviderResult]:
-    """Look up book metadata across sources.
-
-    Returns `(metadata, source, hc_ids, cascade)`. Every source answers as a
-    `ProviderResult`; `cascade` is `combine` over the legs that actually ran,
-    so one value carries what the whole cascade reported — including a leg the
-    cascade short-circuited past on an earlier hit. `scan_outcome` projects
-    the card's state from it; the callers with no card ignore it.
-    """
-    metadata = None
-    source = "manual"
-    legs: list[provider_result.ProviderResult] = []
-
-    # National-bibliography routing: for registration groups with an
-    # authoritative national source (e.g. 978-3 -> DNB), consult it before
-    # the general cascade. A miss falls through unchanged. This leg is
-    # conditional — most ISBNs route to no national provider at all.
-    national_result: provider_result.ProviderResult | None = None
-    provider = national.provider_for(isbn13)
-    if provider:
-        national_result = await provider.lookup(isbn13, client)
-        legs.append(national_result)
-        if national_result.found:
-            metadata = national_result.payload
-            source = national_result.provider
-
-    if not metadata:
-        ol_result = await openlibrary.lookup(isbn13, client)
-        legs.append(ol_result)
-        if ol_result.found:
-            metadata = ol_result.payload
-            source = "openlibrary"
-
-    hc_ids = {}
-    if not metadata and hc_token:
-        hc_result = await hardcover.lookup_by_isbn(isbn13, client, token=hc_token)
-        legs.append(hc_result)
-        if hc_result.found:
-            metadata = hc_result.payload
-            source = "hardcover"
-            hc_ids = {
-                "hardcover_book_id": metadata.get("hardcover_book_id"),
-                "hardcover_edition_id": metadata.get("hardcover_edition_id"),
-            }
-
-    if not metadata:
-        gb_result = await googlebooks.lookup(isbn13, client, api_key=google_api_key)
-        legs.append(gb_result)
-        if gb_result.found:
-            metadata = gb_result.payload
-            source = "google"
-
-    # Enrich with Hardcover data if primary source didn't have series/description
-    if metadata and hc_token and source != "hardcover":
-        if not metadata.get("series_name") or not metadata.get("description"):
-            hc_enrich_result = await hardcover.lookup_by_isbn(isbn13, client, token=hc_token)
-            legs.append(hc_enrich_result)
-            if hc_enrich_result.found:
-                hc_data = hc_enrich_result.payload
-                if hc_data.get("series_name") and not metadata.get("series_name"):
-                    metadata["series_name"] = hc_data["series_name"]
-                    metadata["series_position"] = hc_data.get("series_position")
-                if hc_data.get("description") and not metadata.get("description"):
-                    metadata["description"] = hc_data["description"]
-                hc_ids = {
-                    "hardcover_book_id": hc_data.get("hardcover_book_id"),
-                    "hardcover_edition_id": hc_data.get("hardcover_edition_id"),
-                    "cover_url": hc_data.get("cover_url"),
-                }
-
-    return metadata, source, hc_ids, provider_result.combine(legs, provider="isbn-cascade")
+    """Patchable router seam; the coherent cascade is service-owned."""
+    return await metadata_lookup.lookup_metadata(
+        isbn13, hc_token, client, google_api_key=google_api_key)
 
 def _save_item(metadata: dict, isbn13: str, media_type: str, location_id: int | None,
-               source: str, hc_ids: dict) -> int:
-    """Insert from scan metadata; `isbn13` is boundary-validated by every
-    caller, and the funnel derives `isbn10`. Returns the new item ID."""
-    with get_db() as db:
+               source: str, hc_ids: dict, *, owned: bool = True, library_id=None,
+               db=None) -> int:
+    """Save boundary-validated metadata; derive ISBN10 in the item funnel.
+
+    Ownership/wishlist intent rides the insert/restore, never a later demotion.
+    A supplied db keeps the caller's batch transaction; legacy IDs stay intact.
+    """
+    extra = {} if owned else {"owned": 0, "wishlisted": True}
+    if db is None:
+        with get_db() as connection:
+            return _save_item(metadata, isbn13, media_type, location_id, source, hc_ids,
+                              owned=owned, library_id=library_id, db=connection)
+    with item_write._write_scope(db):
+        # A modern "book" request can name a retained kids_book identity. Do
+        # not insert a second row or canonicalise the stored type on restore.
+        types = media_type_candidates(media_type)
+        matches = db.execute(
+            f"SELECT id, media_type, deleted_at FROM items WHERE isbn = ? "
+            f"AND media_type IN ({','.join('?' for _ in types)}) "
+            "ORDER BY deleted_at IS NOT NULL, (media_type = ?) DESC, id",
+            (isbn13, *types, media_type),
+        ).fetchall()
+        for match in matches:
+            try:
+                require_item_role(db, match["id"], "editor", include_deleted=True)
+            except HTTPException as exc:
+                if exc.status_code == 404:
+                    raise item_write.IdentifierUnavailable("This identifier is unavailable") from None
+                raise
+        if matches:
+            media_type = matches[0]["media_type"]
+            if media_type == "kids_book":
+                match = matches[0]
+                # The core's new-input alias must not turn a retained identity
+                # into a new canonical book or restore a different twin.
+                if match["deleted_at"] is None:
+                    raise ItemValueError("This identifier is already in the catalogue")
+                if library_id is not None and libraries.item_library_id(db, match["id"]) != library_id:
+                    raise ItemValueError("This identifier is unavailable in the requested library")
+                intent, wishlisted = item_write.restore_intent(extra)
+                if not item_write.restore_item(db, match["id"]):
+                    raise ItemValueError("This identifier is unavailable")
+                item_write.apply_restored_ownership(db, match["id"], intent, wishlisted)
+                status = item_write._pending_status()
+                if status is not None:
+                    item_write._restore_default_status(db, match["id"], status)
+                tags_svc.attach_pending(db, match["id"])
+                return item_write.ItemId(match["id"], restored=True)
         return insert_item(
             db,
+            **extra,
+            library_id=library_id,
             title=metadata["title"],
             subtitle=metadata.get("subtitle"),
             authors=metadata.get("authors"),
@@ -253,13 +246,7 @@ async def _fetch_preview_cover(isbn13: str, client: httpx.AsyncClient) -> str | 
     return None
 
 async def _search_isbn_for_item(title: str, authors: str | None, client) -> tuple[str | None, str | None]:
-    """Find (isbn, cover_url) by field-scoped title/author search on Open
-    Library. Field search lets OL do the title matching itself, including
-    alternate titles ('1984' finds 'Nineteen Eighty-Four').
-
-    Goodreads exports omit ISBNs for many editions (Kindle especially);
-    this recovers one so the cover chain and future lookups can work.
-    """
+    """Recover (ISBN, cover URL) by field-scoped title/author/alternate-title search."""
     with get_db() as db:
         search_lang = get_setting(db, "metadata_search_lang") or "en"
 
@@ -271,49 +258,82 @@ async def _search_isbn_for_item(title: str, authors: str | None, client) -> tupl
     return None, None
 
 async def resolve_missing_cover(
-    item_id: int, client: httpx.AsyncClient, hints: dict | None = None
+    item_id: int, client: httpx.AsyncClient, hints: dict | None = None,
+    *, user=None, library_ids=None, _stage=None,
 ) -> str | None:
     """Find and store a cover for one item that has none.
 
     An item with an ISBN tries the standard cover chain first (Open Library
     covers -> Amazon -> Google Books). If that fails — or there is no ISBN —
-    a title/author search finds the work's best-known edition instead
+    a title/author search finds the work's best-known edition instead.
+    LibraryThing tries verified English related editions only if that fails
     (imported and print-on-demand edition ISBNs often have no cover
     anywhere). A recovered ISBN is stored on ISBN-less items unless another
-    item already holds it.
+    item already holds it. An audiobook with an ASIN asks Audnexus for the
+    Audible edition's cover after any hint and before the ISBN chain.
 
     `hints` carries a caller's own cover inputs (`cover_url`, `cover_id`,
     `hardcover_cover_url`) — the scan path passes the ones it already looked
     up, so queueing its download does not change which sources get tried.
     With hints the first attempt runs even for an ISBN-less item, since a
-    hinted `cover_url` alone can resolve it.
+    hinted `cover_url` alone can resolve it. `skip_title_search` is for exact
+    provider images on non-book media: if that hinted image fails, the generic
+    Open Library title/author recovery path must not guess a book cover.
 
     Returns the stored cover path, or None if nothing was found. Items that
     already have a cover are left alone.
     """
+    hints = dict(hints) if hints else None
+    if hints and "_cover_authority" in hints:
+        authority = hints.pop("_cover_authority")
+        if not isinstance(authority, _QueuedCoverAuthority):
+            raise ValueError("Invalid cover job authority")
+        user = authority.user if user is None else user
+        library_ids = {item_id: authority.library_id} if library_ids is None else library_ids
+        hints = hints or None
+    if user is None:
+        actor = catalogue_security.current_actor()
+        user = dict(actor) if actor is not None else None
+    if _stage is None:
+        with CoverStage(item_id) as stage:
+            return await resolve_missing_cover(item_id, client, hints,
+                                               user=user, library_ids=library_ids, _stage=stage)
     with get_db() as db:
+        with item_write._write_scope(db):
+            # Trusted queue work may encounter a since-deleted item. HTTP and
+            # explicitly captured jobs must still refuse hidden/moved parents.
+            if catalogue_security.current_actor() is None and user is None:
+                if not db.execute("SELECT 1 FROM items_live WHERE id = ?", (item_id,)).fetchone():
+                    return None
+            library_ids = authorize_item_targets(db, [item_id], user=user, library_ids=library_ids)
         row = db.execute(
-            "SELECT title, authors, isbn, cover_path FROM items WHERE id = ?",
+            "SELECT title, authors, isbn, asin, cover_path, media_type FROM items_live WHERE id = ?",
             (item_id,),
         ).fetchone()
     if not row or row["cover_path"]:
         return None
 
     cover_path = None
+    edition = None
     if hints:
         cover_path = await covers.download_cover(
-            item_id,
+            _stage.download_id,
             row["isbn"],
             hints.get("cover_url"),
             hints.get("cover_id"),
             client,
             hardcover_cover_url=hints.get("hardcover_cover_url"),
         )
-    elif row["isbn"]:
+    if not cover_path and row["asin"] and row["media_type"] == "audiobook":
+        cover_path = await audnexus.cover_for_item(_stage.download_id, row["asin"], client)
+    if not cover_path and not hints and row["isbn"]:
         cover_path = await covers.download_cover(
-            item_id, row["isbn"], None, None, client)
+            _stage.download_id, row["isbn"], None, None, client)
 
-    if not cover_path:
+    if not cover_path and hints and hints.get("skip_title_search"):
+        return None
+
+    if not cover_path and row["media_type"] in COVER_MEDIA_TYPES:
         found_isbn, cover_url = await _search_isbn_for_item(
             row["title"], row["authors"], client)
         if found_isbn and not row["isbn"]:
@@ -324,40 +344,71 @@ async def resolve_missing_cover(
                 logger.info("Recovered ISBN %r for item %s is not a valid ISBN — not stored",
                             found_isbn, item_id)
             else:
+                skipped_in_trash = False
                 with get_db() as db:
-                    taken = db.execute("SELECT id FROM items WHERE isbn = ? AND id != ?",
-                                       (pair[0], item_id)).fetchone()
-                    if not taken:
-                        update_item_fields(db, item_id, {"isbn": pair[0]})
+                    with item_write._write_scope(db):
+                        authorize_item_targets(db, [item_id], user=user, library_ids=library_ids)
+                        # Physical collision probe: never claim a hidden or
+                        # trashed identifier, even in an actor-free worker.
+                        taken = db.execute("SELECT id FROM items WHERE isbn = ? AND id != ?",
+                                           (pair[0], item_id)).fetchone()
+                        if not taken:
+                            try:
+                                update_item_fields(db, item_id, {"isbn": pair[0]})
+                            except ItemValueError:
+                                skipped_in_trash = True
+                if skipped_in_trash:
+                    # Logged outside the `with` block — a log handler opening
+                    # its own connection would wait on the write lock (G3).
+                    logger.info(
+                        "Recovered ISBN %r for item %s is held by an item in "
+                        "Trash — not stored", pair[0], item_id)
         if cover_url:
             cover_path = await covers.download_cover(
-                item_id, None, cover_url, None, client)
+                _stage.download_id, None, cover_url, None, client)
         elif found_isbn and not row["isbn"]:
             cover_path = await covers.download_cover(
-                item_id, found_isbn, None, None, client)
+                _stage.download_id, found_isbn, None, None, client)
+
+    from app.services import librarything
+    if not cover_path and row["media_type"] in librarything.BOOK_TYPES and row["isbn"]:
+        with get_db() as db:
+            token = get_setting(db, "librarything_token")
+            google_key = get_setting(db, "google_books_api_key")
+        if token:
+            cover_path, edition = await librarything.download_cover(
+                _stage.download_id, row["isbn"], token, client, google_key)
 
     if cover_path:
         with get_db() as db:
-            db.execute(
-                "UPDATE items SET cover_path = ?, updated_at = datetime('now') WHERE id = ?",
-                (cover_path, item_id),
-            )
+            cover_path = _stage.store(
+                db, cover_path, edition=(edition["edition_isbn"], edition["edition_language"]) if edition else None,
+                user=user, library_ids=library_ids)
     return cover_path
 
-async def _enrich_import_covers(item_ids: list[int]) -> None:
-    """Background task: hand off freshly imported items to the cover queue.
+async def _enrich_import_covers(item_ids: list[int], *, user=None, library_ids=None) -> None:
+    """Authorize exact import IDs, filter book media (G29), enqueue bound jobs.
 
-    Kept as an async function behind `asyncio.create_task` at both call
-    sites even though it no longer awaits any network I/O itself — the
-    queue's own worker does the downloading. That preserves the
-    fire-and-forget shape both call sites already rely on.
-
-    Filters to book-ish media types before enqueueing (G29) — `enqueue_many`
-    applies no filter itself, and this is the shared hand-off both
-    producers (photo-intake confirm and CSV import) go through.
+    Async/fire-and-forget producer API retained; the queue worker owns downloads.
+    No whole-catalogue selection or request ContextVar is handed to that worker.
     """
-    eligible = cover_queue.filter_cover_eligible(item_ids)
-    queued = cover_queue.enqueue_many(eligible)
+    user = user if user is not None else catalogue_security.current_actor()
+    user = dict(user) if user is not None else None
+    eligible = []
+    with get_db() as db, item_write._write_scope(db):
+        bindings = authorize_item_targets(db, item_ids, user=user, library_ids=library_ids)
+        for start in range(0, len(item_ids), cover_queue.FILTER_CHUNK_SIZE):
+            chunk = item_ids[start:start + cover_queue.FILTER_CHUNK_SIZE]
+            rows = db.execute(
+                f"SELECT id, media_type FROM items_live WHERE id IN ({','.join('?' for _ in chunk)})", chunk)
+            allowed = {row["id"] for row in rows if row["media_type"] in COVER_MEDIA_TYPES}
+            eligible.extend(item_id for item_id in chunk if item_id in allowed)
+        # The real queue worker forwards hints to resolve_missing_cover. Carry
+        # server-typed authority with each exact ID rather than losing its
+        # library binding when a second background handoff occurs.
+        for item_id in eligible:
+            cover_queue.enqueue(item_id, hints={"_cover_authority": _QueuedCoverAuthority(user, bindings[item_id])})
+    queued = len(eligible)
     if queued != len(item_ids):
         logger.info(
             "Queued %d of %d items for cover enrichment (non-book rows skipped)",
@@ -374,12 +425,11 @@ _scan_log_last_prune: float = float("-inf")  # -inf triggers prune on first call
 
 def _log_scan(isbn: str, media_type: str, result: str, item_id: int | None = None, mode: str = "add"):
     import time
+    from app.services import scan_history
+
     global _scan_log_last_prune
     with get_db() as db:
-        db.execute(
-            "INSERT INTO scan_log (isbn, media_type, result, item_id, mode) VALUES (?, ?, ?, ?, ?)",
-            (isbn, media_type, result, item_id, mode),
-        )
+        scan_history.record_scan(db, isbn, media_type, result, item_id, mode)
         now = time.monotonic()
         if now - _scan_log_last_prune >= _SCAN_LOG_PRUNE_INTERVAL:
             _scan_log_last_prune = now
@@ -405,42 +455,21 @@ UPC_METADATA_PROVIDERS = title_lookup.UPC_METADATA_PROVIDERS
 
 
 def _find_upc_row(db, upc_key: str, media_type: str):
-    """The media_type-keyed duplicate row, as one patchable call.
-
-    A module-level function rather than inline SQL so a test can make this
-    guard *miss* and prove the `sqlite3.IntegrityError` catch below it is
-    real. The two are layers over one property, and `G31`'s rule is that a
-    redundant guard absorbs a single-layer mutation: with the guard live, a
-    rival row committed during the lookup window is always found here, so the
-    catch never runs and a pin that only seeds a rival row proves nothing
-    about it. Mirrors `items._find_duplicate_item`, which
-    `TestIntegrityErrorGuard` patches for exactly this reason.
-    """
+    """Patchable media-type duplicate guard; races still hit IntegrityError (G31)."""
     return db.execute(
-        "SELECT id, title FROM items WHERE upc = ? AND media_type = ?",
+        "SELECT id, title FROM items_live WHERE upc = ? AND media_type = ?",
         (upc_key, media_type),
     ).fetchone()
 
 
 def _upc_lookup_error(request, templates, upc_norm: str, media_type: str, mode: str, result):
-    """The "check connectivity" card for the UPC Item DB product lookup.
-
-    Reached from that phase only, on a `transport_failed` `ProviderResult`:
-    `upcitemdb.lookup` records that for `httpx.TimeoutException` and
-    `httpx.NetworkError`, folding everything else into `no_match`, so an
-    *unresolvable* barcode reaches the manual-add form while an *unreachable
-    network* reaches this card. TMDb has no equivalent handler — a handler
-    there would be dead code that reads as live (GOTCHAS G47).
-
-    Logged `error` rather than `not_found` so the troubleshooting docs' log
-    agrees with the card. Pinned by `TestATransportFailureIsNotAnAbsentBarcode`.
-    """
+    """Transport failure is an error, not an absent barcode/manual-add result (G47)."""
     logger.warning("Network error looking up UPC %s (%s)", upc_norm, result.outcome)
     _log_scan(upc_norm, media_type, "error", mode=mode)
     return templates.TemplateResponse(
         request, "fragments/scan_result.html",
         {"status": "error", "isbn": upc_norm, "media_type": media_type,
-         "message": "Metadata lookup failed — check connectivity", "preview_cover": None},
+         "message": i18n.gettext("Metadata lookup failed — check connectivity"), "preview_cover": None},
     )
 
 
@@ -452,57 +481,35 @@ async def _scan_upc(request: Request, templates, upc_code: str, media_type: str,
     # same disc scanned as UPC-A and as EAN-13 dedupes to one row (#20).
     upc_key = upc_svc.normalize_upc(upc_code)
 
-    # --- Duplicate check, part 1 of 2: the barcode alone, above the network.
-    #
-    # Keyed on `upc` with **no media_type term**, deliberately. One physical
-    # barcode is one product, so a barcode already on the shelf under any type
-    # short-circuits here and a re-scan costs no outbound call at all. That is
-    # also what stops a quota-exhausted or offline lookup from telling the user
-    # a disc they own is "Not found — add manually below": this dedupe check
-    # runs before `upcitemdb.lookup` is ever called, so neither `rate_limited`
-    # nor `transport_failed` (G47) can reach a row already on the shelf.
-    #
-    # Part 2 — the media_type-keyed check the insert needs — runs at the save,
-    # once the effective type is known. Deduping on the hint up here and then
-    # saving under a detected type would match the wrong row.
-    #
-    # `/api/items/manual` keeps its own media_type-keyed `_find_duplicate_item`
-    # and is unaffected: "the same UPC under two types" is a manual-add
-    # contract (tests/test_upc_manual_add.py), not a scan one.
+    # Barcode-only short circuit before provider work. Detection has not chosen
+    # a type yet. Promotion/authority share the lock (G18); logs stay outside (G3).
+    promoted = False
     with get_db() as db:
+        db.execute("BEGIN IMMEDIATE")
         existing = db.execute(
-            "SELECT id, title, media_type FROM items WHERE upc = ?", (upc_key,)
+            "SELECT id, title, media_type FROM items_live WHERE upc = ?", (upc_key,)
         ).fetchone()
+        if existing:
+            require_item_role(db, existing["id"], "editor")
+        if existing and mode != "wishlist":
+            promoted = item_write.promote_wishlisted(db, existing["id"])
     if existing:
-        _log_scan(upc_norm, existing["media_type"], "duplicate", existing["id"], mode)
+        status = "promoted" if promoted else "duplicate"
+        _log_scan(upc_norm, existing["media_type"], status, existing["id"], mode)
         return templates.TemplateResponse(
             request, "fragments/scan_result.html",
-            {"status": "duplicate", "isbn": upc_norm, "title": existing["title"], "item_id": existing["id"]},
+            {"status": status, "isbn": upc_norm, "title": existing["title"], "item_id": existing["id"]},
         )
 
-    # --- One UPC Item DB lookup, above the game/film fork.
-    #
-    # Both branches read this same record; each used to fetch it separately,
-    # below a fork chosen from the dropdown hint alone. Detection reads the
-    # product's raw title and category, so the record has to be in hand before
-    # anything decides which provider to ask.
-    # An `.outcome` check rather than an `except`: `upcitemdb.lookup` returns
-    # `transport_failed` instead of re-raising, so offline still reaches the
-    # connectivity card and an unknown barcode still reaches the manual form
-    # (G47) — without a handler that reads as live when nothing can raise.
+    # One shared product lookup before dispatch; transport failure is distinct
+    # from an unknown barcode (G47).
     async with httpx.AsyncClient(timeout=HTTP_TIMEOUT) as client:
         product_result = await upcitemdb.lookup(upc_norm, client)
     if product_result.outcome == "transport_failed":
         return _upc_lookup_error(request, templates, upc_norm, media_type, mode, product_result)
     product = product_result.payload
 
-    # --- Detection, now that the product record is in hand.
-    #
-    # This is the fork that used to read the dropdown hint alone. It reads the
-    # raw product title and category instead (`G46` — the raw title, never a
-    # `search_queries` rung: the ladder strips exactly the markers tier 2
-    # matches on). The hint is still an input, but it is now one signal among
-    # several rather than an oracle.
+    # Detect from the RAW title/category, not a marker-stripped ladder rung (G46).
     hint = media_type
     barcode_type = upc_svc.detect_barcode_type(upc_norm)
     detection = detect.detect_media_type(
@@ -523,17 +530,10 @@ async def _scan_upc(request: Request, templates, upc_code: str, media_type: str,
             product_result=product_result,
         )
 
-    # A recognised console: file it, ask nobody. The ladder below climbs to
-    # "PlayStation", which TMDb answers with a confident match for another
-    # film (#43; `G46` — missing enrichment is recoverable, wrong is not).
-    # Below the fork, not above: hardware always resolves to `dvd`, so
-    # threading this into `_scan_upc_game` gives it no consumer (`G47`).
+    # Hardware resolves to DVD but must not ask TMDb to guess a film (G46).
     is_hardware = detection.signal == "hardware"
 
-    # A resolved media type with no metadata provider is filed under its
-    # cleaned title with no outbound request at all. Before this, a CD was
-    # searched on The Movie Database — a real request to a film provider for a
-    # music disc — and the card then named TMDb, which is #44.
+    # Non-provider media (e.g. CD) is filed title-only, never searched as a film.
     no_metadata_provider = media_type not in UPC_METADATA_PROVIDERS
 
     # Get TMDb API key
@@ -541,19 +541,14 @@ async def _scan_upc(request: Request, templates, upc_code: str, media_type: str,
         tmdb_key = get_setting(db, "tmdb_api_key")
 
     metadata = None
-    # Seeded, not left unset: the ladder below runs only when a key is
-    # configured and the type has a provider, so this is what the card
-    # projects from when it does not.
+    # Preserve the no-credential state when no ladder runs.
     tmdb_result = provider_result.no_credential("tmdb")
     # A 200 can still carry a missing, blank or format-only title ("[DVD]"),
     # which normalises to no queries at all. That is a not_found, not an index
     # error on queries[0].
     queries: list[str] = upcitemdb.search_queries((product or {}).get("title") or "")
     if queries and tmdb_key and not no_metadata_provider and not is_hardware:
-        # No transport handler here, deliberately: `tmdb.lookup_by_title`
-        # returns `transport_failed` as a `ProviderResult`, never a raise, so
-        # a handler here would be dead code that reads as live (`G47`). A TMDb
-        # outage reads as "no TMDb match"; the error card is the product lookup's.
+        # Metadata outages are ProviderResult states, not product-lookup errors.
         async with httpx.AsyncClient(timeout=HTTP_TIMEOUT) as client:
             tmdb_result, _matched = await _first_hit(
                 queries,
@@ -570,51 +565,25 @@ async def _scan_upc(request: Request, templates, upc_code: str, media_type: str,
                 metadata = tmdb_result.payload
 
     if not queries:
-        # A 429 on the *product* lookup lands here, not on the ladder below:
-        # `upcitemdb.lookup`'s payload is None for any non-200, so there is no
-        # title to build a query from and this branch returns before `enrich_status`
-        # is ever computed. Without the state below, a rate-limited barcode is
-        # rendered as an unknown one — the same dishonesty as #44, one phase
-        # earlier. The `not_found` card renders it beside the message.
+        # Project the PRODUCT outcome here: its 429 yielded no title/ladder.
         _log_scan(upc_norm, media_type, "not_found", mode=mode)
         return templates.TemplateResponse(
             request, "fragments/scan_result.html",
             {"status": "not_found", "isbn": upc_norm, "media_type": media_type,
-             "message": "Not found — add manually below", "preview_cover": None,
+             "message": i18n.gettext("Not found — add manually below"), "preview_cover": None,
              "enrich_status": scan_outcome.not_found_status(product_result),
              "locations": _manual_form_locations()},
         )
 
-    # The thin-metadata notice, as a *state*, not as markup — the copy lives
-    # in the template (G58). Projected from the enrichment record alone.
-    #
-    # **`product_result` is deliberately NOT folded in with `combine`.** On
-    # this path it is always `found` by construction — `queries` comes from
-    # `product["title"]` and the ladder is reached only when `queries` is
-    # non-empty — so found-wins would return the product record and this would
-    # answer `None`, filing every TMDb miss, rejection and 429 as a clean hit
-    # with no notice at all. That is #44 and #42 reintroduced. The rule itself
-    # is right and pinned: `test_provider_result.py`'s
-    # `test_a_hit_beside_a_rejection_is_still_a_hit`. The product record's only
-    # failure channel is the `if not queries:` early return above, which
-    # projects from it instead.
-    # `no_lookup` is assigned, never projected: `enrich_status` reads a
-    # `ProviderResult` and a hardware scan has none — nothing was asked.
+    # Do NOT combine the found product into this enrichment state: found-wins
+    # would hide TMDb misses/rejections/429s (#42/#44). Hardware has no lookup.
     enrich_status = "no_lookup" if is_hardware else scan_outcome.enrich_status(
         tmdb_result, has_provider=not no_metadata_provider
     )
-    # `None` so no arm can interpolate a provider name that does not exist:
-    # the template's `no_provider` arm names none, and this router cannot
-    # reach an arm that does. A hardware scan names nobody, one step stronger.
+    # Never name a provider that was not applicable.
     enrich_provider = None if (no_metadata_provider or is_hardware) else "TMDb"
 
-    # Provenance, decided before the placeholder below overwrites `metadata`.
-    # `tmdb` is a claim that TMDb answered — it must not be stamped on a row
-    # filed from the UPC title because there was no key, the key was rejected,
-    # or TMDb had nothing. The game branch has always done this (`source =
-    # "igdb" if metadata else "upc"` below); the film branch hard-coded
-    # `"tmdb"`, which the T5 notice turned into a card that argues with itself:
-    # "DVD / Blu-ray via tmdb" directly above "Add a TMDb API key".
+    # Provider provenance claims a real hit, not a UPC title-only fallback.
     source = "tmdb" if metadata else "upc"
 
     if metadata is None:
@@ -641,6 +610,8 @@ async def _scan_upc(request: Request, templates, upc_code: str, media_type: str,
     with get_db() as db:
         db.execute("BEGIN IMMEDIATE")
         existing = _find_upc_row(db, upc_key, media_type)
+        if existing:
+            require_item_role(db, existing["id"], "editor")
         if existing is None:
             try:
                 item_id = insert_item(
@@ -655,6 +626,7 @@ async def _scan_upc(request: Request, templates, upc_code: str, media_type: str,
                     # Was a follow-up UPDATE in a second transaction; owned is
                     # an item-creation field, so it belongs in the insert.
                     owned=0 if mode == "wishlist" else 1,
+                    wishlisted=(mode == "wishlist"),
                 )
             except ItemValueError as e:  # a stale location (#54)
                 value_error = str(e)
@@ -662,6 +634,8 @@ async def _scan_upc(request: Request, templates, upc_code: str, media_type: str,
                 existing = _find_upc_row(db, upc_key, media_type)
                 if existing is None:
                     raise
+                require_item_role(db, existing["id"], "editor")
+        promoted = bool(existing) and mode != "wishlist" and item_write.promote_wishlisted(db, existing["id"])
 
     # _log_scan opens its own connection, so it must run outside the write
     # transaction above or it blocks on the lock that block still holds.
@@ -672,31 +646,41 @@ async def _scan_upc(request: Request, templates, upc_code: str, media_type: str,
             {"status": "error", "isbn": upc_norm, "message": value_error},
         )
     if existing:
-        _log_scan(upc_norm, media_type, "duplicate", existing["id"], mode)
+        status = "promoted" if promoted else "duplicate"
+        _log_scan(upc_norm, media_type, status, existing["id"], mode)
         return templates.TemplateResponse(
             request, "fragments/scan_result.html",
-            {"status": "duplicate", "isbn": upc_norm, "title": existing["title"],
+            {"status": status, "isbn": upc_norm, "title": existing["title"],
              "item_id": existing["id"]},
         )
 
-    # Download cover
+    with get_db() as db, item_write._write_scope(db):
+        cover_bindings = authorize_item_targets(db, [item_id])
+    # Download cover — skipped entirely on a restored row that already has
+    # one, so the user's own cover survives the re-add (and no outbound call
+    # is made for a cover we would then discard).
     cover_path = None
-    if metadata.get("cover_url"):
-        async with httpx.AsyncClient(timeout=HTTP_TIMEOUT) as client:
-            cover_path = await covers._download_to_item(item_id, metadata["cover_url"], client)
-        if cover_path:
-            with get_db() as db:
-                db.execute("UPDATE items SET cover_path = ? WHERE id = ?", (cover_path, item_id))
+    if metadata.get("cover_url") and not restore_report.keeps_stored_cover(item_id):
+        with CoverStage(item_id) as stage:
+            async with httpx.AsyncClient(timeout=HTTP_TIMEOUT) as client:
+                cover_path = await covers._download_to_item(stage.download_id, metadata["cover_url"], client)
+            if cover_path:
+                with get_db() as db:
+                    cover_path = stage.store(db, cover_path, library_ids=cover_bindings)
 
-    status = "wishlisted" if mode == "wishlist" else "added"
+    status = restore_report.restored_status(item_id, "wishlisted" if mode == "wishlist" else "added")
     _log_scan(upc_norm, media_type, status, item_id, mode)
 
     resp = templates.TemplateResponse(
         request, "fragments/scan_result.html",
         {
-            "status": status, "isbn": upc_norm, "title": metadata["title"],
-            "authors": None, "cover_path": cover_path, "item_id": item_id,
-            "source": source, "media_type_label": MEDIA_TYPES.get(media_type, media_type),
+            "status": status, "isbn": upc_norm,
+            **({"title": metadata["title"], "authors": None,
+                "cover_path": cover_path}
+               if status != "restored" else restore_report.restored_card(item_id)),
+            "item_id": item_id,
+            "source": source, "media_type_label": i18n.gettext(MEDIA_TYPES.get(media_type, media_type)),
+            "media_type": media_type,
             # T5 renders these; T4 only has to carry them.
             "detect_reason": detect_reason, "detect_overrode": detect_overrode,
             "enrich_status": enrich_status, "enrich_provider": enrich_provider,
@@ -705,22 +689,11 @@ async def _scan_upc(request: Request, templates, upc_code: str, media_type: str,
     return resp
 
 async def _first_hit(queries, search):
-    """Try each query in turn; return `(ProviderResult, query | None)`.
+    """Return (ProviderResult, matched query), using metadata-dict payloads (G45).
 
-    `search` is a coroutine answering a `ProviderResult` whose payload, on a
-    hit, is a metadata **dict** — the game adapter unwraps its provider's list
-    to `[0]` before handing it over, so the ladder never carries a list (G45).
-    Both UPC paths climb this one ladder, so the film and game paths cannot
-    drift apart, and the rung floor stays `upcitemdb.search_queries`' (G46).
-
-    The first `found` returns with its query. A `rejected`, `rate_limited` or
-    `transport_failed` **stops the ladder** and returns `(that record, None)`:
-    the same credential cannot answer differently on a shorter query, and a
-    host that just timed out costs another `HTTP_TIMEOUT` per retry. The
-    rejection stop is what the raise used to do; the transport stop is a
-    deliberate change from today, where `tmdb.lookup_by_title` returned `None`
-    on a timeout and the ladder tried the next rung. All rungs missing folds
-    to `combine`, so the caller still learns what the ladder as a whole saw.
+    Rejection, quota and transport failures stop the shared ladder; retrying
+    shorter queries cannot repair credentials/quota/network (G46/G47). Misses
+    combine without obscuring provider outcomes.
     """
     results = []
     for query in queries:
@@ -734,32 +707,16 @@ async def _first_hit(queries, search):
 
 
 async def _scan_upc_game(request: Request, templates, upc_norm: str, product: dict | None, location_id: int | None, platform: str | None = None, mode: str = "add", detect_reason: str = "", detect_overrode: bool = False, product_result: provider_result.ProviderResult | None = None):
-    """Handle UPC scan for video games: the caller's product record → IGDB.
-
-    `product` is the UPC Item DB record `_scan_upc` already fetched. This
-    function used to look it up again itself, which cost a second outbound
-    call per game scan and — more importantly — put the fetch *below* the
-    game/film fork, so nothing could read the product to decide which branch
-    to take. It is a parameter now precisely so detection can run above it.
-
-    `product_result` is the caller's own record for that lookup, passed down
-    rather than re-derived — a signal produced above a fork has to reach
-    *both* branches or one barcode gets two stories. It is read only where the
-    ladder never runs: below, the card projects from the IGDB record alone.
-    """
-    # Step 1: normalise the retail title into a search ladder. Same ladder as
-    # the film path, from the same record.
+    """Use the caller's product/outcome (no second lookup), then IGDB's ladder."""
     queries = upcitemdb.search_queries((product or {}).get("title") or "")
 
     if not queries:
-        # The film branch's twin: a product-lookup 429 leaves no title, so this
-        # returns above the `enrich_status` ladder and is the one place the
-        # product record's own failure channel is what the card has to report.
+        # A product 429 leaves no title; report its state, not a metadata miss.
         _log_scan(upc_norm, "video_game", "not_found", mode=mode)
         return templates.TemplateResponse(
             request, "fragments/scan_result.html",
             {"status": "not_found", "isbn": upc_norm, "media_type": "video_game",
-             "message": "Not found — add manually below", "preview_cover": None,
+             "message": i18n.gettext("Not found — add manually below"), "preview_cover": None,
              "enrich_status": scan_outcome.not_found_status(product_result),
              "locations": _manual_form_locations()},
         )
@@ -770,8 +727,7 @@ async def _scan_upc_game(request: Request, templates, upc_norm: str, product: di
         igdb_secret = get_setting(db, "igdb_client_secret")
 
     metadata = None
-    # Seeded, not left unset — the same shape the film branch uses: the ladder
-    # below runs only when both credentials are configured.
+    # The ladder requires BOTH credentials (G49).
     igdb_result = provider_result.no_credential("igdb")
     if igdb_id and igdb_secret:
         async with httpx.AsyncClient(timeout=HTTP_TIMEOUT) as client:
@@ -791,23 +747,14 @@ async def _scan_upc_game(request: Request, templates, upc_norm: str, product: di
             if igdb_result.found:
                 metadata = igdb_result.payload
 
-    # The same decision the film branch makes, from the same function.
-    # `igdb.search_games` used to collapse a rejected Twitch token, a spent
-    # quota, a transport failure and an empty result into one `[]`; each is
-    # its own outcome now (#42, #49), token-endpoint 429 included. And as on
-    # the film branch, `product_result` is deliberately not combined in — it
-    # is `found` by construction here too (`queries` comes from the product
-    # title), so found-wins would file every IGDB failure as a clean hit.
-    # No `has_provider`: a video game always has IGDB.
+    # Do not fold a found product into enrichment: it hides IGDB failures/429s.
     enrich_status = scan_outcome.enrich_status(igdb_result)
 
     # Save item — with IGDB metadata if found, otherwise the cleaned UPC title
     source = "igdb" if metadata else "upc"
     game_title = metadata["title"] if metadata else queries[0]
 
-    # `G18` — guard-then-write, exactly as on the film branch above: take the
-    # write lock before the duplicate query so the check and the insert see one
-    # state, and turn a lost race into the duplicate card rather than a 500.
+    # Locked duplicate/authority guard, with the IntegrityError backstop (G18).
     upc_key = upc_svc.normalize_upc(upc_norm)
     existing = None
     item_id = None
@@ -815,6 +762,8 @@ async def _scan_upc_game(request: Request, templates, upc_norm: str, product: di
     with get_db() as db:
         db.execute("BEGIN IMMEDIATE")
         existing = _find_upc_row(db, upc_key, "video_game")
+        if existing:
+            require_item_role(db, existing["id"], "editor")
         if existing is None:
             try:
                 item_id = insert_item(
@@ -830,6 +779,7 @@ async def _scan_upc_game(request: Request, templates, upc_norm: str, product: di
                     upc=upc_key,
                     source=source,
                     owned=0 if mode == "wishlist" else 1,
+                    wishlisted=(mode == "wishlist"),
                 )
             except ItemValueError as e:  # unknown platform or stale location (#54)
                 value_error = str(e)
@@ -837,6 +787,8 @@ async def _scan_upc_game(request: Request, templates, upc_norm: str, product: di
                 existing = _find_upc_row(db, upc_key, "video_game")
                 if existing is None:
                     raise
+                require_item_role(db, existing["id"], "editor")
+        promoted = bool(existing) and mode != "wishlist" and item_write.promote_wishlisted(db, existing["id"])
 
     # Outside the write transaction — _log_scan opens its own connection.
     if value_error:
@@ -846,33 +798,41 @@ async def _scan_upc_game(request: Request, templates, upc_norm: str, product: di
             {"status": "error", "isbn": upc_norm, "message": value_error},
         )
     if existing:
-        _log_scan(upc_norm, "video_game", "duplicate", existing["id"], mode)
+        status = "promoted" if promoted else "duplicate"
+        _log_scan(upc_norm, "video_game", status, existing["id"], mode)
         return templates.TemplateResponse(
             request, "fragments/scan_result.html",
-            {"status": "duplicate", "isbn": upc_norm, "title": existing["title"],
+            {"status": status, "isbn": upc_norm, "title": existing["title"],
              "item_id": existing["id"]},
         )
 
-    # Download cover
+    with get_db() as db, item_write._write_scope(db):
+        cover_bindings = authorize_item_targets(db, [item_id])
+    # Download cover — skipped on a restored row that already has one, the
+    # same rule as the film branch above.
     cover_path = None
     cover_url = metadata.get("cover_url") if metadata else None
-    if cover_url:
-        async with httpx.AsyncClient(timeout=HTTP_TIMEOUT) as client:
-            cover_path = await covers._download_to_item(item_id, cover_url, client)
-        if cover_path:
-            with get_db() as db:
-                db.execute("UPDATE items SET cover_path = ? WHERE id = ?", (cover_path, item_id))
+    if cover_url and not restore_report.keeps_stored_cover(item_id):
+        with CoverStage(item_id) as stage:
+            async with httpx.AsyncClient(timeout=HTTP_TIMEOUT) as client:
+                cover_path = await covers._download_to_item(stage.download_id, cover_url, client)
+            if cover_path:
+                with get_db() as db:
+                    cover_path = stage.store(db, cover_path, library_ids=cover_bindings)
 
-    status = "wishlisted" if mode == "wishlist" else "added"
+    status = restore_report.restored_status(item_id, "wishlisted" if mode == "wishlist" else "added")
     _log_scan(upc_norm, "video_game", status, item_id, mode)
 
     resp = templates.TemplateResponse(
         request, "fragments/scan_result.html",
         {
-            "status": status, "isbn": upc_norm, "title": game_title,
-            "authors": metadata.get("developer") if metadata else None,
-            "cover_path": cover_path, "item_id": item_id,
-            "source": source, "media_type_label": "Video Game",
+            "status": status, "isbn": upc_norm,
+            **({"title": game_title,
+                "authors": metadata.get("developer") if metadata else None,
+                "cover_path": cover_path}
+               if status != "restored" else restore_report.restored_card(item_id)),
+            "item_id": item_id,
+            "source": source, "media_type_label": i18n.gettext("Video Game"), "media_type": "video_game",
             # T5 renders these; T4 only has to carry them.
             "detect_reason": detect_reason, "detect_overrode": detect_overrode,
             "enrich_status": enrich_status, "enrich_provider": "IGDB",
@@ -882,11 +842,6 @@ async def _scan_upc_game(request: Request, templates, upc_norm: str, product: di
 
 
 def _manual_form_locations():
-    """Shelf options for the manual-add form's location picker (#19).
-
-    Only the scan_result.html branches that render the manual entry form
-    (status == 'not_found') need this — every other render of that fragment
-    shows a status card with no form.
-    """
+    """Location options only for scan_result's not_found/manual-add form (#19)."""
     with get_db() as db:
         return db.execute("SELECT id, name FROM locations ORDER BY sort_order, name").fetchall()

@@ -68,9 +68,20 @@ The **Photo Intake** nav tab appears once a provider is saved.
    declined. **Add books to** above the list
    picks the location every row lands in (or none). If that location was
    deleted while the page was open, Confirm refuses before any lookup runs
-   and says so — nothing is half-imported.
+   and says so — nothing is half-imported. **Default tags**, beside it, tags
+   every row the confirm adds — including one brought back from Trash — with
+   the same tags (`;` between several; new names are created). Rows skipped as
+   already in your library are not tagged. The field remembers its value on
+   the device, like the location, and suggests every tag you have, since each
+   row carries its own media type.
 
 Nothing is imported until you confirm, and the photo itself is never stored.
+
+Confirm requires write access to the destination Shelf library. The selected
+image is sent to the configured vision provider (including remote providers);
+choose a local backend when it must stay local. Personal default status belongs
+to the importing account, not every user of the shared catalogue. See
+[integration status](../upstream-integration.md) for pending validation.
 
 ## Getting good results
 

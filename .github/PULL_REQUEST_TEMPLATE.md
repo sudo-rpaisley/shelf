@@ -21,7 +21,9 @@ invest time — see CONTRIBUTING.md.
 - [ ] `make test` passes
 - [ ] `make test-e2e` passes
 - [ ] `make checks` passes
-- [ ] `make css` re-run, if templates or Tailwind classes changed
+- [ ] Regenerate and commit `static/css/app.css`, `static/sw.js`'s `SW_VERSION`
+      and README's test-count badges when their source changes. This fork's CI
+      verifies submitted artifacts with a read-only token; it does not push fixes.
 
 ## Notes for review
 

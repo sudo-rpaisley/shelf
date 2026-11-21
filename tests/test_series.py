@@ -4,7 +4,8 @@ from unittest.mock import AsyncMock, patch
 
 import pytest
 
-from app.database import MIGRATIONS, SCHEMA, _run_migrations
+from app.database import MIGRATIONS, _run_migrations
+from tests.lineage import MAIN_SCHEMA as SCHEMA
 from app.routers.series import find_gaps
 from tests.conftest import _insert_item
 
@@ -59,7 +60,8 @@ class TestSeriesPage:
         assert "#3" in html
 
     def test_wishlist_items_badged(self, admin_client, db):
-        _insert_item(db, title="Want It", isbn="9789000003563", series_name="Solo", series_position=1, owned=0)
+        _insert_item(db, title="Want It", isbn="9789000003563", series_name="Solo", series_position=1,
+                     owned=0, wishlisted=True)
         db.execute("COMMIT")
         html = admin_client.get("/series").text
         assert "Solo" in html
@@ -77,7 +79,7 @@ class TestUnassignedBlock:
     def test_unassigned_block_books_only(self, admin_client, db):
         _insert_item(db, title="Loose Book", isbn="9789000010011", media_type="book")
         _insert_item(db, title="Loose Comic", isbn="9789000010028", media_type="comic")
-        _insert_item(db, title="Loose Kids Book", isbn="9789000010035", media_type="kids_book")
+        _insert_item(db, title="Loose Manga", isbn="9789000010035", media_type="manga")
         _insert_item(db, title="Loose DVD", isbn="9789000010042", media_type="dvd")
         _insert_item(db, title="Loose CD", isbn="9789000010059", media_type="cd")
         _insert_item(db, title="Loose Game", isbn="9789000010066", media_type="video_game")
@@ -89,7 +91,7 @@ class TestUnassignedBlock:
         after_block = html[block_start:]
         assert "Loose Book" in after_block
         assert "Loose Comic" in after_block
-        assert "Loose Kids Book" in after_block
+        assert "Loose Manga" in after_block
         assert "Loose DVD" not in html
         assert "Loose CD" not in html
         assert "Loose Game" not in html
@@ -187,7 +189,9 @@ class TestSeriesCheck:
         _insert_item(db, title="Dune", isbn="9789000003013", series_name="Dune Saga",
                      series_position=1, hardcover_book_id=101)
         _insert_item(db, title="Dune Messiah", isbn="9789000003181", series_name="Dune Saga",
-                     series_position=2, owned=0)  # matched by title, wishlisted
+                     series_position=2, owned=0, wishlisted=True)  # matched by title, wishlisted
+        _insert_item(db, title="Children of Dune", isbn="9789000003198", series_name="Dune Saga",
+                     series_position=3, owned=0, hardcover_book_id=103)  # matched by id, neither
         db.execute("INSERT INTO settings (key, value) VALUES ('hardcover_token', 'tok')")
         db.execute("COMMIT")
 
@@ -199,6 +203,8 @@ class TestSeriesCheck:
              "cover_url": None, "year": 1969, "series_position": 2},
             {"hardcover_book_id": 103, "title": "Children of Dune", "authors": "Frank Herbert",
              "cover_url": None, "year": 1976, "series_position": 3},
+            {"hardcover_book_id": 104, "title": "God Emperor of Dune", "authors": "Frank Herbert",
+             "cover_url": None, "year": 1981, "series_position": 4},
         ]
 
     def test_classification(self, admin_client, db):
@@ -207,12 +213,13 @@ class TestSeriesCheck:
                    new=AsyncMock(return_value=self._hc_books())):
             data = admin_client.get("/api/series/check", params={"name": "Dune Saga"}).json()
         assert data["ok"] is True
-        assert data["total"] == 3
-        assert data["missing"] == 1
+        assert data["total"] == 4
+        assert data["missing"] == 2
         by_id = {b["hardcover_book_id"]: b["status"] for b in data["books"]}
         assert by_id[101] == "owned"        # matched by hardcover_book_id
         assert by_id[102] == "wishlist"     # matched case-insensitively by title
-        assert by_id[103] == "missing"
+        assert by_id[103] == "missing"      # matched by hardcover_book_id, but neither owned nor wishlisted
+        assert by_id[104] == "missing"      # no local match at all
 
     def test_no_token(self, admin_client):
         data = admin_client.get("/api/series/check", params={"name": "X"}).json()
@@ -229,6 +236,68 @@ class TestSeriesCheck:
         db.execute("INSERT INTO settings (key, value) VALUES ('hardcover_token', 'tok')")
         db.execute("COMMIT")
         assert admin_client.get("/api/series/check").json()["ok"] is False
+
+    # --- buy links on missing rows -------------------------------------
+
+    def _set_settings(self, db, **kv):
+        for k, v in kv.items():
+            db.execute("INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)", (k, v))
+        db.execute("COMMIT")
+
+    def _check(self, client):
+        with patch("app.services.hardcover.get_series_books",
+                   new=AsyncMock(return_value=self._hc_books())):
+            return client.get("/api/series/check", params={"name": "Dune Saga"}).json()
+
+    def test_amazon_tag_links_on_missing_rows(self, admin_client, db):
+        self._seed(db)
+        self._set_settings(db, buy_links_amazon_tag="shelf-20")
+        data = self._check(admin_client)
+        missing = [b for b in data["books"] if b["status"] == "missing"]
+        assert len(missing) == 2
+        for b in missing:
+            assert len(b["buy_links"]) == 1
+            assert b["buy_links"][0]["store"] == "amazon"
+            assert "tag=shelf-20" in b["buy_links"][0]["url"]
+        assert data["buy_links_disclosure"] == {"bookshop": False}
+
+    def test_non_missing_rows_have_no_buy_links_key(self, admin_client, db):
+        self._seed(db)
+        self._set_settings(db, buy_links_amazon_tag="shelf-20")
+        data = self._check(admin_client)
+        for b in data["books"]:
+            assert ("buy_links" in b) == (b["status"] == "missing")
+
+    def test_flag_off_empty_links_and_null_disclosure(self, admin_client, db):
+        from tests.test_features_gate import off
+        self._seed(db)
+        self._set_settings(db, buy_links_amazon_tag="shelf-20")
+        off("buy_links")
+        data = self._check(admin_client)
+        assert [b["buy_links"] for b in data["books"] if b["status"] == "missing"] == [[], []]
+        assert data["buy_links_disclosure"] is None
+
+    def test_no_tag_empty_links(self, admin_client, db):
+        self._seed(db)
+        data = self._check(admin_client)
+        assert [b["buy_links"] for b in data["books"] if b["status"] == "missing"] == [[], []]
+        assert data["buy_links_disclosure"] is None
+
+    def test_bookshop_id_untagged_search_link_and_disclosure(self, admin_client, db):
+        self._seed(db)
+        self._set_settings(db, buy_links_bookshop_id="513")
+        data = self._check(admin_client)
+        for b in data["books"]:
+            if b["status"] == "missing":
+                assert [l["store"] for l in b["buy_links"]] == ["bookshop"]
+                assert "/search?keywords=" in b["buy_links"][0]["url"]
+                assert "513" not in b["buy_links"][0]["url"]
+        assert data["buy_links_disclosure"] == {"bookshop": True}
+
+    def test_viewer_gets_same_payload(self, admin_client, viewer_client, db):
+        self._seed(db)
+        self._set_settings(db, buy_links_amazon_tag="shelf-20", buy_links_bookshop_id="513")
+        assert self._check(viewer_client) == self._check(admin_client)
 
 
 class TestSeriesCheckPersistence:
@@ -289,10 +358,47 @@ class TestSeriesCheckPersistence:
         db.execute("COMMIT")
 
         with patch("app.services.hardcover.get_series_books",
-                   new=AsyncMock(return_value=self._hc_books())):
+                   new=AsyncMock(return_value=self._hc_books())) as lookup:
             data = admin_client.get("/api/series/check", params={"name": "Not Mine"}).json()
+        lookup.assert_awaited_once_with("Not Mine", "tok")
         assert data["ok"] is True
+        assert data["total"] == data["missing"] == 2
+        assert [book["status"] for book in data["books"]] == ["missing", "missing"]
         assert db.execute("SELECT COUNT(*) as c FROM series_meta").fetchone()["c"] == 0
+
+    @pytest.mark.parametrize("unavailable", ["hidden", "trashed"])
+    @pytest.mark.parametrize("secondary", [False, True])
+    def test_unavailable_only_name_refuses_before_any_provider_lookup(
+        self, viewer_client, db, unavailable, secondary,
+    ):
+        from app.services import libraries
+
+        private = libraries.create_library(db, "Private series library")
+        item_id = _insert_item(
+            db, title="Never disclose this member", isbn=None,
+            series_name=None if secondary else "Unavailable name",
+            _library_id=private["id"] if unavailable == "hidden" else 1,
+            deleted_at="2026-01-01 00:00:00" if unavailable == "trashed" else None,
+        )
+        if secondary:
+            db.execute("INSERT INTO item_series (item_id, series_name, is_primary) VALUES (?, ?, 0)",
+                       (item_id, "Unavailable name"))
+        db.execute("INSERT INTO settings (key, value) VALUES ('hardcover_token', 'tok')")
+        db.commit()
+        tables = ("items", "item_series", "library_items", "series_meta", "user_item_state")
+        before = {table: [tuple(row) for row in db.execute(f"SELECT * FROM {table} ORDER BY rowid")]
+                  for table in tables}
+
+        with patch("app.services.hardcover.get_series_books", new=AsyncMock()) as lookup:
+            response = viewer_client.get("/api/series/check", params={"name": "Unavailable name"})
+
+        assert response.status_code == (404 if unavailable == "hidden" else 409)
+        lookup.assert_not_awaited()
+        assert "Never disclose this member" not in response.text
+        assert "Private series library" not in response.text
+        after = {table: [tuple(row) for row in db.execute(f"SELECT * FROM {table} ORDER BY rowid")]
+                 for table in tables}
+        assert after == before
 
     def test_check_does_not_disturb_existing_description(self, admin_client, db):
         self._seed(db)
@@ -570,7 +676,7 @@ class TestSeriesMetaMigrations:
             "source TEXT, updated_at TEXT)"
         )
         for version, description, sql in MIGRATIONS:
-            if version in (16, 17, 18, 19):
+            if version > 15:
                 continue
             try:
                 conn.execute(sql)
@@ -977,6 +1083,36 @@ class TestSeriesRename:
         assert resp.status_code in (401, 403)
         assert db.execute("SELECT series_name FROM items").fetchone()["series_name"] == "Dune Saga"
 
+    def _watch_row(self, db, name):
+        cur = db.execute("INSERT INTO release_watches (series_name) VALUES (?)", (name,))
+        db.execute("INSERT INTO upcoming_releases (watch_id, hc_book_id, title) VALUES (?, ?, ?)",
+                   (cur.lastrowid, cur.lastrowid, f"{name} next"))
+        db.execute("COMMIT")
+
+    def _watches(self, db):
+        return sorted(
+            (r["series_name"], r["title"]) for r in db.execute(
+                "SELECT w.series_name, u.title FROM release_watches w "
+                "LEFT JOIN upcoming_releases u ON u.watch_id = w.id").fetchall()
+        )
+
+    def test_moves_the_release_watch(self, admin_client, db):
+        _insert_item(db, title="Dune", isbn="9789000007301", series_name="Dune Saga")
+        self._watch_row(db, "dune saga")
+
+        assert self._rename(admin_client, "Dune Saga", "Dune Chronicles").json()["ok"] is True
+        assert self._watches(db) == [("Dune Chronicles", "dune saga next")]
+
+    def test_rename_onto_a_watched_name_keeps_the_targets_watch(self, admin_client, db):
+        _insert_item(db, title="Dune", isbn="9789000007318", series_name="Dune Saga")
+        _insert_item(db, title="Messiah", isbn="9789000007325", series_name="Dune")
+        self._watch_row(db, "Dune Saga")
+        self._watch_row(db, "Dune")
+
+        data = self._rename(admin_client, "Dune Saga", "Dune").json()
+        assert data["ok"] is True and data["merged"] is True
+        assert self._watches(db) == [("Dune", "Dune next")]
+
 
 class TestSeriesRemoveAll:
     """POST /api/series/{name:path}/remove-all — disbands a series by
@@ -1068,6 +1204,19 @@ class TestSeriesRemoveAll:
         data = self._remove_all(admin_client, "Nothing Here").json()
         assert data["ok"] is False
         assert data["message"] == "Series not found"
+
+    def test_drops_the_release_watch_and_its_releases(self, admin_client, db):
+        _insert_item(db, title="Dune", isbn="9789000008301", series_name="Dune Saga")
+        _insert_item(db, title="Other", isbn="9789000008318", series_name="Other")
+        for name in ("Dune Saga", "Other"):
+            cur = db.execute("INSERT INTO release_watches (series_name) VALUES (?)", (name,))
+            db.execute("INSERT INTO upcoming_releases (watch_id, hc_book_id, title) VALUES (?, 1, 'x')",
+                       (cur.lastrowid,))
+        db.execute("COMMIT")
+
+        assert self._remove_all(admin_client, "dune saga").json()["ok"] is True
+        assert [r[0] for r in db.execute("SELECT series_name FROM release_watches")] == ["Other"]
+        assert db.execute("SELECT COUNT(*) FROM upcoming_releases").fetchone()[0] == 1
 
 
 class TestGetSeriesDescription:
@@ -1285,6 +1434,14 @@ class TestGetSeriesBooksParsing:
         with patch.object(hc, "_graphql", new=AsyncMock(return_value=payload)):
             books = await hc.get_series_books("Obscure", "tok")
         assert [b["title"] for b in books] == ["Obscure Vol 1", "Obscure Vol 2"]
+
+    def test_parse_series_entries_joins_multiple_authors(self):
+        """T3 — `_parse_series_entries` is pure; call it directly beside the
+        single-author pin above (`books[0]["authors"] == "Frank Herbert"`)."""
+        from app.services import hardcover as hc
+        entries = [self._entry(1, "Dune", 1, authors=("Frank Herbert", "Brian Herbert"))]
+        books = hc._parse_series_entries(entries)
+        assert books[0]["authors"] == "Frank Herbert, Brian Herbert"
 
 
 class TestSeriesMetaOrphanGC:

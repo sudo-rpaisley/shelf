@@ -1,7 +1,7 @@
 {% extends "base.html" %}
 {% block title %}{{ series.name }} — Series — Shelf{% endblock %}
 {% block content %}
-{% set can_edit = user and user.role in ('admin', 'editor') %}
+{% set can_edit = can_edit_catalogue|default(false) %}
 <div class="mb-6">
     <div class="flex items-center gap-2 text-xs text-shelf-muted mb-4">
         <a href="/browse" class="hover:text-shelf-text">Browse</a>
@@ -151,7 +151,7 @@
     <a href="/item/{{ item.id }}?from=series"
        class="group relative"
        data-series-position="{{ item.series_position if item.series_position is not none else '' }}">
-        <div class="cover-card bg-shelf-card rounded-lg overflow-hidden border border-shelf-border group-hover:border-shelf-accent/50 transition-colors shadow-lg">
+        <div class="cover-card bg-shelf-card rounded-lg overflow-hidden border border-shelf-border group-hover:border-shelf-accent/50 transition-colors shadow-lg" data-cover-shape="{{ cover_shape(item.media_type) }}">
             {% if item.cover_path %}
             <img src="/{{ item.cover_path }}" alt="{{ item.title }}" loading="lazy">
             {% else %}

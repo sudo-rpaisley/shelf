@@ -1,7 +1,7 @@
 """Tests for app.services.national — prefix-provider registry and the shared
 MARC <-> ISO 639-1 language mapper. Pure logic, no app/db needed (see G14)."""
 
-from app.services import dnb, sbn
+from app.services import bnf, dnb, kb, neodb, oszk, porbase, sbn
 from app.services.national import (
     PREFIX_PROVIDERS,
     SEARCH_LANGS,
@@ -15,14 +15,55 @@ from app.services.national import (
 
 
 class TestProviderFor:
+    def test_french_groups_return_bnf(self):
+        assert provider_for("9782253164074") is bnf  # 978-2
+        assert provider_for("9791021000000") is bnf  # 979-10
+
+    def test_french_group_does_not_swallow_neighbours(self):
+        assert provider_for("9791221200454") is sbn  # 979-12 Italy
+        assert provider_for("9791100000000") is None  # 979-11 Korea
+
+    def test_chinese_groups_return_neodb(self):
+        assert provider_for("9787544295390") is neodb  # 978-7 mainland China
+        assert provider_for("9789577081193") is neodb  # 978-957 Taiwan
+        assert provider_for("9789860000000") is neodb  # 978-986 Taiwan
+        assert provider_for("9786267747858") is neodb  # 978-626 Taiwan
+        assert provider_for("9789620000000") is neodb  # 978-962 Hong Kong
+        assert provider_for("9789880000000") is neodb  # 978-988 Hong Kong
+
+    def test_chinese_groups_do_not_swallow_neighbours(self):
+        assert provider_for("9789896168285") is porbase  # 978-989 Portugal, beside 978-988
+        assert provider_for("9789630000000") is oszk  # 978-963 Hungary, beside 978-962
+        assert provider_for("9789580000000") is None  # 978-958 Colombia, beside 978-957
+        assert provider_for("9786270000000") is None  # 978-627 Pakistan, beside 978-626
+        assert provider_for("9789870000000") is None  # 978-987 Argentina, beside 978-986
+
     def test_german_group_returns_dnb(self):
         assert provider_for("9783161484100") is dnb
+
+    def test_hungarian_groups_return_oszk(self):
+        assert provider_for("9786155420818") is oszk
+        assert provider_for("9789630000000") is oszk
 
     def test_italian_group_978_88_returns_sbn(self):
         assert provider_for("9788842092995") is sbn
 
     def test_italian_group_979_12_returns_sbn(self):
         assert provider_for("9791221200454") is sbn
+
+    def test_dutch_group_978_90_returns_kb(self):
+        assert provider_for("9789026101632") is kb
+
+    def test_dutch_group_978_94_returns_kb(self):
+        assert provider_for("9789400000000") is kb
+
+    def test_portuguese_groups_return_porbase(self):
+        assert provider_for("9789896168285") is porbase
+        assert provider_for("9789722026673") is porbase
+
+    def test_portuguese_group_does_not_swallow_neighbours(self):
+        assert provider_for("9788535914849") is None  # 978-85 Brazil
+        assert provider_for("9789730000000") is None  # 978-973 Romania
 
     def test_spanish_group_is_not_routed_to_sbn(self):
         # 978-84 (Spain) must NOT match. A 4-digit "9788" key would pass this
@@ -116,6 +157,9 @@ class TestToIso639_1:
 
     def test_marc_nor(self):
         assert to_iso639_1("nor") == "no"
+
+    def test_marc_hun(self):
+        assert to_iso639_1("hun") == "hu"
 
     def test_openlibrary_languages_prefix_strip(self):
         assert to_iso639_1("/languages/ger") == "de"

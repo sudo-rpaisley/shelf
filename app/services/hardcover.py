@@ -1,12 +1,15 @@
 """Hardcover.app GraphQL API client for book metadata and library sync."""
 
 import logging
+from datetime import date
 
 import httpx
+from fastapi import HTTPException
 
-from app.services import outbound, provider_result
+from app.config import BOOK_MEDIA_TYPES
+from app.services import authors as authors_svc
+from app.services import catalogue_security, item_write, libraries, outbound, provider_result, user_state
 from app.services.isbn import isbn13_to_isbn10
-from app.services.item_write import update_item_fields
 
 logger = logging.getLogger(__name__)
 
@@ -186,8 +189,7 @@ async def lookup_by_isbn(
     contributions = book.get("contributions", [])
     if contributions:
         author_names = [c["author"]["name"] for c in contributions if c.get("author", {}).get("name")]
-        if author_names:
-            authors = ", ".join(author_names)
+        authors = authors_svc.join_names(author_names)
 
     # Extract every explicit series; the first remains the legacy primary.
     series_memberships = _book_series_memberships(book)
@@ -302,8 +304,7 @@ async def get_user_books(
         contributions = book.get("contributions", [])
         if contributions:
             author_names = [c["author"]["name"] for c in contributions if c.get("author", {}).get("name")]
-            if author_names:
-                authors = ", ".join(author_names)
+            authors = authors_svc.join_names(author_names)
 
         # Extract every explicit series; the first remains the legacy primary.
         series_memberships = _book_series_memberships(book)
@@ -408,9 +409,18 @@ async def search_books(query_str: str, client: httpx.AsyncClient, token: str | N
         elif isinstance(img, str):
             cover_url = img
 
-        # Authors
-        author_names = doc.get("author_names", [])
-        authors = ", ".join(author_names) if isinstance(author_names, list) else author_names
+        # Authors — this search index's author_names is a list for most docs
+        # but a bare string for some, so wrap the string case before the funnel.
+        # Any other shape is dropped here: this loop has no parse guard, so a
+        # TypeError from join_names would reach the caller as a 500.
+        raw = doc.get("author_names") or []
+        if isinstance(raw, str):
+            names = [raw]
+        elif isinstance(raw, (list, tuple)):
+            names = raw
+        else:
+            names = []
+        authors = authors_svc.join_names(names)
 
         # Search documents may expose a featured series plus other series names.
         # Keep every explicit name; only the featured series has a reliable position.
@@ -565,47 +575,166 @@ async def push_item_to_hardcover(
         return result
 
 
-async def sync_reading_statuses(token: str) -> dict:
-    """Pull reading status changes from Hardcover and update Shelf items.
-    Only updates items that are already linked (have hardcover_book_id).
-    Returns {updated, unchanged, total}."""
+class _AccountSyncRefused(ValueError):
+    pass
+
+
+class _LegacySoleAccount(dict):
+    """Canonical row plus a restrictive sole-account requirement, not a grant."""
+
+
+_ACCOUNT_COLUMNS = "id, username, role, display_name, token_version, language"
+_SYNC_REFUSED = "Hardcover sync is not authorized"
+
+
+def _sole_account(db):
+    rows = db.execute(f"SELECT {_ACCOUNT_COLUMNS} FROM users LIMIT 2").fetchall()
+    return dict(rows[0]) if len(rows) == 1 else None
+
+
+def _canonical_account(db, user=None):
+    """Resolve a server-supplied snapshot; never promote a bearer/request actor."""
+    actor = catalogue_security.current_actor()
+    user = user if user is not None else actor
+    if user is None:
+        raise _AccountSyncRefused(_SYNC_REFUSED)
+    try:
+        user_id, version = int(user["id"]), int(user["token_version"])
+        row = db.execute(
+            f"SELECT {_ACCOUNT_COLUMNS} FROM users WHERE id = ?", (user_id,),
+        ).fetchone()
+        if row is None or row["token_version"] != version:
+            raise _AccountSyncRefused(_SYNC_REFUSED)
+        for principal in (user, actor):
+            if principal is None:
+                continue
+            if (principal.get("api_token_id")
+                    or int(principal["id"]) != user_id
+                    or int(principal["token_version"]) != version
+                    or ("username" in principal
+                        and principal["username"].casefold() != row["username"].casefold())
+                    or ("role" in principal and principal["role"] != row["role"])):
+                raise _AccountSyncRefused(_SYNC_REFUSED)
+    except (KeyError, TypeError, ValueError, AttributeError):
+        raise _AccountSyncRefused(_SYNC_REFUSED) from None
+    return dict(row)
+
+
+def scheduled_account(db):
+    """Read an opted-in owner snapshot, or a non-HTTP, positively sole legacy user.
+
+    Missing/invalid configured owners NEVER fall back to a different account.
+    This does not enable a schedule or consult a legacy provider user ID.
+    """
+    settings = dict(db.execute(
+        "SELECT key, value FROM settings WHERE key IN ('hc_sync_user_id', 'hc_sync_token_version')",
+    ).fetchall())
+    owner_id = settings.get("hc_sync_user_id")
+    version = settings.get("hc_sync_token_version")
+    try:
+        if not owner_id and not version:
+            if catalogue_security.current_actor() is not None:
+                return None
+            return _LegacySoleAccount(_canonical_account(db, _sole_account(db)))
+        if not owner_id or not version:
+            return None
+        return _canonical_account(db, {"id": owner_id, "token_version": version})
+    except (_AccountSyncRefused, RuntimeError):
+        return None
+
+
+def set_schedule_owner(db, user, *, enabled=True):
+    """Capture the explicit canonical admin configuring this global schedule.
+
+    Caller holds _write_scope; off clears both snapshot keys atomically.
+    """
+    if user is None:
+        raise _AccountSyncRefused(_SYNC_REFUSED)
+    owner = _canonical_account(db, user)
+    if owner["role"] != "admin":
+        raise _AccountSyncRefused(_SYNC_REFUSED)
+    if not enabled:
+        db.execute("DELETE FROM settings WHERE key IN ('hc_sync_user_id', 'hc_sync_token_version')")
+        return
+    db.executemany(
+        "INSERT INTO settings (key, value) VALUES (?, ?) "
+        "ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+        [("hc_sync_user_id", str(owner["id"])),
+         ("hc_sync_token_version", str(owner["token_version"]))],
+    )
+
+
+def _sync_targets(db, user, item_ids=None):
+    # Deliberate physical read: explicit account visibility and private state
+    # must also hold on actor-free scheduler connections. No shared-status fallback.
+    condition, params = libraries.item_access_condition(user, item_alias="i")
+    family = sorted(BOOK_MEDIA_TYPES)
+    selection = ""
+    if item_ids is not None:
+        if not item_ids:
+            return []
+        selection = f" AND i.id IN ({','.join('?' * len(item_ids))})"
+        params = params + list(item_ids)
+    return db.execute(
+        "SELECT i.id, i.hardcover_book_id, i.media_type, li.library_id, s.reading_status "
+        "FROM items i JOIN library_items li ON li.item_id = i.id "
+        "LEFT JOIN user_item_state s ON s.item_id = i.id AND s.user_id = ? "
+        "WHERE i.deleted_at IS NULL AND i.hardcover_book_id IS NOT NULL "
+        f"AND i.media_type IN ({','.join('?' * len(family))}) AND ({condition})"
+        f"{selection} ORDER BY i.id",
+        [user["id"], *family, *params],
+    ).fetchall()
+
+
+async def sync_reading_statuses(token: str, *, user=None) -> dict:
+    """Pull linked book statuses into ONE account's private state, atomically.
+
+    Omitted user means the canonical request actor, or a positively sole account
+    in non-HTTP legacy work. No household-global status/link fallback is allowed.
+    """
     from app.database import get_db
 
-    user_id = await get_user_id(token)
-    if not user_id:
-        return {"updated": 0, "unchanged": 0, "total": 0, "error": "Could not get user ID"}
+    try:
+        implicit_sole = user is None and catalogue_security.current_actor() is None
+        legacy_sole = implicit_sole or isinstance(user, _LegacySoleAccount)
+        with get_db() as db:
+            owner = _canonical_account(db, _sole_account(db) if implicit_sole else user)
+            if legacy_sole and _sole_account(db) != owner:
+                raise _AccountSyncRefused(_SYNC_REFUSED)
+            linked = _sync_targets(db, owner)
+        if not linked:
+            return {"updated": 0, "unchanged": 0, "total": 0}
 
-    async with httpx.AsyncClient(timeout=30) as client:
-        hc_books = await get_user_books(token, user_id, client=client)
+        hc_user_id = await get_user_id(token)
+        if not hc_user_id:
+            return {"updated": 0, "unchanged": 0, "total": 0, "error": "Could not get user ID"}
+        async with httpx.AsyncClient(timeout=30) as client:
+            hc_books = await get_user_books(token, hc_user_id, client=client)
+        hc_status_map = {book["hardcover_book_id"]: book.get("reading_status")
+                         for book in hc_books if book.get("hardcover_book_id")}
 
-    # Build lookup: hardcover_book_id -> hc reading status
-    hc_status_map = {}
-    for hb in hc_books:
-        bid = hb.get("hardcover_book_id")
-        if bid:
-            hc_status_map[bid] = hb.get("reading_status")
-
-    updated = 0
-    unchanged = 0
-
-    with get_db() as db:
-        # Get all Shelf items linked to Hardcover
-        linked = db.execute(
-            "SELECT id, hardcover_book_id, reading_status FROM items WHERE hardcover_book_id IS NOT NULL"
-        ).fetchall()
-
-        for item in linked:
-            hc_bid = item["hardcover_book_id"]
-            hc_reading = hc_status_map.get(hc_bid)
-            shelf_reading = item["reading_status"]
-
-            if hc_reading and hc_reading != shelf_reading:
-                update_item_fields(db, item["id"], {"reading_status": hc_reading})
-                updated += 1
-            else:
-                unchanged += 1
-
-    return {"updated": updated, "unchanged": unchanged, "total": len(linked)}
+        with get_db() as db, item_write._write_scope(db):
+            owner = _canonical_account(db, owner)
+            if legacy_sole and _sole_account(db) != owner:
+                raise _AccountSyncRefused(_SYNC_REFUSED)
+            current = _sync_targets(db, owner, [item["id"] for item in linked])
+            identity = ("id", "hardcover_book_id", "media_type", "library_id")
+            if ([tuple(row[key] for key in identity) for row in current]
+                    != [tuple(row[key] for key in identity) for row in linked]):
+                raise _AccountSyncRefused(_SYNC_REFUSED)
+            # ALL captured identities, parents and viewer permissions have now
+            # been rechecked under the write lock, before the first mutation.
+            updated = 0
+            for item in current:
+                status = hc_status_map.get(item["hardcover_book_id"])
+                if status and status != item["reading_status"]:
+                    user_state.save_state(db, owner["id"], item["id"], reading_status=status)
+                    updated += 1
+        return {"updated": updated, "unchanged": len(current) - updated, "total": len(current)}
+    except (_AccountSyncRefused, HTTPException, RuntimeError):
+        # Refusal never discloses a title, provider ID, hidden parent or partial
+        # counts, and _write_scope rolls back any failed private-state batch.
+        return {"updated": 0, "unchanged": 0, "total": 0, "error": _SYNC_REFUSED}
 
 
 # --- Series completeness (see .devdocs/archive/completed/SERIES_TRACKING.md) ---
@@ -642,8 +771,7 @@ def _parse_series_entries(entries: list) -> list[dict]:
         contributions = book.get("contributions", [])
         if contributions:
             names = [c["author"]["name"] for c in contributions if c.get("author", {}).get("name")]
-            if names:
-                authors = ", ".join(names)
+            authors = authors_svc.join_names(names)
 
         cover_url = None
         ci = book.get("cached_image")
@@ -740,6 +868,164 @@ async def get_series_books(series_name: str, token: str, client: httpx.AsyncClie
         return _parse_series_entries(entries) or None
 
     return None
+
+
+def _parse_series_upcoming(entries: list, today: date) -> list[dict]:
+    """Normalize book_series rows for the release radar.
+
+    A sibling of `_parse_series_entries` (which is unchanged, as is the
+    completeness check that calls it). Same canonical/compilation drop and
+    same most-shelved collapse of equal positions; the difference is the 1%
+    `users_count` floor, applied only to rows whose parsed `release_date` is
+    before `today`. An announced volume has no readers yet, so a future or
+    undated row is kept whatever its count.
+    """
+    books = []
+    seen_ids = set()
+    for entry in entries or []:
+        book = (entry or {}).get("book") or {}
+        if not book.get("title") or not book.get("id"):
+            continue
+        if book["id"] in seen_ids:
+            continue
+        if book.get("canonical_id") is not None or book.get("compilation"):
+            continue
+        seen_ids.add(book["id"])
+
+        authors = None
+        contributions = book.get("contributions", [])
+        if contributions:
+            names = [c["author"]["name"] for c in contributions if c.get("author", {}).get("name")]
+            authors = authors_svc.join_names(names)
+
+        cover_url = None
+        ci = book.get("cached_image")
+        if isinstance(ci, dict):
+            cover_url = ci.get("url")
+        elif isinstance(ci, str):
+            cover_url = ci
+
+        release_date = None
+        raw_date = book.get("release_date")
+        if isinstance(raw_date, str):
+            try:
+                release_date = date.fromisoformat(raw_date[:10])
+            except ValueError:
+                release_date = None
+
+        books.append({
+            "hardcover_book_id": book["id"],
+            "title": book["title"],
+            "authors": authors,
+            "cover_url": cover_url,
+            "series_position": entry.get("position"),
+            "_date": release_date,
+            "release_year": book.get("release_year"),
+            "_users": book.get("users_count") or 0,
+        })
+
+    by_pos: dict = {}
+    unpositioned = []
+    for b in books:
+        pos = b["series_position"]
+        if pos is None:
+            unpositioned.append(b)
+        elif pos not in by_pos or b["_users"] > by_pos[pos]["_users"]:
+            by_pos[pos] = b
+    books = list(by_pos.values()) + unpositioned
+
+    max_users = max((b["_users"] for b in books), default=0)
+    floor = max_users * 0.01
+    books = [
+        b for b in books
+        if (b["_date"] is None or b["_date"] >= today or b["_users"] >= floor)
+    ]
+
+    for b in books:
+        d = b.pop("_date")
+        b["release_date"] = d.isoformat() if d else None
+        del b["_users"]
+    books.sort(key=lambda b: (b["series_position"] is None, b["series_position"] or 0))
+    return books
+
+
+async def get_series_upcoming(
+    series_name: str,
+    token: str,
+    client: httpx.AsyncClient | None = None,
+    *,
+    today: date | None = None,
+) -> provider_result.ProviderResult:
+    """Fetch a series' books with release dates, for the release radar.
+
+    Returns a `ProviderResult` (`provider="hardcover"`), by exit path:
+      * no token: `no_credential`, with no request made.
+      * shape 1 (`book_series` filtered by series name) `found` with rows:
+        `found(payload=parsed rows)`. A series whose rows all filter away
+        is still `found([])`: the series exists, it has no usable rows.
+      * shape 1 `no_match` (a GraphQL `errors` body, or no rows): try shape 2
+        (`series { book_series }`). Shape 2 `found` with a series row is
+        `found(parsed)`; `found([])` when that series has no rows left.
+      * both shapes `no_match`: `no_match`.
+      * any other outcome (`rejected`, `rate_limited`, `transport_failed`,
+        `no_credential`) from either shape is returned as-is, and no further
+        call follows it.
+    `_graphql_outcome` catches every request and parse error itself, and the
+    parsing here runs on already-decoded data, so nothing raises on a bad
+    response body.
+    """
+    today = today or date.today()
+    book_fields = """
+          book {
+            id
+            title
+            release_date
+            release_year
+            cached_image
+            canonical_id
+            compilation
+            users_count
+            contributions { author { name } }
+          }
+    """
+
+    query_root = f"""
+    query ($name: String!) {{
+      book_series(
+        where: {{ series: {{ name: {{ _eq: $name }} }} }},
+        order_by: {{ position: asc }},
+        limit: 100
+      ) {{
+          position
+          {book_fields}
+      }}
+    }}
+    """
+    first = await _graphql_outcome(query_root, {"name": series_name}, token=token, client=client)
+    if first.found and (first.payload or {}).get("book_series"):
+        return first.with_payload(_parse_series_upcoming(first.payload["book_series"], today))
+    if first.outcome not in ("found", "no_match"):
+        return first
+
+    query_fallback = f"""
+    query ($name: String!) {{
+      series(where: {{ name: {{ _eq: $name }} }}, limit: 1) {{
+        name
+        book_series(order_by: {{ position: asc }}, limit: 100) {{
+          position
+          {book_fields}
+        }}
+      }}
+    }}
+    """
+    second = await _graphql_outcome(query_fallback, {"name": series_name}, token=token, client=client)
+    if second.found:
+        rows = (second.payload or {}).get("series") or []
+        if rows:
+            entries = (rows[0] or {}).get("book_series") or []
+            return second.with_payload(_parse_series_upcoming(entries, today))
+        return provider_result.no_match("hardcover", status=second.status)
+    return second
 
 
 async def get_series_description(series_name: str, token: str, client: httpx.AsyncClient | None = None) -> str | None:

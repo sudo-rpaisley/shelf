@@ -1,22 +1,11 @@
-<div id="personal-state-section"
-     hx-get="/api/items/{{ item.id }}/personal-state"
-     hx-trigger="load"
-     hx-swap="outerHTML">
-    <p class="text-sm text-shelf-muted">Loading your activity…</p>
-    {# Existing pre-personal-state history remains visible during the short
-       HTMX load, then the personal fragment replaces this block. This keeps
-       upgraded single-user libraries useful even before their first personal
-       state interaction. #}
+{# Personal activity is actor-owned, including its initial/history fallback. #}
+<div id="personal-state-section" hx-get="/api/items/{{ item.id }}/personal-state" hx-trigger="load" hx-swap="outerHTML">
+    <p class="text-sm text-shelf-muted">{{ _('Loading your activity…') }}</p>
+    {% set sl = status_labels(item.media_type) %}
     {% if reading_history and reading_history|length >= 2 %}
-    <details class="mt-2" data-testid="reading-history">
-        <summary class="text-xs text-shelf-muted cursor-pointer hover:text-shelf-text">Read {{ reading_history|length }} times</summary>
-        <div class="mt-2 space-y-1">
-            {% for r in reading_history %}
-            <div class="text-xs text-shelf-muted flex gap-2">
-                <span>{{ (r.date_started or '—')[:10] }}</span><span>→</span><span>{{ (r.date_finished or '—')[:10] }}</span>
-            </div>
-            {% endfor %}
-        </div>
+    <details class="mt-2" data-testid="reading-history"><summary class="text-xs text-shelf-muted">{{ _('%(status)s %(count)s times', status=_(sl.done), count=reading_history|length) }}</summary>
+        {% for row in reading_history %}<p class="text-xs text-shelf-muted">{{ (row.date_started or '—')[:10] }} → {{ (row.date_finished or '—')[:10] }}</p>{% endfor %}
     </details>
     {% endif %}
+    <noscript><a href="/my-list" class="text-shelf-accent2">{{ _('My List') }}</a></noscript>
 </div>

@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import logging
 from typing import Any
+from urllib.parse import quote
 
 import httpx
 
@@ -264,12 +265,14 @@ async def lookup_release(
         return provider_result.no_match("musicbrainz")
     result = await _request_json(
         client,
-        f"{MUSICBRAINZ_BASE}/release/{release_id}",
+        f"{MUSICBRAINZ_BASE}/release/{quote(release_id, safe='')}",
         params={"inc": _RELEASE_INCLUDES, "fmt": "json"},
     )
     if not result.found:
         return result
     if not isinstance(result.payload, dict) or not result.payload.get("id"):
+        return provider_result.no_match("musicbrainz")
+    if str(result.payload["id"]).casefold() != release_id.casefold():
         return provider_result.no_match("musicbrainz")
     return result.with_payload(normalise_release(result.payload))
 
@@ -283,7 +286,7 @@ async def cover_art(
         return provider_result.no_match("coverartarchive")
     result = await _request_json(
         client,
-        f"{COVER_ART_BASE}/release/{release_id}",
+        f"{COVER_ART_BASE}/release/{quote(release_id, safe='')}",
         provider="coverartarchive",
     )
     if not result.found:

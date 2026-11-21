@@ -11,10 +11,12 @@ from app.services.reading_imports import (
     _clean_date,
     _clean_isbn,
     detect_format,
+    normalize_generic,
     normalize_goodreads,
     normalize_storygraph,
     split_series_title,
 )
+from tests.conftest import _assert_ownership_partition
 
 # Realistic export headers
 GOODREADS_HEADER = (
@@ -56,6 +58,47 @@ def _post_csv(client, content, **fields):
 
 def _normalized(header):
     return [f.strip().lower().replace(" ", "_") for f in header.split(",")]
+
+
+def _assert_imported_state(db, user_id, item_id, other_user_id, *, status,
+                           finished=None, wishlist=0):
+    """Assert the import's actual named-actor write, not a fixture replay."""
+    personal = db.execute(
+        "SELECT user_id, item_id, reading_status, date_started, date_finished, wishlist "
+        "FROM user_item_state WHERE user_id = ? AND item_id = ?", (user_id, item_id),
+    ).fetchone()
+    assert personal is not None
+    assert tuple(personal) == (user_id, item_id, status, None, finished, wishlist)
+    legacy = db.execute(
+        "SELECT reading_status, date_started, date_finished FROM items WHERE id = ?", (item_id,),
+    ).fetchone()
+    assert tuple(legacy) == (None, None, None)
+    assert db.execute(
+        "SELECT 1 FROM user_item_state WHERE user_id = ? AND item_id = ?", (other_user_id, item_id),
+    ).fetchone() is None
+
+
+_STAGED_COVER_BYTES = b"synthetic pending reading-import cover"
+
+
+async def _write_staged_cover(download_id, isbn, cover_url, cover_id, client, **kwargs):
+    from app import config
+
+    assert download_id < 0  # the real CoverStage, never a fake final path
+    (config.COVERS_DIR / f"{download_id}.jpg").write_bytes(_STAGED_COVER_BYTES)
+    return f"covers/{download_id}.jpg"
+
+
+def _assert_published_cover(item_id, download):
+    from app import config
+
+    final = config.COVERS_DIR / f"{item_id}.jpg"
+    assert final.read_bytes() == _STAGED_COVER_BYTES
+    for call in download.await_args_list:
+        download_id = call.args[0]
+        assert download_id < 0 and download_id != item_id
+        assert not (config.COVERS_DIR / f"{download_id}.jpg").exists()
+    assert list(config.COVERS_DIR.iterdir()) == [final]
 
 
 # ---------------------------------------------------------------------------
@@ -112,10 +155,70 @@ class TestCleanDate:
         assert _clean_date("not a date") is None
         assert _clean_date("") is None
 
+    def test_impossible_calendar_date_is_none(self):
+        assert _clean_date("2023/13/45") is None
+        assert _clean_date("2023/02/30") is None
+        assert _clean_date("2023/00/10") is None
+
+    def test_leap_day_kept(self):
+        assert _clean_date("2024/02/29") == "2024-02-29"
+
 
 # ---------------------------------------------------------------------------
 # Normalizers
 # ---------------------------------------------------------------------------
+
+
+class TestNormalizeGenericWishlisted:
+    """normalize_generic's `wishlisted` column: accepted spellings and the
+    absent/blank -> None cases. The importer does not read this value in
+    plan 1 (items_csv.py) — this pins the parser alone."""
+
+    @pytest.mark.parametrize("spelling", ["1", "true", "True", "TRUE", "yes", "Yes", "YES"])
+    def test_truthy_spellings(self, spelling):
+        n = normalize_generic({"title": "T", "wishlisted": spelling})
+        assert n["wishlisted"] is True
+
+    @pytest.mark.parametrize("spelling", ["0", "false", "False", "FALSE", "no", "No", "NO"])
+    def test_falsy_spellings(self, spelling):
+        n = normalize_generic({"title": "T", "wishlisted": spelling})
+        assert n["wishlisted"] is False
+
+    def test_blank_is_none(self):
+        assert normalize_generic({"title": "T", "wishlisted": ""})["wishlisted"] is None
+
+    def test_absent_column_is_none(self):
+        assert normalize_generic({"title": "T"})["wishlisted"] is None
+
+
+class TestNormalizeGenericTags:
+    """normalize_generic's `tags` column, and the kids_book alias's Kids
+    tag (T8) — the parser alone; the importer's own additive-only /
+    length-check behavior is pinned in test_csv_roundtrip.py."""
+
+    def test_semicolon_list_parsed(self):
+        n = normalize_generic({"title": "T", "tags": "Signed; First Edition"})
+        assert n["tags"] == ["Signed", "First Edition"]
+
+    def test_absent_column_is_empty_list(self):
+        assert normalize_generic({"title": "T"})["tags"] == []
+
+    def test_blank_cell_is_empty_list(self):
+        assert normalize_generic({"title": "T", "tags": ""})["tags"] == []
+
+    def test_kids_book_media_type_earns_the_kids_tag(self):
+        n = normalize_generic({"title": "T", "media_type": "kids_book"})
+        assert n["media_type"] == "book"
+        assert n["tags"] == ["Kids"]
+
+    def test_plain_book_media_type_earns_no_tag(self):
+        n = normalize_generic({"title": "T", "media_type": "book"})
+        assert n["media_type"] == "book"
+        assert n["tags"] == []
+
+    def test_kids_book_does_not_duplicate_an_existing_kids_tag(self):
+        n = normalize_generic({"title": "T", "media_type": "kids_book", "tags": "kids"})
+        assert n["tags"] == ["kids"]  # NOCASE match on the row's own spelling wins
 
 
 class TestNormalizeGoodreads:
@@ -201,8 +304,12 @@ class TestNormalizeStorygraph:
         assert n["date_finished"] == "2023-02-20"
         assert n["owned"] is True
 
-    def test_not_owned_is_wishlist(self):
-        assert normalize_storygraph(self._row(**{"owned?": "No"}))["owned"] is False
+    def test_not_owned_is_not_owned(self):
+        """The normaliser speaks only to `owned`; whether the row is
+        wishlisted is the importer's decision (#125)."""
+        n = normalize_storygraph(self._row(**{"owned?": "No"}))
+        assert n["owned"] is False
+        assert n["wishlisted"] is None
 
     def test_missing_owned_defaults_owned(self):
         assert normalize_storygraph(self._row(**{"owned?": ""}))["owned"] is True
@@ -220,7 +327,7 @@ class TestNormalizeStorygraph:
 
 
 class TestGoodreadsImport:
-    def test_import_maps_fields(self, admin_client, db):
+    def test_import_maps_fields(self, admin_client, admin_user, viewer_user, db):
         csv_content = GOODREADS_HEADER + "\n" + _gr_row()
         data = _post_csv(admin_client, csv_content).json()
         assert data["format"] == "goodreads"
@@ -229,10 +336,11 @@ class TestGoodreadsImport:
 
         item = db.execute("SELECT * FROM items WHERE isbn = '9780441013593'").fetchone()
         assert item["title"] == "Dune"
-        assert item["reading_status"] == "read"
-        assert item["date_finished"] == "2023-08-15"
+        _assert_imported_state(db, admin_user["id"], item["id"], viewer_user["id"],
+                               status="read", finished="2023-08-15")
         assert item["owned"] == 0  # Owned Copies is 0 in the export
         assert item["source"] == "goodreads_import"
+        _assert_ownership_partition(db)
 
     def test_owned_copies_imports_as_owned(self, admin_client, db):
         csv_content = GOODREADS_HEADER + "\n" + _gr_row(
@@ -242,6 +350,7 @@ class TestGoodreadsImport:
         assert data["imported"] == 1
         item = db.execute("SELECT owned FROM items WHERE isbn = '9780441172719'").fetchone()
         assert item["owned"] == 1
+        _assert_ownership_partition(db)
 
     def test_series_title_imports_split(self, admin_client, db):
         csv_content = GOODREADS_HEADER + "\n" + _gr_row(
@@ -256,15 +365,48 @@ class TestGoodreadsImport:
         assert item["series_name"] == "Gray Man"
         assert item["series_position"] == 1.0
 
-    def test_to_read_wishlist_option(self, admin_client, db):
-        csv_content = GOODREADS_HEADER + "\n" + _gr_row(
+    def test_to_read_wishlist_option(self, admin_client, admin_user, viewer_user, db):
+        """To-read intent is personal; neither option adds shared acquisition intent."""
+        from app.services import lists
+
+        on = GOODREADS_HEADER + "\n" + _gr_row(
             title="Hyperion", isbn13="9780553283686", isbn10="0553283685",
-            shelf="to-read", date_read="")
+            shelf="to-read", date_read="", owned_copies="0")
+        assert _post_csv(admin_client, on, to_read_wishlist="1").json()["imported"] == 1
+        off = GOODREADS_HEADER + "\n" + _gr_row(
+            title="Endymion", isbn13="9780553572988", isbn10="0553572989",
+            shelf="to-read", date_read="", owned_copies="0")
+        assert _post_csv(admin_client, off).json()["imported"] == 1
+
+        wished = db.execute("SELECT * FROM items WHERE isbn = '9780553283686'").fetchone()
+        _assert_imported_state(db, admin_user["id"], wished["id"], viewer_user["id"],
+                               status="want_to_read", wishlist=1)
+        assert wished["owned"] == 0
+        assert not lists.is_member(db, lists.WISHLIST, wished["id"])
+        neither = db.execute("SELECT * FROM items WHERE isbn = '9780553572988'").fetchone()
+        _assert_imported_state(db, admin_user["id"], neither["id"], viewer_user["id"],
+                               status="want_to_read", wishlist=0)
+        assert neither["owned"] == 0
+        assert not lists.is_member(db, lists.WISHLIST, neither["id"])
+        _assert_ownership_partition(db)
+
+    def test_read_unowned_imports_as_neither(self, admin_client, admin_user, viewer_user, db):
+        """The #125 reporter's case: a `read` book with no owned copies is
+        neither owned nor wishlisted, and keeps its reading history — with
+        the to-read option on, too."""
+        from app.services import lists
+
+        csv_content = GOODREADS_HEADER + "\n" + _gr_row(
+            shelf="read", date_read="2023/08/15", owned_copies="0")
         data = _post_csv(admin_client, csv_content, to_read_wishlist="1").json()
         assert data["imported"] == 1
-        item = db.execute("SELECT * FROM items WHERE isbn = '9780553283686'").fetchone()
-        assert item["reading_status"] == "want_to_read"
+        assert data["errors"] == []
+        item = db.execute("SELECT * FROM items WHERE isbn = '9780441013593'").fetchone()
         assert item["owned"] == 0
+        assert not lists.is_member(db, lists.WISHLIST, item["id"])
+        _assert_imported_state(db, admin_user["id"], item["id"], viewer_user["id"],
+                               status="read", finished="2023-08-15", wishlist=0)
+        _assert_ownership_partition(db)
 
     def test_in_file_duplicate_skipped(self, admin_client):
         csv_content = GOODREADS_HEADER + "\n" + _gr_row() + "\n" + _gr_row()
@@ -273,17 +415,21 @@ class TestGoodreadsImport:
         assert data["skipped"] == 1
         assert data["errors"] == []
 
-    def test_update_mode_refreshes_status(self, admin_client, db):
+    def test_update_mode_refreshes_status(self, admin_client, admin_user, viewer_user, db):
         first = GOODREADS_HEADER + "\n" + _gr_row(shelf="currently-reading", date_read="")
         assert _post_csv(admin_client, first).json()["imported"] == 1
+        item_id = db.execute("SELECT id FROM items WHERE isbn = '9780441013593'").fetchone()[0]
+        _assert_imported_state(db, admin_user["id"], item_id, viewer_user["id"], status="reading")
 
         second = GOODREADS_HEADER + "\n" + _gr_row(shelf="read", date_read="2024/01/05")
         data = _post_csv(admin_client, second, mode="update").json()
         assert data["imported"] == 1
 
         item = db.execute("SELECT * FROM items WHERE isbn = '9780441013593'").fetchone()
-        assert item["reading_status"] == "read"
-        assert item["date_finished"] == "2024-01-05"
+        assert item["id"] == item_id
+        _assert_imported_state(db, admin_user["id"], item_id, viewer_user["id"],
+                               status="read", finished="2024-01-05")
+        assert item["owned"] == 0
 
     def test_covers_not_queued_in_tests(self, admin_client):
         """SHELF_DISABLE_COVER_ENRICH is set by conftest — no background task."""
@@ -293,7 +439,7 @@ class TestGoodreadsImport:
 
 
 class TestStorygraphImport:
-    def test_import_maps_fields(self, admin_client, db):
+    def test_import_maps_fields(self, admin_client, admin_user, viewer_user, db):
         csv_content = STORYGRAPH_HEADER + "\n" + _sg_row()
         data = _post_csv(admin_client, csv_content).json()
         assert data["format"] == "storygraph"
@@ -302,16 +448,156 @@ class TestStorygraphImport:
         item = db.execute("SELECT * FROM items WHERE isbn = '9780547928227'").fetchone()
         assert item["title"] == "The Hobbit"
         assert item["media_type"] == "ebook"
-        assert item["reading_status"] == "read"
+        _assert_imported_state(db, admin_user["id"], item["id"], viewer_user["id"],
+                               status="read", finished="2023-02-20")
+        assert item["owned"] == 1
         assert item["source"] == "storygraph_import"
+        _assert_ownership_partition(db)
 
-    def test_not_owned_imports_as_wishlist(self, admin_client, db):
+    def test_read_unowned_imports_as_neither(self, admin_client, admin_user, viewer_user, db):
+        """A StoryGraph `read` row marked not owned is neither (#125)."""
+        from app.services import lists
+
         csv_content = STORYGRAPH_HEADER + "\n" + _sg_row(
-            title="Piranesi", isbn="9781635575637", owned="No", status="to-read", last_read="")
-        data = _post_csv(admin_client, csv_content).json()
+            title="Piranesi", isbn="9781635575637", owned="No", status="read",
+            last_read="2023/03/04")
+        data = _post_csv(admin_client, csv_content, to_read_wishlist="1").json()
         assert data["imported"] == 1
         item = db.execute("SELECT * FROM items WHERE isbn = '9781635575637'").fetchone()
         assert item["owned"] == 0
+        assert not lists.is_member(db, lists.WISHLIST, item["id"])
+        _assert_imported_state(db, admin_user["id"], item["id"], viewer_user["id"],
+                               status="read", finished="2023-03-04", wishlist=0)
+        _assert_ownership_partition(db)
+
+
+class TestGenericStateColumns:
+    """Shelf's own CSV carries `owned` and `wishlisted` (#125). The import
+    resolves them in order: owned wins, then the file's `wishlisted` column,
+    then the to-read option."""
+
+    HEADER = "title,authors,isbn,media_type,owned,wishlisted"
+
+    def _state(self, db, isbn):
+        from app.services import lists
+
+        row = db.execute("SELECT id, owned FROM items WHERE isbn = ?", (isbn,)).fetchone()
+        return row["owned"], lists.is_member(db, lists.WISHLIST, row["id"])
+
+    def test_wishlisted_column_is_honoured_with_the_option_off(self, admin_client, db):
+        content = self.HEADER + "\nWish Book,A,9780441013593,book,0,1\n"
+        data = _post_csv(admin_client, content).json()
+        assert (data["imported"], data["errors"]) == (1, [])
+        assert self._state(db, "9780441013593") == (0, True)
+        _assert_ownership_partition(db)
+
+    def test_owned_and_wishlisted_imports_owned_without_an_error(self, admin_client, db):
+        content = self.HEADER + "\nBoth Book,A,9780441013593,book,1,1\n"
+        data = _post_csv(admin_client, content).json()
+        assert (data["imported"], data["errors"]) == (1, [])
+        assert self._state(db, "9780441013593") == (1, False)
+        _assert_ownership_partition(db)
+
+    def test_present_wishlisted_zero_beats_the_to_read_option(self, admin_client, db):
+        """Rule 2 before rule 3. A generic file carries no reading status, so
+        the option is driven here through a patched normaliser row."""
+        from app.services import reading_imports
+
+        real = reading_imports.normalize_generic
+
+        def with_status(row):
+            norm = real(row)
+            norm["reading_status"] = "want_to_read"
+            return norm
+
+        content = self.HEADER + "\nNeither Book,A,9780441013593,book,0,0\n"
+        with patch.dict(reading_imports.NORMALIZERS,
+                        {reading_imports.GENERIC: with_status}):
+            data = _post_csv(admin_client, content, to_read_wishlist="1").json()
+        assert (data["imported"], data["errors"]) == (1, [])
+        assert self._state(db, "9780441013593") == (0, False)
+        _assert_ownership_partition(db)
+
+    def test_absent_wishlisted_column_falls_back_to_the_option(self, admin_client, db):
+        """The same patched row with no `wishlisted` value reaches rule 3."""
+        from app.services import reading_imports
+
+        real = reading_imports.normalize_generic
+
+        def with_status(row):
+            norm = real(row)
+            norm["reading_status"] = "want_to_read"
+            return norm
+
+        content = self.HEADER + "\nOption Book,A,9780441013593,book,0,\n"
+        with patch.dict(reading_imports.NORMALIZERS,
+                        {reading_imports.GENERIC: with_status}):
+            data = _post_csv(admin_client, content, to_read_wishlist="1").json()
+        assert (data["imported"], data["errors"]) == (1, [])
+        assert self._state(db, "9780441013593") == (0, True)
+        _assert_ownership_partition(db)
+
+    def test_legacy_export_without_an_owned_column(self, admin_client, db):
+        """A 0.41.1 export has `wishlisted` but no `owned`: membership meant
+        not owned, and every other row was owned."""
+        content = (
+            "title,authors,isbn,media_type,wishlisted\n"
+            "Old Wish,A,9780441013593,book,1\n"
+            "Old Owned,A,9780553283686,book,0\n"
+        )
+        data = _post_csv(admin_client, content).json()
+        assert (data["imported"], data["errors"]) == (2, [])
+        assert self._state(db, "9780441013593") == (0, True)
+        assert self._state(db, "9780553283686") == (1, False)
+        _assert_ownership_partition(db)
+
+    def test_update_mode_moves_a_row_through_all_three_states(self, admin_client, db):
+        from tests.conftest import _insert_item
+
+        _insert_item(db, title="Mover", isbn="9780441013593", media_type="book", owned=1)
+        db.execute("COMMIT")
+
+        for owned, wished, expected in (("0", "1", (0, True)),
+                                        ("0", "0", (0, False)),
+                                        ("1", "0", (1, False))):
+            content = self.HEADER + f"\nMover,A,9780441013593,book,{owned},{wished}\n"
+            data = _post_csv(admin_client, content, mode="update").json()
+            assert (data["imported"], data["errors"]) == (1, [])
+            assert self._state(db, "9780441013593") == expected, (owned, wished)
+        _assert_ownership_partition(db)
+
+    def test_update_mode_without_state_columns_leaves_state_alone(self, admin_client, db):
+        """G87: a metadata-only CSV must not flip a wishlisted or neither row
+        to owned — nor un-wish an item because its `owned` alone was given."""
+        from tests.conftest import _insert_item
+
+        _insert_item(db, title="Stay Neither", isbn="9780441013593", media_type="book",
+                     owned=0)
+        _insert_item(db, title="Stay Wished", isbn="9780553283686", media_type="book",
+                     owned=0, wishlisted=True)
+        db.execute("COMMIT")
+
+        content = (
+            "title,authors,isbn,media_type,publisher\n"
+            "Stay Neither,A,9780441013593,book,New Pub\n"
+            "Stay Wished,A,9780553283686,book,New Pub\n"
+        )
+        data = _post_csv(admin_client, content, mode="update").json()
+        assert (data["imported"], data["errors"]) == (2, [])
+        assert self._state(db, "9780441013593") == (0, False)
+        assert self._state(db, "9780553283686") == (0, True)
+        publisher = db.execute(
+            "SELECT publisher FROM items WHERE isbn = '9780441013593'"
+        ).fetchone()["publisher"]
+        assert publisher == "New Pub"
+
+        owned_only = self.HEADER.replace(",wishlisted", "") + (
+            "\nStay Wished,A,9780553283686,book,0\n"
+        )
+        data = _post_csv(admin_client, owned_only, mode="update").json()
+        assert (data["imported"], data["errors"]) == (1, [])
+        assert self._state(db, "9780553283686") == (0, True)
+        _assert_ownership_partition(db)
 
 
 class TestGenericStillWorks:
@@ -389,27 +675,41 @@ class TestCsvValueFunnel:
         assert item["isbn"] == "9780547928227"
         assert item["isbn10"] == "054792822X"
 
-    def test_reading_tracker_update_applies_to_read_wishlist(self, admin_client, db):
-        """The COALESCE-shaped update path — mode=update on an existing
-        row — must still apply the to_read_wishlist option through the
-        funnel's update_item_fields, not raw SQL (#54)."""
+    def test_reading_tracker_update_applies_to_read_wishlist(self, admin_client, admin_user, viewer_user, db):
+        """Update shared ownership through the funnel and only the actor's tracker intent."""
+        from app.services import lists
         from tests.conftest import _insert_item
 
-        _insert_item(db, title="Hyperion", isbn="9780553283686", media_type="book", owned=1)
+        to_read_id = _insert_item(db, title="Hyperion", isbn="9780553283686",
+                                  media_type="book", owned=1)
+        read_id = _insert_item(db, title="Dune", isbn="9780441013593",
+                               media_type="book", owned=1)
         db.execute("COMMIT")
 
         csv_content = GOODREADS_HEADER + "\n" + _gr_row(
             title="Hyperion", isbn13="9780553283686", isbn10="0553283685",
-            shelf="to-read", date_read="")
+            shelf="to-read", date_read="", owned_copies="0") + "\n" + _gr_row(
+            shelf="read", owned_copies="0")
         data = _post_csv(admin_client, csv_content, mode="update",
                          to_read_wishlist="1").json()
-        assert data["imported"] == 1
+        assert data["imported"] == 2
+        assert data["errors"] == []
 
         item = db.execute(
-            "SELECT reading_status, owned FROM items WHERE isbn = '9780553283686'"
+            "SELECT reading_status, owned FROM items WHERE id = ?", (to_read_id,)
         ).fetchone()
-        assert item["reading_status"] == "want_to_read"
+        _assert_imported_state(db, admin_user["id"], to_read_id, viewer_user["id"],
+                               status="want_to_read", wishlist=1)
         assert item["owned"] == 0
+        assert not lists.is_member(db, lists.WISHLIST, to_read_id)
+        item = db.execute(
+            "SELECT reading_status, owned FROM items WHERE id = ?", (read_id,)
+        ).fetchone()
+        _assert_imported_state(db, admin_user["id"], read_id, viewer_user["id"],
+                               status="read", finished="2023-08-15", wishlist=0)
+        assert item["owned"] == 0
+        assert not lists.is_member(db, lists.WISHLIST, read_id)
+        _assert_ownership_partition(db)
 
 
 # ---------------------------------------------------------------------------
@@ -433,8 +733,8 @@ class TestCoverEnrichment:
         item_id = _insert_item(db, title="Enrich Me", isbn="9780441013593")
         db.execute("COMMIT")  # make visible to the task's own connections
 
-        with patch("app.routers.items.covers.download_cover",
-                   new=AsyncMock(return_value=f"covers/{item_id}.jpg")) as dl:
+        with patch("app.services.covers.download_cover",
+                   new=AsyncMock(side_effect=_write_staged_cover)) as dl:
             await items_common.resolve_missing_cover(item_id, None)
             dl.assert_awaited_once()
 
@@ -442,6 +742,7 @@ class TestCoverEnrichment:
         with get_db() as conn:
             row = conn.execute("SELECT cover_path FROM items WHERE id = ?", (item_id,)).fetchone()
         assert row["cover_path"] == f"covers/{item_id}.jpg"
+        _assert_published_cover(item_id, dl)
 
     @pytest.mark.asyncio
     async def test_enrich_skips_items_with_cover(self, db):
@@ -452,7 +753,7 @@ class TestCoverEnrichment:
                                cover_path="covers/existing.jpg")
         db.execute("COMMIT")
 
-        with patch("app.routers.items.covers.download_cover", new=AsyncMock()) as dl:
+        with patch("app.services.covers.download_cover", new=AsyncMock()) as dl:
             await items_common.resolve_missing_cover(item_id, None)
             dl.assert_not_awaited()
 
@@ -470,10 +771,10 @@ class TestCoverEnrichment:
         search_result = [{"title": "The Gray Man", "authors": "Mark Greaney",
                           "isbn": "9780515147018", "cover_url": "https://covers.example/1.jpg",
                           "publish_year": 2009, "publisher": None, "page_count": None}]
-        with patch("app.routers.items.openlibrary.search_by_title_author",
+        with patch("app.services.openlibrary.search_by_title_author",
                    new=AsyncMock(return_value=search_result)), \
-             patch("app.routers.items.covers.download_cover",
-                   new=AsyncMock(return_value=f"covers/{item_id}.jpg")) as dl:
+             patch("app.services.covers.download_cover",
+                   new=AsyncMock(side_effect=_write_staged_cover)) as dl:
             await items_common.resolve_missing_cover(item_id, None)
             dl.assert_awaited_once()
             assert dl.await_args.args[2] == "https://covers.example/1.jpg"
@@ -485,6 +786,7 @@ class TestCoverEnrichment:
         assert row["isbn"] == "9780515147018"
         assert row["isbn10"] == "051514701X"  # derived from the ISBN-13
         assert row["cover_path"] == f"covers/{item_id}.jpg"
+        _assert_published_cover(item_id, dl)
 
     @pytest.mark.asyncio
     async def test_enrich_recovered_isbn_with_a_bad_digit_is_not_stored(self, db):
@@ -500,10 +802,10 @@ class TestCoverEnrichment:
         search_result = [{"title": "The Gray Man", "authors": "Mark Greaney",
                           "isbn": "9780441172710", "cover_url": "https://covers.example/1.jpg",
                           "publish_year": 2009, "publisher": None, "page_count": None}]
-        with patch("app.routers.items.openlibrary.search_by_title_author",
+        with patch("app.services.openlibrary.search_by_title_author",
                    new=AsyncMock(return_value=search_result)), \
-             patch("app.routers.items.covers.download_cover",
-                   new=AsyncMock(return_value=f"covers/{item_id}.jpg")) as dl:
+             patch("app.services.covers.download_cover",
+                   new=AsyncMock(side_effect=_write_staged_cover)) as dl:
             await items_common.resolve_missing_cover(item_id, None)
             dl.assert_awaited_once()
             assert dl.await_args.args[2] == "https://covers.example/1.jpg"
@@ -515,6 +817,7 @@ class TestCoverEnrichment:
         assert row["isbn"] is None
         assert row["isbn10"] is None
         assert row["cover_path"] == f"covers/{item_id}.jpg"
+        _assert_published_cover(item_id, dl)
 
     @pytest.mark.asyncio
     async def test_enrich_title_search_rejects_wrong_author(self, db):
@@ -529,16 +832,17 @@ class TestCoverEnrichment:
         search_result = [{"title": "1984 (adaptation)", "authors": "Michael Dean",
                           "isbn": "9780000000002", "cover_url": "https://covers.example/x.jpg",
                           "publish_year": None, "publisher": None, "page_count": None}]
-        with patch("app.routers.items.openlibrary.search_by_title_author",
+        with patch("app.services.openlibrary.search_by_title_author",
                    new=AsyncMock(return_value=search_result)), \
-             patch("app.routers.items.covers.download_cover", new=AsyncMock()) as dl:
+             patch("app.services.covers.download_cover", new=AsyncMock()) as dl:
             await items_common.resolve_missing_cover(item_id, None)
             dl.assert_not_awaited()
 
         from app.database import get_db
         with get_db() as conn:
-            row = conn.execute("SELECT isbn FROM items WHERE id = ?", (item_id,)).fetchone()
+            row = conn.execute("SELECT isbn, isbn10, cover_path FROM items WHERE id = ?", (item_id,)).fetchone()
         assert row["isbn"] is None
+        assert row["isbn10"] is None and row["cover_path"] is None
 
     @pytest.mark.asyncio
     async def test_enrich_falls_back_to_search_when_isbn_cover_fails(self, db):
@@ -557,14 +861,19 @@ class TestCoverEnrichment:
                           "publish_year": None, "publisher": None, "page_count": None}]
 
         async def dl_side_effect(item_id_, isbn, cover_url, cover_id, client, **kw):
-            return f"covers/{item_id_}.jpg" if cover_url else None  # ISBN chain fails
+            if not cover_url:
+                return None  # ISBN chain fails without creating a file
+            return await _write_staged_cover(item_id_, isbn, cover_url, cover_id, client, **kw)
 
-        with patch("app.routers.items.openlibrary.search_by_title_author",
+        with patch("app.services.openlibrary.search_by_title_author",
                    new=AsyncMock(return_value=search_result)), \
-             patch("app.routers.items.covers.download_cover",
+             patch("app.services.covers.download_cover",
                    new=AsyncMock(side_effect=dl_side_effect)) as dl:
             await items_common.resolve_missing_cover(item_id, None)
             assert dl.await_count == 2  # own-ISBN attempt, then search cover
+            assert dl.await_args_list[0].args[1:4] == ("9781102008545", None, None)
+            assert dl.await_args_list[1].args[1:4] == (None, "https://covers.example/pp.jpg", None)
+            assert dl.await_args_list[0].args[0] == dl.await_args_list[1].args[0]
 
         from app.database import get_db
         with get_db() as conn:
@@ -572,6 +881,7 @@ class TestCoverEnrichment:
                                (item_id,)).fetchone()
         assert row["isbn"] == "9781102008545"  # untouched
         assert row["cover_path"] == f"covers/{item_id}.jpg"
+        _assert_published_cover(item_id, dl)
 
     @pytest.mark.asyncio
     async def test_enrich_recovered_isbn_collision_not_stored(self, db):
@@ -588,11 +898,12 @@ class TestCoverEnrichment:
         search_result = [{"title": "The Gray Man", "authors": "Mark Greaney",
                           "isbn": "9780515147018", "cover_url": "https://covers.example/1.jpg",
                           "publish_year": None, "publisher": None, "page_count": None}]
-        with patch("app.routers.items.openlibrary.search_by_title_author",
+        with patch("app.services.openlibrary.search_by_title_author",
                    new=AsyncMock(return_value=search_result)), \
-             patch("app.routers.items.covers.download_cover",
-                   new=AsyncMock(return_value=f"covers/{item_id}.jpg")):
+             patch("app.services.covers.download_cover",
+                   new=AsyncMock(side_effect=_write_staged_cover)) as dl:
             await items_common.resolve_missing_cover(item_id, None)
+            dl.assert_awaited_once()
 
         from app.database import get_db
         with get_db() as conn:
@@ -600,6 +911,7 @@ class TestCoverEnrichment:
                                (item_id,)).fetchone()
         assert row["isbn"] is None
         assert row["cover_path"] == f"covers/{item_id}.jpg"
+        _assert_published_cover(item_id, dl)
 
 
 class TestEnrichImportCoversQueues:
@@ -616,7 +928,7 @@ class TestEnrichImportCoversQueues:
         item_id_b = _insert_item(db, title="Queue Me B", isbn="9780553283686")
         db.execute("COMMIT")
 
-        with patch("app.routers.items.covers.download_cover", new=AsyncMock()) as dl:
+        with patch("app.services.covers.download_cover", new=AsyncMock()) as dl:
             await _enrich_import_covers([item_id_a, item_id_b])
             dl.assert_not_awaited()
 
@@ -667,7 +979,7 @@ class TestEnrichImportCoversQueues:
 
         assert result == query_order
 
-    def test_csv_covers_queued_counts_only_book_rows(self, admin_client, monkeypatch, db):
+    def test_csv_covers_queued_counts_only_book_rows(self, admin_client, admin_user, monkeypatch, db):
         """import_csv's covers_queued count — and what it hands to the
         fire-and-forget enrichment task — must reflect only book-ish rows
         (G29), not every row that happened to get an ISBN."""
@@ -684,7 +996,10 @@ class TestEnrichImportCoversQueues:
         book_id = db.execute(
             "SELECT id FROM items WHERE isbn = '9780000001115'"
         ).fetchone()["id"]
-        enrich.assert_called_once_with([book_id])
+        enrich.assert_called_once()
+        assert enrich.call_args.args == ([book_id],)
+        assert enrich.call_args.kwargs["user"]["id"] == admin_user["id"]
+        assert enrich.call_args.kwargs["library_ids"] == {book_id: 1}
 
 
 class TestSplitSeriesTitle:
@@ -717,3 +1032,51 @@ class TestSplitSeriesTitle:
     def test_empty(self):
         assert split_series_title(None) == ("", None, None)
         assert split_series_title("") == ("", None, None)
+
+
+SIX_COLUMNS = ("series_position", "manual_value", "estimated_value",
+               "language", "platform", "location")
+
+
+class TestGenericRoundTripColumns:
+    """normalize_generic parses the six round-trip columns (#145)."""
+
+    @pytest.mark.parametrize("cell,expected", [("3", 3.0), ("3.5", 3.5), (" 2 ", 2.0)])
+    def test_series_position_numbers(self, cell, expected):
+        assert normalize_generic({"title": "X", "series_position": cell})["series_position"] == expected
+
+    @pytest.mark.parametrize("cell", ["vol. 3", "nan", "1e3", "inf"])
+    def test_series_position_rejects(self, cell):
+        with pytest.raises(ValueError) as exc:
+            normalize_generic({"title": "X", "series_position": cell})
+        assert "series_position" in str(exc.value) and cell in str(exc.value)
+
+    @pytest.mark.parametrize("column", ["manual_value", "estimated_value"])
+    @pytest.mark.parametrize("cell", ["$12.50", "12.50 USD"])
+    def test_price_parses(self, column, cell):
+        assert normalize_generic({"title": "X", column: cell})[column] == 12.5
+
+    @pytest.mark.parametrize("column", ["manual_value", "estimated_value"])
+    @pytest.mark.parametrize("cell", ["£5 (2 for 1)", "-4"])
+    def test_price_rejects(self, column, cell):
+        with pytest.raises(ValueError) as exc:
+            normalize_generic({"title": "X", column: cell})
+        assert column in str(exc.value) and cell in str(exc.value)
+
+    @pytest.mark.parametrize("cell,expected", [
+        ("Japanese", "ja"), ("japanese", "ja"), ("ja-JP", "ja"),
+        ("jpn", "ja"), ("JA", "ja"), ("Klingon", "klingon"),
+    ])
+    def test_language(self, cell, expected):
+        assert normalize_generic({"title": "X", "language": cell})["language"] == expected
+
+    @pytest.mark.parametrize("column", SIX_COLUMNS)
+    def test_empty_and_absent_are_none(self, column):
+        assert normalize_generic({"title": "X"})[column] is None
+        assert normalize_generic({"title": "X", column: ""})[column] is None
+        assert normalize_generic({"title": "X", column: "  "})[column] is None
+
+    def test_platform_and_location_strip(self):
+        norm = normalize_generic({"title": "X", "platform": " Switch ", "location": "  Den > A "})
+        assert norm["platform"] == "Switch"
+        assert norm["location"] == "Den > A"

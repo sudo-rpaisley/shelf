@@ -6,7 +6,7 @@ def normalize_isbn(isbn: str) -> str:
 
 
 def isbn10_to_isbn13(isbn10: str) -> str | None:
-    if len(isbn10) != 10:
+    if len(isbn10) != 10 or not isbn10[:9].isdigit():
         return None
     digits = "978" + isbn10[:9]
     check = sum(int(d) * (1 if i % 2 == 0 else 3) for i, d in enumerate(digits))
@@ -86,3 +86,15 @@ def canonical_isbn_pair(raw: str) -> tuple[str, str | None] | None:
     if validate_isbn13(isbn):
         return isbn, isbn13_to_isbn10(isbn)
     return None
+
+
+def clean_asin(value) -> str | None:
+    """Return an upper-cased 10-character ASIN, or ``None``.
+
+    Strips surrounding spaces and tabs only (not newlines) so a value with a
+    trailing newline is refused rather than silently repaired.
+    """
+    if not isinstance(value, str):
+        return None
+    v = value.strip(" \t").upper()
+    return v if re.fullmatch(r"[A-Z0-9]{10}", v) else None

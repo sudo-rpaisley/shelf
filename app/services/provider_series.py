@@ -11,52 +11,7 @@ from __future__ import annotations
 import json
 
 
-_CREATE_PROVIDER_SERIES = """CREATE TABLE IF NOT EXISTS series_provider_meta (
-    provider              TEXT NOT NULL,
-    provider_series_id    TEXT NOT NULL,
-    series_name           TEXT NOT NULL COLLATE NOCASE,
-    kind                  TEXT NOT NULL DEFAULT 'series'
-                          CHECK(kind IN ('series','franchise')),
-    description           TEXT,
-    publisher             TEXT,
-    status                TEXT,
-    age_rating            TEXT,
-    total_items           INTEGER,
-    total_duration_mins   INTEGER,
-    metadata_json         TEXT,
-    updated_at            TEXT NOT NULL DEFAULT (datetime('now')),
-    PRIMARY KEY (provider, provider_series_id)
-)"""
-
-_PROVIDER_SERIES_MIGRATIONS = (
-    (65, "Add connected-service series metadata", _CREATE_PROVIDER_SERIES),
-    (
-        66,
-        "Index connected-service series names",
-        "CREATE INDEX IF NOT EXISTS idx_series_provider_meta_name "
-        "ON series_provider_meta(series_name COLLATE NOCASE)",
-    ),
-)
-
-
-def _register_migrations() -> None:
-    from app import database
-
-    existing = {version for version, _description, _sql in database.MIGRATIONS}
-    pending = tuple(m for m in _PROVIDER_SERIES_MIGRATIONS if m[0] not in existing)
-    if pending:
-        database.MIGRATIONS = tuple(database.MIGRATIONS) + pending
-
-
-_register_migrations()
-
-
-def ensure_schema(db) -> None:
-    db.execute(_CREATE_PROVIDER_SERIES)
-    db.execute(
-        "CREATE INDEX IF NOT EXISTS idx_series_provider_meta_name "
-        "ON series_provider_meta(series_name COLLATE NOCASE)"
-    )
+from app.database import ensure_provider_series_schema as ensure_schema
 
 
 def _clean(value) -> str | None:

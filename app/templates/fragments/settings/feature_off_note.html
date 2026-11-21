@@ -1,0 +1,19 @@
+{# The off note a feature-owned Settings card shows once its feature is
+   turned off in Features. Renders nothing while the feature is on.
+
+   `feature_on` is a Jinja environment global (registered in main.py), so it
+   resolves in this macro without `with context` even though the macro is
+   imported — only the caller's local variables would need that, and this
+   macro reads none of them.
+
+   Copies the Navigation card's existing off-note shape
+   (library.html's "Turned off in Features —" line) rather than inventing a
+   new one, and never uses text-shelf-success for it (G126). #}
+{% macro feature_off_note(key) %}
+{% if not feature_on(key) %}
+<p class="text-xs text-shelf-muted mb-3" data-testid="feature-off-note" data-feature="{{ key }}">
+    Turned off in Features —
+    <button type="button" @click="setTab('features')" class="text-shelf-accent2 hover:underline">Features</button>
+</p>
+{% endif %}
+{% endmacro %}

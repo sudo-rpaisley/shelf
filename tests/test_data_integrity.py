@@ -105,12 +105,13 @@ def test_edit_nonexistent_item_returns_not_found(admin_client):
     assert resp.text == "Not found"
 
 
-def test_bulk_clear_reading_status_stores_null(admin_client, db):
+def test_bulk_clear_reading_status_stores_null(admin_client, admin_user, db):
     item_id = _insert_item(
         db,
         title="Bulk Status Probe",
         isbn="9780000000290",
         reading_status="reading",
+        personal_user_id=admin_user["id"],
     )
     db.commit()
 
@@ -123,17 +124,20 @@ def test_bulk_clear_reading_status_stores_null(admin_client, db):
 
     with get_db() as check_db:
         row = check_db.execute(
-            "SELECT reading_status FROM items WHERE id = ?", (item_id,)
+            "SELECT reading_status FROM user_item_state WHERE user_id = ? AND item_id = ?",
+            (admin_user["id"], item_id)
         ).fetchone()
+        assert check_db.execute("SELECT reading_status FROM items WHERE id = ?", (item_id,)).fetchone()[0] == "reading"
     assert row["reading_status"] is None
 
 
-def test_bulk_invalid_reading_status_is_rejected_without_mutation(admin_client, db):
+def test_bulk_invalid_reading_status_is_rejected_without_mutation(admin_client, admin_user, db):
     item_id = _insert_item(
         db,
         title="Bulk Invalid Status Probe",
         isbn="9780000000292",
         reading_status="reading",
+        personal_user_id=admin_user["id"],
     )
     db.commit()
 
@@ -149,6 +153,8 @@ def test_bulk_invalid_reading_status_is_rejected_without_mutation(admin_client, 
             "SELECT reading_status FROM items WHERE id = ?", (item_id,)
         ).fetchone()
     assert row["reading_status"] == "reading"
+    assert db.execute("SELECT reading_status FROM user_item_state WHERE user_id = ? AND item_id = ?",
+                      (admin_user["id"], item_id)).fetchone()[0] == "reading"
 
 
 def test_bulk_update_reports_rows_that_actually_exist(admin_client, db):

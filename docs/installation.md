@@ -1,14 +1,26 @@
 # Installation
 
-Shelf ships as a single Docker image, [`dangahagan/shelf`](https://hub.docker.com/r/dangahagan/shelf).
-It needs nothing else — no database server, no reverse proxy, no API keys.
+**Upstream** ships [`dangahagan/shelf`](https://hub.docker.com/r/dangahagan/shelf).
+The image/tag commands below install upstream, **not this working fork**. This
+fork does not publish an official image or enable upstream's Docker publishing
+workflow. To evaluate fork source, use [Running from source](#running-from-source)
+with disposable data and read [integration compatibility/status](upstream-integration.md).
+Do not reuse an upstream/live volume or infer database compatibility from tags.
+
+Shelf needs no separate database server or Shelf-hosted account. Optional
+metadata, sync and vision providers still make outbound requests.
 
 ## Requirements
 
 - Docker 20+ (or Podman) with Compose
+- An `amd64` (x86-64) or `arm64` machine, such as a Raspberry Pi 4 or 5 on a
+  64-bit OS. Each release tag carries both, and Docker pulls the one that
+  matches your machine
 - ~200 MB disk for the image, plus space for your covers (a few KB each)
 - A browser on the same network — phone, tablet or desktop. Camera scanning
-  needs HTTPS, which Shelf provides out of the box
+  needs HTTPS, which Shelf provides out of the box. Behind a TLS-terminating
+  proxy you can turn it off with `SHELF_TLS=off` — see
+  [HTTPS & reverse proxy](https-and-reverse-proxy.md)
 
 ## Docker Compose (recommended)
 
@@ -45,8 +57,8 @@ docker compose up -d
 Open **https://localhost:18888** (or `https://<server-ip>:18888`). Your browser
 will warn about the self-signed certificate — that is expected on first run;
 see [HTTPS & reverse proxy](https-and-reverse-proxy.md) for how to make the
-warning go away. The setup wizard asks you to create the first admin account,
-and you're in.
+warning go away. The setup wizard asks you to create the first admin account
+and pick a feature profile, and you're in.
 
 > The `:z` on the volume is an SELinux relabel flag. It is harmless on systems
 > without SELinux and required on Fedora/RHEL-family hosts.
@@ -92,8 +104,9 @@ Back it up by copying the directory, or use Settings → Data → Backup &
 Restore. Keep both key files out of anything you share. Without
 `encryption.key`, stored API credentials are unreadable ciphertext, which is
 the point; without `signing.key`, nobody can mint a session token for your
-instance. The database holds neither — that is why a database backup is safe
-in a way a copy of this directory is not.
+instance. A database backup omits the keys but still contains private activity,
+password/token hashes and encrypted credentials; it is not safe to share merely
+because no key is included. See [Backups](upgrading-and-backups.md).
 
 ## Changing the port
 
@@ -106,15 +119,19 @@ change the container port (e.g. host networking), set `SHELF_PORT`.
 See [Development](development.md). The short version:
 
 ```bash
-git clone https://github.com/dgahagan/shelf.git && cd shelf
+git clone https://github.com/sudo-rpaisley/shelf.git && cd shelf
 pip install -r requirements.txt
-DATA_DIR=./data uvicorn app.main:app --reload
+DATA_DIR=./data-dev uvicorn app.main:app --reload
 ```
+
+The install is hash-checked against the lock in `requirements.txt` and needs
+Python 3.12 or later.
 
 Running without Docker means no auto-generated certificate — `uvicorn` will
 serve plain HTTP on `127.0.0.1:8000`, which is fine for `localhost`
 (browsers treat it as a secure context) but camera scanning from a phone
-needs HTTPS.
+needs HTTPS — from a TLS-terminating proxy in front, or by passing uvicorn
+`--ssl-keyfile`/`--ssl-certfile` yourself.
 
 ## Next
 

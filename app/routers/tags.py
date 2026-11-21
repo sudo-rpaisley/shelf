@@ -1,94 +1,209 @@
 """Custom item tags — free-form labels (signed, first-edition, book-club…)
-edited as chips on the item detail page and filterable on Browse."""
+edited as chips on the item detail page and filterable on Browse.
+
+The tag logic itself lives in app.services.tags; this router is the thin
+HTTP wrapper around it."""
 
 import logging
-import re
 
-from fastapi import APIRouter, Depends, Request, Form
-from fastapi.responses import HTMLResponse
+from fastapi import APIRouter, Depends, HTTPException, Request, Form
+from fastapi.responses import HTMLResponse, JSONResponse, PlainTextResponse, RedirectResponse
 
+from app import i18n
 from app.auth import require_role
+from app.services.catalogue_security import require_catalogue_role, require_item_role
 from app.database import get_db
+from app.services import tags as tags_svc
+from app.services.tags import (
+    MAX_TAG_LENGTH as MAX_TAG_LENGTH,
+    normalize_tag as normalize_tag,
+)
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api")
 
-MAX_TAG_LENGTH = 40
 
-
-def normalize_tag(name: str) -> str:
-    """Trim, collapse inner whitespace, cap length. Case is preserved as
-    typed; uniqueness is case-insensitive (NOCASE column)."""
-    return re.sub(r"\s+", " ", name or "").strip()[:MAX_TAG_LENGTH]
-
-
-def get_item_tags(db, item_id: int) -> list:
-    return db.execute(
-        "SELECT t.id, t.name FROM item_tags it JOIN tags t ON it.tag_id = t.id "
-        "WHERE it.item_id = ? ORDER BY t.name COLLATE NOCASE",
-        (item_id,),
-    ).fetchall()
-
-
-def get_all_tags(db) -> list:
-    """All tags with usage counts, for the Browse filter and suggestions."""
-    return db.execute(
-        "SELECT t.id, t.name, COUNT(it.item_id) AS count FROM tags t "
-        "LEFT JOIN item_tags it ON it.tag_id = t.id "
-        "GROUP BY t.id ORDER BY t.name COLLATE NOCASE"
-    ).fetchall()
-
-
-def _render_fragment(request: Request, db, item_id: int):
+def _render_fragment(request: Request, db, item_id: int, media_type: str):
     return request.app.state.templates.TemplateResponse(
         request,
         "fragments/item_tags.html",
-        {"item_id": item_id, "item_tags": get_item_tags(db, item_id),
-         "all_tags": get_all_tags(db)},
+        {"item_id": item_id, "item_tags": tags_svc.get_item_tags(db, item_id),
+         "all_tags": tags_svc.get_all_tags(db, media_type=media_type)},
     )
+
+
+@router.get("/tags")
+async def list_tags(_=Depends(require_catalogue_role("editor"))):
+    """The one JSON source for every tag datalist (Scan, Shelf Fill, Intake)."""
+    with get_db() as db:
+        return {"tags": tags_svc.suggestion_payload(db)}
+
+
+def _names(raw) -> list:
+    """Normalise a JSON list of tag names: blanks drop, NOCASE duplicates
+    collapse (first spelling wins). Anything but a list of strings is []."""
+    if not isinstance(raw, list):
+        return []
+    seen, out = set(), []
+    for piece in raw:
+        name = tags_svc.normalize_tag(piece) if isinstance(piece, str) else ""
+        if name and name.casefold() not in seen:
+            seen.add(name.casefold())
+            out.append(name)
+    return out
+
+
+def _refuse(message: str) -> JSONResponse:
+    return JSONResponse({"ok": False, "message": message}, status_code=400)
+
+
+# Registered here rather than in items.py despite its path: items.py is at its
+# size cap (G67). main.py includes this router before items.router, so this
+# static path is matched before items.py's POST /items/{item_id}.
+@router.post("/items/bulk-tags")
+async def bulk_tags(request: Request, _=Depends(require_catalogue_role("editor"))):
+    """Add and/or remove tags on a Browse selection, all or nothing."""
+    try:
+        data = await request.json()
+    except ValueError:
+        data = None
+    if not isinstance(data, dict):
+        return _refuse(i18n.gettext("Invalid item IDs"))
+    raw_ids = data.get("item_ids")
+    if not isinstance(raw_ids, list) or not all(
+        isinstance(i, int) and not isinstance(i, bool) for i in raw_ids
+    ):
+        return _refuse(i18n.gettext("Invalid item IDs"))
+    if not raw_ids:
+        return _refuse(i18n.gettext("No items selected"))
+    add = _names(data.get("add"))
+    remove = _names(data.get("remove"))
+    if not add and not remove:
+        return _refuse(i18n.gettext("No tag given"))
+
+    missing = None
+    with get_db() as db:
+        # The liveness check and the writes share the write lock, or an item
+        # trashed between them is tagged blind (G18). Nothing logs in here (G3).
+        db.execute("BEGIN IMMEDIATE")
+        unavailable = 0
+        for item_id in dict.fromkeys(raw_ids):
+            try:
+                require_item_role(db, item_id, "editor")
+            except HTTPException as exc:
+                if exc.status_code != 404:
+                    raise
+                unavailable += 1
+        if unavailable:
+            return _refuse(str(tags_svc.UnknownItems(unavailable)))
+        try:
+            updated = tags_svc.bulk_tag(db, raw_ids, add, remove)
+        except tags_svc.UnknownItems as e:
+            db.rollback()
+            missing = e
+    if missing is not None:
+        return _refuse(str(missing))
+
+    parts = []
+    if add:
+        parts.append(i18n.gettext("Added %(tags)s to %(count)s item(s)") % {"tags": ", ".join(add), "count": updated})
+    if remove:
+        parts.append(i18n.gettext("Removed %(tags)s from %(count)s item(s)") % {"tags": ", ".join(remove), "count": updated})
+    return {"ok": True, "updated": updated, "message": "; ".join(parts)}
 
 
 @router.post("/items/{item_id}/tags")
 async def add_tag(request: Request, item_id: int, name: str = Form(...),
-                  _=Depends(require_role("editor"))):
-    tag_name = normalize_tag(name)
+                  _=Depends(require_catalogue_role("editor"))):
+    tag_name = tags_svc.normalize_tag(name)
     if not tag_name:
         return HTMLResponse("Tag name required", status_code=400)
 
     with get_db() as db:
-        item = db.execute("SELECT id FROM items WHERE id = ?", (item_id,)).fetchone()
+        # The liveness check and the write share the write lock, or an item
+        # trashed between them is tagged blind (G18). Nothing logs in here (G3).
+        db.execute("BEGIN IMMEDIATE")
+        try:
+            require_item_role(db, item_id, "editor")
+        except HTTPException as exc:
+            if exc.status_code != 404:
+                raise
+            return PlainTextResponse("Item not found", status_code=404)
+        item = db.execute(
+            "SELECT id, media_type FROM items_live WHERE id = ?", (item_id,)
+        ).fetchone()
         if not item:
             return HTMLResponse("Item not found", status_code=404)
-        db.execute("INSERT OR IGNORE INTO tags (name) VALUES (?)", (tag_name,))
-        tag = db.execute("SELECT id FROM tags WHERE name = ?", (tag_name,)).fetchone()
-        db.execute(
-            "INSERT OR IGNORE INTO item_tags (item_id, tag_id) VALUES (?, ?)",
-            (item_id, tag["id"]),
-        )
-        return _render_fragment(request, db, item_id)
+        tags_svc.attach_tags(db, item_id, [tag_name])
+        return _render_fragment(request, db, item_id, item["media_type"])
 
 
 @router.delete("/items/{item_id}/tags/{tag_id}")
 async def remove_tag(request: Request, item_id: int, tag_id: int,
-                     _=Depends(require_role("editor"))):
+                     _=Depends(require_catalogue_role("editor"))):
     with get_db() as db:
-        item = db.execute("SELECT id FROM items WHERE id = ?", (item_id,)).fetchone()
+        # The liveness check and the write share the write lock, or an item
+        # trashed between them is tagged blind (G18). Nothing logs in here (G3).
+        db.execute("BEGIN IMMEDIATE")
+        try:
+            require_item_role(db, item_id, "editor")
+        except HTTPException as exc:
+            if exc.status_code != 404:
+                raise
+            return PlainTextResponse("Item not found", status_code=404)
+        item = db.execute(
+            "SELECT id, media_type FROM items_live WHERE id = ?", (item_id,)
+        ).fetchone()
         if not item:
             return HTMLResponse("Item not found", status_code=404)
 
-        deleted = db.execute(
-            "DELETE FROM item_tags WHERE item_id = ? AND tag_id = ?",
-            (item_id, tag_id),
-        )
-        if deleted.rowcount != 1:
+        removed = tags_svc.detach_tags(db, item_id, [tag_id])
+        if removed != 1:
             return HTMLResponse("Tag not found on item", status_code=404)
 
         # Garbage-collect orphaned tags so the Browse dropdown stays clean,
         # but only after an association was actually removed.
-        db.execute(
-            "DELETE FROM tags WHERE id = ? "
-            "AND NOT EXISTS (SELECT 1 FROM item_tags WHERE tag_id = ?)",
-            (tag_id, tag_id),
-        )
-        return _render_fragment(request, db, item_id)
+        tags_svc.gc_orphans(db, [tag_id])
+        return _render_fragment(request, db, item_id, item["media_type"])
+
+
+# The tag manager (Settings > Library). Admin only, gated per route: this
+# router also carries the editor routes above, so a router-level dependency
+# would re-gate them. Plain form POSTs; refusals go back to Settings as
+# ?tag_error=<code>, rendered by fragments/settings/page_header.html.
+def _settings_error(code: str) -> RedirectResponse:
+    return RedirectResponse(url=f"/settings?tag_error={code}", status_code=303)
+
+
+_TAG_ERROR_CODES = (
+    (tags_svc.BlankTag, "blank"),
+    (tags_svc.DuplicateTag, "duplicate"),
+    (tags_svc.TagNotFound, "missing"),
+    (tags_svc.InvalidScope, "scope"),
+)
+
+
+def _error_code(exc: tags_svc.TagError) -> str:
+    return next(code for cls, code in _TAG_ERROR_CODES if isinstance(exc, cls))
+
+
+@router.post("/tags/{tag_id}/update")
+async def update_tag_route(tag_id: int, name: str = Form(""), media_type: str = Form(""),
+                           _=Depends(require_role("admin"))):
+    try:
+        with get_db() as db:
+            tags_svc.update_tag(db, tag_id, name, media_type)
+    except tags_svc.TagError as e:
+        return _settings_error(_error_code(e))
+    return RedirectResponse(url="/settings", status_code=303)
+
+
+@router.post("/tags/{tag_id}/delete")
+async def delete_tag_route(tag_id: int, _=Depends(require_role("admin"))):
+    try:
+        with get_db() as db:
+            tags_svc.delete_tag(db, tag_id)
+    except tags_svc.TagError as e:
+        return _settings_error(_error_code(e))
+    return RedirectResponse(url="/settings", status_code=303)

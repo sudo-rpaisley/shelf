@@ -1,0 +1,3 @@
+{ "head": { "vars": ["book","title","author","year","language","pages","publication","isbn"] }, "results": {"bindings": [
+{"book":{"type":"uri","value":"http://data.bibliotheken.nl/id/nbt/p803025688"},"title":{"type":"literal","value":"Het transgalactisch liftershandboek"},"author":{"type":"literal","value":"Adams, Douglas N. (1952-2001)"},"year":{"type":"literal","value":"1980"},"language":{"type":"literal","value":"nl"},"pages":{"type":"literal","value":"148","datatype":"http://www.w3.org/2001/XMLSchema#integer"},"publication":{"type":"literal","value":"Baarn : Fontein. 1980"},"isbn":{"type":"literal","value":"9026101635"}}
+]}}

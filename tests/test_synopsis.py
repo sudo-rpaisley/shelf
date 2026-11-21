@@ -13,6 +13,21 @@ GB_URL = "https://www.googleapis.com/books/v1/volumes"
 OL_SEARCH_URL = "https://openlibrary.org/search.json"
 
 
+@pytest.fixture
+def items_synopses(client):
+    """Use the composed endpoints, AFTER the real SQL log handler is installed."""
+    import logging
+
+    from app.log_handler import SQLiteHandler
+    from app.routers import items_synopses as worker
+
+    endpoints = {route.path: route.endpoint for route in client.app.routes if hasattr(route, "endpoint")}
+    assert endpoints["/api/items/{item_id}/fetch-synopsis"] is worker.fetch_synopsis
+    assert endpoints["/api/synopses/backfill/stream"] is worker.backfill_synopses_stream
+    assert any(isinstance(handler, SQLiteHandler) for handler in logging.getLogger("app").handlers)
+    return worker
+
+
 def _gb_volume(title="Dune", authors=("Frank Herbert",), description="A desert planet epic."):
     return {"items": [{"volumeInfo": {
         "title": title, "authors": list(authors), "description": description,
@@ -183,9 +198,12 @@ class TestFetchSynopsisEndpoint:
         resp = admin_client.post(f"/api/items/{item_id}/fetch-synopsis")
         assert resp.json()["ok"] is False
 
-    def test_missing_item(self, admin_client):
-        resp = admin_client.post("/api/items/99999/fetch-synopsis")
-        assert resp.json()["ok"] is False
+    def test_missing_item(self, admin_client, items_synopses):
+        with patch.object(items_synopses.synopsis_svc, "fetch_description", new=AsyncMock()) as fetch:
+            resp = admin_client.post("/api/items/99999/fetch-synopsis")
+        assert resp.status_code == 404
+        assert resp.json() == {"ok": False, "message": "Item not found"}
+        fetch.assert_not_awaited()
 
     def test_viewer_forbidden(self, viewer_client, db):
         item_id = _insert_item(db)
@@ -225,3 +243,192 @@ class TestBackfillStream:
     def test_admin_only(self, editor_client):
         resp = editor_client.get("/api/synopses/backfill/stream")
         assert resp.status_code in (401, 403)
+
+    def test_worker_uses_empty_context_and_captured_account_library(self, admin_client, db, monkeypatch, items_synopses):
+        from app.services import catalogue_security
+
+        needs = _insert_item(db, title="Real background target", isbn=None, authors="Writer")
+        db.commit()
+        original_authorize = items_synopses.items_common.authorize_item_targets
+        admissions = []
+        lookups = []
+
+        def authorize(conn, ids, **kwargs):
+            assert conn.in_transaction
+            actor = catalogue_security.current_actor()
+            admissions.append((actor, list(ids), dict(kwargs)))
+            return original_authorize(conn, ids, **kwargs)
+
+        async def fetch(isbn, title, authors, client, **kwargs):
+            assert catalogue_security.current_actor() is None
+            assert isinstance(client, httpx.AsyncClient)
+            lookups.append((isbn, title, authors, kwargs))
+            return "Background synopsis"
+
+        monkeypatch.setattr(items_synopses.items_common, "authorize_item_targets", authorize)
+        monkeypatch.setattr(items_synopses.synopsis_svc, "fetch_description", fetch)
+        response = admin_client.get("/api/synopses/backfill/stream")
+        assert response.status_code == 200
+        assert self._events(response) == [
+            {"type": "progress", "current": 1, "total": 1,
+             "title": "Real background target", "status": "found"},
+            {"type": "done", "success": 1, "failed": 0, "total": 1},
+        ]
+        assert lookups == [(None, "Real background target", "Writer",
+                            {"hc_token": "", "google_api_key": ""})]
+        assert len(admissions) == 3
+        request_actor, ids, kwargs = admissions[0]
+        assert request_actor["role"] == "admin" and ids == [needs] and kwargs == {}
+        for actor, ids, kwargs in admissions[1:]:
+            assert actor is None and ids == [needs]
+            assert kwargs == {"user": request_actor, "library_ids": {needs: 1}}
+        assert db.execute("SELECT description FROM items WHERE id = ?", (needs,)).fetchone()[0] == "Background synopsis"
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("change", ["move", "revoke_account", "revoke_session", "trash"])
+    async def test_worker_refuses_changed_captured_authority_before_provider(
+        self, admin_user, db, monkeypatch, change, items_synopses,
+    ):
+        import asyncio
+
+        from app.services import libraries
+
+        target = _insert_item(db, title="Captured target", isbn=None)
+        other = libraries.create_library(db, "Another parent")
+        captured = dict(db.execute(
+            "SELECT id, username, role, token_version FROM users WHERE id = ?", (admin_user["id"],),
+        ).fetchone())
+        if change == "move":
+            libraries.assign_item(db, target, other["id"])
+        elif change == "revoke_account":
+            db.execute("UPDATE users SET role = 'viewer' WHERE id = ?", (admin_user["id"],))
+        elif change == "revoke_session":
+            db.execute("UPDATE users SET token_version = token_version + 1 WHERE id = ?", (admin_user["id"],))
+        else:
+            db.execute("UPDATE items SET deleted_at = datetime('now') WHERE id = ?", (target,))
+        db.commit()
+        before = list(db.iterdump())
+        fetch = AsyncMock()
+        monkeypatch.setattr(items_synopses.synopsis_svc, "fetch_description", fetch)
+        queue = asyncio.Queue()
+        await items_synopses._run_backfill(
+            [{"id": target, "isbn": None, "title": "Captured target", "authors": None}],
+            queue, job_user=captured, library_ids={target: 1}, hc_token="", google_api_key="",
+        )
+        assert queue.get_nowait() == {"type": "error", "message": "Synopsis backfill failed — check server logs"}
+        assert queue.empty()
+        fetch.assert_not_awaited()
+        assert list(db.iterdump()) == before
+
+    @respx.mock
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("change", ["move", "revoke_account", "revoke_session", "trash"])
+    async def test_worker_refuses_changed_captured_authority_after_real_provider_await(
+        self, admin_user, db, change, items_synopses,
+    ):
+        import asyncio
+
+        from app.database import get_db
+        from app.services import catalogue_security, libraries, user_state
+
+        target = _insert_item(db, title="Dune", isbn="9780441013593", authors="Frank Herbert")
+        other = libraries.create_library(db, "Moved during synopsis lookup")
+        user_state.set_reading_status(db, admin_user["id"], target, "read")
+        captured = dict(db.execute(
+            "SELECT id, username, role, token_version FROM users WHERE id = ?", (admin_user["id"],),
+        ).fetchone())
+        db.commit()
+        snapshots = []
+        mutations = []
+
+        async def respond(request):
+            assert catalogue_security.current_actor() is None
+            assert request.url.params["q"] == "isbn:9780441013593"
+            with get_db() as rival:
+                assert rival is not db
+                if change == "move":
+                    libraries.assign_item(rival, target, other["id"])
+                elif change == "revoke_account":
+                    rival.execute("UPDATE users SET role = 'viewer' WHERE id = ?", (admin_user["id"],))
+                elif change == "revoke_session":
+                    rival.execute("UPDATE users SET token_version = token_version + 1 WHERE id = ?", (admin_user["id"],))
+                else:
+                    rival.execute("UPDATE items SET deleted_at = datetime('now') WHERE id = ?", (target,))
+            # This is the intentional authority change, not a worker side effect.
+            # Snapshot after its commit; include ALL tables, especially SQL logs.
+            with get_db() as observed:
+                snapshots.append(list(observed.iterdump()))
+            mutations.append(change)
+            return httpx.Response(200, json=_gb_volume())
+
+        provider = respx.get(GB_URL).mock(side_effect=respond)
+        assert items_synopses.synopsis_svc is synopsis
+        real_fetch = items_synopses.synopsis_svc.fetch_description
+        fetch = AsyncMock(wraps=real_fetch)
+        queue = asyncio.Queue()
+        with patch.object(items_synopses.synopsis_svc, "fetch_description", new=fetch):
+            await items_synopses._run_backfill(
+                [{"id": target, "isbn": "9780441013593", "title": "Dune", "authors": "Frank Herbert"}],
+                queue, job_user=captured, library_ids={target: 1}, hc_token="", google_api_key="",
+            )
+
+        assert provider.call_count == 1 and len(respx.calls) == 1
+        assert mutations == [change] and len(snapshots) == 1
+        provider_client = fetch.await_args.args[3]
+        fetch.assert_awaited_once_with(
+            "9780441013593", "Dune", "Frank Herbert", provider_client, hc_token="", google_api_key="",
+        )
+        assert isinstance(provider_client, httpx.AsyncClient) and provider_client.is_closed
+        assert queue.get_nowait() == {"type": "error", "message": "Synopsis backfill failed — check server logs"}
+        assert queue.empty()
+        assert db.execute("SELECT description FROM items WHERE id = ?", (target,)).fetchone()[0] is None
+        assert list(db.iterdump()) == snapshots[0]
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("failure", ["runtime", "http500"])
+    async def test_worker_logs_unexpected_failures_and_keeps_terminal_error(
+        self, admin_user, db, monkeypatch, items_synopses, failure, caplog,
+    ):
+        import asyncio
+
+        from fastapi import HTTPException
+
+        target = _insert_item(db, title="Unexpected failure target", isbn=None)
+        captured = dict(db.execute(
+            "SELECT id, username, role, token_version FROM users WHERE id = ?", (admin_user["id"],),
+        ).fetchone())
+        db.commit()
+        stored = tuple(db.execute("SELECT * FROM items WHERE id = ?", (target,)).fetchone())
+        logs = [tuple(row) for row in db.execute("SELECT * FROM log_entries ORDER BY id")]
+        real_authorize = items_synopses.items_common.authorize_item_targets
+        admissions = []
+
+        def fail_after_authorization(conn, ids, **kwargs):
+            assert conn.in_transaction
+            admissions.append(real_authorize(conn, ids, **kwargs))
+            if failure == "runtime":
+                raise RuntimeError("Unexpected authority collaborator failure")
+            raise HTTPException(500, "Unexpected authority collaborator failure")
+
+        monkeypatch.setattr(items_synopses.items_common, "authorize_item_targets", fail_after_authorization)
+        fetch = AsyncMock()
+        monkeypatch.setattr(items_synopses.synopsis_svc, "fetch_description", fetch)
+        queue = asyncio.Queue()
+        await items_synopses._run_backfill(
+            [{"id": target, "isbn": None, "title": "Unexpected failure target", "authors": None}],
+            queue, job_user=captured, library_ids={target: 1}, hc_token="", google_api_key="",
+        )
+
+        assert admissions == [{target: 1}]
+        fetch.assert_not_awaited()
+        assert queue.get_nowait() == {"type": "error", "message": "Synopsis backfill failed — check server logs"}
+        assert queue.empty()
+        assert tuple(db.execute("SELECT * FROM items WHERE id = ?", (target,)).fetchone()) == stored
+        after_logs = [tuple(row) for row in db.execute("SELECT * FROM log_entries ORDER BY id")]
+        assert after_logs[:-1] == logs and len(after_logs) == len(logs) + 1
+        error = db.execute("SELECT level, module, message FROM log_entries ORDER BY id DESC LIMIT 1").fetchone()
+        assert (error["level"], error["module"]) == ("ERROR", items_synopses.__name__)
+        assert "Synopsis backfill failed\nTraceback" in error["message"]
+        assert "Unexpected authority collaborator failure" in error["message"]
+        records = [record for record in caplog.records if record.name == items_synopses.__name__]
+        assert len(records) == 1 and records[0].exc_info is not None

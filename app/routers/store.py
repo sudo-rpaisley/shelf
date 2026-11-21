@@ -7,19 +7,24 @@ offline for unknown books queue locally and are flushed to /api/store/queue
 when the device is back online.
 """
 import logging
+import sqlite3
 from datetime import datetime, timezone
 from pathlib import Path
 
 import httpx
-from fastapi import APIRouter, Depends, Request
+from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import FileResponse, JSONResponse
 
-from app.auth import require_role
+from app.features import require_feature
 from app.config import HTTP_TIMEOUT
 from app.database import get_db, get_setting
 from app.services import covers
 from app.services import isbn as isbn_svc
-from app.services.item_write import insert_item, update_item_fields
+from app.services import lists
+from app.services import restore_report
+from app.services.item_write import ItemValueError, insert_item, update_item_fields
+from app.services.catalogue_security import require_item_role, require_catalogue_role as require_role
+from app.routers import item_barcode_edit, user_state_items
 
 logger = logging.getLogger(__name__)
 
@@ -29,13 +34,9 @@ _STATIC_DIR = Path(__file__).parent.parent.parent / "static"
 
 QUEUE_BATCH_LIMIT = 50
 
-# A queued code that fails validation is echoed into an item title, so it is
-# bounded here rather than trusting the client's string length.
-_RAW_CODE_MAX = 32
-
-
 @router.get("/store")
-async def store_page(request: Request, _=Depends(require_role("viewer"))):
+async def store_page(request: Request, _=Depends(require_role("viewer")),
+                     __=Depends(require_feature("store"))):
     templates = request.app.state.templates
     return templates.TemplateResponse(request, "store.html", {})
 
@@ -48,13 +49,18 @@ async def service_worker():
 
 
 @router.get("/api/store/data")
-async def store_data(_=Depends(require_role("viewer"))):
-    """Compact offline dataset: every item with an ISBN, plus all barcode
-    forms it can be matched by (stored ISBN/ISBN-10 and their conversions)."""
+async def store_data(_=Depends(require_role("viewer")),
+                     __=Depends(require_feature("store"))):
+    """Compact offline dataset: every owned or wishlisted item with an ISBN,
+    plus all barcode forms it can be matched by (stored ISBN/ISBN-10 and
+    their conversions). A row that is neither owned nor wishlisted is not in
+    the library on this device either — scanning it in a shop means "I want
+    this", which the flush below turns into wishlist membership."""
     with get_db() as db:
         rows = db.execute(
-            "SELECT title, authors, owned, isbn, isbn10 FROM items "
-            "WHERE isbn IS NOT NULL OR isbn10 IS NOT NULL"
+            "SELECT i.title, i.authors, i.owned, i.isbn, i.isbn10 FROM items_live i "
+            "WHERE (i.isbn IS NOT NULL OR i.isbn10 IS NOT NULL) "
+            f"AND (i.owned = 1 OR {lists.WISHLISTED_SQL})"
         ).fetchall()
 
     items = []
@@ -86,23 +92,71 @@ async def store_data(_=Depends(require_role("viewer"))):
     }
 
 
+def _result(raw, isbn, status, owned, **extra):
+    """One flush result. `code` is the batch element exactly as received, so
+    the client can drop precisely what it sent; `owned` is always a bool."""
+    return {"isbn": isbn, "code": raw, "status": status,
+            "owned": bool(owned), **extra}
+
+
+def _existing_row_result(raw, isbn13, *, user_id=None):
+    """Answer a code whose book is already in the collection, or None.
+
+    A row that is neither owned nor wishlisted gains wishlist membership; the
+    scan means "I want this".
+    """
+    from app.routers import items_common
+
+    newly_wishlisted = False
+    # G18 — the guard read and the wishlist write it may trigger share one
+    # connection and one write lock, BEGIN IMMEDIATE first, above the guard
+    # SELECT: a row inserted between an unlocked read and a later write would
+    # be acted on blind.
+    with get_db() as db:
+        db.execute("BEGIN IMMEDIATE")
+        hit = item_barcode_edit.find_duplicate_item(db, isbn13, None, "book")
+        restored_id = item_barcode_edit.restore_legacy_book(db, isbn13, "book", "wishlist") if hit is None else None
+        existing_id = hit["id"] if hit else restored_id
+        existing = db.execute(
+            f"SELECT i.id, i.title, i.owned, {lists.WISHLISTED_SQL} AS wishlisted "
+            "FROM items_live i WHERE i.id = ?", (existing_id,),
+        ).fetchone() if existing_id is not None else None
+        if existing and not existing["owned"] and not existing["wishlisted"]:
+            require_item_role(db, existing["id"], "editor")
+            # No `logger.*`/`_log_scan` in here — G3.
+            update_item_fields(db, existing["id"], {"wishlisted": True})
+            newly_wishlisted = True
+        if existing and user_id is not None and (newly_wishlisted or restored_id is not None):
+            user_state_items.remember_wishlist_item(db, user_id, existing["id"])
+    if not existing:
+        return None
+    if restored_id is not None:
+        status = "restored"
+        items_common._log_scan(isbn13, "book", status, existing["id"], "wishlist")
+    elif newly_wishlisted:
+        items_common._log_scan(isbn13, "book", "wishlisted", existing["id"], "wishlist")
+        status = "wishlisted"
+    else:
+        status = "duplicate"
+    return _result(raw, isbn13, status, existing["owned"],
+                   title=existing["title"], item_id=existing["id"])
+
+
 @router.post("/api/store/queue")
-async def store_queue(request: Request, _=Depends(require_role("editor"))):
+async def store_queue(request: Request, _=Depends(require_role("editor")),
+                      __=Depends(require_feature("store"))):
     """Flush queued store scans: add each ISBN as a wishlist item.
 
-    A queued scan is never lost — if metadata lookup fails for any reason
-    (not found, timeout, offline server), a bare wishlist item is created
-    with the ISBN as its title so it can be enriched later. A code that
-    fails the #54 value funnel (a misread check digit, say) is saved the
-    same way, without an ISBN, rather than dropped: the client removes a
-    flushed code from its queue, so returning a bare refusal would lose the
-    scan outright.
+    Valid unmatched ISBNs get a bare wishlist record if metadata is unavailable.
+    Malformed inputs are explicitly invalid and never create placeholder rows.
     """
     from app.routers import items_common
 
     try:
         body = await request.json()
     except Exception:
+        return JSONResponse({"error": "Invalid JSON body"}, status_code=400)
+    if not isinstance(body, dict):
         return JSONResponse({"error": "Invalid JSON body"}, status_code=400)
     isbns = body.get("isbns")
     if not isinstance(isbns, list) or not all(isinstance(x, str) for x in isbns):
@@ -115,45 +169,22 @@ async def store_queue(request: Request, _=Depends(require_role("editor"))):
         google_api_key = get_setting(db, "google_books_api_key") or None
 
     results = []
+    user_id = int(request.state.user["id"])
     async with httpx.AsyncClient(timeout=HTTP_TIMEOUT) as client:
         for raw in isbns:
             pair = isbn_svc.canonical_isbn_pair(raw)
             if pair is None:
-                # #54's funnel refuses this code, but this route's promise is
-                # that a queued scan is never lost: the user scanned it in a
-                # shop and has no other record of it. Keep it as a bare
-                # wishlist row with no ISBN — the raw code rides in the title
-                # so it can be corrected from the item page — rather than
-                # reporting a status the client silently drops off the queue.
-                # Before #54 a bad check digit passed the permissive
-                # `to_isbn13` and landed here as a normal add.
-                label = raw.strip()[:_RAW_CODE_MAX] or "(empty)"
-                with get_db() as db:
-                    item_id = insert_item(
-                        db,
-                        title=f"Unreadable barcode — {label}",
-                        media_type="book",
-                        owned=0,
-                        source="store_queue",
-                    )
-                items_common._log_scan(label, "book", "unreadable", item_id, "wishlist")
-                results.append({
-                    "isbn": raw, "status": "unreadable",
-                    "title": f"Unreadable barcode — {label}", "item_id": item_id,
-                })
+                results.append(_result(raw, raw, "invalid", False))
                 continue
             isbn13 = pair[0]
 
-            with get_db() as db:
-                existing = db.execute(
-                    "SELECT id, title FROM items WHERE isbn = ? AND media_type = 'book'",
-                    (isbn13,),
-                ).fetchone()
-            if existing:
-                results.append({
-                    "isbn": isbn13, "status": "duplicate",
-                    "title": existing["title"], "item_id": existing["id"],
-                })
+            try:
+                existing_result = _existing_row_result(raw, isbn13, user_id=user_id)
+            except ItemValueError as exc:
+                results.append(_result(raw, isbn13, "invalid", False, message=str(exc)))
+                continue
+            if existing_result is not None:
+                results.append(existing_result)
                 continue
 
             metadata, source, hc_ids = None, None, {}
@@ -170,42 +201,111 @@ async def store_queue(request: Request, _=Depends(require_role("editor"))):
             item_id = None
             if metadata:
                 try:
-                    item_id = items_common._save_item(metadata, isbn13, "book", None, source, hc_ids)
+                    # The Store queue is always wishlist mode; the intent
+                    # rides the insert so a restoring funnel is told it.
+                    item_id = items_common._save_item(metadata, isbn13, "book", None,
+                                                      source, hc_ids, owned=False)
+                    principal = dict(request.state.user)
                     with get_db() as db:
-                        update_item_fields(db, item_id, {"owned": 0})
+                        db.execute("BEGIN IMMEDIATE")
+                        require_item_role(db, item_id, "editor")
+                        user_state_items.remember_wishlist_item(db, user_id, item_id)
+                        cover_bindings = items_common.authorize_item_targets(db, [item_id], user=principal)
                     try:
-                        hc_cover = metadata.get("cover_url") if source == "hardcover" else hc_ids.get("cover_url")
-                        cover_path = await covers.download_cover(
-                            item_id, isbn13,
-                            metadata.get("cover_url") if source != "hardcover" else None,
-                            metadata.get("cover_id"), client,
-                            hardcover_cover_url=hc_cover,
-                        )
-                        if cover_path:
-                            with get_db() as db:
-                                db.execute("UPDATE items SET cover_path = ? WHERE id = ?", (cover_path, item_id))
+                        # All providers write off-target. Final publication uses
+                        # the same captured principal/parent/library boundary and
+                        # outer-transaction file recovery as ordinary cover edits.
+                        if not restore_report.keeps_stored_cover(item_id):
+                            hc_cover = metadata.get("cover_url") if source == "hardcover" else hc_ids.get("cover_url")
+                            with items_common.CoverStage(item_id) as stage:
+                                cover_path = await covers.download_cover(
+                                    stage.download_id, isbn13,
+                                    metadata.get("cover_url") if source != "hardcover" else None,
+                                    metadata.get("cover_id"), client,
+                                    hardcover_cover_url=hc_cover,
+                                )
+                                if cover_path:
+                                    with get_db() as db:
+                                        stage.store(db, cover_path, user=principal, library_ids=cover_bindings)
+                    except HTTPException:
+                        raise
                     except Exception:
                         logger.warning("Store queue: cover download failed for %s", isbn13)
-                    items_common._log_scan(isbn13, "book", "wishlisted", item_id, "wishlist")
-                    results.append({
-                        "isbn": isbn13, "status": "wishlisted",
-                        "title": metadata["title"], "item_id": item_id,
-                    })
+                    status = restore_report.restored_status(item_id, "wishlisted")
+                    items_common._log_scan(isbn13, "book", status, item_id, "wishlist")
+                    entry = _result(raw, isbn13, status, False,
+                                    title=metadata["title"], item_id=item_id)
+                    if status == "restored":
+                        # The stored row, and its real ownership — store.js
+                        # must not infer `owned` from the status, because a
+                        # restored row can be either (G73: it indexes what
+                        # it is told, and a wrong value here makes the next
+                        # scan of the same book answer wrongly).
+                        card = restore_report.restored_card(item_id)
+                        with get_db() as db:
+                            owned = db.execute(
+                                "SELECT owned FROM items_live WHERE id = ?",
+                                (item_id,),
+                            ).fetchone()["owned"]
+                        entry.update(title=card["title"], owned=bool(owned))
+                    results.append(entry)
                     continue
+                except sqlite3.IntegrityError:
+                    # Lost the insert race: another flush (a second device, a
+                    # retry after a dropped connection) saved this book while
+                    # the lookup was out. Answer as the row it saved, through
+                    # the guard's own locked read-and-promote block (G100). A
+                    # rival already trashed again leaves no row: re-raise.
+                    lost = _existing_row_result(raw, isbn13, user_id=user_id)
+                    if lost is None:
+                        raise
+                    results.append(lost)
+                    continue
+                except ItemValueError as exc:
+                    # A catalogue refusal is not a metadata outage. Never try
+                    # a second insert after an identifier/permission refusal.
+                    results.append(_result(raw, isbn13, "invalid", False, message=str(exc)))
+                    continue
+                except HTTPException:
+                    raise
                 except Exception:
                     logger.exception("Store queue: save failed for %s, falling back to bare add", isbn13)
 
             # Bare fallback — never lose a scan
-            with get_db() as db:
-                item_id = insert_item(
-                    db,
-                    title=f"Unknown — ISBN {isbn13}",
-                    isbn=isbn13,
-                    media_type="book",
-                    owned=0,
-                    source="store_queue",
-                )
-            items_common._log_scan(isbn13, "book", "wishlisted", item_id, "wishlist")
-            results.append({"isbn": isbn13, "status": "added_bare", "item_id": item_id})
+            try:
+                with get_db() as db:
+                    db.execute("BEGIN IMMEDIATE")
+                    item_id = insert_item(
+                        db,
+                        title=f"Unknown — ISBN {isbn13}",
+                        isbn=isbn13,
+                        media_type="book",
+                        owned=0,
+                        wishlisted=True,
+                        source="store_queue",
+                    )
+                    user_state_items.remember_wishlist_item(db, user_id, item_id)
+            except sqlite3.IntegrityError:
+                lost = _existing_row_result(raw, isbn13, user_id=user_id)  # lost race, as above
+                if lost is None:
+                    raise
+                results.append(lost)
+                continue
+            except ItemValueError as exc:
+                results.append(_result(raw, isbn13, "invalid", False, message=str(exc)))
+                continue
+            status = restore_report.restored_status(item_id, "wishlisted")
+            items_common._log_scan(isbn13, "book", status, item_id, "wishlist")
+            if status == "restored":
+                card = restore_report.restored_card(item_id)
+                with get_db() as db:
+                    owned = db.execute(
+                        "SELECT owned FROM items_live WHERE id = ?", (item_id,)
+                    ).fetchone()["owned"]
+                results.append(_result(raw, isbn13, "restored", owned,
+                                       title=card["title"], item_id=item_id))
+            else:
+                results.append(_result(raw, isbn13, "added_bare", False,
+                                       item_id=item_id))
 
     return {"results": results}

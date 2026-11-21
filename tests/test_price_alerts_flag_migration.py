@@ -1,0 +1,106 @@
+"""Migration 41: an upgrade starts price alerts the way Valuation stands.
+
+A feature with no `feature.<key>` row reads as on, so without this entry an
+upgrade switched the new, Everything-only `price_alerts` on for every install,
+including ones that had applied Standard or Minimal (test-drive Observation 5).
+"""
+
+import pytest
+
+from app.database import _run_migrations
+from tests.lineage import fork_before_upstream_operation, upstream_version
+
+
+def _legacy_db(tmp_path, settings: dict[str, str]):
+    """A database at version 40, carrying the given feature rows."""
+    conn = fork_before_upstream_operation(tmp_path / "legacy.db", 41)
+    conn.executemany("INSERT INTO settings (key, value) VALUES (?, ?)", settings.items())
+    conn.commit()
+    return conn
+
+
+def _flag(conn):
+    row = conn.execute(
+        "SELECT value FROM settings WHERE key = 'feature.price_alerts'").fetchone()
+    return row["value"] if row else None
+
+
+def test_the_fixture_predates_migration_41(tmp_path):
+    conn = _legacy_db(tmp_path, {})
+    try:
+        assert conn.execute(
+            "SELECT 1 FROM schema_version WHERE version = ?", (upstream_version(41),)).fetchone() is None
+    finally:
+        conn.close()
+
+
+@pytest.mark.parametrize("settings, expected", [
+    ({"feature.valuation": "0"}, "0"),               # Standard / Minimal, or Valuation turned off
+    ({"feature.valuation": "1"}, None),              # Valuation explicitly on
+    ({}, None),                                      # never chose a profile: Everything
+    ({"feature.valuation": "0", "feature.price_alerts": "1"}, "1"),  # a choice already made
+])
+def test_price_alerts_follows_valuation(tmp_path, settings, expected):
+    conn = _legacy_db(tmp_path, settings)
+    try:
+        _run_migrations(conn)
+        assert _flag(conn) == expected
+        assert conn.execute(
+            "SELECT 1 FROM schema_version WHERE version = ?", (upstream_version(41),)).fetchone() is not None
+    finally:
+        conn.close()
+
+
+def test_rerun_changes_nothing(tmp_path):
+    conn = _legacy_db(tmp_path, {"feature.valuation": "0"})
+    try:
+        _run_migrations(conn)
+        conn.execute("UPDATE settings SET value = '1' WHERE key = 'feature.price_alerts'")
+        conn.commit()
+        _run_migrations(conn)
+        assert _flag(conn) == "1"
+    finally:
+        conn.close()
+
+
+def test_fresh_database_has_no_price_alerts_row(db):
+    assert _flag(db) is None
+
+
+# --- Migration 44: collector tools follow Valuation the same way (G135) ---
+
+def _legacy_db_43(tmp_path, settings: dict[str, str]):
+    """A database at version 43, carrying the given feature rows."""
+    conn = fork_before_upstream_operation(tmp_path / "legacy.db", 44)
+    conn.executemany("INSERT INTO settings (key, value) VALUES (?, ?)", settings.items())
+    conn.commit()
+    return conn
+
+
+def _collector_flag(conn):
+    row = conn.execute(
+        "SELECT value FROM settings WHERE key = 'feature.collector'").fetchone()
+    return row["value"] if row else None
+
+
+@pytest.mark.parametrize("settings, expected", [
+    ({"feature.valuation": "0"}, "0"),
+    ({"feature.valuation": "1"}, None),
+    ({}, None),
+    ({"feature.valuation": "0", "feature.collector": "1"}, "1"),
+])
+def test_collector_follows_valuation(tmp_path, settings, expected):
+    conn = _legacy_db_43(tmp_path, settings)
+    try:
+        assert conn.execute(
+            "SELECT 1 FROM schema_version WHERE version = ?", (upstream_version(44),)).fetchone() is None
+        _run_migrations(conn)
+        assert _collector_flag(conn) == expected
+        assert conn.execute(
+            "SELECT 1 FROM schema_version WHERE version = ?", (upstream_version(44),)).fetchone() is not None
+    finally:
+        conn.close()
+
+
+def test_fresh_database_has_no_collector_row(db):
+    assert _collector_flag(db) is None

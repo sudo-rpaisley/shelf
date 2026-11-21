@@ -70,15 +70,21 @@ def _refusal(message: str) -> dict:
 @router.get("/export/archive")
 async def export_archive(_=Depends(require_role("admin"))):
     """Download a portable library archive (zip) of the collection."""
-    with get_db() as db:
-        archive_path = build_archive(db)
-    filename = f"shelf_archive_{datetime.now():%Y%m%d}.zip"
-    return FileResponse(
-        str(archive_path),
-        filename=filename,
-        media_type="application/zip",
-        background=BackgroundTask(archive_path.unlink, missing_ok=True),
-    )
+    archive_path = None
+    try:
+        with get_db() as db:
+            archive_path = build_archive(db)
+        filename = f"shelf_archive_{datetime.now():%Y%m%d}.zip"
+        return FileResponse(
+            str(archive_path),
+            filename=filename,
+            media_type="application/zip",
+            background=BackgroundTask(archive_path.unlink, missing_ok=True),
+        )
+    except BaseException:
+        if archive_path is not None:
+            archive_path.unlink(missing_ok=True)
+        raise
 
 
 @router.post("/import/archive")
@@ -99,7 +105,7 @@ async def import_archive(request: Request, _=Depends(require_role("admin"))):
     if not upload or not hasattr(upload, "read"):
         return _refusal("No file uploaded")
 
-    content = await upload.read()
+    content = await upload.read(MAX_IMPORT_UPLOAD_SIZE + 1)
     if len(content) > MAX_IMPORT_UPLOAD_SIZE:
         return _refusal(
             f"Archive is too large (max {MAX_IMPORT_UPLOAD_SIZE // (1024 * 1024)} MB)."
@@ -137,7 +143,7 @@ async def plan_archive_import(request: Request, _=Depends(require_role("admin"))
     if not upload or not hasattr(upload, "read"):
         return _refusal("No file uploaded")
 
-    content = await upload.read()
+    content = await upload.read(MAX_IMPORT_UPLOAD_SIZE + 1)
     if len(content) > MAX_IMPORT_UPLOAD_SIZE:
         return _refusal(
             f"Archive is too large (max {MAX_IMPORT_UPLOAD_SIZE // (1024 * 1024)} MB)."
