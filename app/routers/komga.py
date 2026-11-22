@@ -1,346 +1,235 @@
+"""Komga native API plus genuine adapters for main's published sync endpoints."""
+
 import asyncio
 import json
-import logging
-from urllib.parse import urlparse
 
-import httpx
 from fastapi import APIRouter, Depends, Form, Request
-from fastapi.responses import JSONResponse, RedirectResponse
-from starlette.responses import StreamingResponse
+from fastapi.responses import JSONResponse, RedirectResponse, StreamingResponse
 
 from app.auth import require_role
-from app.config import HTTP_TIMEOUT
-from app.database import get_db, get_setting
-from app.services import komga, sync_jobs
+from app.database import get_db
+from app.features import require_feature
+from app.services import item_write, komga, komga_libraries, komga_records, komga_sync, sync_jobs
+from app.services.catalogue_security import require_item_role
 
-logger = logging.getLogger(__name__)
+router = APIRouter(prefix="/api/komga")
+legacy_router = APIRouter(prefix="/api/sync/komga", dependencies=[Depends(require_role("admin"))])
+_ADMIN = [Depends(require_role("admin"))]
+_SYNC = [Depends(require_role("admin")), Depends(require_feature("komga"))]
 
-router = APIRouter(
-    prefix="/api/sync/komga", dependencies=[Depends(require_role("admin"))]
-)
+
+async def _json_body(request: Request) -> dict:
+    try:
+        body = await request.json()
+    except (ValueError, TypeError):
+        return {}
+    return body if isinstance(body, dict) else {}
 
 
 def _validate_url(url: str) -> str | None:
     try:
-        parsed = urlparse(url)
-        if parsed.scheme not in ("http", "https"):
-            return "URL must use http:// or https://"
-        if not parsed.hostname:
-            return "Invalid URL"
-    except Exception:
-        return "Invalid URL"
-    return None
+        return None if komga_sync.clean_url(url) else "Komga URL is required"
+    except (komga_libraries.KomgaError, ValueError):
+        return "Invalid Komga URL"
 
 
-def _headers(api_key: str) -> dict[str, str]:
-    return {"X-API-Key": api_key, "Accept": "application/json"}
+_headers = komga_libraries._headers
 
 
-@router.post("/test")
-async def test_komga(request: Request):
-    """Test a submitted Komga URL/API key, falling back to saved values."""
+@router.get("/status", dependencies=_ADMIN)
+async def status():
+    config = komga_sync.configuration()
+    return {"ok": True, "url": config["url"], "public_url": config["public_url"], "api_key_saved": config["api_key_saved"]}
+
+
+@router.post("/settings", dependencies=_ADMIN)
+async def save_settings(request: Request):
+    body = await _json_body(request)
+    if not isinstance(body.get("url"), str) or not all(isinstance(body.get(key, ""), str) for key in ("public_url", "api_key")):
+        return {"ok": False, "message": "Invalid request"}
+    if not isinstance(body.get("clear_api_key", False), bool):
+        return {"ok": False, "message": "Invalid request"}
     try:
-        body = await request.json()
-    except Exception:
-        body = {}
-    if body is None:
-        body = {}
-    if not isinstance(body, dict):
-        return {"ok": False, "message": "Invalid request body"}
+        komga_sync.save_configuration(url=body["url"], public_url=body.get("public_url", ""),
+                                      api_key=body.get("api_key", ""), clear_api_key=body.get("clear_api_key", False))
+    except (komga_libraries.KomgaError, ValueError) as exc:
+        return {"ok": False, "message": str(exc)}
+    return {"ok": True, "message": "Komga settings saved"}
 
-    raw_url = body.get("url")
-    raw_key = body.get("api_key")
-    if (
-        (raw_url is not None and not isinstance(raw_url, str))
-        or (raw_key is not None and not isinstance(raw_key, str))
-    ):
-        return {"ok": False, "message": "Invalid request body"}
 
-    url = (raw_url or "").strip().rstrip("/")
-    api_key = (raw_key or "").strip()
-    if not url or not api_key:
-        with get_db() as db:
-            url = url or get_setting(db, "komga_url")
-            api_key = api_key or get_setting(db, "komga_api_key")
-
-    if not url or not api_key:
-        return {"ok": False, "message": "URL and API key are required"}
-    url_error = _validate_url(url)
-    if url_error:
-        return {"ok": False, "message": url_error}
-
+@legacy_router.post("/test")
+@router.post("/test", dependencies=_ADMIN)
+async def test_connection(request: Request):
+    body = await _json_body(request)
+    if any(body.get(key) is not None and not isinstance(body[key], str) for key in ("url", "api_key")):
+        return {"ok": False, "message": "Invalid request"}
     try:
-        async with httpx.AsyncClient(timeout=HTTP_TIMEOUT) as client:
-            response = await client.get(
-                f"{url}/api/v1/libraries", headers=_headers(api_key)
-            )
-    except httpx.ConnectError:
-        return {"ok": False, "message": f"Cannot connect to {url}"}
-    except httpx.HTTPError:
-        return {"ok": False, "message": "Connection failed — check URL and network"}
-
-    if response.status_code == 200:
-        libraries = response.json()
-        count = len(libraries) if isinstance(libraries, list) else 0
-        return {"ok": True, "message": f"Connected — {count} library(ies) found"}
-    if response.status_code in (401, 403):
-        return {"ok": False, "message": "Invalid API key"}
-    return {"ok": False, "message": f"Unexpected response: HTTP {response.status_code}"}
+        rows = await komga_sync.discover_libraries(url=body.get("url") or None, api_key=body.get("api_key") or None)
+    except (komga_libraries.KomgaError, ValueError) as exc:
+        return {"ok": False, "message": str(exc)}
+    return {"ok": True, "message": f"Connected — {len(rows)} library(ies) found"}
 
 
-@router.post("/public-url")
+test_komga = test_connection
+
+
+@legacy_router.post("/public-url")
 async def save_public_url(komga_public_url: str = Form("")):
-    public_url = komga_public_url.strip().rstrip("/")
-    if public_url and _validate_url(public_url):
-        return RedirectResponse(
-            url="/settings?komga_public_url_error=invalid", status_code=303
-        )
-    with get_db() as db:
-        db.execute(
-            "INSERT INTO settings (key, value) VALUES ('komga_public_url', ?) "
-            "ON CONFLICT(key) DO UPDATE SET value = ?",
-            (public_url, public_url),
-        )
-    return RedirectResponse(url="/settings", status_code=303)
-
-
-@router.get("/libraries")
-async def list_libraries():
-    with get_db() as db:
-        url = get_setting(db, "komga_url")
-        api_key = get_setting(db, "komga_api_key")
-    if not url or not api_key:
-        return {"ok": False, "message": "Komga is not configured"}
-
     try:
-        async with httpx.AsyncClient(timeout=HTTP_TIMEOUT) as client:
-            response = await client.get(
-                f"{url}/api/v1/libraries", headers=_headers(api_key)
-            )
-    except httpx.HTTPError:
-        return {"ok": False, "message": f"Cannot connect to {url}"}
-
-    if response.status_code != 200:
-        return {"ok": False, "message": f"Komga returned HTTP {response.status_code}"}
-    raw_libraries = response.json()
-    if not isinstance(raw_libraries, list):
-        return {"ok": False, "message": "Komga returned an invalid library response"}
-
-    excluded = komga.get_excluded_libraries()
-    configured_types = komga.get_library_media_types()
-    libraries = []
-    for library in raw_libraries:
-        if not isinstance(library, dict) or not library.get("id"):
-            continue
-        library_id = str(library["id"])
-        media_type = komga.library_media_type(
-            library_id, library.get("name"), configured_types
-        )
-        libraries.append(
-            {
-                "id": library_id,
-                "name": library.get("name"),
-                "media_type": media_type,
-                "media_type_label": komga.KOMGA_MEDIA_TYPE_LABELS[media_type],
-                "included": library_id not in excluded,
-                "explicit_media_type": library_id in configured_types,
-            }
-        )
-    return {"ok": True, "libraries": libraries}
+        public_url = komga_sync.clean_url(komga_public_url)
+    except (komga_libraries.KomgaError, ValueError):
+        return RedirectResponse("/settings?komga_public_url_error=invalid", status_code=303)
+    with get_db() as db:
+        komga_sync._write(db, "komga_public_url", public_url)
+    return RedirectResponse("/settings", status_code=303)
 
 
-@router.post("/libraries")
+@legacy_router.get("/libraries")
+@router.get("/libraries", dependencies=_ADMIN)
+async def libraries():
+    try:
+        rows = await komga_sync.discover_libraries()
+    except (komga_libraries.KomgaError, ValueError) as exc:
+        return {"ok": False, "message": str(exc), "libraries": []}
+    return {"ok": True, "libraries": [{**row, "media_type": f"digital_{row['kind']}",
+             "media_type_label": komga.KOMGA_MEDIA_TYPE_LABELS[f"digital_{row['kind']}"],
+             "explicit_media_type": row["explicit_kind"]} for row in rows]}
+
+
+list_libraries = libraries
+
+
+@legacy_router.post("/libraries")
+@router.post("/libraries", dependencies=_ADMIN)
 async def save_libraries(request: Request):
+    body = await _json_body(request)
+    if "libraries" in body:
+        if not isinstance(body["libraries"], list):
+            return {"ok": False, "message": "Invalid request"}
+        try:
+            komga_sync.save_library_selection(body["libraries"])
+        except komga_libraries.KomgaError as exc:
+            return {"ok": False, "message": str(exc)}
+        return {"ok": True, "message": "Komga library selection saved"}
+    excluded, mappings = body.get("excluded", []), body.get("media_types", {})
+    if not isinstance(excluded, list) or not all(isinstance(key, str) and key.strip() for key in excluded):
+        return {"ok": False, "message": "Invalid request body"}
+    if not isinstance(mappings, dict) or not all(isinstance(key, str) and key.strip() and isinstance(value, str)
+            and value in komga.KOMGA_LIBRARY_MEDIA_TYPES for key, value in mappings.items()):
+        return {"ok": False, "message": "Invalid request body"}
+    mappings = {key.strip(): value for key, value in mappings.items()}
+    if not komga_sync._sync_lock.acquire(blocking=False):
+        return JSONResponse({"ok": False, "message": "Komga sync is running"}, status_code=409)
     try:
-        body = await request.json()
-    except Exception:
-        return {"ok": False, "message": "Invalid request body"}
-    if not isinstance(body, dict):
-        return {"ok": False, "message": "Invalid request body"}
-
-    raw_excluded = body.get("excluded") or []
-    raw_media_types = body.get("media_types") or {}
-    if not isinstance(raw_excluded, list) or not all(
-        isinstance(value, str) and value.strip() for value in raw_excluded
-    ):
-        return {"ok": False, "message": "Invalid request body"}
-    if not isinstance(raw_media_types, dict) or not all(
-        isinstance(library_id, str)
-        and library_id.strip()
-        and isinstance(media_type, str)
-        and media_type in komga.KOMGA_LIBRARY_MEDIA_TYPES
-        for library_id, media_type in raw_media_types.items()
-    ):
-        return {"ok": False, "message": "Invalid request body"}
-
-    media_types = {
-        library_id.strip(): media_type
-        for library_id, media_type in raw_media_types.items()
-    }
-    excluded = [library_id.strip() for library_id in raw_excluded]
-
-    with get_db() as db:
-        db.execute(
-            "INSERT INTO settings (key, value) VALUES ('komga_excluded_libraries', ?) "
-            "ON CONFLICT(key) DO UPDATE SET value = excluded.value",
-            (json.dumps(excluded),),
-        )
-        db.execute(
-            "INSERT INTO settings (key, value) VALUES ('komga_library_media_types', ?) "
-            "ON CONFLICT(key) DO UPDATE SET value = excluded.value",
-            (json.dumps(media_types, sort_keys=True),),
-        )
-        reclassified = komga.apply_library_media_types(db, media_types)
-    return {
-        "ok": True,
-        "excluded": excluded,
-        "media_types": media_types,
-        "reclassified": reclassified,
-    }
+        with get_db() as db, item_write._write_scope(db):
+            changed = komga.apply_library_media_types(db, mappings)
+            komga_sync._write(db, "komga_excluded_libraries", json.dumps(excluded))
+            komga_sync._write(db, "komga_library_media_types", json.dumps(mappings, sort_keys=True))
+            komga_sync._write(db, "komga_library_kinds", komga_libraries.dump_library_kinds({
+                key: value.removeprefix("digital_") for key, value in mappings.items()
+            }))
+    except (komga_libraries.KomgaError, ValueError) as exc:
+        return {"ok": False, "message": str(exc)}
+    finally:
+        komga_sync._sync_lock.release()
+    return {"ok": True, "excluded": excluded, "media_types": mappings, "reclassified": changed}
 
 
-@router.post("/libraries/cleanup")
+@legacy_router.post("/libraries/cleanup", dependencies=[Depends(require_feature("komga"))])
 async def cleanup_libraries():
-    excluded = komga.get_excluded_libraries()
-    if not excluded:
-        return {"ok": True, "deleted": 0, "detached": 0}
+    if sync_jobs.is_running("komga") or not komga_sync._sync_lock.acquire(blocking=False):
+        return JSONResponse({"ok": False, "message": "Komga sync is running"}, status_code=409)
+    try:
+        excluded = komga.get_excluded_libraries()
+        deleted = detached = 0
+        with get_db() as db, item_write._write_scope(db):
+            records = db.execute(
+                "SELECT kr.komga_id, kr.library_id, i.id, i.source FROM komga_records kr JOIN items_live i ON i.id = kr.item_id "
+                "UNION SELECT dh.external_id, dh.library_id, i.id, i.source FROM digital_holdings dh "
+                "JOIN items_live i ON i.id = dh.item_id WHERE dh.provider = 'komga' "
+                "UNION SELECT komga_id, komga_library_id, id, source FROM items_live WHERE komga_id IS NOT NULL"
+            ).fetchall()
+            for row in records:
+                if str(row["library_id"]) not in excluded:
+                    continue
+                item = komga_records._attachment(db, str(row["komga_id"]))
+                if item is None or item["deleted_at"] is not None:
+                    continue
+                require_item_role(db, item["id"], "editor")
+                retained = any(other["id"] == row["id"] and str(other["library_id"]) not in excluded for other in records)
+                retained = retained or db.execute(
+                    "SELECT 1 FROM digital_holdings WHERE item_id = ? AND provider != 'komga' "
+                    "UNION SELECT 1 FROM copies_live WHERE item_id = ? LIMIT 1",
+                    (item["id"], item["id"]),
+                ).fetchone() is not None or bool(item["abs_id"] or item["romm_id"])
+                if row["source"] == "komga" and not retained:
+                    deleted += int(item_write.trash_item(db, row["id"]))
+                else:
+                    komga_records.detach_record(db, row["komga_id"])
+                    detached += 1
+        return {"ok": True, "deleted": deleted, "detached": detached}
+    finally:
+        komga_sync._sync_lock.release()
 
-    placeholders = ",".join("?" * len(excluded))
-    deleted = 0
-    detached = 0
-    with get_db() as db:
-        rows = db.execute(
-            f"""SELECT id, source FROM items
-                WHERE komga_library_id IN ({placeholders})""",
-            tuple(excluded),
-        ).fetchall()
-        for row in rows:
-            if row["source"] == "komga":
-                db.execute(
-                    "UPDATE scan_log SET item_id = NULL WHERE item_id = ?", (row["id"],)
-                )
-                db.execute("DELETE FROM items WHERE id = ?", (row["id"],))
-                deleted += 1
-            else:
-                db.execute(
-                    """UPDATE items SET komga_id = NULL, komga_library_id = NULL,
-                       komga_series_id = NULL WHERE id = ?""",
-                    (row["id"],),
-                )
-                detached += 1
-    logger.info(
-        "Komga cleanup removed %d synced items and detached %d adopted items",
-        deleted,
-        detached,
-    )
-    return {"ok": True, "deleted": deleted, "detached": detached}
 
-
-@router.get("/job")
+@legacy_router.get("/job", dependencies=[Depends(require_feature("komga"))])
 async def komga_job_status():
-    """Return the current/most recent detached Komga sync job."""
     return sync_jobs.get_status("komga")
 
 
-@router.post("/job")
+@legacy_router.post("/job", dependencies=[Depends(require_feature("komga"))])
 async def start_komga_job():
-    """Start Komga sync on the server and return without holding the browser open."""
-    with get_db() as db:
-        url = get_setting(db, "komga_url")
-        api_key = get_setting(db, "komga_api_key")
-    if not url or not api_key:
-        return {"state": "error", "error": "Komga URL and API key must be configured in Settings"}
-    url_error = _validate_url(url)
-    if url_error:
-        return {"state": "error", "error": url_error}
-
     async def runner(on_progress):
-        return await komga.sync(url, api_key, on_progress=on_progress)
-
+        return await komga_sync.sync(on_progress=on_progress)
     return sync_jobs.start("komga", runner, source="manual")
 
 
-@router.post("")
+@legacy_router.post("", dependencies=[Depends(require_feature("komga"))])
 async def sync_now():
-    with get_db() as db:
-        url = get_setting(db, "komga_url")
-        api_key = get_setting(db, "komga_api_key")
-    if not url or not api_key:
-        return {"error": "Komga URL and API key must be configured in Settings"}
-    url_error = _validate_url(url)
-    if url_error:
-        return {"error": url_error}
-    return await komga.sync(url, api_key)
+    started = await start_komga_job()
+    if started.get("state") == "error":
+        return {"error": started["error"]}
+    final = await sync_jobs.wait("komga")
+    stats = dict(final.get("stats") or {})
+    stats["added"] = stats.get("created", 0)
+    return {"error": final["error"]} if final.get("error") else stats
 
 
-@router.get("/stream")
+@legacy_router.get("/stream", dependencies=[Depends(require_feature("komga"))])
+@router.get("/sync/stream", dependencies=_SYNC)
 async def sync_stream():
-    with get_db() as db:
-        url = get_setting(db, "komga_url")
-        api_key = get_setting(db, "komga_api_key")
+    await start_komga_job()
 
-    if not url or not api_key:
-        async def missing_stream():
-            yield f"data: {json.dumps({'type': 'error', 'message': 'URL and API key required'})}\n\n"
-        return StreamingResponse(missing_stream(), media_type="text/event-stream")
-
-    url_error = _validate_url(url)
-    if url_error:
-        async def invalid_stream():
-            yield f"data: {json.dumps({'type': 'error', 'message': url_error})}\n\n"
-        return StreamingResponse(invalid_stream(), media_type="text/event-stream")
-
-    queue: asyncio.Queue = asyncio.Queue()
-
-    async def on_progress(current, total, title, status):
-        await queue.put(
-            {
-                "type": "progress",
-                "current": current,
-                "total": total,
-                "title": title,
-                "status": status,
-            }
-        )
-
-    async def run_sync():
-        try:
-            stats = await komga.sync(url, api_key, on_progress=on_progress)
-            if stats.get("error"):
-                await queue.put({"type": "error", "message": stats["error"]})
-            else:
-                await queue.put({"type": "done", **stats})
-        except Exception:
-            logger.exception("Komga sync failed")
-            await queue.put(
-                {"type": "error", "message": "Sync failed — check server logs"}
-            )
-
-    async def event_stream():
-        task = asyncio.create_task(run_sync())
-        try:
-            while True:
-                message = await queue.get()
+    async def events():
+        last = None
+        while True:
+            snapshot = sync_jobs.get_status("komga")
+            marker = (snapshot["current"], snapshot["total"], snapshot["title"], snapshot["item_status"])
+            if marker != last:
+                yield f"data: {json.dumps(dict(type='progress', current=marker[0], total=marker[1], title=marker[2], status=marker[3]))}\n\n"
+                last = marker
+            if snapshot["state"] != "running":
+                stats = dict(snapshot.get("stats") or {})
+                stats["added"] = stats.get("created", 0)
+                message = {"type": "error", "message": snapshot.get("error") or "Sync interrupted"} if snapshot["state"] != "completed" else {"type": "done", **stats}
                 yield f"data: {json.dumps(message)}\n\n"
-                if message["type"] in ("done", "error"):
-                    break
-        finally:
-            if not task.done():
-                task.cancel()
-
-    return StreamingResponse(event_stream(), media_type="text/event-stream")
+                break
+            await asyncio.sleep(0.2)
+    return StreamingResponse(events(), media_type="text/event-stream")
 
 
-@router.post("/schedule")
+@legacy_router.post("/schedule")
 async def set_schedule(interval: str = Form("off")):
-    if interval not in ("off", "daily", "weekly"):
-        return JSONResponse(
-            {"ok": False, "message": "Invalid sync interval"}, status_code=400
-        )
+    if interval not in {"off", "daily", "weekly"}:
+        return JSONResponse({"ok": False, "message": "Invalid sync interval"}, status_code=400)
     with get_db() as db:
-        db.execute(
-            "INSERT INTO settings (key, value) VALUES ('komga_sync_interval', ?) "
-            "ON CONFLICT(key) DO UPDATE SET value = ?",
-            (interval, interval),
-        )
-    return RedirectResponse(url="/settings", status_code=303)
+        komga_sync._write(db, "komga_sync_interval", interval)
+    return RedirectResponse("/settings", status_code=303)
+
+
+@router.get("/items/{item_id}/action", dependencies=[Depends(require_role("viewer")), Depends(require_feature("komga"))])
+async def item_action(item_id: int):
+    with get_db() as db:
+        require_item_role(db, item_id, "viewer")
+    url = komga_sync.item_action(item_id)
+    return {"ok": bool(url), "url": url}

@@ -1,5 +1,5 @@
 """Tests for ABS cross-linking (_auto_link_items author guard, detail badge)."""
-from app.services.audiobookshelf import _authors_compatible, _auto_link_items
+from app.services.audiobookshelf import _authors_compatible, _auto_link_items, auto_link
 from tests.conftest import _insert_item
 
 
@@ -57,6 +57,35 @@ class TestAutoLink:
         assert (min(a, b), max(a, b)) in [tuple(r) for r in _links(db)]
 
 
+class TestAutoLinkOrigins:
+    def test_links_audiobook_origin_to_print_book(self, db):
+        book = _insert_item(db, title="Dune", isbn=None, media_type="book", authors="Frank Herbert")
+        audio = _insert_item(db, title="Dune", isbn=None, media_type="audiobook",
+                             authors="Frank Herbert")
+        db.execute("COMMIT")
+        assert auto_link([audio]) == 1
+        assert [tuple(r) for r in _links(db)] == [(min(book, audio), max(book, audio))]
+
+    def test_two_audiobooks_with_one_title_are_not_linked(self, db):
+        a = _insert_item(db, title="Dune", isbn=None, media_type="audiobook", authors="Frank Herbert")
+        _insert_item(db, title="Dune", isbn=None, media_type="audiobook", authors="Frank Herbert")
+        db.execute("COMMIT")
+        assert auto_link([a]) == 0
+        assert _links(db) == []
+
+    def test_candidate_may_carry_an_abs_id(self, db):
+        # "Not the origin", not "no abs_id": the origin links to an ABS ebook.
+        audio = _insert_item(db, title="Dune", isbn=None, media_type="audiobook", authors="Frank Herbert")
+        ebook = _insert_item(db, title="Dune", isbn=None, media_type="ebook",
+                             authors="Frank Herbert", abs_id="li_ebook")
+        db.execute("COMMIT")
+        assert auto_link([audio]) == 1
+        assert [tuple(r) for r in _links(db)] == [(min(audio, ebook), max(audio, ebook))]
+
+    def test_empty_origin_set_does_nothing(self, db):
+        assert auto_link([]) == 0
+
+
 class TestAlsoInAbsBadge:
     def _seed_linked(self, db):
         book = _insert_item(db, title="Dune", isbn="9789000006014", media_type="book",
@@ -74,15 +103,14 @@ class TestAlsoInAbsBadge:
     def test_physical_item_deep_links_to_abs(self, admin_client, db):
         book, _ = self._seed_linked(db)
         html = admin_client.get(f"/item/{book}").text
-        assert "Available in" in html
-        assert "Audiobookshelf" in html
+        assert "Also in Audiobookshelf (Audiobook)" in html
         assert "https://abs.example/item/li_abc" in html
 
     def test_abs_item_shows_listen_not_also(self, admin_client, db):
         _, audio = self._seed_linked(db)
         html = admin_client.get(f"/item/{audio}").text
         assert "Listen on Audiobookshelf" in html
-        assert "Available in" not in html
+        assert "Also in Audiobookshelf (Audiobook)" not in html
 
     def test_no_badge_without_abs_url_setting(self, admin_client, db):
         book = _insert_item(db, title="Dune", isbn="9789000006250", media_type="book")

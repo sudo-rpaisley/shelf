@@ -1,7 +1,7 @@
 """Product coverage for the catalogue needs-attention workflow."""
 
-from app.services import holdings
-from tests.conftest import _insert_item
+from app.services import holdings, item_copies
+from tests.conftest import _insert_item, _insert_node_location, _legacy_location
 
 
 def test_attention_page_groups_common_catalogue_problems(viewer_client, db):
@@ -54,6 +54,10 @@ def test_location_attention_excludes_digital_media_and_uses_copy_location(viewer
         owned=1,
         cover_path="covers/digital.jpg",
     )
+    # RAW _insert_item creates no copy: seed the one genuinely unlocated copy
+    # this warning describes, then place that SAME row below.
+    copy_id = item_copies.add_copy(db, physical_id)
+    assert item_copies.copies_for_item(db, physical_id)[0]["location_id"] is None
     db.commit()
 
     html = viewer_client.get("/attention?category=location").text
@@ -64,17 +68,16 @@ def test_location_attention_excludes_digital_media_and_uses_copy_location(viewer
     # item.location_id compatibility field remains only room-level metadata.
     with db:
         holdings.ensure_foundation(db)
-        room = db.execute(
-            "INSERT INTO location_nodes (name) VALUES ('Study')"
-        ).lastrowid
+        room = _insert_node_location(db, "Study")
         shelf = db.execute(
             "INSERT INTO location_nodes (parent_id, name) VALUES (?, 'Shelf 1')",
             (room,),
         ).lastrowid
-        db.execute(
-            "UPDATE item_copies SET location_id = ? WHERE item_id = ? AND is_primary = 1",
-            (shelf, physical_id),
-        )
+        assert item_copies.update_copy(db, copy_id, {"location_id": shelf})
+    copies = item_copies.copies_for_item(db, physical_id)
+    assert [(copy["id"], copy["location_id"]) for copy in copies] == [(copy_id, shelf)]
+    assert db.execute("SELECT location_id FROM items WHERE id = ?", (physical_id,)).fetchone()[0] == _legacy_location(db, room)
+    assert shelf != _legacy_location(db, room)
     html = viewer_client.get("/attention?category=location").text
     assert "Physical Book" not in html
 

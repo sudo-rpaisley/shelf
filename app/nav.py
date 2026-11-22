@@ -4,39 +4,59 @@ The nav renders on every page, so the settings it depends on are read once
 and cached at module level; every settings write path that can change a
 nav-relevant value calls `invalidate_cache()`.
 
-Visibility is presentation only — hidden tabs keep serving their routes.
-Role gating is the exception: it mirrors the security rules the routers
-already enforce and always wins over the visibility config.
+Visibility is presentation only for manual hiding and the `requires` check —
+a hidden tab's route keeps serving. A **disabled feature** is not presentation:
+it gates the tab's routes too (`app.features.require_feature`), so dropping
+its tab here is just the nav agreeing with what the route already refuses.
+Role gating is the other exception: it mirrors the security rules the
+routers already enforce and always wins over the visibility config.
 """
 
 import json
 import logging
 
+from app.features import FEATURES, feature_enabled
+from app.i18n import N_
+
 logger = logging.getLogger(__name__)
+
+# Feature ownership remains centralized even for the fork's grouped navigation.
+_TAB_FEATURE = {tab: key for key, feature in FEATURES.items() for tab in feature.nav_tabs}
 
 # `group` controls presentation in base.html without changing route access.
 # Primary destinations stay visible; creation tools sit under Add; specialist
 # and reporting pages sit under More; admin pages live with the account menu.
 NAV_TABS = [
-    {"key": "home", "label": "Home", "path": "/", "group": "primary"},
-    {"key": "browse", "label": "Browse", "path": "/browse", "group": "primary"},
-    {"key": "my_list", "label": "My List", "path": "/my-list", "group": "primary"},
-    {"key": "collections", "label": "Collections", "path": "/collections", "group": "primary"},
-    {"key": "series", "label": "Series", "path": "/series", "group": "primary"},
-    {"key": "discover", "label": "Discover", "path": "/discover", "group": "primary",
+    {"key": "home", "label": N_("Home"), "path": "/", "group": "primary"},
+    {"key": "browse", "label": N_("Browse"), "path": "/browse", "group": "primary"},
+    {"key": "my_list", "label": N_("My List"), "path": "/my-list", "group": "primary"},
+    {"key": "collections", "label": N_("Collections"), "path": "/collections", "group": "primary"},
+    {"key": "series", "label": N_("Series"), "path": "/series", "group": "primary"},
+    {"key": "discover", "label": N_("Discover"), "path": "/discover", "group": "primary",
      "requires": "hardcover"},
-    {"key": "scan", "label": "Scan", "path": "/scan", "group": "add",
+    {"key": "scan", "label": N_("Scan"), "path": "/scan", "group": "add",
      "roles": ("admin", "editor")},
-    {"key": "intake", "label": "Intake", "path": "/intake", "group": "add",
+    {"key": "intake", "label": N_("Intake"), "path": "/intake", "group": "add",
      "roles": ("admin", "editor"), "requires": "vision"},
-    {"key": "locations", "label": "Locations", "path": "/locations", "group": "more"},
-    {"key": "music", "label": "Music", "path": "/music", "group": "more"},
-    {"key": "store", "label": "Store", "path": "/store", "group": "more"},
-    {"key": "stats", "label": "Stats", "path": "/stats", "group": "more"},
-    {"key": "settings", "label": "Settings", "path": "/settings", "group": "account",
+    {"key": "shelf-fill", "label": N_("Shelf Fill"), "path": "/shelf-fill", "group": "add",
+     "roles": ("admin", "editor")},
+    {"key": "locations", "label": N_("Locations"), "path": "/locations", "group": "more"},
+    {"key": "music", "label": N_("Music"), "path": "/music", "group": "more"},
+    {"key": "periodicals", "label": N_("Periodicals"), "path": "/periodicals", "group": "more"},
+    {"key": "store", "label": N_("Store"), "path": "/store", "group": "more"},
+    {"key": "stats", "label": N_("Stats"), "path": "/stats", "group": "more"},
+    {"key": "settings", "label": N_("Settings"), "path": "/settings", "group": "account",
      "roles": ("admin",)},
-    {"key": "logs", "label": "Logs", "path": "/logs", "group": "account",
+    {"key": "logs", "label": N_("Logs"), "path": "/logs", "group": "account",
      "roles": ("admin",)},
+    {"key": "trash", "label": N_("Trash"), "path": "/trash", "roles": ("admin", "editor"),
+      "group": "account", "menu": "account", "heading": N_("Library")},
+    {"key": "labels", "label": N_("Labels"), "path": "/labels", "roles": ("admin", "editor"),
+      "group": "account", "menu": "account", "heading": N_("Library")},
+    {"key": "audits", "label": N_("Audits"), "path": "/audits", "roles": ("admin", "editor"),
+      "group": "account", "menu": "account", "heading": N_("Library")},
+    {"key": "duplicates", "label": N_("Duplicates"), "path": "/duplicates", "roles": ("admin",),
+      "group": "account", "menu": "account", "heading": N_("Library")},
 ]
 
 # Home, Browse, Collections and the page that controls visibility must stay reachable.
@@ -116,13 +136,18 @@ REQUIREMENT_LABELS = {
 def hideable_tab_states(settings: dict[str, str] | None = None) -> list[dict]:
     """Each hideable tab with both inputs to its visibility.
 
-    -> {"key", "label", "hidden", "available", "requirement_label"}
+    -> {"key", "label", "hidden", "available", "requirement_label",
+        "feature_off", "feature_label"}
 
     `available` is the auto-hide input (integration configured or not);
     `hidden` is the manual-hide input (the settings checkbox). The two are
     independent — a tab can be checked visible but still unavailable, or
-    manually hidden despite being fully configured. Callers combine them as
-    needed; this just reports both so the UI can explain the difference.
+    manually hidden despite being fully configured. `feature_off` is a third,
+    independent input: whether the tab's owning feature (if any) is turned
+    off in Features — a disabled feature's tab reads as turned off there
+    rather than as visible, regardless of `hidden`/`available`. Callers
+    combine these as needed; this just reports them so the UI can explain
+    the difference.
     """
     if settings is None:
         settings = _nav_settings()
@@ -131,12 +156,16 @@ def hideable_tab_states(settings: dict[str, str] | None = None) -> list[dict]:
     for tab in HIDEABLE_TABS:
         requires = tab.get("requires")
         available = _is_configured(requires, settings) if requires else True
+        feature = _TAB_FEATURE.get(tab["key"])
+        feature_off = bool(feature) and not feature_enabled(feature)
         states.append({
             "key": tab["key"],
             "label": tab["label"],
             "hidden": tab["key"] in hidden,
             "available": available,
             "requirement_label": REQUIREMENT_LABELS.get(requires, ""),
+            "feature_off": feature_off,
+            "feature_label": FEATURES[feature].label if feature else "",
         })
     return states
 
@@ -156,18 +185,48 @@ def hidden_keys(settings: dict[str, str] | None = None) -> set[str]:
     return {k for k in parsed if isinstance(k, str) and k in HIDEABLE_KEYS}
 
 
-def visible_tabs(user: dict | None) -> list[dict]:
+def can_edit_catalogue(user: dict | None) -> bool:
+    """Mirror library authority for presentation without promoting bearer caps."""
+    if not user or user.get("api_token_id"):
+        return False
+    if user.get("role") == "admin":
+        return True
+    if not user.get("id"):
+        return False
+    from app.database import get_db
+    from app.services import libraries
+
+    try:
+        with get_db() as db:
+            return any(
+                libraries.has_library_role(db, user, library_id, "editor")
+                for library_id in libraries.accessible_library_ids(db, user)
+            )
+    except Exception:
+        logger.warning("Could not resolve catalogue navigation authority", exc_info=True)
+        return False
+
+
+def visible_tabs(user: dict | None, *, can_edit: bool | None = None) -> list[dict]:
     """The tabs this user should see: role AND integration AND not hidden."""
     settings = _nav_settings()
     hidden = hidden_keys(settings)
     role = (user or {}).get("role")
+    if can_edit is None:
+        can_edit = can_edit_catalogue(user)
     tabs = []
     for tab in NAV_TABS:
         roles = tab.get("roles")
-        if roles and role not in roles:
+        if roles == ("admin", "editor"):
+            if not can_edit:
+                continue
+        elif roles and role not in roles:
             continue
         requires = tab.get("requires")
         if requires and not _is_configured(requires, settings):
+            continue
+        feature = _TAB_FEATURE.get(tab["key"])
+        if feature and not feature_enabled(feature):
             continue
         if tab["key"] in hidden:
             continue
@@ -176,6 +235,8 @@ def visible_tabs(user: dict | None) -> list[dict]:
             "label": tab["label"],
             "path": tab["path"],
             "group": tab.get("group", "primary"),
+            "menu": tab.get("menu", "account" if tab.get("group") == "account" else ""),
+            "heading": tab.get("heading", N_("Administration") if tab.get("group") == "account" else ""),
         })
     return tabs
 
@@ -186,13 +247,13 @@ def visible_tabs(user: dict | None) -> list[dict]:
 # here — including anything crafted to look like a URL or path — silently
 # degrades to the default with no `from=` param emitted at all.
 BACK_TARGETS = {
-    "home": ("/", "Back to Home"),
-    "music": ("/music", "Back to music"),
-    "series": ("/series", "Back to series"),
-    "stats": ("/stats", "Back to stats"),
-    "my_list": ("/my-list", "Back to My List"),
+    "home": ("/", N_("Back to Home")),
+    "music": ("/music", N_("Back to music")),
+    "series": ("/series", N_("Back to series")),
+    "stats": ("/stats", N_("Back to stats")),
+    "my_list": ("/my-list", N_("Back to My List")),
 }
-DEFAULT_BACK_TARGET = ("/browse", "Back to browse")
+DEFAULT_BACK_TARGET = ("/browse", N_("Back to collection"))
 
 
 def back_target(key: str | None) -> dict:

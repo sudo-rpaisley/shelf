@@ -24,6 +24,7 @@ FAMILIES: dict[str, frozenset[str]] = {
 }
 
 _PROVIDER_SYNC_SOURCES = frozenset({"audiobookshelf", "komga", "romm"})
+LINK_TYPES = frozenset({"format", "related", "adaptation"})
 
 
 def family_for(media_type: str | None) -> str | None:
@@ -79,10 +80,12 @@ def link_items(db, item_a_id: int, item_b_id: int, link_type: str = "related") -
     """Link two items. Returns True only when a new edge was created."""
     if item_a_id == item_b_id:
         return False
+    if link_type not in LINK_TYPES:
+        raise ValueError("Unknown related-media link type")
     existing_ids = {
         row["id"]
         for row in db.execute(
-            "SELECT id FROM items WHERE id IN (?, ?)", (item_a_id, item_b_id)
+            "SELECT id FROM items_live WHERE id IN (?, ?)", (item_a_id, item_b_id)
         ).fetchall()
     }
     if existing_ids != {item_a_id, item_b_id}:
@@ -112,11 +115,13 @@ def related_ids(
     B in A↔B↔C must not act as an invisible bridge that tells a user A and C
     are related.
     """
+    if visibility_sql is None:
+        return related_ids(db, item_id, include_self, visibility_sql="1=1")
     if visibility_sql:
         rows = db.execute(
             f"""WITH RECURSIVE
             visible(id) AS (
-                SELECT i.id FROM items i WHERE {visibility_sql}
+                SELECT i.id FROM items_live i WHERE {visibility_sql}
             ),
             connected(id) AS (
                 SELECT ? WHERE EXISTS (SELECT 1 FROM visible WHERE id = ?)
@@ -138,21 +143,7 @@ def related_ids(
             [*visibility_params, item_id, item_id],
         ).fetchall()
     else:
-        rows = db.execute(
-            """WITH RECURSIVE connected(id) AS (
-                   SELECT ?
-                   UNION
-                   SELECT CASE
-                            WHEN il.item_a_id = connected.id THEN il.item_b_id
-                            ELSE il.item_a_id
-                          END
-                   FROM item_links il
-                   JOIN connected
-                     ON il.item_a_id = connected.id OR il.item_b_id = connected.id
-               )
-               SELECT id FROM connected ORDER BY id""",
-            (item_id,),
-        ).fetchall()
+        return []
     ids = [row["id"] for row in rows]
     if not include_self:
         ids = [value for value in ids if value != item_id]
@@ -178,17 +169,22 @@ def related_items(
         return []
     placeholders = ",".join("?" for _ in ids)
     return db.execute(
-        f"""SELECT * FROM items WHERE id IN ({placeholders})
+        f"""SELECT * FROM items_live WHERE id IN ({placeholders})
             ORDER BY title COLLATE NOCASE, media_type, platform, id""",
         tuple(ids),
     ).fetchall()
 
 
-def auto_link_item(db, item_id: int) -> int:
-    """Attach one item to an existing automatic family group when safe."""
+def auto_link_item(db, item_id: int, *, strict_origin_ids=None) -> int:
+    """Attach one item to an existing automatic family group when safe.
+
+    The ABS compatibility API only links origins to a different format outside
+    that import's origin set. Ordinary inserts and batch grouping deliberately
+    retain their broader same-family/same-format edition grouping.
+    """
     item = db.execute(
         """SELECT id, title, authors, isbn, media_type, publish_year
-           FROM items WHERE id = ?""",
+           FROM items_live WHERE id = ?""",
         (item_id,),
     ).fetchone()
     if not item:
@@ -200,12 +196,16 @@ def auto_link_item(db, item_id: int) -> int:
     placeholders = ",".join("?" for _ in media_types)
     candidates = db.execute(
         f"""SELECT id, title, authors, isbn, media_type, publish_year
-            FROM items
+            FROM items_live
             WHERE media_type IN ({placeholders}) AND id != ?
             ORDER BY id""",
         (*media_types, item_id),
     ).fetchall()
-    matches = [candidate for candidate in candidates if _match(item, candidate, family)]
+    matches = [candidate for candidate in candidates
+               if (strict_origin_ids is None or (
+                   candidate["id"] not in strict_origin_ids
+                   and candidate["media_type"] != item["media_type"]))
+               and _match(item, candidate, family)]
     if not matches:
         return 0
     # One edge is enough: the group is a connected component, not a clique.
@@ -226,7 +226,7 @@ def auto_link_family(db, family: str) -> int:
     placeholders = ",".join("?" for _ in media_types)
     rows = db.execute(
         f"""SELECT id, title, authors, isbn, media_type, publish_year
-            FROM items WHERE media_type IN ({placeholders}) ORDER BY id""",
+            FROM items_live WHERE media_type IN ({placeholders}) ORDER BY id""",
         tuple(media_types),
     ).fetchall()
     by_title: dict[str, list] = defaultdict(list)
@@ -280,7 +280,7 @@ def rebuild_automatic_connections(db) -> dict:
     for family, media_types in FAMILIES.items():
         placeholders = ",".join("?" for _ in media_types)
         scanned = db.execute(
-            f"SELECT COUNT(*) AS c FROM items WHERE media_type IN ({placeholders})",
+            f"SELECT COUNT(*) AS c FROM items_live WHERE media_type IN ({placeholders})",
             tuple(media_types),
         ).fetchone()["c"]
         created = auto_link_family(db, family)
@@ -305,7 +305,7 @@ def should_autolink_on_insert(source: str | None) -> bool:
 
 def search_candidates(db, item_id: int, query: str, limit: int = 20):
     """Find items that can be manually attached to the current media group."""
-    current = db.execute("SELECT title FROM items WHERE id = ?", (item_id,)).fetchone()
+    current = db.execute("SELECT title FROM items_live WHERE id = ?", (item_id,)).fetchone()
     if not current:
         return []
     excluded = set(related_ids(db, item_id, include_self=True))
@@ -313,7 +313,7 @@ def search_candidates(db, item_id: int, query: str, limit: int = 20):
     if q:
         like = f"%{q}%"
         rows = db.execute(
-            """SELECT * FROM items
+            """SELECT * FROM items_live
                WHERE title LIKE ? COLLATE NOCASE
                   OR authors LIKE ? COLLATE NOCASE
                   OR series_name LIKE ? COLLATE NOCASE
@@ -323,7 +323,7 @@ def search_candidates(db, item_id: int, query: str, limit: int = 20):
         ).fetchall()
     else:
         rows = db.execute(
-            "SELECT * FROM items ORDER BY title COLLATE NOCASE, media_type, id"
+            "SELECT * FROM items_live ORDER BY title COLLATE NOCASE, media_type, id"
         ).fetchall()
         target = normalise_title(current["title"])
         rows = [row for row in rows if normalise_title(row["title"]) == target]
@@ -381,3 +381,29 @@ def remove_manual_group_edges(db, anchor_id: int, target_id: int) -> int:
         (target_id, *group, target_id, *group),
     )
     return cursor.rowcount
+
+
+def direct_links(db, item_id: int) -> list[dict]:
+    """Return direct neighbours and edge types for edit/detail UIs."""
+    rows = db.execute(
+        """SELECT il.link_type,
+                  CASE WHEN il.item_a_id = ? THEN il.item_b_id ELSE il.item_a_id END AS item_id,
+                  i.title, i.media_type, i.cover_path
+           FROM item_links il
+           JOIN items_live i ON i.id = CASE
+               WHEN il.item_a_id = ? THEN il.item_b_id ELSE il.item_a_id END
+           WHERE il.item_a_id = ? OR il.item_b_id = ?
+           ORDER BY i.title COLLATE NOCASE, i.media_type, i.id""",
+        (item_id, item_id, item_id, item_id),
+    ).fetchall()
+    return [dict(row) for row in rows]
+
+
+def unlink_items(db, item_a_id: int, item_b_id: int) -> bool:
+    """Remove a direct, visible edge, without crossing library boundaries."""
+    if item_b_id not in related_ids(db, item_a_id):
+        return False
+    a_id, b_id = sorted((item_a_id, item_b_id))
+    return bool(db.execute(
+        "DELETE FROM item_links WHERE item_a_id = ? AND item_b_id = ?", (a_id, b_id),
+    ).rowcount)

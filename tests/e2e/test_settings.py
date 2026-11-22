@@ -53,7 +53,6 @@ def test_stats_page_loads(live_server, authed_page):
 def _open_users_tab(page, live_server):
     page.goto(f"{live_server['url']}/settings")
     page.get_by_role("button", name="Users").click()
-    page.wait_for_load_state("networkidle")
 
 
 def test_add_user_succeeds(live_server, authed_page):
@@ -113,28 +112,54 @@ def test_add_user_surfaces_server_rejection(live_server, authed_page):
 
 
 def _remove_button(page, name):
-    """The Remove button in the settings row whose label span is `name`."""
+    """Borrower removal, not either same-named physical-location namespace."""
     return page.locator(
-        f"//span[normalize-space(text())='{name}']/following-sibling::form//button"
+        f"//span[normalize-space(text())='{name}']/following-sibling::form[starts-with(@action, '/api/borrowers/')]//button"
     )
+
+
+def _location_remove_button(page, flat_id):
+    return page.get_by_test_id(f"legacy-location-row-{flat_id}").locator(
+        f'form[action="/api/locations/{flat_id}/delete"]'
+    ).get_by_role("button", name="Remove", exact=True)
+
+
+def _location_domains(data_dir):
+    conn = sqlite3.connect(str(data_dir / "shelf.db"))
+    conn.row_factory = sqlite3.Row
+    try:
+        return {table: [dict(row) for row in conn.execute(f"SELECT * FROM {table} ORDER BY id")]
+                for table in ("locations", "location_nodes")}
+    finally:
+        conn.close()
 
 
 def _add_borrower(page, live_server, name):
     page.goto(f"{live_server['url']}/settings")
     page.wait_for_load_state("networkidle")
     page.fill('input[placeholder="Add borrower..."]', name)
-    page.locator('form[action="/api/borrowers"] button[type="submit"]').click()
-    page.wait_for_load_state("networkidle")
+    with page.expect_navigation():
+        page.locator('form[action="/api/borrowers"] button[type="submit"]').click()
     expect(_remove_button(page, name)).to_be_visible()
 
 
 def _add_location(page, live_server, name):
     page.goto(f"{live_server['url']}/settings")
     page.wait_for_load_state("networkidle")
-    page.fill('input[placeholder="New location name..."]', name)
-    page.locator('form[action="/api/locations"] button[type="submit"]').click()
-    page.wait_for_load_state("networkidle")
-    expect(_remove_button(page, name)).to_be_visible()
+    form = page.locator('form[action="/api/locations"]')
+    expect(form).to_have_attribute("action", "/api/locations")  # This add form owns FLAT IDs.
+    form.locator('input[name="name"]').fill(name)
+    with page.expect_navigation():
+        form.locator('button[type="submit"]').click()
+    domains = _location_domains(live_server["data_dir"])
+    flats = [row for row in domains["locations"] if row["name"] == name]
+    assert len(flats) == 1
+    flat_id = flats[0]["id"]
+    nodes = [row for row in domains["location_nodes"] if row["legacy_location_id"] == flat_id]
+    assert len(nodes) == 1 and nodes[0]["name"] == name
+    expect(_location_remove_button(page, flat_id)).to_be_visible()
+    expect(page.get_by_test_id(f"location-row-{nodes[0]['id']}")).to_be_visible()
+    return flat_id, nodes[0]["id"]
 
 
 def _recording_handler(messages, action):
@@ -152,13 +177,15 @@ def test_borrower_delete_confirm_dismiss_keeps_the_borrower(live_server, authed_
     messages = []
     authed_page.once("dialog", _recording_handler(messages, "dismiss"))
     _remove_button(authed_page, name).click()
-    authed_page.wait_for_load_state("networkidle")
+
+    # The dismissal cancels the submit, so the row must still be there — this
+    # is the deadline the recorded-dialog assertion below needs.
+    expect(_remove_button(authed_page, name)).to_be_visible()
 
     assert messages == [f"Remove borrower '{name}'?"], (
         "no confirmation dialog fired — the inline handler is dead under the "
         "CSP and the data-confirm listener did not replace it"
     )
-    expect(_remove_button(authed_page, name)).to_be_visible()
 
 
 def test_borrower_delete_confirm_accept_removes_the_borrower(live_server, authed_page):
@@ -168,8 +195,8 @@ def test_borrower_delete_confirm_accept_removes_the_borrower(live_server, authed
 
     messages = []
     authed_page.once("dialog", _recording_handler(messages, "accept"))
-    _remove_button(authed_page, name).click()
-    authed_page.wait_for_load_state("networkidle")
+    with authed_page.expect_navigation():
+        _remove_button(authed_page, name).click()
 
     assert messages == [f"Remove borrower '{name}'?"]
     # Reload so this is the server's answer, not a stale DOM.
@@ -185,17 +212,105 @@ def test_location_delete_uses_the_same_delegated_confirm(live_server, authed_pag
     than a borrower-specific handler.
     """
     name = "E2E Confirm Location"
-    _add_location(authed_page, live_server, name)
+    flat_id, node_id = _add_location(authed_page, live_server, name)
+    before = _location_domains(live_server["data_dir"])
+    delete_url = f"{live_server['url']}/api/locations/{flat_id}/delete"
+    requests = []
+
+    def record_delete(request):
+        if request.method == "POST" and "/delete" in request.url:
+            requests.append(request.url)
+
+    authed_page.on("request", record_delete)
+    dismissed = []
+    authed_page.once("dialog", _recording_handler(dismissed, "dismiss"))
+    _location_remove_button(authed_page, flat_id).click()
+    expect(_location_remove_button(authed_page, flat_id)).to_be_visible()
+    assert dismissed == [f"Delete location '{name}'?"]
+    assert requests == [], "Cancel must not send a destructive HTTP request"
+    assert _location_domains(live_server["data_dir"]) == before
 
     messages = []
     authed_page.once("dialog", _recording_handler(messages, "accept"))
-    _remove_button(authed_page, name).click()
-    authed_page.wait_for_load_state("networkidle")
+    with authed_page.expect_navigation(), authed_page.expect_response(
+        lambda response: response.url == delete_url and response.request.method == "POST"
+    ) as deleted:
+        _location_remove_button(authed_page, flat_id).click()
 
     assert messages == [f"Delete location '{name}'?"]
+    assert deleted.value.status == 303
+    assert requests == [delete_url]
     authed_page.goto(f"{live_server['url']}/settings")
     authed_page.wait_for_load_state("networkidle")
-    expect(_remove_button(authed_page, name)).to_have_count(0)
+    expect(authed_page.get_by_test_id(f"legacy-location-row-{flat_id}")).to_have_count(0)
+    expect(authed_page.get_by_test_id(f"location-row-{node_id}")).to_be_visible()
+    after = _location_domains(live_server["data_dir"])
+    assert after["locations"] == [row for row in before["locations"] if row["id"] != flat_id]
+    assert after["location_nodes"] == [
+        {**row, "legacy_location_id": None} if row["id"] == node_id else row
+        for row in before["location_nodes"]
+    ]
+    authed_page.remove_listener("request", record_delete)
+
+
+def _seed_tag(data_dir, item_id: int, name: str) -> int:
+    conn = sqlite3.connect(str(data_dir / "shelf.db"))
+    try:
+        cur = conn.execute("INSERT INTO tags (name) VALUES (?)", (name,))
+        tag_id = cur.lastrowid
+        conn.execute(
+            "INSERT INTO item_tags (item_id, tag_id) VALUES (?, ?)", (item_id, tag_id)
+        )
+        conn.commit()
+        return tag_id
+    finally:
+        conn.close()
+
+
+def test_tag_manager_rename_and_delete(live_server, authed_page):
+    """Settings > Library tag manager: rename a tag, then delete it. The
+    delete confirmation comes from the delegated data-confirm listener, so
+    the dialog message is recorded and asserted exactly rather than merely
+    accepted (G28 — an accepted dialog passes on any message, or none)."""
+    data_dir = live_server["data_dir"]
+    item_id = insert_item(data_dir, title="Tag Manager Probe", isbn="9780009995002")
+    old_name = "E2E Settings Tag Old"
+    new_name = "E2E Settings Tag New"
+    tag_id = _seed_tag(data_dir, item_id, old_name)
+
+    # Library is the default Settings tab (recon B-10) — no tab click needed.
+    authed_page.goto(f"{live_server['url']}/settings")
+    authed_page.wait_for_load_state("networkidle")
+
+    row = authed_page.locator(f"[data-testid='tag-row-{tag_id}']")
+    expect(row).to_contain_text(old_name)
+    row.get_by_text("Edit", exact=True).click()
+    row.locator("input[name=name]").fill(new_name)
+    # The POST 303s back to /settings — the page is already there, so
+    # wait_for_url would match the current document instead of the new one.
+    with authed_page.expect_navigation():
+        row.get_by_role("button", name="Save tag").click()
+
+    row = authed_page.locator(f"[data-testid='tag-row-{tag_id}']")
+    expect(row).to_contain_text(new_name)
+
+    messages = []
+
+    def accept(dialog):
+        messages.append(dialog.message)
+        dialog.accept()
+
+    authed_page.once("dialog", accept)
+    with authed_page.expect_navigation():
+        row.get_by_role("button", name="Delete", exact=True).click()
+
+    assert messages == [
+        f"Delete tag '{new_name}' from every item, including items in Trash?"
+    ]
+    # Reload so this is the server's answer, not a stale DOM.
+    authed_page.goto(f"{live_server['url']}/settings")
+    authed_page.wait_for_load_state("networkidle")
+    expect(authed_page.locator(f"[data-testid='tag-row-{tag_id}']")).to_have_count(0)
 
 
 def test_blocked_borrower_delete_shows_the_settings_banner(live_server, authed_page):
@@ -223,8 +338,8 @@ def test_blocked_borrower_delete_shows_the_settings_banner(live_server, authed_p
 
     messages = []
     authed_page.once("dialog", _recording_handler(messages, "accept"))
-    _remove_button(authed_page, name).click()
-    authed_page.wait_for_load_state("networkidle")
+    with authed_page.expect_navigation():
+        _remove_button(authed_page, name).click()
 
     # The confirm still counts zero past loans — the open loan is not a past one.
     assert messages == [f"Remove borrower '{name}'?"]

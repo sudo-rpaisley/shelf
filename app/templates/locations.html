@@ -4,6 +4,7 @@
 {% if selected_location %}<script defer src="/static/js/location-order.js"></script>{% endif %}
 {% endblock %}
 {% block content %}
+{% set may_order = can_edit_location_order|default(false) %}
 <div class="max-w-7xl mx-auto space-y-6">
     <div class="flex items-start justify-between gap-4">
         <div>
@@ -13,6 +14,7 @@
         </div>
         {% if user and user.role == 'admin' %}
         <form action="/api/location-tree" method="post" class="flex gap-2">
+            {% include "fragments/csrf_field.html" %}
             <input type="text" name="name" placeholder="New top-level location" required
                    class="min-w-0 bg-shelf-bg border border-shelf-border rounded-lg px-3 py-2 text-sm text-shelf-text focus:ring-2 focus:ring-shelf-accent outline-none">
             <button type="submit" class="px-4 py-2 bg-shelf-accent text-white rounded-lg text-sm hover:bg-shelf-accent2 transition-colors">Add</button>
@@ -76,6 +78,7 @@
                         {% if user and user.role == 'admin' %}
                         <form action="/api/location-tree/{{ selected_location.id }}/delete" method="post"
                               data-confirm="Delete '{{ selected_location.name }}'?">
+                            {% include "fragments/csrf_field.html" %}
                             <button type="submit" class="px-3 py-2 bg-shelf-card border border-shelf-border rounded-lg text-sm text-shelf-error hover:bg-shelf-hover transition-colors">Delete</button>
                         </form>
                         {% endif %}
@@ -86,6 +89,7 @@
                 <div class="bg-shelf-card border border-shelf-border rounded-xl p-4">
                     <h3 class="font-semibold mb-3">Location details</h3>
                     <form action="/api/location-tree/{{ selected_location.id }}/update" method="post" class="space-y-3">
+                        {% include "fragments/csrf_field.html" %}
                         <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
                             <div>
                                 <label class="block text-xs text-shelf-muted mb-1">Name</label>
@@ -97,7 +101,7 @@
                                 <select name="parent_id" class="w-full bg-shelf-bg border border-shelf-border rounded-lg px-3 py-2 text-sm text-shelf-text">
                                     <option value="">Top level</option>
                                     {% for node in location_nodes %}
-                                    {% if node.id != selected_location.id %}
+                                    {% if node.id != selected_location.id and selected_location.id not in node.ancestor_ids %}
                                     <option value="{{ node.id }}" {% if selected_location.parent_id == node.id %}selected{% endif %}>{{ node.path }}</option>
                                     {% endif %}
                                     {% endfor %}
@@ -112,6 +116,7 @@
                 <div class="bg-shelf-card border border-shelf-border rounded-xl p-4">
                     <h3 class="font-semibold mb-3">Add a sub-location</h3>
                     <form action="/api/location-tree" method="post" class="flex gap-2">
+                        {% include "fragments/csrf_field.html" %}
                         <input type="hidden" name="parent_id" value="{{ selected_location.id }}">
                         <input type="text" name="name" placeholder="Bookcase, Shelf 1, Drawer…" required
                                class="flex-1 min-w-0 bg-shelf-bg border border-shelf-border rounded-lg px-3 py-2 text-sm text-shelf-text">
@@ -139,8 +144,10 @@
                             <h3 class="text-xl font-bold">Shelf order</h3>
                             <p class="text-sm text-shelf-muted mt-1">Drag titles into their real physical order, or start with an automatic sort.</p>
                         </div>
-                        {% if user and user.role in ('editor', 'admin') and location_copies %}
+                        <a href="/locations/{{ selected_location.id }}/arrange" class="text-sm text-shelf-accent2">{{ _('Arrange shelf') }}</a>
+                        {% if may_order and location_copies %}
                         <form action="/api/location-tree/{{ selected_location.id }}/auto-order" method="post" class="flex gap-2">
+                            {% include "fragments/csrf_field.html" %}
                             <select name="sort_key" class="bg-shelf-bg border border-shelf-border rounded-lg px-3 py-2 text-sm text-shelf-text">
                                 <option value="title">Title</option>
                                 <option value="author">Author / creator</option>
@@ -156,19 +163,20 @@
                     {% if location_copies %}
                     <div id="location-copy-list" data-location-id="{{ selected_location.id }}" class="space-y-2">
                         {% for copy in location_copies %}
-                        <div data-copy-id="{{ copy.copy_id }}" {% if user and user.role in ('editor', 'admin') %}draggable="true"{% endif %}
+                        <div data-copy-id="{{ copy.copy_id }}" {% if may_order %}draggable="true"{% endif %}
                              class="bg-shelf-card border border-shelf-border rounded-xl p-3 flex items-center gap-4"
-                             {% if user and user.role in ('editor', 'admin') %}style="cursor:grab"{% endif %}>
+                             {% if may_order %}style="cursor:grab"{% endif %}>
                             <span class="text-sm text-shelf-muted shrink-0" data-position-label>{{ loop.index }}</span>
-                            <a href="/item/{{ copy.item_id }}" class="w-10 h-14 shrink-0 bg-shelf-hover rounded overflow-hidden flex items-center justify-center">
+                            <a href="/item/{{ copy.item_id }}" class="w-10 h-14 shrink-0 bg-shelf-hover rounded overflow-hidden flex items-center justify-center" data-cover-shape="{{ cover_shape(copy.media_type) }}">
                                 {% if copy.cover_path %}<img src="/{{ copy.cover_path }}" alt="" class="w-full h-full" style="object-fit:contain">{% else %}<span class="text-xs text-shelf-muted">{{ copy.title[0] }}</span>{% endif %}
                             </a>
                             <div class="min-w-0 flex-1">
                                 <a href="/item/{{ copy.item_id }}" class="font-medium hover:text-shelf-accent2">{{ copy.title }}</a>
                                 <p class="text-xs text-shelf-muted mt-1">Copy {{ copy.copy_number }}{% if copy.authors %} · {{ copy.authors }}{% endif %}{% if copy.condition %} · {{ copy.condition }}{% endif %}</p>
                             </div>
-                            {% if user and user.role in ('editor', 'admin') %}
+                            {% if copy.can_edit_item|default(false) %}
                             <form action="/api/location-tree/copies/{{ copy.copy_id }}/move" method="post" class="flex gap-2">
+                                {% include "fragments/csrf_field.html" %}
                                 <select name="location_id" class="bg-shelf-bg border border-shelf-border rounded-lg px-2 py-2 text-xs text-shelf-text" aria-label="Move copy">
                                     {% for node in location_nodes %}<option value="{{ node.id }}" {% if node.id == selected_location.id %}selected{% endif %}>{{ node.path }}</option>{% endfor %}
                                 </select>
@@ -178,7 +186,7 @@
                         </div>
                         {% endfor %}
                     </div>
-                    {% if user and user.role in ('editor', 'admin') %}
+                    {% if may_order %}
                     <p id="location-order-status" class="text-xs text-shelf-muted mt-2" aria-live="polite">Drag to reorder. Changes save automatically.</p>
                     {% endif %}
                     {% else %}

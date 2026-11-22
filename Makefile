@@ -15,9 +15,9 @@ PYTEST_FLAGS ?= -q --tb=short --no-header
 # split. Never add -p no:cacheprovider here — test-fast's --lf needs the cache.
 PYTEST_PAR   ?= -n auto --dist loadfile
 
-.PHONY: setup css test test-verbose test-fast test-e2e test-all \
-        check-deps check-licenses check-secrets check-csrf check-alpine check-sw-version check-tests \
-        badges check-badges check-roadmap \
+.PHONY: setup css test test-verbose test-fast test-e2e test-contract test-all \
+        check-deps check-licenses check-secrets check-csrf check-alpine check-sw-version check-tests check-ruff check-deleted check-i18n i18n \
+        badges check-badges check-roadmap lock lock-upgrade check-lock check-lock-selftest \
         checks checks-fast \
         report-review report-security report-test reports \
         qa fix verify release-check status \
@@ -42,38 +42,109 @@ setup:
 # ---------------------------------------------------------------------------
 
 # Rebuild the committed Tailwind stylesheet after changing templates,
-# static/js, or tailwind.config.js. Resolves tailwind from node_modules
+# static/js, or static/css/input.css (theme + sources). Resolves tailwind from node_modules
 # (version pinned in package.json) rather than re-fetching it over the network
 # on every invocation — run `npm install` / `make setup` first.
 # app.css is precached by the service worker, so a rebuild must rename its
 # cache or browsers keep serving the stale copy. Stamping SW_VERSION from the
 # precache digest here is what makes that automatic (scripts/stamp_sw_version.py).
 css:
-	npx tailwindcss -c tailwind.config.js -i static/css/input.css -o static/css/app.css --minify
+	npx @tailwindcss/cli -i static/css/input.css -o static/css/app.css --minify
 	python scripts/stamp_sw_version.py
+
+# UI catalogs (app/i18n.py). Extracts every marked string into each
+# app/locales/<lang>/LC_MESSAGES/*.po and recompiles the committed .mo files.
+# Run it after adding or changing UI text, translate the new entries, run it again.
+i18n:
+	python scripts/i18n.py update
+	python scripts/i18n.py compile
 
 # ---------------------------------------------------------------------------
 # Tests
 # ---------------------------------------------------------------------------
 
 test:
-	python -m pytest tests/ --ignore=tests/e2e $(PYTEST_FLAGS) $(PYTEST_PAR)
+	python -m pytest tests/ --ignore=tests/e2e --ignore=tests/contract -m "not live" $(PYTEST_FLAGS) $(PYTEST_PAR)
 
 # Per-test roll-call, for when a human is reading the output.
 test-verbose:
-	python -m pytest tests/ --ignore=tests/e2e -v --tb=short
+	python -m pytest tests/ --ignore=tests/e2e --ignore=tests/contract -v --tb=short
 
 # Inner fix loop: re-run only what failed last time. Stays parallel because
 # --lf falls back to the *whole* suite when nothing failed last run, and a
 # serial fallback there costs 97s instead of 17s. (--lf is a collection-time
 # filter, so it composes fine with xdist — don't add -x, which does not.)
 test-fast:
-	python -m pytest tests/ --ignore=tests/e2e $(PYTEST_FLAGS) $(PYTEST_PAR) --lf
+	python -m pytest tests/ --ignore=tests/e2e --ignore=tests/contract $(PYTEST_FLAGS) $(PYTEST_PAR) --lf
 
 test-e2e:
-	python -m pytest tests/e2e/ $(PYTEST_FLAGS) -m e2e
+	python -m pytest tests/e2e/ $(PYTEST_FLAGS) -m "e2e and not live"
+
+# The live contract check for the UPC Item DB stub's recording. Spends one
+# trial-tier lookup per run (100/day); run at release, never on a gate
+# (#123). A skip means the quota was already spent — read the reason.
+test-contract:
+	python -m pytest tests/contract/ $(PYTEST_FLAGS) -m live -rs
 
 test-all: test test-e2e
+
+# ---------------------------------------------------------------------------
+# Dependency locks
+# ---------------------------------------------------------------------------
+# requirements.txt and requirements-dev.txt are GENERATED from the .in files by
+# uv; never edit them by hand. The dev lock is compiled constrained by the
+# runtime lock so shared transitives resolve to one version.
+#
+# Every lock target compiles in a temp dir over COPIES of the committed locks
+# with their --hash= lines stripped (LOCK_IN_TMP). uv reads an existing -o file
+# as preferences: the versions it keeps are what stop an empty target taking the
+# newest release of every transitive, and the hashes it would keep verbatim are
+# why they are stripped, so every hash is fetched fresh from the index (G159).
+# lock/lock-upgrade copy the result back only after both compiles succeed, so a
+# failed or offline run leaves the committed locks untouched. The compile runs
+# inside the temp dir with relative paths because uv writes the -c path into the
+# dev lock's "via" comments.
+UV_COMPILE = python -m uv pip compile --universal --python-version 3.12 --generate-hashes --quiet --custom-compile-command "make lock"
+LOCK_DIR ?= .
+
+# $(1) = directory holding the four files, $(2) = extra compile flags. Leaves
+# the shell open with the fresh locks in $$tmp; each caller appends its tail.
+LOCK_IN_TMP = set -e; tmp=$$(mktemp -d); trap 'rm -rf "$$tmp"' EXIT; \
+	cp "$(1)/requirements.in" "$(1)/requirements-dev.in" "$$tmp/"; \
+	for f in requirements.txt requirements-dev.txt; do \
+	  if [ -f "$(1)/$$f" ]; then sed -e '/^ *--hash=/d' -e 's/ \\$$//' "$(1)/$$f" > "$$tmp/$$f"; \
+	  else : > "$$tmp/$$f"; fi; \
+	done; \
+	(cd "$$tmp" && $(UV_COMPILE) $(2) requirements.in -o requirements.txt && \
+	 $(UV_COMPILE) $(2) requirements-dev.in -c requirements.txt -o requirements-dev.txt)
+
+lock:
+	@$(call LOCK_IN_TMP,.,); cp "$$tmp/requirements.txt" "$$tmp/requirements-dev.txt" .
+
+lock-upgrade:
+	@$(call LOCK_IN_TMP,.,--upgrade); cp "$$tmp/requirements.txt" "$$tmp/requirements-dev.txt" .
+
+check-lock:
+	@$(call LOCK_IN_TMP,$(LOCK_DIR),); \
+	diff -u "$(LOCK_DIR)/requirements.txt" "$$tmp/requirements.txt" && \
+	diff -u "$(LOCK_DIR)/requirements-dev.txt" "$$tmp/requirements-dev.txt" || \
+	{ echo "ERROR: a lock is not what 'make lock' produces. Run 'make lock' and commit both .txt files."; \
+	  echo "Causes: a .in edit that was not relocked; a hand-edited --hash= line; or PyPI added a file to a version already pinned (not caused by your change)."; exit 1; }
+
+# Proves check-lock can fail: a clean copy must pass, then one invented digest
+# must turn it red WITH that digest in the diff, so a network error cannot pass
+# as a caught mutation (G108). Output goes to files, never a pipe (G63).
+check-lock-selftest:
+	@set -e; d=$$(mktemp -d); trap 'rm -rf "$$d"' EXIT; \
+	cp requirements.in requirements-dev.in requirements.txt requirements-dev.txt "$$d/"; \
+	if ! $(MAKE) --no-print-directory -s check-lock LOCK_DIR="$$d" > "$$d/base.log" 2>&1; then \
+	  cat "$$d/base.log"; echo "ERROR: check-lock fails on an unmodified copy, so the self-test proves nothing. Fix that first."; exit 1; fi; \
+	h=$$(grep -om1 'sha256:[0-9a-f]*' "$$d/requirements.txt"); bad="$${h%?}0"; [ "$$bad" != "$$h" ] || bad="$${h%?}1"; \
+	sed -i "s/$$h/$$bad/" "$$d/requirements.txt"; \
+	if $(MAKE) --no-print-directory -s check-lock LOCK_DIR="$$d" > "$$d/mut.log" 2>&1; then rc=0; else rc=$$?; fi; \
+	if [ "$$rc" -eq 0 ] || ! grep -q "$$bad" "$$d/mut.log"; then \
+	  cat "$$d/mut.log"; echo "ERROR: check-lock passed a lock with an invented hash — the hash check is broken (G159)."; exit 1; fi; \
+	echo "check-lock-selftest: an invented hash was caught."
 
 # ---------------------------------------------------------------------------
 # Static checks
@@ -81,7 +152,7 @@ test-all: test test-e2e
 
 check-deps:
 	@mkdir -p $(DOCS)
-	set -o pipefail && pip-audit -r requirements.txt --desc 2>&1 | tee $(DOCS)/dep-audit-$(DATE).txt
+	set -o pipefail && pip-audit -r requirements.txt --require-hashes --disable-pip --desc 2>&1 | tee $(DOCS)/dep-audit-$(DATE).txt
 
 check-licenses:
 	@mkdir -p $(DOCS)
@@ -111,6 +182,16 @@ check-secrets:
 check-csrf:
 	python scripts/check_csrf_fetch.py
 
+# Every read of items or item_copies in app/ must go through its TEMP view
+# (app/database.py::get_db() creates items_live and copies_live on every
+# connection), never the physical table directly — a direct read sees
+# soft-deleted rows, and for item_copies a live-item's trashed copy too.
+# Catches both FROM items/item_copies and JOIN items/item_copies; the latter
+# has no FROM items anywhere in some files (app/routers/checkouts.py), so a
+# lint that only looked for FROM would miss it silently.
+check-deleted:
+	python scripts/check_items_live.py
+
 check-alpine:
 	python scripts/check_alpine_csp.py
 
@@ -119,6 +200,14 @@ check-sw-version:
 
 check-tests:
 	python scripts/check_test_conventions.py
+
+# Python lint: syntax errors, unused imports/variables, redefinitions (ruff.toml).
+check-ruff:
+	python -m ruff check app tests scripts
+
+# Every marked UI string is in each .po, and each committed .mo matches its .po.
+check-i18n:
+	python scripts/i18n.py --check
 
 # README's two test-count badges are generated from `pytest --co`, never
 # hand-edited — the same rule as sw.js's SW_VERSION. Add a test, run this.
@@ -135,11 +224,11 @@ check-roadmap:
 	python scripts/check_roadmap_map.py
 
 # Instant, offline lints — the inner-loop target.
-checks-fast: check-secrets check-csrf check-alpine check-sw-version check-tests check-badges check-roadmap
+checks-fast: check-secrets check-csrf check-deleted check-alpine check-sw-version check-tests check-ruff check-badges check-roadmap check-i18n
 
 # Everything, including the network-bound pip-audit and the dated report files.
 # Keep this the full set: the release procedure in ../CLAUDE.md step 1 calls it.
-checks: checks-fast check-deps check-licenses
+checks: checks-fast check-lock check-lock-selftest check-deps check-licenses
 
 # ---------------------------------------------------------------------------
 # Claude agent reports
@@ -215,7 +304,7 @@ fix:
 # that makes the comparison die with "integer expected" — which bash treats
 # as false, silently passing the guard no matter how many tests were deleted.
 verify: test-all
-	@count=$$(python -m pytest tests/ --ignore=tests/e2e --co -q 2>/dev/null \
+	@count=$$(python -m pytest tests/ --ignore=tests/e2e --ignore=tests/contract --co -q 2>/dev/null \
 		| grep -oP '^\d+(?= tests? collected)' | tail -1); \
 	if [ -z "$$count" ]; then \
 		echo "ERROR: could not determine unit test count"; exit 1; \

@@ -43,6 +43,16 @@ DEFAULT_OLLAMA_MODEL = "gemma3:12b"
 MAX_IMAGE_BYTES = 10 * 1024 * 1024
 ALLOWED_MIME = {"image/jpeg", "image/png", "image/webp", "image/gif"}
 
+# Combined budget for one /analyze call. A tiled submission has no per-file
+# cap of its own (MAX_IMAGE_BYTES bounds only each tile), so an editor could
+# otherwise submit an unbounded number of near-10MB tiles in one request —
+# RAM plus billed vision calls (review 2026-09-23, B-4). 300MB is generous.
+# A tiled photo's total size tracks its pixel count, not its tile count:
+# measured on real shelf photos cropped per compute_grid() and encoded as
+# the client does (JPEG, quality 0.92), a 50MP photo came to ~8MB under
+# every provider cap, largest tile 0.69MB — so even ~190MP is ~30MB.
+MAX_TOTAL_INTAKE_BYTES = 300 * 1024 * 1024
+
 PROMPT = (
     "This photo shows books — on a shelf, in a stack, or laid out face-up with "
     "the front or back cover showing. Text on spines may run vertically or "

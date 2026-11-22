@@ -1,0 +1,24 @@
+{% extends "base.html" %}
+{% block title %}{{ _('Library recovery') }} — Shelf{% endblock %}
+{% block content %}
+<div class="max-w-3xl mx-auto space-y-4" data-testid="library-recovery">
+    <h1 class="text-2xl font-bold">{{ _('Library recovery') }}</h1>
+    <p class="text-sm text-shelf-muted">{{ _('Assign unmapped items to a library. This does not restore items from Trash or change their copies or private history.') }}</p>
+    {% for item in recovery_items %}
+    <form method="post" action="/api/libraries/recovery/items/{{ item.id }}" class="bg-shelf-card border border-shelf-border rounded-lg p-4 space-y-3" data-recovery-item="{{ item.id }}">
+        {% include "fragments/csrf_field.html" %}
+        <p class="font-medium">{{ item.title }}</p>
+        {% if item.deleted_at %}<p class="text-sm text-shelf-muted">{{ _('In Trash') }}</p>{% endif %}
+        <label class="block text-sm">{{ _('Library') }}
+            <select name="library_id" required class="w-full bg-shelf-bg border border-shelf-border rounded-lg p-2">
+                <option value="">{{ _('Choose a library') }}</option>
+                {% for library in libraries %}<option value="{{ library.id }}">{{ library.name }}</option>{% endfor %}
+            </select>
+        </label>
+        <button type="submit" class="px-4 py-2 bg-shelf-accent text-white rounded-lg">{{ _('Assign to library') }}</button>
+    </form>
+    {% else %}
+    <p>{{ _('No unmapped items need recovery.') }}</p>
+    {% endfor %}
+</div>
+{% endblock %}

@@ -18,7 +18,7 @@
     <td data-col="cover" class="px-3 py-2 w-10">
         <a href="{{ item.browse_media_url }}" aria-label="Open linked media for {{ item.browse_media_title }}">
             {% if item.browse_media_cover_path %}
-            <img src="/{{ item.browse_media_cover_path }}" alt="" class="w-8 h-12 object-cover rounded" loading="lazy">
+            <img src="/{{ item.browse_media_cover_path }}" alt="" class="w-8 h-12 object-cover rounded" loading="lazy" data-cover-shape="{{ cover_shape(item.browse_media_cover_media_type) }}">
             {% else %}
             <div class="w-8 h-12 bg-shelf-hover rounded flex items-center justify-center">
                 <svg class="w-4 h-4 text-shelf-muted" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M8 7h8a4 4 0 010 8h-3m-2 2H8a4 4 0 010-8h3"/></svg>

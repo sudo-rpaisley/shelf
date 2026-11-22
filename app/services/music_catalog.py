@@ -9,10 +9,46 @@ from __future__ import annotations
 
 import json
 from datetime import datetime, timedelta, timezone
+from functools import wraps
+
+from app.services.catalogue_security import require_item_role
+from app.services.item_write import _write_scope
+
+
+def _catalogue_write(operation):
+    @wraps(operation)
+    def write(db, item_id, *args, **kwargs):
+        with _write_scope(db):
+            require_item_role(db, item_id, "editor")
+            return operation(db, item_id, *args, **kwargs)
+    return write
 
 
 def _now() -> str:
     return datetime.now(timezone.utc).replace(microsecond=0).isoformat()
+
+
+def selected_discogs_release_id(db, item_id: int) -> int | None:
+    """Translate retained/native pressing identity only when it is unambiguous."""
+    if require_item_role(db, item_id, "viewer") is None:
+        return None
+    if not db.execute("SELECT 1 FROM items_live WHERE id = ?", (item_id,)).fetchone():
+        return None
+    row = db.execute("SELECT discogs_release_id FROM music_releases WHERE item_id = ?", (item_id,)).fetchone()
+    values = {str(record["value"]).strip() for record in db.execute(
+        "SELECT value FROM music_identifiers WHERE item_id = ? AND identifier_type = 'discogs_release_id'",
+        (item_id,),
+    ).fetchall()}
+    if row and row["discogs_release_id"]:
+        values.add(str(row["discogs_release_id"]))
+    if not values:
+        return None
+    if len(values) != 1:
+        raise ValueError("Conflicting Discogs pressing identities; select the exact pressing explicitly")
+    value = values.pop()
+    if not value.isdigit() or int(value) <= 0:
+        raise ValueError("Invalid saved Discogs pressing identity")
+    return int(value)
 
 
 def _discogs_is_fresh(value: str | None) -> bool:
@@ -28,6 +64,7 @@ def _discogs_is_fresh(value: str | None) -> bool:
     return datetime.now(timezone.utc) - stamp <= timedelta(hours=6)
 
 
+@_catalogue_write
 def save_release(db, item_id: int, release: dict) -> None:
     """Upsert release metadata and replace its provider-owned media/track tree.
 
@@ -35,6 +72,15 @@ def save_release(db, item_id: int, release: dict) -> None:
     touched by the conflict update: re-enriching from MusicBrainz must never
     erase information about the user's particular copy.
     """
+    require_item_role(db, item_id, "editor")
+    incoming_id = str(release.get("musicbrainz_release_id") or "").strip()
+    if not incoming_id:
+        raise ValueError("An exact MusicBrainz release ID is required")
+    current = db.execute(
+        "SELECT musicbrainz_release_id FROM music_releases WHERE item_id = ?", (item_id,),
+    ).fetchone()
+    if current and current["musicbrainz_release_id"] and current["musicbrainz_release_id"] != incoming_id:
+        raise ValueError("This item already has a different exact MusicBrainz release identity")
     db.execute(
         """
         INSERT INTO music_releases (
@@ -123,18 +169,26 @@ def save_release(db, item_id: int, release: dict) -> None:
 
 
 
+@_catalogue_write
 def save_discogs_enrichment(db, item_id: int, release: dict) -> bool:
     """Cache one selected Discogs Release without changing MusicBrainz identity.
 
     Discogs-sourced identifiers are replaceable provider cache. Manually entered
     matrix/runout data is source='manual' and therefore survives every refresh.
     """
+    require_item_role(db, item_id, "editor")
     try:
-        release_id = int(release.get("discogs_release_id"))
+        release_id = int(str(release.get("discogs_release_id")).strip())
     except (TypeError, ValueError):
         raise ValueError("a Discogs release ID is required")
     if release_id <= 0:
         raise ValueError("a Discogs release ID is required")
+    if not db.execute("SELECT 1 FROM music_releases WHERE item_id = ?", (item_id,)).fetchone():
+        return False
+    from app.services import discogs_selection
+    # Explicit selection owns both representations and clears obsolete cache
+    # before this transaction fills the newly selected provider response.
+    discogs_selection.set_selected_release_id(db, item_id, release_id)
 
     cursor = db.execute(
         """
@@ -162,11 +216,14 @@ def save_discogs_enrichment(db, item_id: int, release: dict) -> bool:
         return False
 
     db.execute(
-        "DELETE FROM music_identifiers WHERE item_id = ? AND source = 'discogs'",
+        "DELETE FROM music_identifiers WHERE item_id = ? AND source = 'discogs' "
+        "AND identifier_type != 'discogs_release_id'",
         (item_id,),
     )
     for identifier in release.get("identifiers") or []:
         if not isinstance(identifier, dict):
+            continue
+        if identifier.get("identifier_type") == "discogs_release_id":
             continue
         try:
             add_identifier(
@@ -182,25 +239,13 @@ def save_discogs_enrichment(db, item_id: int, release: dict) -> bool:
     return True
 
 
+@_catalogue_write
 def clear_discogs_enrichment(db, item_id: int) -> bool:
     """Remove the selected Discogs pressing and all provider-owned cache."""
-    cursor = db.execute(
-        """
-        UPDATE music_releases SET
-            discogs_release_id = NULL, discogs_master_id = NULL,
-            discogs_label = NULL, discogs_catalog_number = NULL,
-            discogs_format_summary = NULL, discogs_genres = NULL,
-            discogs_styles = NULL, discogs_notes = NULL,
-            discogs_updated_at = NULL
-        WHERE item_id = ?
-        """,
-        (item_id,),
-    )
-    db.execute(
-        "DELETE FROM music_identifiers WHERE item_id = ? AND source = 'discogs'",
-        (item_id,),
-    )
-    return cursor.rowcount > 0
+    require_item_role(db, item_id, "editor")
+    from app.services import discogs_selection
+    changed = discogs_selection.clear_selected_release_id(db, item_id)
+    return changed or bool(db.execute("SELECT 1 FROM music_releases WHERE item_id = ?", (item_id,)).fetchone())
 
 
 def _link_release_group_siblings(db, item_id: int, release_group_id: str | None) -> None:
@@ -208,8 +253,8 @@ def _link_release_group_siblings(db, item_id: int, release_group_id: str | None)
     if not release_group_id:
         return
     siblings = db.execute(
-        "SELECT item_id FROM music_releases "
-        "WHERE musicbrainz_release_group_id = ? AND item_id != ?",
+        "SELECT mr.item_id FROM music_releases mr JOIN items_live i ON i.id = mr.item_id "
+        "WHERE mr.musicbrainz_release_group_id = ? AND mr.item_id != ?",
         (release_group_id, item_id),
     ).fetchall()
     for row in siblings:
@@ -224,7 +269,7 @@ def _link_release_group_siblings(db, item_id: int, release_group_id: str | None)
 def get_release(db, item_id: int) -> dict | None:
     """Hydrate one music release including media, tracks and identifiers."""
     row = db.execute(
-        "SELECT * FROM music_releases WHERE item_id = ?", (item_id,)
+        "SELECT mr.* FROM music_releases mr JOIN items_live i ON i.id = mr.item_id WHERE mr.item_id = ?", (item_id,)
     ).fetchone()
     if not row:
         return None
@@ -252,6 +297,17 @@ def get_release(db, item_id: int) -> dict | None:
         except (TypeError, ValueError, json.JSONDecodeError):
             release[field] = []
     release["discogs_fresh"] = _discogs_is_fresh(release.get("discogs_updated_at"))
+    try:
+        selected = selected_discogs_release_id(db, item_id)
+    except ValueError:
+        selected = None
+        release["discogs_fresh"] = False
+    if selected is not None and selected != release.get("discogs_release_id"):
+        release["discogs_fresh"] = False
+    if not release["discogs_fresh"]:
+        for field in ("discogs_label", "discogs_catalog_number", "discogs_format_summary", "discogs_notes"):
+            release[field] = None
+        release["discogs_genres"] = release["discogs_styles"] = []
 
     identifiers = [
         dict(identifier)
@@ -271,6 +327,7 @@ def get_release(db, item_id: int) -> dict | None:
     return release
 
 
+@_catalogue_write
 def update_copy_details(
     db,
     item_id: int,
@@ -281,6 +338,7 @@ def update_copy_details(
     condition_notes: str | None,
 ) -> bool:
     """Update fields describing the user's copy, not provider metadata."""
+    require_item_role(db, item_id, "editor")
     cursor = db.execute(
         """
         UPDATE music_releases
@@ -299,6 +357,7 @@ def update_copy_details(
     return cursor.rowcount > 0
 
 
+@_catalogue_write
 def add_identifier(
     db,
     item_id: int,
@@ -308,6 +367,7 @@ def add_identifier(
     *,
     source: str = "manual",
 ) -> None:
+    require_item_role(db, item_id, "editor")
     identifier_type = (identifier_type or "").strip()
     value = (value or "").strip()
     source = (source or "manual").strip() or "manual"
@@ -320,7 +380,9 @@ def add_identifier(
     )
 
 
+@_catalogue_write
 def remove_identifier(db, item_id: int, identifier_id: int) -> bool:
+    require_item_role(db, item_id, "editor")
     cursor = db.execute(
         "DELETE FROM music_identifiers WHERE id = ? AND item_id = ?",
         (identifier_id, item_id),

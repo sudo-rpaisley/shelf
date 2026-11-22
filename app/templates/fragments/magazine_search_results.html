@@ -3,7 +3,7 @@
     {% for issue in results %}
     <div class="bg-shelf-bg rounded-lg border border-shelf-border p-3 flex items-center gap-4">
         {% if issue.cover_url %}
-        <img src="{{ issue.cover_url }}" class="w-12 h-16 object-cover rounded shrink-0" alt="">
+        <img src="{{ issue.cover_url }}" class="w-12 h-16 object-cover rounded shrink-0" alt="" data-cover-shape="portrait">
         {% else %}
         <div class="w-12 h-16 bg-shelf-hover rounded flex items-center justify-center text-shelf-muted text-xs shrink-0">?</div>
         {% endif %}
@@ -16,25 +16,38 @@
             {% if issue.issn %}<p class="text-xs text-shelf-muted/70 font-mono">ISSN {{ issue.issn }}</p>{% endif %}
         </div>
         {% if for_scan %}
-        <form hx-get="/api/magazines/select-search-result"
+        <form action="/api/magazines/select-search-result" method="get" hx-get="/api/magazines/select-search-result"
               hx-target="closest .scan-result" hx-swap="outerHTML">
             <input type="hidden" name="google_volume_id" value="{{ issue.google_volume_id }}">
             <input type="hidden" name="carrier_ean" value="{{ carrier_ean or '' }}">
             <input type="hidden" name="barcode_supplement" value="{{ barcode_supplement or '' }}">
             <input type="hidden" name="issn_hint" value="{{ issn_hint or '' }}">
-            <input type="hidden" name="location_id" value="{{ selected_location_id or '' }}">
+            {% if selected_location_id %}<input type="hidden" name="location_id" value="{{ selected_location_id }}">{% endif %}
             <input type="hidden" name="mode" value="{{ mode }}">
+            {% if library_id or selected_library_id %}<input type="hidden" name="library_id" value="{{ library_id or selected_library_id }}">{% endif %}
+            <input type="hidden" name="tags" value="{{ tags or '' }}">
+            <input type="hidden" name="reading_status" value="{{ reading_status or '' }}">
+            {% if location_node_id %}<input type="hidden" name="location_node_id" value="{{ location_node_id }}">{% endif %}
+            <input type="hidden" name="shelf_fill_origin" value="{{ shelf_fill_origin or '' }}">
             <button type="submit"
                     class="px-3 py-1.5 bg-shelf-accent text-white rounded-lg text-xs font-medium hover:bg-shelf-accent2 transition-colors whitespace-nowrap">
                 Use this match
             </button>
         </form>
         {% else %}
-        <form hx-post="/api/magazines/add" hx-target="#scan-results" hx-swap="afterbegin"
+        <form action="/api/magazines/add" method="post" hx-post="/api/magazines/add" hx-target="#scan-results" hx-swap="afterbegin"
               data-after-request="clear-title-search">
+            {% include "fragments/csrf_field.html" %}
             <input type="hidden" name="google_volume_id" value="{{ issue.google_volume_id }}">
+            <input type="hidden" name="carrier_ean" value="{{ carrier_ean or '' }}">
+            <input type="hidden" name="barcode_supplement" value="{{ barcode_supplement or '' }}">
             <input type="hidden" name="location_id" class="book-loc-sync" value="{{ selected_location_id or '' }}">
             <input type="hidden" name="mode" value="{{ mode }}">
+            <input type="hidden" name="library_id" value="{{ library_id or selected_library_id or '' }}">
+            <input type="hidden" name="tags" class="tags-sync" value="{{ tags or '' }}">
+            <input type="hidden" name="reading_status" class="reading-status-sync" value="{{ reading_status or '' }}">
+            <input type="hidden" name="location_node_id" value="{{ location_node_id or '' }}">
+            <input type="hidden" name="shelf_fill_origin" value="{{ shelf_fill_origin or '' }}">
             <button type="submit"
                     class="px-3 py-1.5 bg-shelf-accent text-white rounded-lg text-xs font-medium hover:bg-shelf-accent2 transition-colors whitespace-nowrap">
                 Add issue

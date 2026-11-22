@@ -1,17 +1,25 @@
 """Komga sync, library selection, mapping, cover and scale regressions."""
 import asyncio
 import json
+from io import BytesIO
 
 import httpx
 import respx
+from PIL import Image
 
-from app.services import covers, komga as komga_service
+from app.services import covers, komga_sync
 from app.services.komga import PAGE_SIZE, get_excluded_libraries, sync
 from tests.conftest import _insert_item
 
 KOMGA = "http://komga.example:25600"
 KEY = "test-api-key"
 ISBN = "9780000000996"
+
+
+def _jpeg():
+    output = BytesIO()
+    Image.new("RGB", (24, 32), "navy").save(output, format="JPEG")
+    return output.getvalue()
 
 
 def _set_setting(db, key, value):
@@ -68,6 +76,8 @@ def _books_page(*books, last=True, total_pages=1, number=0):
 
 
 def _mock_single_library(*books):
+    # A fixture's name is only a UI suggestion. Import requires an actual choice.
+    komga_sync.save_library_selection([{"id": "lib_comics", "included": True, "kind": "comic"}])
     respx.get(f"{KOMGA}/api/v1/libraries").mock(
         return_value=httpx.Response(200, json=[{"id": "lib_comics", "name": "Comics"}])
     )
@@ -136,7 +146,7 @@ class TestKomgaSync:
     @respx.mock
     def test_imports_komga_thumbnail_as_cover(self, db):
         _mock_single_library(_book())
-        image = b"\xff\xd8" + (b"cover-data" * 150)
+        image = _jpeg()
         respx.get(f"{KOMGA}/api/v1/books/book_1/thumbnail").mock(
             return_value=httpx.Response(200, content=image, headers={"Content-Type": "image/jpeg"})
         )
@@ -155,21 +165,27 @@ class TestKomgaSync:
     @respx.mock
     def test_missing_cover_is_retried_on_later_sync(self, db):
         _mock_single_library(_book())
+        image = _jpeg()
         route = respx.get(f"{KOMGA}/api/v1/books/book_1/thumbnail").mock(
             side_effect=[
                 httpx.Response(404),
-                httpx.Response(200, content=b"x" * 1200),
+                httpx.Response(200, content=image, headers={"Content-Type": "image/jpeg"}),
             ]
         )
         first = asyncio.run(sync(KOMGA, KEY))
         second = asyncio.run(sync(KOMGA, KEY))
         assert first["covers"] == 0
+        assert first["cover_errors"] == 0
         assert second["covers"] == 1
+        assert second["cover_errors"] == 0
         assert route.call_count == 2
         assert db.execute("SELECT cover_path FROM items").fetchone()["cover_path"]
+        item_id = db.execute("SELECT id FROM items").fetchone()["id"]
+        assert (covers.COVERS_DIR / f"{item_id}.jpg").read_bytes() == image
 
     @respx.mock
     def test_cover_timeout_does_not_abort_remaining_books(self, db):
+        image = _jpeg()
         _mock_single_library(
             _book("book_1", "One", "9780000000101"),
             _book("book_2", "Two", "9780000000118"),
@@ -178,7 +194,7 @@ class TestKomgaSync:
             side_effect=httpx.ReadTimeout("slow cover")
         )
         respx.get(f"{KOMGA}/api/v1/books/book_2/thumbnail").mock(
-            return_value=httpx.Response(200, content=b"y" * 1200)
+            return_value=httpx.Response(200, content=image, headers={"Content-Type": "image/jpeg"})
         )
 
         stats = asyncio.run(sync(KOMGA, KEY))
@@ -188,6 +204,7 @@ class TestKomgaSync:
         rows = db.execute("SELECT title, cover_path FROM items ORDER BY title").fetchall()
         assert rows[0]["cover_path"] is None
         assert rows[1]["cover_path"] is not None
+        assert (covers.COVERS_DIR / rows[1]["cover_path"].removeprefix("covers/")).read_bytes() == image
 
     @respx.mock
     def test_progress_advances_before_cover_batch_is_drained(self, db, monkeypatch):
@@ -197,14 +214,14 @@ class TestKomgaSync:
         )
         events = []
 
-        async def fake_cover(client, komga_url, api_key, komga_id, item_id):
+        async def fake_cover(client, komga_url, api_key, item_id, komga_id):
             events.append(f"cover:{komga_id}")
-            return "missing"
+            return False
 
         async def progress(current, total, title, status):
             events.append(f"progress:{current}")
 
-        monkeypatch.setattr(komga_service, "_download_cover", fake_cover)
+        monkeypatch.setattr(komga_sync, "_ingest_cover", fake_cover)
         stats = asyncio.run(sync(KOMGA, KEY, on_progress=progress))
 
         assert stats["added"] == 2
@@ -214,22 +231,31 @@ class TestKomgaSync:
     @respx.mock
     def test_cover_has_total_wall_clock_deadline(self, db, monkeypatch):
         _mock_single_library(_book())
+        reached = []
 
-        async def trickling_cover(client, komga_url, api_key, komga_id, item_id):
-            await asyncio.sleep(1)
-            return "downloaded"
+        async def trickling_cover(request):
+            reached.append("entered")
+            try:
+                await asyncio.sleep(1)
+            finally:
+                reached.append("cancelled")
+            return httpx.Response(200, content=_jpeg())
 
-        monkeypatch.setattr(komga_service, "_download_cover", trickling_cover)
-        monkeypatch.setattr(komga_service, "COVER_WALL_TIMEOUT", 0.01)
+        respx.get(f"{KOMGA}/api/v1/books/book_1/thumbnail").mock(side_effect=trickling_cover)
+        monkeypatch.setattr(komga_sync, "COVER_WALL_TIMEOUT", 0.01)
 
         stats = asyncio.run(sync(KOMGA, KEY))
 
         assert stats["added"] == 1
         assert stats["covers"] == 0
         assert stats["cover_errors"] == 1
+        assert reached == ["entered", "cancelled"]
+        assert db.execute("SELECT cover_path FROM items").fetchone()["cover_path"] is None
+        assert list(covers.COVERS_DIR.iterdir()) == []
 
     @respx.mock
     def test_paginates_large_library_without_repeating_page(self, db):
+        komga_sync.save_library_selection([{"id": "lib_comics", "included": True, "kind": "comic"}])
         respx.get(f"{KOMGA}/api/v1/libraries").mock(
             return_value=httpx.Response(200, json=[{"id": "lib_comics", "name": "Comics"}])
         )
@@ -250,7 +276,10 @@ class TestKomgaSync:
 
     @respx.mock
     def test_excluded_library_is_not_listed_for_sync(self, db):
-        _set_setting(db, "komga_excluded_libraries", json.dumps(["lib_manga"]))
+        komga_sync.save_library_selection([
+            {"id": "lib_comics", "included": True, "kind": "comic"},
+            {"id": "lib_manga", "included": False, "kind": "manga"},
+        ])
         respx.get(f"{KOMGA}/api/v1/libraries").mock(return_value=_libraries())
         list_route = respx.post(f"{KOMGA}/api/v1/books/list").mock(
             return_value=_books_page(_book())
@@ -324,19 +353,24 @@ class TestKomgaSync:
         respx.get(f"{KOMGA}/api/v1/books/book_1/thumbnail").mock(return_value=httpx.Response(404))
 
         stats = asyncio.run(sync(KOMGA, KEY))
-        assert stats["added"] == 1
+        # Exact historical attachments are retained, not "repaired" by taking
+        # over the ID, retyping the edition, or manufacturing a digital twin.
+        assert stats["added"] == 0
+        assert stats["updated"] == 1
         physical = db.execute(
-            "SELECT media_type, komga_id, source FROM items WHERE id = ?", (physical_id,)
+            "SELECT title, media_type, komga_id, source FROM items WHERE id = ?", (physical_id,)
         ).fetchone()
+        assert physical["title"] == "Old Adopted Watchmen"
         assert physical["media_type"] == "comic"
-        assert physical["komga_id"] is None
+        assert physical["komga_id"] == "book_1"
         assert physical["source"] == "manual"
         digital = db.execute(
             "SELECT media_type, komga_id, source FROM items WHERE id != ?", (physical_id,)
         ).fetchone()
-        assert digital["media_type"] == "digital_comic"
-        assert digital["komga_id"] == "book_1"
-        assert digital["source"] == "komga"
+        assert digital is None
+        record = db.execute("SELECT item_id, kind FROM komga_records WHERE komga_id = 'book_1'").fetchone()
+        assert tuple(record) == (physical_id, "comic")
+        assert db.execute("SELECT COUNT(*) FROM items").fetchone()[0] == 1
 
     @respx.mock
     def test_duplicate_komga_digital_isbn_is_skipped(self, db):
@@ -414,8 +448,11 @@ class TestKomgaLibraryEndpoints:
         data = admin_client.post("/api/sync/komga/libraries/cleanup").json()
         assert data == {"ok": True, "deleted": 1, "detached": 1}
         assert db.execute(
-            "SELECT 1 FROM items WHERE id = ?", (synced,)
+            "SELECT 1 FROM items_live WHERE id = ?", (synced,)
         ).fetchone() is None
+        trashed = db.execute("SELECT deleted_at, komga_id FROM items WHERE id = ?", (synced,)).fetchone()
+        assert trashed["deleted_at"] is not None
+        assert trashed["komga_id"] == "k1"
         adopted_row = db.execute(
             "SELECT komga_id, komga_library_id FROM items WHERE id = ?", (adopted,)
         ).fetchone()

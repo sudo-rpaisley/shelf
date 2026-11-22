@@ -1,0 +1,16 @@
+{# Shared complete metadata editor. New copy uses an empty mapping. #}
+<label class="text-sm"><span class="block text-shelf-muted mb-1">{{ _('Location') }}</span>
+    <select name="location_id" aria-label="{{ _('Location') if copy.id else _('Location for the new copy') }}" data-narrow-ok class="w-full bg-shelf-card border border-shelf-border rounded-lg px-3 py-2">
+        <option value="">{{ _('No location') }}</option>
+        {% for node in location_nodes %}<option value="{{ node.id }}" {% if copy.location_id == node.id %}selected{% endif %}>{{ node.path or node.full_path or node.name }}</option>{% endfor %}
+    </select>
+</label>
+{% if copy.id and copy.location_id %}<p class="text-xs text-shelf-muted self-center">{% if copy.position_order is not none %}{{ _('Position on this shelf') }}: {{ copy.position_order }} · {% endif %}<a href="/locations/{{ copy.location_id }}/arrange" class="text-shelf-accent2">{{ _('Arrange shelf') }}</a></p>{% endif %}
+<label class="text-sm"><span class="block text-shelf-muted mb-1">{{ _('Condition') }}</span>
+    <input id="copy-condition-{{ copy.id or 'new' }}" type="text" name="condition" value="{{ copy.condition or '' }}" list="copy-condition-options-{{ copy.id or 'new' }}" maxlength="60" class="w-full bg-shelf-card border border-shelf-border rounded-lg px-3 py-2">
+    <datalist id="copy-condition-options-{{ copy.id or 'new' }}">{% for value, label in conditions %}<option value="{{ value }}">{{ _(label) }}</option>{% endfor %}</datalist>
+</label>
+{% for name, label, type, limit in [('acquired_date', 'Acquired', 'date', 0), ('acquisition_source', 'Source', 'text', 120), ('acquisition_price', 'Acquisition price', 'number', 0), ('copy_barcode', 'Copy barcode / asset label', 'text', 120), ('provenance', 'Provenance', 'text', 200)] %}
+<label class="text-sm"><span class="block text-shelf-muted mb-1">{{ _(label) }}</span><input {% if name == 'acquisition_price' %}id="copy-price-{{ copy.id or 'new' }}"{% endif %} type="{{ type }}" name="{{ name }}" value="{{ copy[name] if copy[name] is defined and copy[name] is not none else '' }}" {% if type == 'number' %}min="0" step="0.01"{% endif %}{% if limit %}maxlength="{{ limit }}"{% endif %} class="w-full bg-shelf-card border border-shelf-border rounded-lg px-3 py-2"></label>
+{% endfor %}
+<label class="text-sm sm:col-span-2"><span class="block text-shelf-muted mb-1">{{ _('Copy notes') }}</span><textarea name="notes" rows="2" class="w-full bg-shelf-card border border-shelf-border rounded-lg px-3 py-2">{{ copy.notes or '' }}</textarea></label>

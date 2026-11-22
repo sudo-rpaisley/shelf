@@ -1,10 +1,14 @@
 import asyncio
+import hashlib
+import json
 import logging
+import mimetypes
 import os
 import re
 import time
 from collections import OrderedDict
 from contextlib import asynccontextmanager
+from contextvars import Context
 from pathlib import Path
 
 from fastapi import FastAPI
@@ -40,22 +44,46 @@ from fastapi.templating import Jinja2Templates
 
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.requests import Request
-from starlette.responses import Response, RedirectResponse
+from starlette.responses import JSONResponse, Response, RedirectResponse
 
-from app import browse_columns, browse_filters
-from app.config import COVERS_DIR, DATA_DIR, MEDIA_TYPES, get_client_ip
+from app import browse_columns, browse_filters, i18n
+from app.config import (
+    COVERS_DIR,
+    CREATOR_LABELS,
+    browse_creator_label,
+    cover_shape,
+    creator_label,
+    get_client_ip,
+    status_labels,
+)
 from app.currency import CURRENCIES, format_money, get_currency
+from app.features import feature_enabled
 from app.services.national import SEARCH_LANGS
+from app.services import audnexus
+from app.services.browse_counts import source_label
 from app.database import init_db, get_db
-from app.routers import pages, items, items_covers, items_csv, items_catalog, locations, platforms, settings, sync, komga, romm, related, checkouts, valuation, hardcover, store, series, collections, share, tags, intake, archive, music
+from app.routers import (
+    api_v1, archive, attention, audits, checkouts, collections, continue_home,
+    cover_review, cover_review_actions, duplicates, hardcover, home_dashboard,
+    intake, item_copies, items,
+    items_catalog, items_covers, items_csv, items_synopses, komga, labels, library_recovery, location_order,
+    location_tree, locations, magazines, music, my_list, pages, periodicals,
+    platforms, related, related_media, romm, romm_catalog, scan_inventory, series,
+    series_bulk_issues, series_detail, series_memberships, settings, share,
+    shelf_fill, store, sync, tags, trash, upcoming, user_state_items, valuation,
+)
 from app.routers import auth_routes
+# Aliased: `api_tokens` inside the middlewares is the service module.
+from app.routers import api_tokens as api_token_routes
 
 
 class SecurityHeadersMiddleware(BaseHTTPMiddleware):
     async def dispatch(self, request: Request, call_next) -> Response:
         response = await call_next(request)
         response.headers["X-Content-Type-Options"] = "nosniff"
-        response.headers["Strict-Transport-Security"] = "max-age=31536000; includeSubDomains"
+        # Browsers ignore HSTS over http://, and behind a trusted TLS proxy the scheme is already https.
+        if request.url.scheme == "https":
+            response.headers["Strict-Transport-Security"] = "max-age=31536000; includeSubDomains"
         response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
         response.headers["X-XSS-Protection"] = "1; mode=block"
         # No 'unsafe-inline', no CDN hosts, and no 'unsafe-eval': all JS is
@@ -84,6 +112,38 @@ class SecurityHeadersMiddleware(BaseHTTPMiddleware):
 
 _SKIP_AUTH_PATHS = frozenset({"/login", "/setup", "/logout", "/health", "/sw.js"})
 _SKIP_AUTH_PREFIXES = ("/static/", "/covers/", "/share/")
+
+
+def _cross_site_bounce(request: Request) -> Response | None:
+    """Re-request a cross-site page navigation once from the same origin.
+
+    The session cookie is SameSite=Strict, so a browser withholds it on any
+    navigation that starts on another site (a dashboard, a chat link). A
+    same-origin `Refresh` makes the browser ask again with the cookie (#149).
+    Never on /api/: its GET event streams do real work and CSRF skips GETs.
+    """
+    if request.method != "GET":
+        return None
+    if request.headers.get("sec-fetch-mode") != "navigate":
+        return None
+    if request.headers.get("sec-fetch-site") != "cross-site":
+        return None
+    path = request.url.path
+    if path == "/api" or path.startswith("/api/"):
+        return None
+    # The raw path keeps its percent-encoding, so a decoded CR LF cannot reach
+    # the header. A leading run of / and \ collapses to one /, so the target
+    # can never be protocol-relative (//evil.example).
+    raw = request.scope.get("raw_path")
+    raw = raw.decode("latin-1") if raw else path
+    target = "/" + raw.lstrip("/\\")
+    query = request.scope.get("query_string", b"")
+    if query:
+        target += "?" + query.decode("latin-1")
+    return Response(
+        status_code=200,
+        headers={"Refresh": f"0;url={target}", "Cache-Control": "no-store"},
+    )
 
 # Methods that mutate state and must carry a CSRF token
 _CSRF_METHODS = frozenset({"POST", "PUT", "PATCH", "DELETE"})
@@ -138,19 +198,73 @@ class CSRFMiddleware(BaseHTTPMiddleware):
         return await call_next(request)
 
 
+def _is_v1(path: str) -> bool:
+    return path == "/api/v1" or path.startswith("/api/v1/")
+
+
+def _v1_unauthorized(message: str) -> JSONResponse:
+    return JSONResponse(
+        {"error": "unauthorized", "ok": False, "message": message},
+        status_code=401,
+        headers={"WWW-Authenticate": "Bearer", "Cache-Control": "no-store"},
+    )
+
+
+async def _bearer_dispatch(request: Request, call_next, header: str) -> Response:
+    """A request under /api/v1 that carries an Authorization header.
+
+    The bearer decides, and any cookie is ignored. Only GET and HEAD pass, as
+    a viewer-capped user (`api_tokens.resolve`). Skipped on purpose (G68): the
+    /setup redirect (no users means no tokens), the /login redirect and the
+    cookie refresh — a cookie minted from the capped dict would demote the
+    session (G10). One header is read, never the body (G9).
+    """
+    from app.services import api_tokens
+
+    if request.method not in ("GET", "HEAD"):
+        return _v1_unauthorized("Tokens are read-only: only GET is accepted with a bearer token")
+    raw = api_tokens.parse_bearer(header)
+    user = api_tokens.resolve(raw) if raw else None
+    if not user:
+        return _v1_unauthorized("Invalid or revoked API token")
+    request.state.user = user
+    return await call_next(request)
+
+
 class AuthMiddleware(BaseHTTPMiddleware):
     async def dispatch(self, request: Request, call_next) -> Response:
         from app.auth import get_current_user, should_refresh_token, set_auth_cookie, get_user_count
 
         path = request.url.path
 
+        # The UI locale (app/i18n.py), set before call_next so the route and its
+        # templates run in this context and read it. The browser's choice first,
+        # so the skipped prefixes below (the public /share/ page) follow it too.
+        # Off (SHELF_I18N unset), nothing is set and every request stays English.
+        i18n_on = i18n.enabled()
+        accept_language = request.headers.get("accept-language")
+        if i18n_on:
+            i18n.current_locale.set(i18n.resolve(None, accept_language))
+
         # Skip auth for static assets
         if path.startswith(_SKIP_AUTH_PREFIXES):
             return await call_next(request)
 
+        # /api/v1 answers machines: a bearer token or a cookie, and 401 JSON
+        # rather than the /login redirect. A bearer is read nowhere else (G117).
+        if _is_v1(path):
+            header = request.headers.get("authorization")
+            if header is not None:
+                return await _bearer_dispatch(request, call_next, header)
+            user = get_current_user(request)
+            if not user:
+                return _v1_unauthorized("Sign in or send an API token")
+        else:
+            user = get_current_user(request)
         # Inject user into request state
-        user = get_current_user(request)
         request.state.user = user
+        if i18n_on and user and user.get("language"):
+            i18n.current_locale.set(i18n.resolve(user["language"], accept_language))
 
         # Setup wizard: if no users exist, redirect everything to /setup
         if path not in _SKIP_AUTH_PATHS:
@@ -158,20 +272,51 @@ class AuthMiddleware(BaseHTTPMiddleware):
                 return RedirectResponse(url="/setup", status_code=303)
 
         # Login redirect: if users exist but no session, redirect to /login
-        # (skip for POST /login, POST /setup to avoid blocking form submissions)
-        if path not in _SKIP_AUTH_PATHS and not user:
+        # (skip for POST /login, POST /setup to avoid blocking form submissions).
+        # A cross-site page navigation arrives without the Strict cookie, so it
+        # is re-requested once same-origin first — /login included, where a
+        # live session then goes on to /.
+        if not user and (path not in _SKIP_AUTH_PATHS or path == "/login"):
             if get_user_count() > 0:
-                return RedirectResponse(url="/login", status_code=303)
+                bounce = _cross_site_bounce(request)
+                if bounce:
+                    return bounce
+                if path != "/login":
+                    return RedirectResponse(url="/login", status_code=303)
 
         response = await call_next(request)
-
-        # Sliding expiry: refresh token if past half-life, preserving CSRF token
+        # Sliding expiry never promotes an API capability into a cookie.
         if user:
-            fresh_token = should_refresh_token(request)
+            fresh_token = should_refresh_token(request, user)
             if fresh_token:
-                set_auth_cookie(response, fresh_token, request.cookies.get("csrf_token"))
-
+                set_auth_cookie(request, response, fresh_token, request.cookies.get("csrf_token"))
         return response
+
+
+class CatalogueActorMiddleware:
+    """Keep the authenticated actor for the complete ASGI response lifetime.
+
+    BaseHTTPMiddleware.call_next returns before a streaming response finishes.
+    Installing/resetting the actor there would un-scope late database reads.
+    This inner ASGI layer runs after AuthMiddleware resolves cookie or bearer
+    identity and keeps it until streaming and response cleanup have completed.
+    """
+
+    def __init__(self, app):
+        self.app = app
+
+    async def __call__(self, scope, receive, send):
+        user = scope.get("state", {}).get("user") if scope["type"] == "http" else None
+        if not user:
+            await self.app(scope, receive, send)
+            return
+        from app.services import catalogue_security
+
+        actor_token = catalogue_security.set_actor(user)
+        try:
+            await self.app(scope, receive, send)
+        finally:
+            catalogue_security.reset_actor(actor_token)
 
 
 class RateLimitMiddleware(BaseHTTPMiddleware):
@@ -200,79 +345,121 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
 
         ip = get_client_ip(request)
         now = time.time()
-        window = now - 60
 
-        # Evict this IP's stale timestamps and check the limit
-        hits = [t for t in self._hits.get(ip, []) if t > window]
-        if len(hits) >= self.rpm:
+        # A bearer on /api/v1 draws on its own bucket, so a dashboard behind
+        # the browser's proxy starves itself, not the UI. A refused bearer is
+        # charged to the IP, so rotating random tokens escapes nothing.
+        token_key = self._token_key(request, path)
+        if token_key:
+            if len(self._recent(ip, now)) >= self.rpm:
+                return Response("Rate limit exceeded", status_code=429)
+            if not self._charge(token_key, now):
+                return Response("Rate limit exceeded", status_code=429)
+            response = await call_next(request)
+            if response.status_code == 401:
+                self._charge(ip, now)
+            return response
+
+        if not self._charge(ip, now):
             return Response("Rate limit exceeded", status_code=429)
+        return await call_next(request)
 
+    @staticmethod
+    def _token_key(request: Request, path: str) -> str | None:
+        """The bucket key of a bearer credential on /api/v1, else None.
+
+        Parsed exactly as the auth branch parses it, so one token spelled
+        `Bearer x` or `bearer   x` is one bucket. Hashed: the limiter never
+        holds a token.
+        """
+        if not _is_v1(path):
+            return None
+        from app.services import api_tokens
+
+        credential = api_tokens.parse_bearer(request.headers.get("authorization"))
+        if not credential:
+            return None
+        return "token:" + hashlib.sha256(credential.encode()).hexdigest()[:32]
+
+    def _recent(self, key: str, now: float) -> list[float]:
+        window = now - 60
+        return [t for t in self._hits.get(key, []) if t > window]
+
+    def _charge(self, key: str, now: float) -> bool:
+        """Record one hit on `key`; False (and nothing recorded) when it is full."""
+        hits = self._recent(key, now)
+        if len(hits) >= self.rpm:
+            return False
         hits.append(now)
 
         # Update entry and move to end (most-recently-seen)
-        self._hits[ip] = hits
-        self._hits.move_to_end(ip)
+        self._hits[key] = hits
+        self._hits.move_to_end(key)
 
-        # Evict the oldest IP when the dict exceeds the cap
+        # Evict the oldest key when the dict exceeds the cap
         while len(self._hits) > self.MAX_IPS:
             self._hits.popitem(last=False)
+        return True
 
-        return await call_next(request)
+
+async def _abs_sync_pass() -> bool:
+    """One ABS-sync check-and-maybe-run. Returns True when it synced."""
+    from app.services import audiobookshelf
+
+    if not feature_enabled("abs_sync"):
+        return False
+
+    intervals = {"daily": 86400, "weekly": 604800}
+
+    with get_db() as db:
+        row = db.execute("SELECT value FROM settings WHERE key = 'abs_sync_interval'").fetchone()
+        interval = row["value"] if row else "off"
+        if interval == "off":
+            return False
+
+        # Check last sync time
+        last = db.execute("SELECT value FROM settings WHERE key = 'abs_last_sync'").fetchone()
+        now = time.time()
+        if last and last["value"]:
+            elapsed = now - float(last["value"])
+            if elapsed < intervals.get(interval, 86400):
+                return False
+
+        from app.database import get_setting
+        abs_url_val = get_setting(db, "abs_url")
+        abs_token_val = get_setting(db, "abs_token")
+
+    if abs_url_val and abs_token_val:
+        from app.services import sync_jobs
+
+        async def runner(on_progress):
+            return await audiobookshelf.sync(abs_url_val, abs_token_val, on_progress=on_progress)
+
+        started = sync_jobs.start("audiobookshelf", runner, source="scheduled")
+        if not started.get("started"):
+            return False
+        final = await sync_jobs.wait("audiobookshelf")
+        if final["state"] != "completed":
+            logger.warning("Periodic Audiobookshelf sync did not complete: %s", final.get("error") or final["state"])
+            return False
+        finished = str(time.time())
+        with get_db() as db:
+            db.execute(
+                "INSERT INTO settings (key, value) VALUES ('abs_last_sync', ?) "
+                "ON CONFLICT(key) DO UPDATE SET value = ?",
+                (finished, finished),
+            )
+        logger.info("Periodic Audiobookshelf sync completed")
+        return True
+    return False
 
 
 async def _periodic_abs_sync():
     """Background task: run ABS sync on schedule if configured."""
-    from app.services import audiobookshelf, sync_jobs
-
-    intervals = {"daily": 86400, "weekly": 604800}
-
     while True:
         await asyncio.sleep(300)  # check every 5 minutes
         try:
-            with get_db() as db:
-                row = db.execute("SELECT value FROM settings WHERE key = 'abs_sync_interval'").fetchone()
-                interval = row["value"] if row else "off"
-                if interval == "off":
-                    continue
-
-                # Check last sync time
-                last = db.execute("SELECT value FROM settings WHERE key = 'abs_last_sync'").fetchone()
-                now = time.time()
-                if last and last["value"]:
-                    elapsed = now - float(last["value"])
-                    if elapsed < intervals.get(interval, 86400):
-                        continue
-
-                from app.database import get_setting
-                abs_url_val = get_setting(db, "abs_url")
-                abs_token_val = get_setting(db, "abs_token")
-
-            if abs_url_val and abs_token_val:
-                async def runner(on_progress):
-                    return await audiobookshelf.sync(
-                        abs_url_val, abs_token_val, on_progress=on_progress
-                    )
-
-                started = sync_jobs.start(
-                    "audiobookshelf", runner, source="scheduled"
-                )
-                if not started.get("started"):
-                    continue
-                final = await sync_jobs.wait("audiobookshelf")
-                if final["state"] != "completed":
-                    logger.warning(
-                        "Periodic Audiobookshelf sync did not complete: %s",
-                        final.get("error") or final["state"],
-                    )
-                    continue
-                finished = str(time.time())
-                with get_db() as db:
-                    db.execute(
-                        "INSERT INTO settings (key, value) VALUES ('abs_last_sync', ?) "
-                        "ON CONFLICT(key) DO UPDATE SET value = ?",
-                        (finished, finished),
-                    )
-                logger.info("Periodic Audiobookshelf sync completed")
+            await _abs_sync_pass()
         except Exception:
             logger.exception("Periodic Audiobookshelf sync failed")
 
@@ -287,6 +474,8 @@ async def _periodic_komga_sync():
     while True:
         await asyncio.sleep(300)
         try:
+            if not feature_enabled("komga"):
+                continue
             with get_db() as db:
                 row = db.execute(
                     "SELECT value FROM settings WHERE key = 'komga_sync_interval'"
@@ -337,14 +526,15 @@ async def _periodic_komga_sync():
 
 async def _periodic_romm_sync():
     """Background task: run RomM sync on schedule if configured."""
-    from app.services import romm as romm_service, sync_jobs
-    from app.database import get_setting
+    from app.services import romm as romm_service, romm_sync, sync_jobs
 
     intervals = {"daily": 86400, "weekly": 604800}
 
     while True:
         await asyncio.sleep(300)
         try:
+            if not feature_enabled("romm"):
+                continue
             with get_db() as db:
                 row = db.execute(
                     "SELECT value FROM settings WHERE key = 'romm_sync_interval'"
@@ -359,8 +549,11 @@ async def _periodic_romm_sync():
                 if last and last["value"]:
                     if now - float(last["value"]) < intervals.get(interval, 86400):
                         continue
-                romm_url_val = get_setting(db, "romm_url")
-                romm_token = get_setting(db, "romm_api_token")
+            # Use the canonical alias/conflict/decryption policy; do not pick
+            # a credential independently from the connector's manual writer.
+            configuration = romm_sync.configuration()
+            romm_url_val = configuration["url"]
+            romm_token = configuration["token"]
 
             if romm_url_val and romm_token:
                 async def runner(on_progress):
@@ -389,41 +582,59 @@ async def _periodic_romm_sync():
             logger.exception("Periodic RomM sync failed")
 
 
-async def _periodic_hardcover_sync():
-    """Background task: pull reading status changes from Hardcover on schedule."""
+async def _hardcover_sync_pass() -> bool:
+    """One account-bound Hardcover-sync check; never seed shared activity."""
     from app.services import hardcover as hc_svc
+
+    if not feature_enabled("hardcover"):
+        return False
 
     intervals = {"daily": 86400, "weekly": 604800}
 
+    with get_db() as db:
+        row = db.execute("SELECT value FROM settings WHERE key = 'hc_sync_interval'").fetchone()
+        interval = row["value"] if row else "off"
+        if interval not in intervals:
+            return False
+        owner = hc_svc.scheduled_account(db)
+        if owner is None:
+            return False
+
+        last = db.execute("SELECT value FROM settings WHERE key = 'hc_last_sync'").fetchone()
+        now = time.time()
+        if last and last["value"]:
+            elapsed = now - float(last["value"])
+            if elapsed < intervals[interval]:
+                return False
+
+        from app.database import get_setting
+        token = get_setting(db, "hardcover_token")
+
+    if token:
+        # Preserve the sole-account restriction carried by a legacy owner's
+        # mapping subclass: copying it to an ordinary dict would lose the
+        # post-await check that no second account has appeared.
+        result = await hc_svc.sync_reading_statuses(token, user=owner)
+        if result.get("error"):
+            logger.warning("Periodic Hardcover sync refused or failed")
+            return False
+        with get_db() as db:
+            db.execute(
+                "INSERT INTO settings (key, value) VALUES ('hc_last_sync', ?) "
+                "ON CONFLICT(key) DO UPDATE SET value = ?",
+                (str(now), str(now)),
+            )
+        logger.info("Periodic Hardcover sync completed")
+        return True
+    return False
+
+
+async def _periodic_hardcover_sync():
+    """Background task: pull reading status changes from Hardcover on schedule."""
     while True:
         await asyncio.sleep(300)  # check every 5 minutes
         try:
-            with get_db() as db:
-                row = db.execute("SELECT value FROM settings WHERE key = 'hc_sync_interval'").fetchone()
-                interval = row["value"] if row else "off"
-                if interval == "off":
-                    continue
-
-                last = db.execute("SELECT value FROM settings WHERE key = 'hc_last_sync'").fetchone()
-                now = time.time()
-                if last and last["value"]:
-                    elapsed = now - float(last["value"])
-                    if elapsed < intervals.get(interval, 86400):
-                        continue
-
-                from app.database import get_setting
-                token = get_setting(db, "hardcover_token")
-
-            token = token or None
-            if token:
-                await hc_svc.sync_reading_statuses(token)
-                with get_db() as db:
-                    db.execute(
-                        "INSERT INTO settings (key, value) VALUES ('hc_last_sync', ?) "
-                        "ON CONFLICT(key) DO UPDATE SET value = ?",
-                        (str(now), str(now)),
-                    )
-                logger.info("Periodic Hardcover sync completed")
+            await _hardcover_sync_pass()
         except Exception:
             logger.exception("Periodic Hardcover sync failed")
 
@@ -435,6 +646,9 @@ async def check_loan_reminders() -> bool:
     """One reminder pass: send a digest if overdue loans exist, a notify URL
     is configured, and no digest went out in the last 24h. Returns True when
     a digest was sent."""
+    if not feature_enabled("lending"):
+        return False
+
     from app.database import get_setting
     from app.routers.checkouts import get_overdue_loans
     from app.services.notify import send_notification
@@ -482,6 +696,138 @@ async def _periodic_loan_reminders():
             logger.exception("Loan reminder check failed")
 
 
+_PRICE_ALERT_INTERVAL = 86400  # at most one pass per day — each costs ISBNdb lookups
+
+
+async def check_price_alerts() -> bool:
+    """One price-alert pass: look up the list price of the wishlist's next
+    batch of books, record it, and send one digest of the drops. Returns True
+    when a pass ran.
+
+    Unlike the loan digest, the stamp is written whether or not the digest was
+    sent or accepted: the expensive part is the ISBNdb lookups, and re-running
+    them five minutes later is what the throttle exists to prevent.
+    """
+    if not feature_enabled("price_alerts"):
+        return False
+
+    from app.database import get_setting, set_setting
+    from app.services import price_alerts
+
+    with get_db() as db:
+        # get_setting, so the ISBNDB_API_KEY env override and decryption count (G15).
+        api_key = get_setting(db, "isbndb_api_key")
+        if not api_key:
+            return False
+        last = get_setting(db, "price_alert_last_run")
+        now = time.time()
+        try:
+            if last and now - float(last) < _PRICE_ALERT_INTERVAL:
+                return False
+        except ValueError:
+            pass  # an unreadable stamp runs the pass and is overwritten below
+        notify_url = get_setting(db, "notify_url")
+        notify_format = get_setting(db, "notify_format") or "ntfy"
+        threshold = price_alerts.get_threshold_pct(db)
+        cap = price_alerts.get_nightly_cap(db)
+
+    result = await price_alerts.run_pass(
+        api_key, threshold=threshold, cap=cap,
+        notify_url=notify_url, notify_format=notify_format,
+    )
+    with get_db() as db:
+        set_setting(db, "price_alert_last_run", str(now))
+        set_setting(db, "price_alert_last_summary", json.dumps({
+            "looked_up": result["looked_up"], "failed": result["failed"],
+            "status": result["failed_status"],
+        }))
+    logger.info(
+        "Price-alert pass: %d looked up, %d drop(s), digest sent: %s",
+        result["looked_up"], result["drops"], result["sent"],
+    )
+    if result["failed"]:
+        logger.warning(
+            "Price-alert pass: %d of %d ISBNdb lookup(s) failed (last status: %s)",
+            result["failed"], result["looked_up"], result["failed_status"],
+        )
+    return True
+
+
+async def _periodic_price_alerts():
+    """Background task: run the daily wishlist price-alert pass."""
+    # Tests and the E2E servers set this so no pass can call ISBNdb live.
+    if os.environ.get("SHELF_DISABLE_PRICE_ALERTS"):
+        return
+    while True:
+        await asyncio.sleep(300)  # check every 5 minutes
+        try:
+            await check_price_alerts()
+        except Exception:
+            logger.exception("Price-alert pass failed")
+
+
+_RELEASE_RADAR_INTERVAL = 86400  # at most one pass per day — each costs paced Hardcover calls
+
+
+async def check_release_radar() -> bool:
+    """One release-radar pass: ask Hardcover about the next batch of watched
+    series, record announced volumes, and send one digest. Returns True when
+    a pass ran.
+
+    The stamp and summary are written whenever the pass returns — including
+    when a refused token ended it — so a bad token costs one paced call a
+    day, not one every five minutes.
+    """
+    if not feature_enabled("release_radar") or not feature_enabled("hardcover"):
+        return False
+
+    from app.database import get_setting, set_setting
+    from app.services import release_radar
+
+    with get_db() as db:
+        # get_setting, so the HARDCOVER_TOKEN env override and decryption count (G15).
+        token = get_setting(db, "hardcover_token")
+        if not token:
+            return False
+        last = get_setting(db, "release_radar_last_run")
+        now = time.time()
+        try:
+            if last and now - float(last) < _RELEASE_RADAR_INTERVAL:
+                return False
+        except ValueError:
+            pass  # an unreadable stamp runs the pass and is overwritten below
+        notify_url = get_setting(db, "notify_url")
+        notify_format = get_setting(db, "notify_format") or "ntfy"
+        cap = release_radar.get_cap(db)
+
+    result = await release_radar.run_pass(
+        token, cap=cap, notify_url=notify_url, notify_format=notify_format,
+    )
+    with get_db() as db:
+        set_setting(db, "release_radar_last_run", str(now))
+        set_setting(db, "release_radar_last_summary", json.dumps(result))
+    logger.info(
+        "Release-radar pass: %d checked, %d not found, %d failed, %d new, "
+        "%d reminded, digest sent: %s, ended: %s",
+        result["checked"], result["not_found"], result["failed"], result["new"],
+        result["reminded"], result["sent"], result["outcome"],
+    )
+    return True
+
+
+async def _periodic_release_radar():
+    """Background task: run the daily release-radar pass."""
+    # Tests and the E2E servers set this so no pass can call Hardcover live.
+    if os.environ.get("SHELF_DISABLE_RELEASE_RADAR"):
+        return
+    while True:
+        await asyncio.sleep(300)  # check every 5 minutes
+        try:
+            await check_release_radar()
+        except Exception:
+            logger.exception("Release-radar pass failed")
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     init_db()
@@ -494,27 +840,31 @@ async def lifespan(app: FastAPI):
     # Runs every startup (idempotent), which also covers restored backups.
     from app.crypto import migrate_sensitive_settings
     migrate_sensitive_settings()
-    task = asyncio.create_task(_periodic_abs_sync())
-    komga_task = asyncio.create_task(_periodic_komga_sync())
-    romm_task = asyncio.create_task(_periodic_romm_sync())
-    hc_task = asyncio.create_task(_periodic_hardcover_sync())
-    loan_task = asyncio.create_task(_periodic_loan_reminders())
+    task = asyncio.create_task(_periodic_abs_sync(), context=Context())
+    komga_task = asyncio.create_task(_periodic_komga_sync(), context=Context())
+    romm_task = asyncio.create_task(_periodic_romm_sync(), context=Context())
+    hc_task = asyncio.create_task(_periodic_hardcover_sync(), context=Context())
+    loan_task = asyncio.create_task(_periodic_loan_reminders(), context=Context())
+    price_task = asyncio.create_task(_periodic_price_alerts(), context=Context())
+    radar_task = asyncio.create_task(_periodic_release_radar(), context=Context())
     from app.services import cover_queue
     cover_task = cover_queue.start()
-    yield
-    task.cancel()
-    komga_task.cancel()
-    romm_task.cancel()
-    hc_task.cancel()
-    loan_task.cancel()
+    tasks = [task, komga_task, romm_task, hc_task, loan_task, price_task, radar_task]
     if cover_task is not None:
-        cover_task.cancel()
-    from app.services import sync_jobs
-    await sync_jobs.cancel_all()
+        tasks.append(cover_task)
+    try:
+        yield
+    finally:
+        for worker in tasks:
+            worker.cancel()
+        from app.services import sync_jobs
+        await sync_jobs.cancel_all()
+        await asyncio.gather(*tasks, return_exceptions=True)
 
 
 app = FastAPI(title="Shelf", lifespan=lifespan)
 app.add_middleware(CSRFMiddleware)
+app.add_middleware(CatalogueActorMiddleware)
 app.add_middleware(AuthMiddleware)
 app.add_middleware(RateLimitMiddleware, requests_per_minute=60)
 app.add_middleware(SecurityHeadersMiddleware)
@@ -546,20 +896,124 @@ def strip_html(value: str) -> str:
     value = re.sub(r"\n{3,}", "\n\n", value)
     return html_mod.unescape(value).strip()
 
+# UI translation (app/i18n.py). Newstyle gettext autoescapes and formats
+# `_('%(n)s items', n=3)` itself, and every callable reads the request's locale.
+templates.env.add_extension("jinja2.ext.i18n")
+templates.env.install_gettext_callables(
+    i18n.gettext, i18n.ngettext, newstyle=True, pgettext=i18n.pgettext,
+)
+templates.env.globals["current_locale"] = i18n.current_locale.get
+templates.env.globals["js_catalog"] = i18n.js_catalog
+templates.env.globals["language_names"] = i18n.LANGUAGE_NAMES
+templates.env.globals["i18n_enabled"] = i18n.enabled
+
 templates.env.filters["strip_html"] = strip_html
 templates.env.filters["money"] = format_money
 templates.env.globals["currency"] = get_currency
 templates.env.globals["currencies"] = CURRENCIES
 templates.env.globals["search_langs"] = SEARCH_LANGS
+templates.env.globals["audible_regions"] = audnexus.REGIONS
+# The creator field's label per media type — declared once in app/config.py.
+# A global rather than route context, so neither host route grows a key for it.
+templates.env.globals["creator_labels"] = CREATOR_LABELS
+# The same map translated per request, for the add forms' data-creator-labels.
+templates.env.globals["translated_creator_labels"] = lambda: {k: i18n.gettext(v) for k, v in CREATOR_LABELS.items()}
+templates.env.globals["creator_label"] = creator_label
+# The item footer's "via <source>" — the same names the Browse Source filter shows.
+templates.env.globals["source_label"] = source_label
+# Each cover's box shape per media type — declared once in app/config.py, and
+# carried as data-cover-shape so one CSS rule squares every music cover.
+templates.env.globals["cover_shape"] = cover_shape
+# Browse's creator column and author sort option follow the Type filter.
+templates.env.globals["browse_creator_label"] = browse_creator_label
 # Browse's hx-include lists are derived, not written — see app/browse_filters.py.
 templates.env.globals["filter_includes"] = browse_filters.filter_includes
 templates.env.globals["browse_filter_config"] = browse_filters.client_config
 # Browse's list-view column set is derived, not written — see app/browse_columns.py.
 templates.env.globals["browse_columns"] = browse_columns.COLUMNS
 templates.env.globals["browse_column_config"] = browse_columns.client_config
+# A template reads a flag through this one global, never a per-route context
+# key, so a fragment re-rendered from a new route can't forget it — an
+# unknown key raises rather than rendering as falsy.
+templates.env.globals["feature_on"] = feature_enabled
+# The toggle route re-renders reading_status.html with only `item` in context,
+# so the status words must come from a global.
+templates.env.globals["status_labels"] = status_labels
 
 # Wrap TemplateResponse to auto-inject 'user' from request.state
 _original_template_response = templates.TemplateResponse
+
+def _trash_nag(user):
+    """The admin Trash banner's state for this render, or None.
+
+    Runs on every render for every user, so the role is checked here, before
+    any service call: a non-admin render reaches no Trash code and no query.
+    An admin's render reads the cached count (one query pair per process per
+    hour). A failure means no banner this render, never a failed page — the
+    same rule as the nav's settings read.
+    """
+    if not user or user["role"] != "admin":
+        return None
+    from app.services import trash
+    try:
+        return trash.nag_state(user)
+    except Exception:
+        logger.warning("Could not read the Trash count", exc_info=True)
+        return None
+
+
+def _template_item_permissions(context, user, can_edit):
+    """Annotate catalogue lists once; never infer item authority from role text."""
+    def identifier(row, key):
+        value = row[key]
+        if isinstance(value, bool):
+            return None
+        try:
+            value = int(value)
+        except (TypeError, ValueError, OverflowError):
+            return None
+        return value if -(2**63) <= value < 2**63 else None
+
+    collections = {}
+    identifiers = set()
+    for key, identity_key in (
+        ("items", "id"), ("recent_items", "id"), ("attention_items", "id"),
+        ("copies", "item_id"), ("location_copies", "item_id"),
+    ):
+        rows = context.get(key)
+        if not isinstance(rows, (list, tuple)):
+            continue
+        annotated = []
+        for row in rows:
+            if hasattr(row, "keys") and identity_key in row.keys():
+                item = dict(row)
+                annotated.append(item)
+                item_id = identifier(item, identity_key)
+                if item_id is not None:
+                    identifiers.add(item_id)
+            else:
+                annotated.append(row)
+        collections[key] = (annotated, identity_key)
+    allowed = set()
+    if can_edit and identifiers:
+        from app.services import libraries
+
+        with get_db() as db:
+            allowed = set(libraries.accessible_item_ids(
+                db, user, identifiers, minimum_role="editor"
+            ))
+    permissions = {item_id: item_id in allowed for item_id in identifiers}
+    for key, (annotated, identity_key) in collections.items():
+        for item in annotated:
+            if isinstance(item, dict) and identity_key in item:
+                item["can_edit_item"] = permissions.get(identifier(item, identity_key), False)
+        context[key] = annotated
+    context["item_permissions"] = permissions
+    if "location_copies" in context:
+        context.setdefault("can_edit_location_order", bool(can_edit) and all(
+            copy.get("can_edit_item", False) for copy in context["location_copies"]
+        ))
+
 
 def _template_response_with_user(request_or_self, *args, **kwargs):
     # Handle both templates.TemplateResponse(request, name, ctx) patterns
@@ -571,19 +1025,38 @@ def _template_response_with_user(request_or_self, *args, **kwargs):
         return _original_template_response(request_or_self, *args, **kwargs)
 
     # Find the context dict and inject user + the nav tabs that user can see
-    from app.nav import visible_tabs
+    from app.nav import can_edit_catalogue, visible_tabs
     user = getattr(request.state, "user", None)
+    trash_nag = _trash_nag(user)
     context = kwargs.get('context', None)
     if context is None:
         # Context is a positional arg (3rd after request, name)
-        for i, a in enumerate(args):
+        for a in args:
             if isinstance(a, dict):
-                a.setdefault("user", user)
-                a.setdefault("nav_tabs", visible_tabs(user))
+                context = a
                 break
-    else:
+    if context is not None:
+        can_edit = can_edit_catalogue(user)
         context.setdefault("user", user)
-        context.setdefault("nav_tabs", visible_tabs(user))
+        context.setdefault("nav_tabs", visible_tabs(user, can_edit=can_edit))
+        context.setdefault("can_edit_catalogue", can_edit)
+        _template_item_permissions(context, user, can_edit)
+        if "can_edit_item" not in context:
+            item = context.get("item") or context.get("target_item")
+            item_id = context.get("item_id")
+            if item is not None and item_id is None:
+                try:
+                    item_id = item["id"]
+                except (KeyError, IndexError, TypeError):
+                    pass
+            may_edit_item = False
+            if user is not None and item_id is not None:
+                from app.services import libraries
+
+                with get_db() as db:
+                    may_edit_item = libraries.has_item_role(db, user, item_id, "editor")
+            context["can_edit_item"] = may_edit_item
+        context.setdefault("trash_nag", trash_nag)
 
     return _original_template_response(request_or_self, *args, **kwargs)
 
@@ -591,6 +1064,10 @@ templates.TemplateResponse = _template_response_with_user
 app.state.templates = templates
 
 # Static files.
+# Minimal Python images may have no system MIME database entry for WebP.
+# Native connector covers retain that format, so serving must be host-independent.
+mimetypes.add_type("image/webp", ".webp")
+
 # StaticFiles sends ETag/Last-Modified but no Cache-Control, so browsers fall
 # back to RFC 9111 heuristic freshness and can serve stale assets for weeks
 # after an upgrade (issue #21). `no-cache` forces revalidation on every use;
@@ -624,19 +1101,41 @@ async def health():
 
 # Routers
 app.include_router(auth_routes.router)
+app.include_router(series_detail.router)
+app.include_router(magazines.router)
+app.include_router(magazines.page_router)
+app.include_router(romm_catalog.router)
 app.include_router(pages.router)
-app.include_router(music.router)
+app.include_router(library_recovery.router)
+app.include_router(attention.router)
+app.include_router(home_dashboard.router)
+app.include_router(user_state_items.router)
+app.include_router(continue_home.router)
+app.include_router(my_list.router)
+app.include_router(series_memberships.router)
+app.include_router(series_bulk_issues.router)
+# Before items.router: tags.router owns the static POST /api/items/bulk-tags,
+# which items.py's POST /items/{item_id} would otherwise match first.
+app.include_router(tags.router)
 app.include_router(items.router)
+app.include_router(scan_inventory.router)
+app.include_router(items_synopses.router)
 # items.py was split by feature area (Lever 5); all four share the /api prefix.
 app.include_router(items_covers.router)
+app.include_router(cover_review.router)
+app.include_router(cover_review_actions.router)
 app.include_router(items_csv.router)
 app.include_router(items_catalog.router)
 app.include_router(locations.router)
+app.include_router(location_tree.router)
+app.include_router(location_order.router)
 app.include_router(platforms.router)
 app.include_router(settings.router)
 app.include_router(sync.router)
 app.include_router(komga.router)
+app.include_router(komga.legacy_router)
 app.include_router(romm.router)
+app.include_router(romm.legacy_router)
 app.include_router(related.router)
 app.include_router(checkouts.router)
 app.include_router(valuation.router)
@@ -644,7 +1143,30 @@ app.include_router(hardcover.router)
 app.include_router(store.router)
 app.include_router(series.router)
 app.include_router(collections.router)
+app.include_router(upcoming.router)
+app.include_router(upcoming.page_router)
+app.include_router(api_v1.router)
+app.include_router(api_token_routes.router)
 app.include_router(share.router)
-app.include_router(tags.router)
+app.include_router(item_copies.router)
 app.include_router(intake.router)
 app.include_router(archive.router)
+app.include_router(music.router)
+app.include_router(shelf_fill.router)
+app.include_router(periodicals.router)
+app.include_router(related_media.router)
+app.include_router(trash.router)
+app.include_router(trash.page_router)
+app.include_router(labels.router)
+app.include_router(labels.page_router)
+app.include_router(labels.item_router)
+app.include_router(audits.router)
+app.include_router(audits.page_router)
+app.include_router(duplicates.router)
+app.include_router(duplicates.page_router)
+
+# Deliberate callback composition only; importing router packages never patches
+# connector writers, installs DDL or starts an additional scheduler.
+from app.services import provider_series_sync
+
+provider_series_sync.install()

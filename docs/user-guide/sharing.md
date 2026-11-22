@@ -5,11 +5,18 @@ needed by the viewer.
 
 | Link type | Shows |
 |---|---|
-| **Wishlist** | Your wishlist items: title, author, cover, series. For gift ideas |
+| **Wishlist** | Shared acquisition-list items: title, author, cover, series. Not each user's personal wishlist |
 | **Collection** | Your owned items, same fields. For "what do you have?" |
 
 What a link **never** shows: locations, loans, values, notes, ISBNs, tags,
 reading status, or anything about users. It's a cover wall with titles.
+
+A public link is an intentional disclosure to anyone holding the URL, not
+authenticated library membership. Private personal wishlist, status, history,
+ratings and notes are not the acquisition-share source. Library selection and
+anonymous-share scoping still require final [integration verification](../upstream-integration.md);
+do not publish a link from this candidate on the assumption that a hidden nav
+tab or feature flag provides a privacy boundary.
 
 ## Properties
 
@@ -19,6 +26,10 @@ reading status, or anything about users. It's a cover wall with titles.
   new one whenever you like.
 - Links are live: the page reflects your library at view time, so a
   wishlist link you sent in November is still right in December.
+- With Sharing turned off in Settings → **Features**, every link answers
+  "Not found" until you turn it back on. The links are kept, and they work
+  again as soon as Sharing is on. Meanwhile the **Sharing** card still lists
+  them, but cannot create, copy, open or revoke one.
 
 ## Outside the LAN
 

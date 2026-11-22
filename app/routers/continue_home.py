@@ -8,14 +8,16 @@ to later visible titles.
 
 from __future__ import annotations
 
-from fastapi import Depends, Request
-from fastapi.responses import HTMLResponse
+from fastapi import APIRouter, Depends, Request
 
-from app.auth import require_role
 from app.config import MEDIA_FAMILIES, MEDIA_TYPES
 from app.database import get_db
-from app.routers import items, series_memberships, user_state_items
+from app.routers import series_memberships
+from app.routers.series import LIVE_SERIES_MEMBERSHIPS, PHYSICAL_SERIES_MEMBERSHIPS
 from app.services import libraries, user_state
+from app.services.catalogue_security import require_catalogue_role, require_item_role
+
+router = APIRouter(prefix="/api")
 
 _MAX_CONTINUE_ITEMS = 8
 
@@ -75,7 +77,7 @@ def _continue_rows(db, user: dict) -> list[dict]:
         "SELECT i.id, i.title, i.authors, i.media_type, i.cover_path, i.owned, "
         "i.series_name, i.series_position, uis.progress_value, uis.progress_total, "
         "uis.progress_unit, uis.updated_at "
-        "FROM user_item_state uis JOIN items i ON i.id = uis.item_id "
+        "FROM user_item_state uis JOIN items_live i ON i.id = uis.item_id "
         f"WHERE uis.user_id = ? AND uis.reading_status = 'reading' AND ({condition}) "
         "ORDER BY uis.updated_at DESC, i.id DESC",
         [user_id] + access_params,
@@ -91,8 +93,8 @@ def _continue_rows(db, user: dict) -> list[dict]:
     completed = db.execute(
         "SELECT i.id, i.media_type, uis.updated_at, s.series_name, s.position "
         "FROM user_item_state uis "
-        "JOIN items i ON i.id = uis.item_id "
-        "JOIN item_series s ON s.item_id = i.id "
+        "JOIN items_live i ON i.id = uis.item_id "
+        f"JOIN {LIVE_SERIES_MEMBERSHIPS} s ON s.item_id = i.id "
         f"WHERE uis.user_id = ? AND uis.reading_status = 'read' "
         f"AND s.position IS NOT NULL AND ({condition}) "
         "ORDER BY uis.updated_at DESC, i.id DESC, s.series_name COLLATE NOCASE",
@@ -112,10 +114,11 @@ def _continue_rows(db, user: dict) -> list[dict]:
         placeholders = ",".join("?" for _ in family_types)
         members = db.execute(
             "SELECT i.id, i.title, i.authors, i.media_type, i.cover_path, i.owned, "
-            "i.series_name, i.series_position, i.publish_year, s.position, "
+            "i.series_name, i.series_position, i.publish_year, i.deleted_at, s.position, "
             "uis.reading_status, uis.progress_value, uis.progress_total, "
             "uis.progress_unit "
-            "FROM item_series s JOIN items i ON i.id = s.item_id "
+            # Deliberate physical order census; blocked rows are never rendered.
+            f"FROM {PHYSICAL_SERIES_MEMBERSHIPS} s JOIN items i ON i.id = s.item_id "
             "LEFT JOIN user_item_state uis ON uis.item_id = i.id AND uis.user_id = ? "
             "WHERE s.series_name = ? COLLATE NOCASE "
             f"AND i.media_type IN ({placeholders}) "
@@ -142,7 +145,7 @@ def _continue_rows(db, user: dict) -> list[dict]:
             # Determine the real next local member before applying ACL. If that
             # member is hidden, stop instead of skipping through it and leaking
             # the existence/order of a protected title via a later suggestion.
-            if not libraries.has_item_role(db, user, member_id, "viewer"):
+            if member["deleted_at"] is not None or not libraries.has_item_role(db, user, member_id, "viewer"):
                 break
 
             state = member["reading_status"]
@@ -175,26 +178,23 @@ def _render(request: Request):
     )
 
 
-@items.router.get("/home/continue")
+@router.get("/home/continue")
 async def continue_home(
     request: Request,
-    _=Depends(require_role("viewer")),
+    _=Depends(require_catalogue_role("viewer")),
 ):
     return _render(request)
 
 
-@items.router.post("/items/{item_id}/continue/start")
+@router.post("/items/{item_id}/continue/start")
 async def start_continue_item(
     request: Request,
     item_id: int,
-    _=Depends(require_role("viewer")),
+    _=Depends(require_catalogue_role("viewer")),
 ):
     user = _user(request)
     with get_db() as db:
-        if not libraries.has_item_role(db, user, item_id, "viewer"):
-            return HTMLResponse("Not found", status_code=404)
-        state = user_state.set_reading_status(db, int(user["id"]), item_id, "reading")
-        # Preserve the existing single-user compatibility shadow used by older
-        # integrations without making it authoritative in multi-user installs.
-        user_state_items._mirror_legacy_status(db, item_id, "reading", state)
+        db.execute("BEGIN IMMEDIATE")
+        require_item_role(db, item_id, "viewer")
+        user_state.set_reading_status(db, int(user["id"]), item_id, "reading")
     return _render(request)

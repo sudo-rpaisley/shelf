@@ -252,6 +252,56 @@ class TestLoadMoreSentinels:
         self._assert_sentinel(r2.text, expected_colspan)
 
 
+class TestTagsColumn:
+    """T6: the optional 'tags' column -- chips linking to /browse?tag=<name>,
+    an em dash for an untagged row, on both the first paint and load-more."""
+
+    def test_tagged_row_links_untagged_row_dashes(self, admin_client, db):
+        from app.services import tags as tags_svc
+
+        tagged = _insert_item(
+            db, title="Tagged Item", isbn="9780000092018", media_type="book",
+        )
+        untagged = _insert_item(
+            db, title="Untagged Item", isbn="9780000092025", media_type="book",
+        )
+        tags_svc.attach_tags(db, tagged, ["Signed"])
+        db.commit()
+
+        for url in ("/browse?view=list", "/api/search?view=list&page=1"):
+            resp = admin_client.get(url)
+            assert resp.status_code == 200, url
+            html = resp.text
+
+            tagged_cell = _cell(_row_for(html, tagged), "tags")
+            assert "/browse?tag=Signed" in tagged_cell, (url, tagged_cell)
+
+            untagged_cell = _cell(_row_for(html, untagged), "tags")
+            assert untagged_cell.strip() == "—", (url, untagged_cell)
+
+    def test_tags_column_renders_on_page_two(self, admin_client, db):
+        """`item_rows_page.html` (page 2+) is rendered by the same
+        `search_items` context as page 1, so it must get `tags_by_item` too."""
+        from app.services import tags as tags_svc
+
+        _insert_item(db, title="A First Item", isbn="9780000093015", media_type="book")
+        second = _insert_item(db, title="B Second Item", isbn="9780000093022", media_type="book")
+        tags_svc.attach_tags(db, second, ["Signed"])
+        db.commit()
+
+        resp = admin_client.get("/api/search?view=list&sort=title_asc&page=2&per_page=1")
+        assert resp.status_code == 200
+        html = resp.text
+
+        # page 2's fragment is bare <tr> rows for an outerHTML append -- no
+        # <tbody> wrapper -- so match the row directly rather than through
+        # _tbody_rows/_row_for, which expect a <tbody> to search inside.
+        row_m = re.search(rf'<tr[^>]*data-item-id="{second}"[^>]*>(.*?)</tr>', html, re.S)
+        assert row_m, html
+        cell = _cell(row_m.group(1), "tags")
+        assert "/browse?tag=Signed" in cell, cell
+
+
 class TestValueRendering:
     def test_manual_value_wins_estimate_is_hidden_and_unvalued_renders_dash(
         self, admin_client, db

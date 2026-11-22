@@ -1,3 +1,5 @@
+from html import unescape
+
 from app.services import (
     crossref_journals,
     googlebooks,
@@ -5,6 +7,7 @@ from app.services import (
     provider_result,
     upcitemdb,
 )
+from tests.test_magazine_scan import _confirmation_fields
 
 
 VW_MOTORING_EAN = "9770953616115"
@@ -49,9 +52,15 @@ def test_vw_motoring_977_plus_addon_resolves_publication_title(
     )
 
     assert resp.status_code == 200
-    assert 'name="title" value="VW motoring"' in resp.text
+    fields = _confirmation_fields(resp.text)
+    assert fields["publication_title"] == "VW motoring"
     assert "ISSN 0953-6167" in resp.text
-    assert "barcode add-on 01" in resp.text
-    assert f'name="carrier_ean" value="{VW_MOTORING_EAN}"' in resp.text
-    assert f'name="barcode_supplement" value="{VW_MOTORING_ADDON}"' in resp.text
+    assert f"ISSN 0953-6167 · {VW_MOTORING_EAN} + {VW_MOTORING_ADDON}" in unescape(resp.text)
+    assert fields["raw_barcode"] == VW_MOTORING_SCAN
+    assert (fields["issue_number"], fields["issue_date"]) == ("", "")
     assert db.execute("SELECT COUNT(*) AS c FROM items").fetchone()["c"] == 0
+    fields.update(issue_number="41")
+    confirmed = editor_client.post("/api/periodicals/confirm", data=fields, follow_redirects=False)
+    assert confirmed.status_code == 303
+    issue = db.execute("SELECT barcode_ean, barcode_supplement, issue_number FROM periodical_issues").fetchone()
+    assert tuple(issue) == (VW_MOTORING_EAN, VW_MOTORING_ADDON, "41")

@@ -1,48 +1,9 @@
-<div class="mb-6">
-    <p class="text-shelf-accent2 text-sm font-medium mb-1">Administration</p>
-    <h1 class="text-3xl font-bold">Settings</h1>
-    <p class="text-shelf-muted mt-2">Manage your library, connected services, data, and user access.</p>
-</div>
-
-{# Known codes only: never reflect arbitrary query-string text. #}
-{% set location_error = request.query_params.get('location_error') %}
-{% if location_error in ('blank', 'duplicate', 'missing') %}
-<div data-testid="location-error-banner"
-     class="bg-shelf-bg text-shelf-error border border-shelf-border rounded-lg px-4 py-2 text-sm mb-6">
-    {% if location_error == 'blank' %}
-    Location name is required.
-    {% elif location_error == 'duplicate' %}
-    A location with that name already exists.
-    {% else %}
-    That location no longer exists.
-    {% endif %}
-</div>
-{% endif %}
-
-{% set platform_error = request.query_params.get('platform_error') %}
-{% if platform_error in ('blank', 'duplicate', 'missing') %}
-<div data-testid="platform-error-banner"
-     class="bg-shelf-bg text-shelf-error border border-shelf-border rounded-lg px-4 py-2 text-sm mb-6">
-    {% if platform_error == 'blank' %}
-    Platform name is required.
-    {% elif platform_error == 'duplicate' %}
-    A platform with that name or identifier already exists.
-    {% else %}
-    That platform no longer exists.
-    {% endif %}
-</div>
-{% endif %}
-
-{% set borrower_error = request.query_params.get('borrower_error') %}
-{% if borrower_error in ('blank', 'duplicate', 'missing') %}
-<div data-testid="borrower-mutation-error-banner"
-     class="bg-shelf-bg text-shelf-error border border-shelf-border rounded-lg px-4 py-2 text-sm mb-6">
-    {% if borrower_error == 'blank' %}
-    Borrower name is required.
-    {% elif borrower_error == 'duplicate' %}
-    A borrower with that name already exists.
-    {% else %}
-    That borrower no longer exists.
-    {% endif %}
-</div>
-{% endif %}
+<div class="mb-6"><p class="text-shelf-accent2 text-sm font-medium mb-1">{{ _('Administration') }}</p><h1 class="text-3xl font-bold">{{ _('Settings') }}</h1><p class="text-shelf-muted mt-2">{{ _('Manage your library, connected services, data and user access.') }}</p></div>
+{# Closed code-to-copy maps: query text is never reflected as a message. #}
+{% set messages = {
+    'location': {'blank': 'Location name is required.', 'duplicate': 'A location with that name already exists.', 'missing': 'That location no longer exists.'},
+    'platform': {'blank': 'Platform name is required.', 'duplicate': 'A platform with that name or identifier already exists.', 'missing': 'That platform no longer exists.'},
+    'borrower': {'blank': 'Borrower name is required.', 'duplicate': 'A borrower with that name already exists.', 'missing': 'That borrower no longer exists.'},
+    'tag': {'blank': 'Tag name is required.', 'duplicate': 'A tag with that name already exists — merging tags is not supported yet.', 'missing': 'That tag no longer exists.', 'scope': 'Choose a media type from the list.'}
+} %}
+{% for kind, known in messages.items() %}{% set code = request.query_params.get(kind ~ '_error') %}{% if code in known %}<div data-testid="{{ 'borrower-mutation' if kind == 'borrower' else kind }}-error-banner" role="alert" class="bg-shelf-bg text-shelf-error border border-shelf-border rounded-lg px-4 py-2 text-sm mb-6">{{ _(known[code]) }}</div>{% endif %}{% endfor %}

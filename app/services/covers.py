@@ -1,15 +1,146 @@
 import asyncio
 import ipaddress
 import logging
+import shutil
 import socket
+import tempfile
+from contextlib import nullcontext
+from pathlib import Path
 from urllib.parse import urljoin, urlparse
+from uuid import uuid4
 
 import httpx
 
 from app.config import COVERS_DIR
-from app.services import googlebooks, igdb, outbound, provider_result, tmdb
+from app.services import audnexus, book_cover_search, igdb, national, outbound, porbase, provider_result, tmdb
+from app.services.transaction_resources import cover_publication_guard
 
 logger = logging.getLogger(__name__)
+
+
+class CoverStage:
+    """Own only a fresh download ID's finite image filenames, never a glob.
+
+    Connectors can retain their validated format (e.g. ``.webp``). Cleanup on
+    denial covers that SAME stage even when publication never starts. Download
+    routines remain responsible for validating bytes and provider origins.
+    """
+
+    SUFFIXES = (".jpg", ".jpeg", ".png", ".gif", ".webp")
+
+    def __init__(self, item_id):
+        self.item_id = item_id
+        for _ in range(5):
+            self.download_id = -((uuid4().int & ((1 << 62) - 1)) + 1)
+            self._paths = {f"covers/{self.download_id}{suffix}": COVERS_DIR / f"{self.download_id}{suffix}"
+                           for suffix in self.SUFFIXES}
+            if not any(path.exists() or path.is_symlink() for path in self._paths.values()):
+                break
+        else:
+            raise RuntimeError("Could not allocate an unused cover stage")
+        self.path = self.path_for(".jpg")
+
+    def path_for(self, suffix):
+        """Exact writable path for an owned, supported image suffix."""
+        if suffix not in self.SUFFIXES:
+            raise ValueError("Unsupported staged cover suffix")
+        return self._paths[f"covers/{self.download_id}{suffix}"]
+
+    def owns(self, cover_path):
+        return cover_path in self._paths
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *_):
+        for path in self._paths.values():
+            path.unlink(missing_ok=True)
+
+
+def publish_staged_cover(db, stage: CoverStage, cover_path: str, *, authorize, store) -> str:
+    """Publish one stage through the caller's exact locked identity callbacks.
+
+    ``authorize(db)`` must refuse stale liveness/identity/library/principal;
+    ``store(db, published_path)`` uses the authoritative domain writer. Both
+    are synchronous, inside the same write scope, with no provider await.
+    The connection retains the file preimage until its real outer commit or
+    rollback/failed commit/close. Do not use raw SQL transaction boundaries.
+    No router imports or independent connector filesystem writer are needed.
+    """
+    from app.services import item_write
+    from app.services.transaction_resources import register_transaction_resource
+
+    if not stage.owns(cover_path):
+        raise ValueError("Cover does not belong to this stage")
+    source = stage._paths[cover_path]
+    published = f"covers/{stage.item_id}{source.suffix}"
+    dest = source.with_name(f"{stage.item_id}{source.suffix}")
+    backup = None
+    installed = False
+    had_file = False
+    resource = None
+
+    def finish():
+        if backup is not None:
+            backup.unlink(missing_ok=True)
+
+    def undo():
+        nonlocal installed
+        if installed:
+            if had_file:
+                # Keep the preimage even if restoration fails (including an
+                # error observed AFTER its actual rename). A retry must still
+                # have the original bytes, not a consumed/missing journal.
+                with tempfile.NamedTemporaryFile(prefix=".cover-restore-", dir=dest.parent, delete=False) as handle:
+                    restoring = Path(handle.name)
+                try:
+                    shutil.copyfile(backup, restoring)
+                    restoring.replace(dest)
+                finally:
+                    restoring.unlink(missing_ok=True)
+            else:
+                dest.unlink(missing_ok=True)
+            installed = False
+        finish()
+
+    try:
+        with item_write._write_scope(db):
+            authorize(db)
+            if not source.is_file() or source.is_symlink():
+                raise ValueError("Staged cover bytes are missing")
+            # Enrollment owns the namespace fence BEFORE inspecting any shared
+            # destination/preimage. Callbacks are safe even before copying it.
+            resource = register_transaction_resource(
+                db, publication_dir=COVERS_DIR, after_commit=finish, after_rollback=undo,
+            )
+            if dest.is_symlink():
+                raise ValueError("Cover destination must not be a symlink")
+            if dest.exists() and not dest.is_file():
+                raise ValueError("Cover destination must be a file")
+            had_file = dest.is_file()
+            if had_file:
+                # Exclusive creation makes the preimage a journal-owned
+                # resource, never an existing user's similarly named file.
+                with tempfile.NamedTemporaryFile(prefix=".cover-backup-", dir=dest.parent, delete=False) as handle:
+                    backup = Path(handle.name)
+                shutil.copyfile(dest, backup)
+            store(db, published)
+            # Own recovery BEFORE the atomic replace: an injected I/O error or
+            # interruption can be observed after the rename has taken effect.
+            installed = True
+            source.replace(dest)
+    except BaseException:
+        # _write_scope already undid the local DB savepoint. A caller may
+        # catch this error and commit unrelated work, so undo locally too.
+        # The resource marks recovery required BEFORE undo, retains a failed
+        # journal, and cancels/releases only after successful recovery.
+        if resource is None:
+            undo()
+        else:
+            resource.rollback()
+        raise
+    return published
+
 
 # Trusted domains for cover image downloads
 ALLOWED_COVER_DOMAINS = {
@@ -28,6 +159,8 @@ ALLOWED_COVER_DOMAINS = {
     "portal.dnb.de",  # DNB/MVB cover service for German (978-3) ISBNs
     "coverartarchive.org",  # MusicBrainz release artwork
     "archive.org",  # Cover Art Archive redirect target
+    "rnod.bnportugal.gov.pt",  # PORBASE cover scans for Portuguese (978-989, 978-972) ISBNs
+    "neodb.social",  # NeoDB cover images for Chinese (978-7, Taiwan, Hong Kong) ISBNs
 }
 
 # Suffix-matched domains (subdomain rotates): covers.openlibrary.org and the
@@ -38,7 +171,6 @@ ALLOWED_COVER_SUFFIXES = (".us.archive.org",)
 
 async def download_cover(item_id: int, isbn: str | None, cover_url: str | None, cover_id: int | None, client: httpx.AsyncClient, hardcover_cover_url: str | None = None) -> str | None:
     """Download a cover image and return the relative path, or None on failure."""
-    COVERS_DIR.mkdir(parents=True, exist_ok=True)
     dest = COVERS_DIR / f"{item_id}.jpg"
 
     # Try Open Library cover by cover ID first (best quality)
@@ -79,35 +211,99 @@ async def download_cover(item_id: int, isbn: str | None, cover_url: str | None, 
         if await _download(cover_url, dest, client):
             return f"covers/{item_id}.jpg"
 
+    # Last resort for Portuguese-group ISBNs: the National Library's own scan
+    # of the cover, linked from the PORBASE record. The link carries record
+    # ids, so it costs one resolver request to find; other ISBNs never pay it.
+    # The registry decides which ISBNs these are, so the prefixes live in one
+    # place.
+    if isbn and national.provider_for(isbn) is porbase:
+        url = await porbase.cover_url(isbn, client)
+        if url and await _download(url, dest, client):
+            return f"covers/{item_id}.jpg"
+
     return None
 
 
 MAX_COVER_SIZE = 10 * 1024 * 1024  # 10 MB
 MIN_COVER_SIZE = 100  # bytes
 
-# JPEG, PNG, GIF, WebP magic bytes
-_IMAGE_SIGNATURES = [
-    b"\xff\xd8\xff",      # JPEG
-    b"\x89PNG\r\n\x1a\n", # PNG
-    b"GIF87a", b"GIF89a", # GIF
-    b"RIFF",              # WebP (RIFF container)
-]
+# Format detection is shared by the existing validator and format-preserving
+# staging. RIFF alone is not WebP (it also identifies WAV/AVI containers).
+_IMAGE_FORMATS = (
+    (b"\xff\xd8\xff", ".jpg", "image/jpeg"),
+    (b"\x89PNG\r\n\x1a\n", ".png", "image/png"),
+    (b"GIF87a", ".gif", "image/gif"),
+    (b"GIF89a", ".gif", "image/gif"),
+)
+
+
+def _image_format(content: bytes) -> tuple[str, str] | None:
+    for signature, suffix, content_type in _IMAGE_FORMATS:
+        if content.startswith(signature):
+            return suffix, content_type
+    if content.startswith(b"RIFF") and content[8:12] == b"WEBP":
+        return ".webp", "image/webp"
+    return None
 
 
 def _looks_like_image(content: bytes) -> bool:
     """Check if content starts with known image magic bytes."""
-    return any(content.startswith(sig) for sig in _IMAGE_SIGNATURES)
+    return _image_format(content) is not None
 
 
-def save_uploaded_cover(item_id: int, content: bytes) -> str | None:
-    """Save an uploaded cover image. Returns relative path or None."""
-    COVERS_DIR.mkdir(parents=True, exist_ok=True)
-    dest = COVERS_DIR / f"{item_id}.jpg"
+def validate_uploaded_cover(content: bytes) -> bool:
+    """True if `content` is an acceptable cover upload (size and image magic).
+
+    Pure: no mkdir, no write. Safe to call before a route knows whether it
+    will go on to save.
+    """
     if len(content) < MIN_COVER_SIZE or len(content) > MAX_COVER_SIZE:
+        return False
+    return _looks_like_image(content)
+
+
+def stage_uploaded_cover(stage: CoverStage, content: bytes, *, content_type: str | None = None) -> str | None:
+    """Validate once, infer the actual image suffix, and write ONLY this stage.
+
+    An optional declared MIME type must match the detected bytes. The original
+    accepted bytes are retained, not converted or mislabeled as JPEG. This is
+    the common service boundary for connector responses and pending uploads;
+    publication still requires ``publish_staged_cover`` and its locked checks.
+    """
+    if not validate_uploaded_cover(content):
         return None
-    if not _looks_like_image(content):
+    detected = _image_format(content)
+    if detected is None:
         return None
-    dest.write_bytes(content)
+    suffix, detected_type = detected
+    if content_type is not None and content_type.split(";", 1)[0].strip().lower() != detected_type:
+        return None
+    path = stage.path_for(suffix)
+    if path.is_symlink():
+        return None
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_bytes(content)
+    return f"covers/{stage.download_id}{suffix}"
+
+
+def write_uploaded_cover(item_id: int, content: bytes, *, db=None) -> str:
+    """Write already-validated cover bytes to `{item_id}.jpg`. Returns the relative path.
+
+    Does no validation: the caller must have passed `content` through
+    `validate_uploaded_cover` first. The two are separate so a route that may
+    still refuse the save (#127) can validate early and write last, leaving
+    the existing cover untouched when it refuses.
+
+    Only an explicitly supplied owning connection can borrow a publication
+    fence. With no owner this protects the write only, not subsequent SQL.
+    Negative IDs belong to private stages/previews, not shared destinations.
+    """
+    # The stable lock lives beside covers, whose parent may not exist yet.
+    # Bootstrap only that parent, not the shared destination, before locking.
+    COVERS_DIR.parent.mkdir(parents=True, exist_ok=True)
+    with nullcontext() if item_id < 0 else cover_publication_guard(COVERS_DIR, conn=db):
+        COVERS_DIR.mkdir(parents=True, exist_ok=True)
+        (COVERS_DIR / f"{item_id}.jpg").write_bytes(content)
     return f"covers/{item_id}.jpg"
 
 
@@ -202,9 +398,13 @@ async def download_manual_cover(
         if not _looks_like_image(content):
             return None
 
-        COVERS_DIR.mkdir(parents=True, exist_ok=True)
-        dest = COVERS_DIR / f"{item_id}.jpg"
-        dest.write_bytes(content)
+        # Network/validation is complete. Never await or begin SQL while this
+        # legacy file-only guard is held; private stages do not contend.
+        COVERS_DIR.parent.mkdir(parents=True, exist_ok=True)
+        with nullcontext() if item_id < 0 else cover_publication_guard(COVERS_DIR):
+            COVERS_DIR.mkdir(parents=True, exist_ok=True)
+            dest = COVERS_DIR / f"{item_id}.jpg"
+            dest.write_bytes(content)
         return f"covers/{item_id}.jpg"
     return None
 
@@ -217,41 +417,25 @@ async def search_cover_by_title(
     google_api_key: str | None = None,
 ) -> list[dict]:
     """Search for cover candidates by title/author. Returns list of {url, source, thumbnail}."""
-    candidates = []
+    result = await search_book_covers(
+        title, author, None, client, google_api_key=google_api_key,
+    )
+    return result.payload if result.found else []
 
-    # Google Books search
-    try:
-        candidates.extend(await googlebooks.search_covers(
-            title, author, client, api_key=google_api_key
-        ))
-    except Exception:
-        pass
 
-    # Open Library search
-    try:
-        params = {"title": title, "limit": "5"}
-        if author:
-            params["author"] = author.split(",")[0].strip()
-        resp = await outbound.fetch(
-            client, "GET",
-            "https://openlibrary.org/search.json",
-            params=params,
-            timeout=10,
-        )
-        if resp.status_code == 200:
-            data = resp.json()
-            for doc in data.get("docs", []):
-                cover_i = doc.get("cover_i")
-                if cover_i:
-                    candidates.append({
-                        "url": f"https://covers.openlibrary.org/b/id/{cover_i}-L.jpg",
-                        "thumbnail": f"https://covers.openlibrary.org/b/id/{cover_i}-M.jpg",
-                        "source": "Open Library",
-                    })
-    except Exception:
-        pass
+def save_uploaded_cover(item_id: int, content: bytes, *, db=None) -> str | None:
+    """Save an uploaded cover image. Returns relative path or None."""
+    return write_uploaded_cover(item_id, content, db=db) if validate_uploaded_cover(content) else None
 
-    return candidates
+
+async def search_book_covers(
+    title: str, author: str | None, isbn: str | None,
+    client: httpx.AsyncClient, *, google_api_key: str | None = None,
+) -> provider_result.ProviderResult:
+    """Search exact ISBN editions first, then offer title matches for review."""
+    return await book_cover_search.search(
+        title, author, isbn, client, google_api_key=google_api_key,
+    )
 
 # --- Media-type dispatch for the cover picker -------------------------------
 #
@@ -348,20 +532,84 @@ async def search_covers(
         return await _tmdb_candidates(item, query, client, creds)
     if provider == "igdb":
         return await _igdb_candidates(item, query, client, creds)
-    # Called as the bare module global on purpose: eight tests in
-    # tests/test_covers.py patch `covers.search_cover_by_title` by attribute,
-    # and a local alias or a from-import would detach every one of them.
-    #
-    # Wrapped as `found` rather than re-typed: the book branch fans out over
-    # Google Books and Open Library and swallows each one's failure on its own
-    # (`search_cover_by_title` above), so it has no single outcome to report.
-    # Re-typing that cascade is `plan-cover-editions`' work.
-    return provider_result.found("openlibrary", await search_cover_by_title(
+    typed = query.strip() != (_col(item, "title") or "").strip()
+    result = await search_book_covers(
         query,
-        _col(item, "authors"),
+        None if typed else _col(item, "authors"),
+        None if typed else _col(item, "isbn"),
         client,
         google_api_key=creds.get("google_books_api_key"),
-    ))
+    )
+    audible = await _audible_asin_candidate(item, typed, client, creds)
+    if audible:
+        merged = await _book_leg_candidates(item, typed, client, creds, result)
+        candidates = _dedupe_by_url(audible + (merged.payload if merged.found else []))
+        return provider_result.found(merged.provider if merged.found else "audnexus", candidates)
+    return await _book_leg_candidates(item, typed, client, creds, result)
+
+
+async def _audible_asin_candidate(item, typed: bool, client, creds: dict) -> list[dict]:
+    """The Audible edition's own cover, first in the grid, by ASIN.
+
+    Audiobook with an ASIN and an untyped query only: a typed query searches
+    its text alone. Any Audnexus outcome but `found` with an image yields
+    nothing, leaving the book path's result untouched. The image is fetched
+    later through `_download_to_item` (G11).
+    """
+    asin = (_col(item, "asin") or "").strip()
+    if typed or _col(item, "media_type") != "audiobook" or not asin:
+        return []
+    found = await audnexus.lookup(asin, client, region=creds.get("audible_region") or "us")
+    url = found.payload.get("cover_url") if found.found else None
+    if not url:
+        return []
+    return [{"url": url, "thumbnail": url, "source": "Audible · ASIN match", "match": "asin"}]
+
+
+async def _book_leg_candidates(item, typed: bool, client, creds: dict, result):
+    from app.services import librarything
+    # A typed query searches on that text alone (docs/user-guide/items.md), so
+    # the stored ISBN must not reach LibraryThing either.
+    if (not typed and _col(item, "media_type") in librarything.BOOK_TYPES
+            and _col(item, "isbn") and creds.get("librarything_token")):
+        mapped = await librarything.search_covers(
+            _col(item, "isbn"), creds["librarything_token"], client,
+            creds.get("google_books_api_key"))
+        candidates = _dedupe_by_url((result.payload if result.found else []) + (mapped.payload if mapped.found else []))
+        if candidates:
+            return provider_result.found("librarything", candidates)
+        return provider_result.combine(
+            [provider_result.no_match(result.provider) if result.found else result, mapped],
+            provider="librarything",
+        )
+    if result.found:
+        return result.with_payload(_dedupe_by_url(result.payload))
+    return result
+
+
+def _dedupe_by_url(candidates: list[dict]) -> list[dict]:
+    """Drop later candidates repeating an earlier URL, keeping the first's position.
+
+    A later duplicate that carries `edition_isbn` lends it (and
+    `edition_language`) to the kept candidate, so picking that URL still records
+    the LibraryThing provenance. Never onto an exact `match == "isbn"` tile:
+    Open Library editions share cover IDs, so a LibraryThing tile can repeat
+    the exact tile's URL, and lending there would store "English cover from
+    another edition" against the item's own edition. `label` is never copied:
+    the kept tile keeps its own second line. Kept dicts are copied before any
+    key is added.
+    """
+    kept: dict[str, dict] = {}
+    for candidate in candidates:
+        url = candidate.get("url")
+        first = kept.get(url)
+        if first is None:
+            kept[url] = candidate
+        elif (candidate.get("edition_isbn") and not first.get("edition_isbn")
+              and first.get("match") != "isbn"):
+            kept[url] = {**first, "edition_isbn": candidate["edition_isbn"],
+                         "edition_language": candidate.get("edition_language")}
+    return list(kept.values())
 
 
 async def _tmdb_candidates(
@@ -506,7 +754,6 @@ async def _download_to_item(item_id: int, url: str, client: httpx.AsyncClient) -
     """Download a URL as the cover for an item. Returns relative path or None."""
     if not is_allowed_cover_url(url):
         return None
-    COVERS_DIR.mkdir(parents=True, exist_ok=True)
     dest = COVERS_DIR / f"{item_id}.jpg"
     if await _download(url, dest, client):
         return f"covers/{item_id}.jpg"
@@ -530,7 +777,17 @@ async def _download(url: str, dest, client: httpx.AsyncClient) -> bool:
         if len(content) < 1000 or len(content) > MAX_COVER_SIZE:
             logger.debug("Cover download rejected for %s: size=%d bytes", url, len(content))
             return False
-        dest.write_bytes(content)
+        try:
+            private_stage = int(dest.stem) < 0
+        except ValueError:
+            private_stage = False
+        # Legacy provider writers protect only their final filesystem mutation;
+        # the fence is released before any caller's later SQL. No network await
+        # occurs under it, and no ambient connection ownership is borrowed.
+        COVERS_DIR.parent.mkdir(parents=True, exist_ok=True)
+        with nullcontext() if private_stage else cover_publication_guard(COVERS_DIR):
+            dest.parent.mkdir(parents=True, exist_ok=True)
+            dest.write_bytes(content)
         return True
     except Exception:
         logger.debug("Cover download error for %s", url, exc_info=True)

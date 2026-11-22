@@ -21,13 +21,13 @@
                    x-model="query"
                    hx-get="/api/hardcover/search" hx-trigger="keyup changed delay:400ms" hx-target="#hc-results"
                    hx-include="this"
-                   class="w-full bg-shelf-card border border-shelf-border rounded-lg px-4 py-3 text-shelf-text focus:ring-2 focus:ring-shelf-accent focus:border-transparent outline-none placeholder-shelf-muted/50 text-lg"
+                   class="w-full bg-shelf-card border border-shelf-border rounded-lg px-4 py-3 text-shelf-text focus:ring-2 focus:ring-shelf-accent focus:border-transparent outline-hidden placeholder-shelf-muted/50 text-lg"
                    autofocus>
         </div>
 
         <!-- Results -->
         <div id="hc-results">
-            {% if user and user.role in ('admin', 'editor') %}
+            {% if can_edit_catalogue %}
             <p class="text-shelf-muted text-sm text-center py-8">Search Hardcover's catalog to find books and add them to your wishlist.</p>
             {% else %}
             <p class="text-shelf-muted text-sm text-center py-8">Search Hardcover's catalog to explore books.</p>

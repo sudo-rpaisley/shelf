@@ -18,13 +18,26 @@
 // form and rendered a blank pill. Nothing here matches a class any more.
 //
 // Keep the status lists below in step with the badge's class ternary at the
-// foot of fragments/scan_result.html — that template and this table are the
-// two halves of one contract.
+// foot of fragments/scan_result.html — and with two more consumers that
+// classify the same status: the camera overlay's :class ternary in
+// scan.html, and the persisted history row in fragments/recent_scans.html.
+// All four are halves of one contract, and three of them treat an unlisted
+// status as an ERROR, so a status added here and nowhere else renders a
+// successful scan in red (issue #116).
 var SCAN_OK_STATUSES = [
     'added', 'wishlisted', 'returned', 'confirmed', 'marked_read',
-    'checked_out', 'moved', 'found', 'relocated'
+    'checked_out', 'moved', 'found', 'relocated', 'promoted', 'restored'
 ];
-var SCAN_WARN_STATUSES = ['duplicate', 'already_checked_out', 'not_checked_out'];
+var SCAN_WARN_STATUSES = [
+    'duplicate', 'already_checked_out', 'not_checked_out', 'legacy_ambiguous',
+    'legacy_incomplete', 'in_trash', 'saved_unplaced'
+];
+// Neither success nor failure: the scan worked and the answer is a report.
+// 'elsewhere' is Inventory mode declining to guess which of several copies
+// the barcode named, which is the correct outcome, not a warning.
+// 'periodical_confirm' is a 977 scan waiting for the user to confirm the
+// publication and issue: nothing is filed yet, so neither success nor error.
+var SCAN_INFO_STATUSES = ['elsewhere', 'periodical_confirm'];
 
 function scanCardOutcome(root) {
     if (!root) return null;
@@ -38,6 +51,7 @@ function scanCardOutcome(root) {
         status: status,
         ok: SCAN_OK_STATUSES.indexOf(status) !== -1,
         warn: SCAN_WARN_STATUSES.indexOf(status) !== -1,
+        info: SCAN_INFO_STATUSES.indexOf(status) !== -1,
         label: badgeEl ? badgeEl.textContent.trim() : '',
         title: titleEl ? titleEl.textContent.trim() : null,
         authors: authorsEl ? authorsEl.textContent.trim() : null,
@@ -54,7 +68,7 @@ function scanCardToast(root) {
     // The error arm declares its own line; it replaces the assembled string
     // rather than appending to it, because it IS the whole message.
     var errEl = root.querySelector('[data-scan-error]');
-    var label = outcome.label || 'Done';
+    var label = outcome.label || t('Done');
     // The badge reads lower-case ('added', 'lent'); the toast is a sentence,
     // so it opens capitalised the way the server string did.
     label = label.charAt(0).toUpperCase() + label.slice(1);
@@ -68,18 +82,36 @@ function scanCardToast(root) {
         if (outcome.detail) text += ' — ' + outcome.detail;
     }
     // A card is a failure when its own status says so — not when some element
-    // inside it happens to be styled with a warning colour.
-    return {text: text, type: outcome.ok ? 'success' : 'warning'};
+    // inside it happens to be styled with a warning colour. 'info' is the
+    // third answer: the scan worked and reported something, so styling it as
+    // a warning would be as wrong as styling it as an error.
+    var type = 'warning';
+    if (outcome.ok) type = 'success';
+    else if (outcome.info) type = 'info';
+    return {text: text, type: type};
+}
+
+// --- Translation ---
+// The UI-language strings for this page, rendered into base.html as the
+// #i18n-catalog JSON block (app/i18n.py js_catalog). Keyed by the English
+// text, so a string with no entry, or any string in English, comes back as is.
+var _i18nCatalog = null;
+function t(message) {
+    if (_i18nCatalog === null) {
+        var el = document.getElementById('i18n-catalog');
+        try { _i18nCatalog = el ? JSON.parse(el.textContent) : {}; } catch (e) { _i18nCatalog = {}; }
+    }
+    return _i18nCatalog[message] || message;
 }
 
 // --- Toast notifications ---
 function showToast(message, type) {
     var container = document.getElementById('toast-container');
-    var colors = {success: 'bg-shelf-success', error: 'bg-shelf-error', warning: 'bg-shelf-warning'};
+    var colors = {success: 'bg-shelf-success', error: 'bg-shelf-error', warning: 'bg-shelf-warning', info: 'bg-shelf-accent'};
     var el = document.createElement('div');
     el.className = (colors[type] || 'bg-shelf-accent') + ' text-white px-4 py-2 rounded-lg shadow-lg text-sm font-medium transition-opacity duration-300';
     // Structural, not belt-and-braces: makes a pill with nothing in it impossible from any caller.
-    message = (message || '').toString().trim() || 'Done';
+    message = (message || '').toString().trim() || t('Done');
     el.textContent = message;
     container.appendChild(el);
     setTimeout(function() { el.style.opacity = '0'; }, 2700);
@@ -89,19 +121,109 @@ function showToast(message, type) {
 // Listen for HX-Trigger showToast events from server
 document.body.addEventListener('showToast', function(e) {
     var d = e.detail || {};
-    showToast(d.message || 'Done', d.type || 'success');
+    showToast(d.message || t('Done'), d.type || 'success');
 });
 
 // --- Loading bar ---
 (function() {
     var bar = document.getElementById('htmx-indicator');
-    document.body.addEventListener('htmx:beforeRequest', function() {
+    document.body.addEventListener('htmx:beforeRequest', function(evt) {
+        // A request a form listener cancelled gets no afterRequest to hide the bar.
+        if (evt.defaultPrevented) return;
         bar.style.opacity = '1';
         bar.style.width = (30 + Math.random() * 30) + '%';
     });
     document.body.addEventListener('htmx:afterRequest', function() {
         bar.style.width = '100%';
         setTimeout(function() { bar.style.opacity = '0'; bar.style.width = '0'; }, 300);
+    });
+})();
+
+// One owner of the ORIGINAL state, shared with Shelf Fill's whole-flow lock.
+// Nested request/flow leases must not snapshot another lease's temporary true.
+window.shelfBusyControls = (function() {
+    var states = new WeakMap();
+    return {
+        lock: function(control, disable) {
+            var state = states.get(control);
+            if (!state) {
+                state = {count: 0, disabled: control.disabled, disableOwned: false, busy: control.getAttribute('aria-busy'),
+                    marker: control.getAttribute('data-busy-owned')};
+                states.set(control, state);
+            }
+            state.count++;
+            control.setAttribute('aria-busy', 'true');
+            if (disable && !state.disabled) {
+                control.disabled = true;
+                state.disableOwned = true;
+                control.setAttribute('data-busy-owned', '');
+            }
+            var released = false;
+            return function() {
+                if (released) return;
+                released = true;
+                if (--state.count) return;
+                if (state.disableOwned) control.disabled = state.disabled;
+                if (state.busy === null) control.removeAttribute('aria-busy');
+                else control.setAttribute('aria-busy', state.busy);
+                if (state.marker === null) control.removeAttribute('data-busy-owned');
+                else control.setAttribute('data-busy-owned', state.marker);
+                states.delete(control);
+            };
+        }
+    };
+})();
+
+// --- Per-control busy state ---
+// The control that issued an htmx request is marked aria-busy (and disabled,
+// if it is a button) until htmx:afterRequest, which fires on 2xx, error,
+// abort and timeout alike — never release on afterSwap/afterSettle (G6).
+// - A cancelled beforeRequest (scan.js, shelf-fill.js) gets no afterRequest,
+//   so a defaultPrevented request is never marked.
+// - Ownership is keyed on detail.xhr: htmx rewrites detail.elt per dispatch
+//   and re-fires afterRequest elsewhere when the issuer was swapped out.
+// - Text inputs are marked, never disabled; a control already disabled is
+//   never re-enabled. hx-disabled-elt elements are not skipped: htmx restores
+//   its own disabled state before afterRequest, and its `this, #x` list form
+//   never disables `this` in 2.0.4, so skipping left buttons unguarded.
+(function() {
+    var owned = new WeakMap();
+
+    function release(xhr) {
+        var recs = xhr && owned.get(xhr);
+        if (!recs) return;
+        owned.delete(xhr);
+        recs.forEach(function(unlock) { unlock(); });
+    }
+
+    function controlsFor(elt, evt) {
+        var tag = elt.tagName;
+        var trig = evt.detail.requestConfig && evt.detail.requestConfig.triggeringEvent;
+        if (tag === 'FORM') {
+            if (trig && trig.submitter) return [trig.submitter];
+            return Array.prototype.filter.call(elt.elements, function(c) { return c.type === 'submit'; });
+        }
+        if (tag === 'BUTTON') return [elt];
+        if (tag === 'INPUT' && trig && trig.type === 'keyup') return [elt];
+        return [];
+    }
+
+    document.body.addEventListener('htmx:beforeRequest', function(evt) {
+        if (evt.defaultPrevented || !evt.detail.xhr) return;
+        var elt = evt.detail.elt;
+        if (!elt || !elt.tagName) return;
+        var recs = controlsFor(elt, evt).map(function(c) {
+            var disableable = c.tagName === 'BUTTON' || (c.tagName === 'INPUT' && c.type === 'submit');
+            return window.shelfBusyControls.lock(c, disableable);
+        });
+        if (recs.length) owned.set(evt.detail.xhr, recs);
+        // A later beforeRequest listener may cancel after this listener ran.
+        // HTMX emits no afterRequest in that case; release after dispatch.
+        queueMicrotask(function() { if (evt.defaultPrevented) release(evt.detail.xhr); });
+    });
+
+    document.body.addEventListener('htmx:afterRequest', function(evt) {
+        release(evt.detail.xhr);
     });
 })();
 
@@ -117,6 +239,8 @@ document.addEventListener('keydown', function(e) {
 
     var tag = document.activeElement.tagName;
     if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return;
+    // Leave browser shortcuts alone, including Ctrl/Cmd+/.
+    if (e.ctrlKey || e.metaKey || e.altKey) return;
     if (e.key === '/' ) {
         e.preventDefault();
         var q = document.querySelector('[name="q"]');
@@ -133,29 +257,28 @@ document.addEventListener('keydown', function(e) {
     else if (e.key === '?') { document.getElementById('shortcut-modal').classList.toggle('hidden'); }
 });
 
-// Keyboard-shortcut dialog controls live in this external script so they work
-// under Shelf's no-inline CSP. The old floating trigger is optional: newer
-// navigation opens the same dialog from the account-menu Alpine component.
+// The shortcut-help controls are bound here by id. Shelf's script-src 'self'
+// CSP refuses inline onclick handlers, so they cannot live in the template. The
+// trigger's title is translated, so it is not a stable selector. Each surface
+// binds independently: a missing element must not skip the other bindings.
 (function() {
     var modal = document.getElementById('shortcut-modal');
-    if (!modal) return;
+    var trigger = document.getElementById('shortcut-help-trigger');
+    var close = document.getElementById('shortcut-modal-close');
 
-    var trigger = document.querySelector('[title="Keyboard shortcuts (?)"]');
-    if (trigger) {
-        trigger.removeAttribute('onclick');
+    if (modal && trigger) {
         trigger.addEventListener('click', function() {
             modal.classList.toggle('hidden');
         });
     }
 
-    modal.removeAttribute('onclick');
-    modal.addEventListener('click', function(e) {
-        if (e.target === modal) modal.classList.add('hidden');
-    });
+    if (modal) {
+        modal.addEventListener('click', function(e) {
+            if (e.target === modal) modal.classList.add('hidden');
+        });
+    }
 
-    var close = modal.querySelector('[data-shortcut-close], button[onclick]');
-    if (close) {
-        close.removeAttribute('onclick');
+    if (modal && close) {
         close.addEventListener('click', function() {
             modal.classList.add('hidden');
         });
@@ -178,6 +301,35 @@ document.body.addEventListener('htmx:afterSwap', function() {
             el.value = plat.value;
         });
     }
+    syncDefaultTags();
+    syncDefaultReadingStatus();
+});
+
+// The default-tags field can change after the results are on screen, so it is
+// mirrored on its own input/change too, not only on swap. A disabled field
+// (a mode that takes no tags) mirrors as empty.
+function syncDefaultTags() {
+    var tags = document.getElementById('default-tags');
+    var value = tags && !tags.disabled ? tags.value : '';
+    document.querySelectorAll('.tags-sync').forEach(function(el) {
+        el.value = value;
+    });
+}
+// The default reading status, mirrored the same way into each result's
+// .reading-status-sync. Disabled (another mode, or a type with no status)
+// mirrors as empty; the server checks the type again.
+function syncDefaultReadingStatus() {
+    var sel = document.getElementById('default-reading-status');
+    var value = sel && !sel.disabled ? sel.value : '';
+    document.querySelectorAll('.reading-status-sync').forEach(function(el) {
+        el.value = value;
+    });
+}
+['input', 'change'].forEach(function(type) {
+    document.body.addEventListener(type, function(e) {
+        if (e.target && e.target.id === 'default-tags') syncDefaultTags();
+        if (e.target && e.target.id === 'default-reading-status') syncDefaultReadingStatus();
+    });
 });
 
 // CSP: hx-on:: attributes and hx-vals='js:...' need unsafe-eval, which the CSP
@@ -191,7 +343,7 @@ document.body.addEventListener('htmx:afterRequest', function (evt) {
     if (!action) return;
     var ok = evt.detail.successful;
     if (action === 'clear-scan-input') {
-        var input = el.querySelector('#isbn-input');
+        var input = el.querySelector('[name="isbn"]');
         if (input) { input.value = ''; input.focus(); }
         // This handler is the SOLE owner of the typed-scan toast: /api/scan
         // sets no HX-Trigger on any branch, so nothing else toasts here.
@@ -199,10 +351,12 @@ document.body.addEventListener('htmx:afterRequest', function (evt) {
         // #scan-results below the fold, so without this the submit looks like
         // a silent no-op. The card is the only input — see GOTCHAS "When
         // adding a response branch to /api/scan".
-        var card = ok && document.querySelector('#scan-results > :first-child');
+        var selector = el.getAttribute('data-scan-results') || el.getAttribute('hx-target');
+        var results = selector && document.querySelector(selector);
+        var card = ok && results && results.querySelector('.scan-result');
         if (card) {
-            var t = scanCardToast(card);
-            showToast(t.text, t.type);
+            var toast = scanCardToast(card);
+            showToast(toast.text, toast.type);
         }
     } else if (action === 'clear-title-search' && ok) {
         var si = document.getElementById('title-search-input') || document.getElementById('game-search-input');
@@ -213,13 +367,5 @@ document.body.addEventListener('htmx:afterRequest', function (evt) {
         location.reload();
     } else if (action === 'goto-browse' && ok) {
         window.location = '/browse';
-    }
-});
-
-// Replaces hx-vals='js:...' on the recent-scans panel (dynamic localStorage value)
-document.body.addEventListener('htmx:configRequest', function (evt) {
-    var el = evt.detail.elt;
-    if (el && el.getAttribute && el.getAttribute('data-vals-scan-mode') !== null) {
-        evt.detail.parameters.mode = localStorage.getItem('shelf_scan_mode') || 'add';
     }
 });

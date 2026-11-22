@@ -1,3 +1,4 @@
+{% set can_edit = can_edit_item|default(false) %}
 <div id="item-series-panel" class="mb-6" data-testid="item-series-panel">
     {% if series_rows %}
     <div class="space-y-4">
@@ -16,8 +17,8 @@
                 <a href="/item/{{ member.id }}"
                    class="group relative w-28 sm:w-32 shrink-0 snap-start"
                    {% if member.id == item.id %}aria-current="page"{% endif %}>
-                    <div class="relative overflow-hidden rounded-lg border {% if member.id == item.id %}border-shelf-accent ring-1 ring-shelf-accent/40{% else %}border-shelf-border group-hover:border-shelf-accent/50{% endif %} bg-shelf-card transition-colors"
-                         style="aspect-ratio: 2 / 3">
+                    <div class="relative overflow-hidden rounded-lg border {% if member.id == item.id %}border-shelf-accent ring-1 ring-shelf-accent/40{% else %}border-shelf-border group-hover:border-shelf-accent/50{% endif %} bg-shelf-card transition-colors aspect-2/3"
+                         data-cover-shape="{{ cover_shape(member.media_type) }}">
                         {% if member.cover_path %}
                         <img src="/{{ member.cover_path }}" alt="" loading="lazy"
                              class="w-full h-full object-contain bg-shelf-hover">

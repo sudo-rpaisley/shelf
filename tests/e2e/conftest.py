@@ -5,6 +5,7 @@ Uses raw Playwright (not pytest-playwright) so we can control the server
 lifecycle and auth state independently.
 """
 import contextlib
+import http.server
 import os
 import socket
 import sqlite3
@@ -14,6 +15,7 @@ import tempfile
 import threading
 import time
 from pathlib import Path
+from urllib.parse import parse_qs, urlsplit
 
 import pytest
 from playwright.sync_api import sync_playwright
@@ -87,19 +89,124 @@ def _wait_for_server(url: str, timeout: float = _SERVER_TIMEOUT, output: "_Outpu
 
 
 # ---------------------------------------------------------------------------
+# UPC Item DB stub (issue #123)
+# ---------------------------------------------------------------------------
+
+_UPC_FIXTURES = APP_DIR / "tests" / "fixtures"
+
+# UPC -> (status, extra headers, body). Recorded from the trial API on
+# 2026-09-10 with `curl ".../prod/trial/lookup?upc=<code>"`.
+_UPC_STUB_TABLE = {
+    "000000000000": (
+        200, {},
+        (_UPC_FIXTURES / "upcitemdb_lookup_000000000000.json").read_bytes(),
+    ),
+    # The three throwaway codes the not-found tests use fail the API's own
+    # format check — 400, and it still costs a lookup live (#123). Body
+    # recorded verbatim: {"code":"INVALID_UPC","message":"Not a valid UPC code."}
+    "999999999999": (400, {}, b'{"code":"INVALID_UPC","message":"Not a valid UPC code."}'),
+    "888888888888": (400, {}, b'{"code":"INVALID_UPC","message":"Not a valid UPC code."}'),
+    "999999999120": (400, {}, b'{"code":"INVALID_UPC","message":"Not a valid UPC code."}'),
+    # A spent daily quota, exactly as the 0.40.0 release gate saw it (G94).
+    # Retry-After is above outbound.RETRY_AFTER_MAX (30s) on purpose, so
+    # outbound.fetch returns the 429 at once instead of sleeping through two
+    # backoff retries — and because that is what a spent quota really looks
+    # like, rather than a blip.
+    "000000000429": (
+        429,
+        {"Retry-After": "25173", "X-RateLimit-Limit": "100", "X-RateLimit-Remaining": "0"},
+        b'{"code":"EXCEED_LIMIT","message":"Exceed request limit"}',
+    ),
+}
+
+# A well-formed code the API does not know answers 200 with an empty list, and
+# `lookup` files that as `no_match`. Mirroring it means a future test that
+# scans a fresh throwaway code gets the card it would get live, with no request
+# leaving the machine.
+_UPC_STUB_UNKNOWN = (200, {}, b'{"code":"OK","total":0,"offset":0,"items":[]}')
+
+
+# The one Audnexus book the stub knows; every other /audnexus/... path is a 404.
+_AUDNEXUS_FIXTURE = _UPC_FIXTURES / "audnexus_book_B08G9PRS1K.json"
+
+
+class _UpcStubHandler(http.server.BaseHTTPRequestHandler):
+    """Answers the one endpoint `app/services/upcitemdb.py` calls; any other path (e.g. `/issn/...`) is a 404."""
+
+    def do_GET(self):  # noqa: N802 — BaseHTTPRequestHandler's own spelling
+        parts = urlsplit(self.path)
+        upc = parse_qs(parts.query).get("upc", [""])[0]
+        self.server.requests.append((parts.path, upc))
+
+        if parts.path == "/audnexus/books/B08G9PRS1K":
+            status, headers, body = 200, {}, _AUDNEXUS_FIXTURE.read_bytes()
+        elif parts.path != "/lookup":
+            status, headers, body = 404, {}, b'{"code":"NOT_FOUND"}'
+        else:
+            status, headers, body = _UPC_STUB_TABLE.get(upc, _UPC_STUB_UNKNOWN)
+
+        self.send_response(status)
+        self.send_header("Content-Type", "application/json")
+        for name, value in headers.items():
+            self.send_header(name, value)
+        self.send_header("Content-Length", str(len(body)))
+        self.end_headers()
+        self.wfile.write(body)
+
+    def log_message(self, *args):
+        """Drop the stdlib's per-request stderr chatter."""
+
+
+@pytest.fixture(scope="session")
+def upc_stub():
+    """A local stand-in for api.upcitemdb.com, served to every E2E server.
+
+    Answers GET /lookup?upc=... from `_UPC_STUB_TABLE`. The request still
+    leaves the app through `outbound.fetch` and `classify_response` still reads
+    a real status code, so `items_common.py` is still the thing deciding —
+    which is the property the scan tests pin (G31). Anything but /lookup is a
+    404, so a wrong URL fails loudly instead of looking like a miss.
+
+    Yields {"url", "requests"}; `requests` is a list of (path, upc) a test can
+    assert against to prove the lookup actually went out.
+    """
+    server = http.server.ThreadingHTTPServer(("127.0.0.1", 0), _UpcStubHandler)
+    server.requests = []
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    try:
+        yield {
+            "url": f"http://127.0.0.1:{server.server_address[1]}",
+            "requests": server.requests,
+        }
+    finally:
+        server.shutdown()
+        server.server_close()
+        thread.join(timeout=5)
+
+
+# ---------------------------------------------------------------------------
 # Session-scoped fixtures
 # ---------------------------------------------------------------------------
 
 
 @contextlib.contextmanager
-def _boot_server(env_extra: "dict[str, str] | None" = None, *, clear_env=()):
+def _boot_server(
+    env_extra: "dict[str, str] | None" = None, *, clear_env=(), upc_stub_url: str
+):
     """Start a uvicorn process against a fresh temp DB; yield its coordinates.
 
     The body `live_server` used to inline, so there is one implementation
     rather than two. Environment construction order is load-bearing: copy
-    `os.environ`, drop every name in `clear_env`, apply the fixed E2E values,
-    then apply `env_extra` last — so a caller can always opt back in to
-    something `clear_env` removed.
+    `os.environ`, drop every name in `clear_env`, apply the fixed E2E values
+    (`DATA_DIR`, `SHELF_DISABLE_RATE_LIMIT`, `SHELF_DISABLE_COVER_ENRICH`,
+    `SHELF_UPC_LOOKUP_URL`), then apply `env_extra` last — so a caller can
+    always opt back in to something `clear_env` removed.
+
+    `upc_stub_url` is keyword-only and **required** on purpose. Both callers
+    supply it from the `upc_stub` fixture, so every E2E server gets the stub
+    without any test opting in; a third caller that forgets it fails here
+    rather than silently running against the live trial API (#123).
     """
     tmpdir = tempfile.mkdtemp(prefix="shelf_e2e_")
     data_dir = Path(tmpdir) / "data"
@@ -111,11 +218,25 @@ def _boot_server(env_extra: "dict[str, str] | None" = None, *, clear_env=()):
     env.update({
         "DATA_DIR": str(data_dir),
         "SHELF_DISABLE_RATE_LIMIT": "1",
-        "SHELF_DEV_INSECURE_COOKIES": "1",
         # Disables the cover-enrichment queue worker and its startup requeue
         # too, so E2E makes no outbound cover fetches. enqueue() still works —
         # jobs simply sit, which is what the cover-poll tests rely on.
         "SHELF_DISABLE_COVER_ENRICH": "1",
+        # The server outlives the price-alert loop's first five-minute sleep; a
+        # test that saved an ISBNdb key beside a wishlisted ISBN would call it live.
+        "SHELF_DISABLE_PRICE_ALERTS": "1",
+        # Likewise the release-radar loop: a test that saved a Hardcover token
+        # beside a watched series would otherwise call Hardcover live.
+        "SHELF_DISABLE_RELEASE_RADAR": "1",
+        # The UPC Item DB stub, in the *fixed* block rather than in `env_extra`:
+        # every E2E server gets it with no test opting in, and `clear_env`
+        # cannot remove it. `env_extra` is applied after, so a test that wants
+        # a different stub can still override it (#123).
+        "SHELF_UPC_LOOKUP_URL": f"{upc_stub_url}/lookup",
+        # The same stub answers 404 for any non-/lookup path, which the ISSN
+        # client classifies no_match, so E2E never reaches portal.issn.org.
+        "SHELF_ISSN_PORTAL_URL": f"{upc_stub_url}/issn/{{issn}}",
+        "SHELF_AUDNEXUS_URL": f"{upc_stub_url}/audnexus",
     })
     env.update(env_extra or {})
 
@@ -147,19 +268,27 @@ def _boot_server(env_extra: "dict[str, str] | None" = None, *, clear_env=()):
         shutil.rmtree(tmpdir, ignore_errors=True)
 
 
-@pytest.fixture(scope="session")
-def live_server():
+@pytest.fixture(scope="module")
+def live_server(upc_stub):
     """Start a uvicorn process with a temp DB; yield the base URL.
 
     Passes no `clear_env`, which is what preserves the pre-extraction contract
     byte for byte: the whole parent environment, then the fixed E2E values.
     """
-    with _boot_server() as server:
+    # The translated UI is off by default; turn it on so test_language.py can
+    # drive the picker. Playwright sends en-US, so every other test stays English.
+    from app.config import SECRET_ENV_VARS
+
+    # Canonical and fork-lineage modules must not seed colliding session rows.
+    # Each module gets a real isolated install, not idempotent/upsert fixtures
+    # that silently turn an original add obligation into a duplicate outcome.
+    with _boot_server({"SHELF_I18N": "on"}, clear_env=SECRET_ENV_VARS.values(),
+                      upc_stub_url=upc_stub["url"]) as server:
         yield server
 
 
 @pytest.fixture
-def server_factory():
+def server_factory(upc_stub):
     """Boot throwaway servers with caller-supplied env, torn down per test.
 
     Function-scoped, unlike `live_server`, so a test can drive several
@@ -170,7 +299,10 @@ def server_factory():
     `os.environ` is not an unconfigured baseline: `SECRET_ENV_VARS` values beat
     the DB row, so on a host that exports ABS_URL/ABS_TOKEN a nominally plain
     server renders Audiobookshelf as configured and a configuration-matrix test
-    fails for the host's state. A caller opts back in through `env_extra`.
+    fails for the host's state. A caller opts back in through `env_extra`. The
+    factory also owns uvicorn's forwarded-header trust setting for the same
+    reason: a host `FORWARDED_ALLOW_IPS` is not an unconfigured baseline either,
+    so it is cleared alongside the secrets rather than left to leak in.
 
     Iterate `.values()` — SECRET_ENV_VARS is settings-key -> ENV_NAME, and
     `for name in SECRET_ENV_VARS` would yield 'abs_url' and clear nothing, a
@@ -185,7 +317,11 @@ def server_factory():
     with contextlib.ExitStack() as stack:
         def factory(env_extra: "dict[str, str] | None" = None) -> dict:
             return stack.enter_context(
-                _boot_server(env_extra, clear_env=SECRET_ENV_VARS.values())
+                _boot_server(
+                    env_extra,
+                    clear_env=(*SECRET_ENV_VARS.values(), "FORWARDED_ALLOW_IPS"),
+                    upc_stub_url=upc_stub["url"],
+                )
             )
         yield factory
 
@@ -214,6 +350,72 @@ def wait_for_video_ready(page, selector: str, timeout_ms: int = 15_000) -> None:
     )
 
 
+def wait_for_service_worker_control(page, timeout_ms: int = 10_000) -> None:
+    """Wait for actual activation AND page control before the offline reload."""
+    assert page.evaluate(
+        """timeout => new Promise((resolve, reject) => {
+            const sw = navigator.serviceWorker;
+            let registration;
+            const watched = new Set();
+            const cleanup = () => {
+                clearTimeout(deadline);
+                sw.removeEventListener('controllerchange', check);
+                for (const worker of watched) worker.removeEventListener('statechange', check);
+            };
+            const check = () => {
+                for (const worker of [registration?.active, sw.controller]) {
+                    if (worker && !watched.has(worker)) {
+                        watched.add(worker);
+                        worker.addEventListener('statechange', check);
+                    }
+                }
+                if (registration?.active?.state === 'activated' &&
+                    sw.controller?.state === 'activated') {
+                    cleanup();
+                    resolve(true);
+                }
+            };
+            const deadline = setTimeout(() => {
+                const states = JSON.stringify({active: registration?.active?.state,
+                    controller: sw.controller?.state, installing: registration?.installing?.state,
+                    waiting: registration?.waiting?.state});
+                cleanup();
+                reject(new Error('Store service worker activation/control timeout: ' + states));
+            }, timeout);
+            sw.addEventListener('controllerchange', check);
+            sw.ready.then(value => { registration = value; check(); }, error => {
+                cleanup(); reject(error);
+            });
+            check();
+        })""",
+        timeout_ms,
+    ) is True
+
+
+def template_env():
+    """A standalone Jinja environment carrying the app's globals and filters.
+
+    Several tests here render one fragment in isolation rather than driving a
+    request, and a bare `Environment(loader=FileSystemLoader("app/templates"))`
+    has none of what `app/main.py` registers on `templates.env`. A template
+    that reads a global then raises `UndefinedError` in these tests only —
+    invisible to the unit suite, which goes through the app.
+
+    The globals are **copied from the app's own environment**, not re-listed,
+    so a global added there cannot drift out of step with this one. Import is
+    inside the function per G14: `app.main` at module level runs at collection,
+    before the data-dir fixtures redirect anything.
+    """
+    from jinja2 import Environment, FileSystemLoader
+
+    from app.main import templates
+
+    env = Environment(loader=FileSystemLoader("app/templates"), autoescape=True)
+    env.globals.update(templates.env.globals)
+    env.filters.update(templates.env.filters)
+    return env
+
+
 @pytest.fixture(scope="session")
 def playwright_instance():
     with sync_playwright() as pw:
@@ -222,7 +424,11 @@ def playwright_instance():
 
 @pytest.fixture(scope="session")
 def browser(playwright_instance):
-    """Headless Chromium browser, shared across session."""
+    """Headless Chromium; an explicit local executable never relabels its revision."""
+    launch_options = {}
+    executable = os.environ.get("SHELF_E2E_CHROMIUM_EXECUTABLE")
+    if executable:
+        launch_options["executable_path"] = executable
     b = playwright_instance.chromium.launch(
         headless=True,
         # Grant getUserMedia without a prompt and back it with Chromium's
@@ -232,6 +438,7 @@ def browser(playwright_instance):
             "--use-fake-ui-for-media-stream",
             "--use-fake-device-for-media-stream",
         ],
+        **launch_options,
     )
     yield b
     b.close()
@@ -265,6 +472,13 @@ def browser(playwright_instance):
 
 _PAGE_ERRORS_ATTR = "_shelf_page_errors"
 _ALPINE_WARNINGS_ATTR = "_shelf_alpine_warnings"
+# T4 (alpine-component-load-failure): two more recorders, read only on the
+# path where assert_page_clean() is about to raise — see _diagnostics_block
+# below. Kept as separate lists (rather than folded into the two above) so a
+# test can clear exactly the noise it caused (e.g. a login redirect) without
+# touching the pageerror/warning lists that are the actual subject under test.
+_REQUEST_FAILURES_ATTR = "_shelf_request_failures"
+_RESPONSE_ERRORS_ATTR = "_shelf_response_errors"
 
 
 def attach_page_guard(pg):
@@ -275,17 +489,224 @@ def attach_page_guard(pg):
     """
     errors: list[str] = []
     warnings: list[str] = []
+    request_failures: list[str] = []
+    response_errors: list[str] = []
 
     def _on_console(msg):
         text = msg.text
         if "Alpine Expression Error" in text:
             warnings.append(text)
 
+    # Each entry is (url, display line). The url is kept separately because
+    # _diagnostics_block() TRIGGERS on `.js` only, and re-parsing a URL back
+    # out of a formatted line is exactly the fragility that would let the
+    # trigger widen again by accident.
+    def _on_request_failed(request):
+        # Never raise: a listener exception inside Playwright's event loop
+        # would be worse than the missing diagnostic.
+        try:
+            request_failures.append(
+                (request.url,
+                 f"{request.method} {request.url} — {request.failure}")
+            )
+        except Exception:
+            pass
+
+    def _on_response(response):
+        try:
+            status = response.status
+            if (200 <= status < 300) or status == 304:
+                return
+            response_errors.append((response.url, f"{status} {response.url}"))
+        except Exception:
+            pass
+
     pg.on("pageerror", lambda err: errors.append(str(err)))
     pg.on("console", _on_console)
+    pg.on("requestfailed", _on_request_failed)
+    pg.on("response", _on_response)
     setattr(pg, _PAGE_ERRORS_ATTR, errors)
     setattr(pg, _ALPINE_WARNINGS_ATTR, warnings)
+    setattr(pg, _REQUEST_FAILURES_ATTR, request_failures)
+    setattr(pg, _RESPONSE_ERRORS_ATTR, response_errors)
     return pg
+
+
+# Read once, only from _diagnostics_block(), only on the path about to raise.
+# Builds the component-registration verdict from T1's two read-only globals
+# (static/js/component-load-guard.js) rather than restating the declaration
+# here. An earlier revision of this plan probed all 29 declared names on
+# `window`; 25 of them are anonymous Alpine.data factories that are never
+# globals on *any* page, so that made this block's "something to say" test
+# true on every healthy page. The fix is the `present` filter below: a
+# declared name counts only when its owning script tag is actually in
+# document.scripts, and `typeof window[name]` is read only for the four
+# page-scoped names (browsePage, scanPage, intakePage, coverDrop).
+_DIAGNOSTICS_JS = """
+() => {
+    var scripts = [];
+    try {
+        var tags = document.scripts;
+        for (var i = 0; i < tags.length; i++) {
+            scripts.push({
+                src: tags[i].src,
+                defer: !!tags[i].defer,
+                async: !!tags[i].async
+            });
+        }
+    } catch (e) {}
+
+    var jsResources = [];
+    try {
+        var entries = performance.getEntriesByType('resource');
+        for (var j = 0; j < entries.length; j++) {
+            var r = entries[j];
+            if (!r.name || r.name.indexOf('.js') === -1) continue;
+            jsResources.push({
+                name: r.name,
+                responseStatus: (typeof r.responseStatus === 'number') ? r.responseStatus : null,
+                duration: r.duration
+            });
+        }
+    } catch (e) {}
+
+    var components;
+    try {
+        if (typeof window.__shelfComponentScripts === 'undefined' ||
+            typeof window.__shelfRecordedComponents === 'undefined') {
+            components = { missingGlobals: true };
+        } else {
+            var declared = window.__shelfComponentScripts;
+            var recorded = window.__shelfRecordedComponents;
+            var present = {};
+            for (var k = 0; k < scripts.length; k++) {
+                var src = scripts[k].src || '';
+                var base = src.split('/').pop().split('?')[0];
+                if (base) present[base] = true;
+            }
+            var pageScoped = {
+                browsePage: true, scanPage: true, intakePage: true, coverDrop: true
+            };
+            var failing = [];
+            var names = Object.keys(declared);
+            for (var m = 0; m < names.length; m++) {
+                var name = names[m];
+                var script = declared[name];
+                if (!present[script]) continue;
+                if (recorded.indexOf(name) !== -1) continue;
+                var entry = { name: name, script: script };
+                if (pageScoped[name]) {
+                    try { entry.typeofWindow = typeof window[name]; }
+                    catch (e) { entry.typeofWindow = 'unknown'; }
+                }
+                failing.push(entry);
+            }
+            components = { missingGlobals: false, failing: failing };
+        }
+    } catch (e) {
+        components = { error: String(e) };
+    }
+
+    return { scripts: scripts, jsResources: jsResources, components: components };
+}
+"""
+
+
+def _is_js_url(url) -> bool:
+    """A script URL — the only kind of request or response failure this block
+    exists to explain. Query strings and fragments are ignored, so a cache-
+    busted `.js?v=3` still counts."""
+    try:
+        return urlsplit(url).path.endswith(".js")
+    except Exception:
+        return False
+
+
+def _diagnostics_block(pg):
+    """Extra context for a failing assert_page_clean(), gathered only here —
+    never on the passing path. Returns "" when there is nothing beyond the
+    base message to say: a failed or non-2xx/304 `.js` request, a present
+    script whose component is missing from the recorded set, or an absent
+    guard global. Otherwise assert_page_clean()'s message must be
+    byte-identical to what it was before this block existed.
+
+    The `.js` narrowing is the trigger, not the output. A page that took a
+    404 cover and then failed for an unrelated reason must get the message it
+    got before this block existed — but once a lost script HAS fired the
+    block, the other requests are context worth printing.
+    """
+    request_failures = getattr(pg, _REQUEST_FAILURES_ATTR, [])
+    response_errors = getattr(pg, _RESPONSE_ERRORS_ATTR, [])
+    js_request_failures = any(_is_js_url(u) for u, _ in request_failures)
+    js_response_errors = any(_is_js_url(u) for u, _ in response_errors)
+
+    try:
+        state = pg.evaluate(_DIAGNOSTICS_JS)
+    except Exception as e:
+        # A page that has navigated or closed must not turn an assertion
+        # into an error of its own.
+        return f"\n\ndiagnostics unavailable: {e}"
+
+    components = state.get("components") or {}
+    missing_globals = components.get("missingGlobals")
+    comp_error = components.get("error")
+    failing = components.get("failing", [])
+
+    if not (js_request_failures or js_response_errors
+            or missing_globals or comp_error or failing):
+        return ""
+
+    lines = ["", "", "Diagnostics:"]
+
+    if request_failures:
+        lines.append("Failed requests:")
+        lines.extend(f"  - {f}" for _, f in request_failures)
+
+    if response_errors:
+        lines.append("Non-2xx/304 responses:")
+        lines.extend(f"  - {r}" for _, r in response_errors)
+
+    if comp_error:
+        lines.append(f"component verdict unavailable: {comp_error}")
+    elif missing_globals:
+        lines.append(
+            "component load guard globals are absent "
+            "(__shelfComponentScripts / __shelfRecordedComponents) — "
+            "static/js/component-load-guard.js may not have run"
+        )
+    elif failing:
+        lines.append("Components whose script loaded but did not register:")
+        for entry in failing:
+            piece = f"  - {entry['name']} ({entry['script']})"
+            if "typeofWindow" in entry:
+                piece += (
+                    f' — typeof window.{entry["name"]} is '
+                    f'"{entry["typeofWindow"]}"'
+                )
+            lines.append(piece)
+
+    scripts = state.get("scripts") or []
+    if scripts:
+        lines.append("")
+        lines.append("document.scripts:")
+        for s in scripts:
+            attrs = [a for a, v in (("defer", s.get("defer")), ("async", s.get("async"))) if v]
+            suffix = f" [{', '.join(attrs)}]" if attrs else ""
+            lines.append(f"  - {s.get('src')}{suffix}")
+
+    js_resources = state.get("jsResources") or []
+    if js_resources:
+        lines.append("")
+        lines.append(".js resource timing:")
+        for r in js_resources:
+            status = r.get("responseStatus")
+            status_str = status if status is not None else "unknown"
+            duration = r.get("duration") or 0
+            lines.append(
+                f"  - {r.get('name')} status={status_str} duration={duration:.1f}ms"
+            )
+
+    return "\n".join(lines)
 
 
 def assert_page_clean(pg):
@@ -308,16 +729,20 @@ def assert_page_clean(pg):
     if warnings:
         detail += "\n\nAlpine expression warnings (these name the failing expression):\n"
         detail += "\n".join(f"  - {w}" for w in warnings)
-    raise AssertionError(
-        f"{len(errors)} uncaught page error(s) on {pg.url}:\n{detail}"
-    )
+    message = f"{len(errors)} uncaught page error(s) on {pg.url}:\n{detail}"
+    message += _diagnostics_block(pg)
+    raise AssertionError(message)
 
 
-def _run_setup_wizard(browser, base_url: str) -> dict:
+def _run_setup_wizard(browser, base_url: str, profile: str = "everything") -> dict:
     """Run the setup wizard against `base_url`; return the credentials dict.
 
     The body `setup_admin` used to inline, so a test driving a throwaway
     `server_factory` server can reach it without a session fixture.
+
+    `profile` defaults to Everything, not the form's Standard, so the session
+    server and every `server_factory` caller keep the all-on baseline the
+    suite was written against. A test that means a smaller install passes it.
 
     G44: `attach_page_guard(ctx.new_page())` on one line — the lint requires
     both calls on the same line, and this is a Page construction site like any
@@ -331,14 +756,15 @@ def _run_setup_wizard(browser, base_url: str) -> dict:
     page.fill("input[name=display_name]", ADMIN_DISPLAY)
     page.fill("input[name=password]", ADMIN_PASSWORD)
     page.fill("input[name=password_confirm]", ADMIN_PASSWORD)
+    page.check(f'input[name=profile][value="{profile}"]')
     page.click("button[type=submit]")
-    page.wait_for_url(f"{base_url}/browse", timeout=10_000)
+    page.wait_for_url(f"{base_url}/", timeout=10_000)
     assert_page_clean(page)
     ctx.close()
     return {"username": ADMIN_USERNAME, "password": ADMIN_PASSWORD, "display_name": ADMIN_DISPLAY}
 
 
-@pytest.fixture(scope="session")
+@pytest.fixture(scope="module")
 def setup_admin(live_server, browser):
     """
     Run the setup wizard once per session; return credentials dict.
@@ -355,7 +781,7 @@ def _get_auth_cookies(live_server, browser, credentials: dict) -> dict:
     page.fill("input[name=username]", credentials["username"])
     page.fill("input[name=password]", credentials["password"])
     page.click("button[type=submit]")
-    page.wait_for_url(f"{live_server['url']}/browse", timeout=10_000)
+    page.wait_for_url(f"{live_server['url']}/", timeout=10_000)
     cookies = {c["name"]: c["value"] for c in ctx.cookies()}
     assert_page_clean(page)
     ctx.close()
@@ -380,7 +806,7 @@ def authed_page(live_server, browser, setup_admin):
     pg.fill("input[name=username]", setup_admin["username"])
     pg.fill("input[name=password]", setup_admin["password"])
     pg.click("button[type=submit]")
-    pg.wait_for_url(f"{live_server['url']}/browse", timeout=10_000)
+    pg.wait_for_url(f"{live_server['url']}/", timeout=10_000)
     yield pg
     assert_page_clean(pg)
     ctx.close()
@@ -401,24 +827,105 @@ def page(live_server, browser, setup_admin):
 # ---------------------------------------------------------------------------
 
 
-def insert_reading_log(data_dir: Path, item_id: int, count: int = 1) -> None:
-    """Insert `count` completed-read rows for an item in the E2E SQLite DB."""
+def live_db_connection(data_dir: Path):
+    """A service fixture connection to THIS server's DB, not pytest's unit DB.
+
+    Services expect Row access, enforced foreign keys and the canonical TEMP
+    live views. Never install persistent views or redirect app.config/get_db:
+    the browser server is a separate process with its own disposable database.
+    """
+    from app.database import _Connection, _install_live_views
+
+    db_path = data_dir / "shelf.db"
+    assert db_path.is_file(), db_path
+    conn = sqlite3.connect(str(db_path), factory=_Connection)
+    conn.row_factory = sqlite3.Row
+    try:
+        conn.execute("PRAGMA foreign_keys = ON")
+        _install_live_views(conn)
+        assert conn.execute("PRAGMA foreign_keys").fetchone()[0] == 1
+        assert Path(conn.execute("PRAGMA database_list").fetchone()[2]) == db_path.resolve()
+        assert {r[0] for r in conn.execute(
+            "SELECT name FROM sqlite_temp_master WHERE type = 'view'"
+        )} == {"items_live", "copies_live"}
+        return conn
+    except Exception:
+        conn.close()
+        raise
+
+
+def delete_fixture_items(conn, item_ids) -> None:
+    """Remove disposable fixture rows with real FK cascades, never orphan them."""
+    assert conn.execute("PRAGMA foreign_keys").fetchone()[0] == 1
+    for item_id in item_ids:
+        # scan_log's historical FK is NO ACTION; all item-owned facets/copies,
+        # library mappings and private state use the schema's actual cascades.
+        conn.execute("DELETE FROM scan_log WHERE item_id = ?", (item_id,))
+        conn.execute("DELETE FROM items WHERE id = ?", (item_id,))
+    violations = conn.execute("PRAGMA foreign_key_check").fetchall()
+    assert violations == [], [tuple(r) for r in violations]
+
+
+def insert_node_location(data_dir: Path, name: str) -> int:
+    """Copy/scan/audit NODE fixture, deliberately distinct from its flat seam."""
+    from tests.conftest import _insert_node_location
+
+    conn = sqlite3.connect(str(data_dir / "shelf.db"))
+    conn.row_factory = sqlite3.Row
+    conn.execute("PRAGMA foreign_keys = ON")
+    try:
+        node_id = _insert_node_location(conn, name)
+        conn.commit()
+        return node_id
+    finally:
+        conn.close()
+
+
+def legacy_location_id(data_dir: Path, node_id: int | None) -> int | None:
+    """Resolve a NODE for items.location_id; never substitute equal integers."""
+    from tests.conftest import _legacy_location
+
+    conn = sqlite3.connect(str(data_dir / "shelf.db"))
+    conn.row_factory = sqlite3.Row
+    try:
+        return _legacy_location(conn, node_id)
+    finally:
+        conn.close()
+
+
+def insert_physical_item(data_dir: Path, *, location_id=None, **kwargs) -> int:
+    """Only this explicitly physical fixture accepts a NODE location argument."""
+    return insert_item(data_dir, location_id=legacy_location_id(data_dir, location_id), **kwargs)
+
+
+def insert_reading_log(data_dir: Path, item_id: int, count: int = 1,
+                       *, username: str = ADMIN_USERNAME) -> None:
+    """Seed history for the explicitly named session actor, not every user."""
     db_path = data_dir / "shelf.db"
     conn = sqlite3.connect(str(db_path))
+    conn.execute("PRAGMA foreign_keys = ON")
     try:
         for _ in range(count):
             conn.execute(
-                "INSERT INTO reading_log (item_id, status, date_started, date_finished) "
-                "VALUES (?, 'read', '2026-01-01', '2026-01-15')",
-                (item_id,),
+                "INSERT INTO user_reading_log (user_id, item_id, status, date_started, date_finished) "
+                "SELECT id, ?, 'read', '2026-01-01', '2026-01-15' FROM users WHERE username = ?",
+                (item_id, username),
             )
+            assert conn.execute("SELECT changes()").fetchone()[0] == 1
         conn.commit()
     finally:
         conn.close()
 
 
-def insert_item(data_dir: Path, **kwargs) -> int:
-    """Insert a test item directly into the E2E SQLite DB; return its id."""
+def insert_item(data_dir: Path, wishlisted: bool = False, *,
+                personal_username: str | None = None, **kwargs) -> int:
+    """Insert a test item directly into the E2E SQLite DB; return its id.
+
+    `wishlisted=True` adds wishlist membership after the INSERT, on this
+    same connection; it is a keyword of this helper, not a column, so it
+    never reaches the statement. `owned=0` alone is a legal "neither" state
+    — pass `wishlisted=True` explicitly for a wishlist seed.
+    """
     db_path = data_dir / "shelf.db"
     fields = {
         "title": "Test Book",
@@ -430,9 +937,28 @@ def insert_item(data_dir: Path, **kwargs) -> int:
     placeholders = ", ".join("?" for _ in fields)
     conn = sqlite3.connect(str(db_path))
     conn.row_factory = sqlite3.Row
+    conn.execute("PRAGMA foreign_keys = ON")
     try:
         cur = conn.execute(f"INSERT INTO items ({cols}) VALUES ({placeholders})", list(fields.values()))
+        item_id = cur.lastrowid
+        conn.execute("INSERT INTO library_items (library_id, item_id) "
+                     "SELECT id, ? FROM libraries WHERE id = 1", (item_id,))
+        assert conn.execute("SELECT changes()").fetchone()[0] == 1
+        if wishlisted:
+            conn.execute(
+                "INSERT OR IGNORE INTO list_items (list_id, item_id) "
+                "SELECT id, ? FROM lists WHERE slug = 'wishlist'",
+                (item_id,),
+            )
+        if personal_username is not None:
+            conn.execute(
+                "INSERT INTO user_item_state (user_id, item_id, reading_status, date_started, date_finished) "
+                "SELECT id, ?, ?, ?, ? FROM users WHERE username = ?",
+                (item_id, fields.get("reading_status"), fields.get("date_started"),
+                 fields.get("date_finished"), personal_username),
+            )
+            assert conn.execute("SELECT changes()").fetchone()[0] == 1
         conn.commit()
-        return cur.lastrowid
+        return item_id
     finally:
         conn.close()

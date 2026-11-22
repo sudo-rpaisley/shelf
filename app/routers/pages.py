@@ -1,37 +1,67 @@
 from datetime import date, datetime, timedelta
 from urllib.parse import urlencode
 
-from fastapi import APIRouter, Depends, Query, Request
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from fastapi.responses import RedirectResponse
 
-from app import browse_filters, nav
+from app import browse_filters, features, i18n, nav
 from app.auth import require_role
-from app.config import DEFAULT_PAGE_SIZE, MEDIA_FAMILIES, MEDIA_TYPES, MUSIC_MEDIA_TYPES, BOOK_MEDIA_TYPES
+from app.config import MEDIA_FAMILIES, MUSIC_MEDIA_TYPES
+from app.features import require_feature
+from app.config import (
+    MEDIA_TYPES, DEFAULT_PAGE_SIZE, MAX_PAGE, BOOK_MEDIA_TYPES, STATUS_MEDIA_TYPES,
+    status_labels, READ_LABELS, WATCH_LABELS, PLAY_LABELS,
+)
+from app.services.synopsis import SYNOPSIS_MEDIA_TYPES
 from app.currency import get_currency
-from app.database import get_db, get_setting, get_game_platforms, get_reading_history
-from app.routers import items_common
+from app.services import author_index
+from app.services import collection_value
+from app.services import browse_counts
+from app.services import lists
+from app.services import isbn as isbn_svc
+from app.services import upc as upc_svc
+from app.services import tags as tags_svc
+from app.services import price_alerts
+from app.services import buy_links as buy_links_svc
+from app.services import release_radar
+from app.services import wrapups
+from app.database import get_db, get_setting, get_game_platforms
 from app.routers.items_common import SORT_OPTIONS
 from app.routers.series import find_gaps
-from app.services import browse_grouping, user_state, user_state_browse
+from app.services import user_state, media_groups, libraries
+from app.routers import library_access
+from app.services import item_template, item_write
+from app.services import locations as location_svc
+from app.services.home_dashboard import dashboard_summary
+from app.services.catalogue_security import require_item_role, require_catalogue_role
+from app.database import ensure_periodical_schema
 
 router = APIRouter()
 
 
 @router.get("/")
-async def index(request: Request, _=Depends(require_role("viewer"))):
+async def index(request: Request, _=Depends(require_catalogue_role("viewer"))):
     """Shelf's lightweight landing page, separate from the advanced browser."""
     with get_db() as db:
         type_counts = {
             row["media_type"]: row["c"]
             for row in db.execute(
-                "SELECT media_type, COUNT(*) AS c FROM items GROUP BY media_type"
+                "SELECT media_type, COUNT(*) AS c FROM items_live GROUP BY media_type"
             ).fetchall()
         }
-        total_items = db.execute("SELECT COUNT(*) AS c FROM items").fetchone()["c"]
+        total_items = db.execute("SELECT COUNT(*) AS c FROM items_live").fetchone()["c"]
         recent_items = db.execute(
-            "SELECT id, title, authors, media_type, cover_path, created_at "
-            "FROM items ORDER BY created_at DESC, id DESC LIMIT 8"
+            f"SELECT i.id, i.title, i.authors, i.media_type, i.cover_path, i.created_at, "
+            f"{lists.WISHLISTED_SQL} AS wishlisted "
+            "FROM items_live i ORDER BY i.created_at DESC, i.id DESC LIMIT 8"
         ).fetchall()
+        summary = dashboard_summary(db, recent_limit=8)
+        # Browse's owned=0 is the named actor's personal wishlist, which may
+        # overlap ownership. Keep the household acquisition summary separate.
+        personal_wishlist, personal_params = browse_filters.personal_wishlist_sql(int(request.state.user["id"]))
+        personal_wishlist_count = db.execute(
+            f"SELECT COUNT(*) FROM items_live i WHERE {personal_wishlist} = 1", personal_params,
+        ).fetchone()[0]
 
     families = []
     for key, family in MEDIA_FAMILIES.items():
@@ -41,7 +71,8 @@ async def index(request: Request, _=Depends(require_role("viewer"))):
             "count": sum(type_counts.get(media_type, 0) for media_type in family["types"]),
             # Music has a release/pressing-aware catalogue of its own. Other
             # families enter Browse with a family filter set.
-            "href": "/music" if key == "music" else f"/browse?media_family_filter={key}",
+            "href": ("/music" if key == "music" and features.feature_enabled("music")
+                     else f"/browse?media_family_filter={key}"),
         })
 
     visible_nav = nav.visible_tabs(request.state.user)
@@ -49,10 +80,14 @@ async def index(request: Request, _=Depends(require_role("viewer"))):
         request,
         "home.html",
         {
+            **summary,
+            "media_type_labels": MEDIA_TYPES,
             "families": families,
             "total_items": total_items,
             "recent_items": recent_items,
+            "personal_wishlist_count": personal_wishlist_count,
             "media_types": MEDIA_TYPES,
+            "media_type_rows": summary["media_types"],
             "music_media_types": MUSIC_MEDIA_TYPES,
             "intake_available": any(tab["key"] == "intake" for tab in visible_nav),
         },
@@ -62,7 +97,7 @@ async def index(request: Request, _=Depends(require_role("viewer"))):
 @router.get("/search")
 async def global_search(
     query: str = Query("", max_length=200),
-    _=Depends(require_role("viewer")),
+    _=Depends(require_catalogue_role("viewer")),
 ):
     """Small global search endpoint used by the persistent navigation bar."""
     value = query.strip()
@@ -75,27 +110,28 @@ async def global_search(
 @router.get("/browse")
 async def browse(
     request: Request,
-    _=Depends(require_role("viewer")),
+    _=Depends(require_catalogue_role("viewer")),
 ):
     """The Browse page — first paint of the item grid and its filters.
 
     Filter values are read from the query string via the registry rather than
     declared as parameters here, exactly as `/api/search` does: a filter added
     to `app/browse_filters.py` needs no change in this signature. The dropdown
-    counts come from the same personal-state count helper `/api/search` uses,
-    so the first paint and the first OOB swap cannot disagree.
+    counts come from the same `browse_counts.filter_counts` helper `/api/search`
+    uses, so the first paint and the first OOB swap cannot disagree.
     """
     values = browse_filters.values_from(request.query_params)
     values["q"] = values["q"][:200]
     user_id = int(request.state.user["id"])
-    where, params = browse_filters.build_where(values, user_id=user_id)
+    where, params = browse_filters.build_where(values)
 
     with get_db() as db:
         user_state.ensure_schema(db)
         _, order_clause = SORT_OPTIONS.get(values["sort"], SORT_OPTIONS["newest"])
 
-        items, total_filtered, display_total = browse_grouping.fetch_page(
+        items, total_filtered, display_total = library_access.fetch_page(
             db,
+            user_id,
             where,
             params,
             order_clause,
@@ -103,38 +139,46 @@ async def browse(
             offset=0,
             values=values,
         )
-        user_state_browse.overlay_items(db, user_id, items)
+        tags_by_item = tags_svc.tags_for_items(db, [row["id"] for row in items])
 
         series_names = [
             row["series_name"]
             for row in db.execute(
-                "SELECT DISTINCT series_name FROM items "
+                "SELECT DISTINCT series_name FROM items_live "
                 "WHERE series_name IS NOT NULL AND TRIM(series_name) != '' "
                 "ORDER BY series_name COLLATE NOCASE"
             ).fetchall()
         ]
 
-        counts = user_state_browse.filter_counts(
-            db, values, total_filtered, user_id
-        )
+        # Cross-filter dropdown counts — `locations`, `type_counts`,
+        # `location_counts`, `reading_status_counts`, `owned_count`,
+        # `wishlist_count` and `filtered_total` all come from here.
+        counts = browse_counts.filter_counts(db, values, total_filtered)
 
         # Deliberately still global: lending is a shared physical-catalogue fact.
         lent_out_count = db.execute(
-            "SELECT COUNT(DISTINCT item_id) as c FROM checkouts WHERE checked_in IS NULL"
+            "SELECT COUNT(DISTINCT c.item_id) as c FROM checkouts c "
+            "JOIN items_live i ON i.id = c.item_id WHERE c.checked_in IS NULL"
         ).fetchone()["c"]
 
-        from app.routers.tags import get_all_tags
+        from app.services.tags import get_all_tags
         all_tags = get_all_tags(db)
 
         item_languages = [
             row["language"]
             for row in db.execute(
-                "SELECT DISTINCT language FROM items "
+                "SELECT DISTINCT language FROM items_live "
                 "WHERE language IS NOT NULL AND language != '' ORDER BY language"
             ).fetchall()
         ]
 
         has_more = len(items) < display_total
+
+        # The author filter's chip shows a name, not an id (#117b).
+        author_filter_label = (
+            author_index.name_for(db, values["author_filter"])
+            if values["author_filter"] else None
+        )
 
         load_more_url = "/api/search?" + browse_filters.querystring(
             values, extra=["page=2"]
@@ -142,6 +186,7 @@ async def browse(
 
     ctx = {
         "items": items,
+        "tags_by_item": tags_by_item,
         "media_types": MEDIA_TYPES,
         "media_families": MEDIA_FAMILIES,
         "series_names": series_names,
@@ -153,6 +198,7 @@ async def browse(
         "load_more_url": load_more_url,
         "seven_days_ago": (datetime.now(tz=None) - timedelta(days=7)).strftime("%Y-%m-%d"),
         "initial_query": values["q"],
+        "author_filter_label": author_filter_label,
         "initial_filters": {name: values[name] for name in browse_filters.FILTER_NAMES},
     }
     ctx.update(counts)
@@ -165,7 +211,8 @@ async def browse(
 
 
 @router.get("/discover")
-async def discover(request: Request, _=Depends(require_role("viewer"))):
+async def discover(request: Request, _=Depends(require_catalogue_role("viewer")),
+                   __=Depends(require_feature("hardcover"))):
     with get_db() as db:
         has_hardcover = bool(get_setting(db, "hardcover_token"))
     return request.app.state.templates.TemplateResponse(
@@ -174,25 +221,82 @@ async def discover(request: Request, _=Depends(require_role("viewer"))):
 
 
 @router.get("/scan")
-async def scan(request: Request, _=Depends(require_role("editor"))):
+async def scan(
+    request: Request,
+    add: str = "",
+    from_: str = Query("", alias="from"),
+    mode: str = "",
+    code: str = "",
+    _=Depends(require_catalogue_role("editor")),
+):
+    """The scan surface. `?add=manual` opens the manual entry panel (#120),
+    and `?from={id}` prefills it from an existing item.
+
+    `from` is typed `str` and parsed here rather than annotated `int | None`.
+    FastAPI validates an annotation *before* the handler runs, so a typed int
+    would return 422 on `?from=notanumber` and the panel could never degrade
+    gracefully. `item_detail` below uses the same tolerant idiom. Missing,
+    malformed, zero, negative and nonexistent ids all mean the same thing: no
+    prefill, a normal 200 page. Never a 404.
+    """
+    try:
+        candidate = int(from_)
+    except (TypeError, ValueError):
+        candidate = 0
+
+    # An audit report's Add link seeds Add mode and the code. Honoured only
+    # as a pair: mode exactly "add" and a code of at most 64 characters.
+    seed_mode, seed_code = ("add", code) if mode == "add" and len(code) <= 64 else ("", "")
+
     with get_db() as db:
         locations = db.execute(
             "SELECT * FROM locations ORDER BY sort_order, name"
         ).fetchall()
+        location_nodes = location_svc.location_tree(db)
         game_platforms = get_game_platforms(db)
         borrowers = db.execute(
             "SELECT * FROM borrowers ORDER BY name"
         ).fetchall()
+        # The same field set the copy-template endpoint serves the in-form
+        # picker, read through the one helper both share.
+        #
+        # NULL columns are normalized to "" here rather than in the helper:
+        # the endpoint serves JSON, where `null` is the honest answer and the
+        # picker's JS skips it (`applyTemplate`). A template has no such
+        # guard — Jinja renders None as the text "None", which reached the
+        # Series and Publisher inputs and made the Year input unparseable.
+        manual_prefill = {
+            name: ("" if value is None else value)
+            for name, value in (
+                (item_template.copyable_fields(db, candidate) if candidate > 0 else None)
+                or {}
+            ).items()
+        }
     return request.app.state.templates.TemplateResponse(
         request,
         "scan.html",
         {"media_types": MEDIA_TYPES, "game_platforms": game_platforms,
-         "locations": locations, "borrowers": borrowers},
+         "locations": locations, "location_nodes": location_nodes, "borrowers": borrowers,
+         "manual_open": add == "manual", "manual_prefill": manual_prefill,
+         "off_scan_modes": features.disabled_scan_modes(),
+         "seed_mode": seed_mode, "seed_code": seed_code,
+         "status_label_sets": _status_label_sets()},
     )
 
 
+def _status_label_sets():
+    """The Scan card's default-status words per media type: `auto` gets the
+    neutral set, and every status-capable type its own. The keys other than
+    `auto` are the types the control is enabled for."""
+    def words(labels):
+        return [i18n.gettext(labels.want), i18n.gettext(labels.doing), i18n.gettext(labels.done)]
+    sets = {t: words(status_labels(t)) for t in sorted(STATUS_MEDIA_TYPES)}
+    return {"auto": words(status_labels(None)), **sets}
+
+
 @router.get("/intake")
-async def intake(request: Request, _=Depends(require_role("editor"))):
+async def intake(request: Request, _=Depends(require_catalogue_role("editor")),
+                 __=Depends(require_feature("intake"))):
     """Shelf-photo bulk intake page."""
     from app.database import get_all_settings
     with get_db() as db:
@@ -214,12 +318,16 @@ async def item_detail(
     request: Request,
     item_id: int,
     from_: str = Query("", alias="from"),
-    _=Depends(require_role("viewer")),
+    _=Depends(require_catalogue_role("viewer")),
 ):
     back = nav.back_target(from_)
+    if not -(2**63) <= item_id < 2**63:
+        return RedirectResponse(url="/browse", status_code=307)
     with get_db() as db:
         item = db.execute(
-            "SELECT i.*, l.name as location_name FROM items i "
+            f"SELECT i.*, l.name as location_name, "
+            f"{lists.WISHLISTED_SQL} AS wishlisted "
+            "FROM items_live i "
             "LEFT JOIN locations l ON i.location_id = l.id "
             "WHERE i.id = ?",
             (item_id,),
@@ -244,8 +352,15 @@ async def item_detail(
 
         # Related media is a transitive group: A↔B↔C means every member sees
         # the complete set, not only its immediate item_links neighbours.
-        from app.services import media_groups
-        linked_items = media_groups.related_items(db, item_id)
+        linked_items = media_groups.related_items(
+            db, item_id, visibility_sql="i.id IN (SELECT id FROM items_live)")
+        # Native "Also available as" asserts format equivalence, unlike the
+        # fork's separately labelled transitive Related media panel.
+        format_linked_items = db.execute(
+            "SELECT i.* FROM item_links il JOIN items_live i "
+            "ON i.id = CASE WHEN il.item_a_id = ? THEN il.item_b_id ELSE il.item_a_id END "
+            "WHERE (il.item_a_id = ? OR il.item_b_id = ?) AND il.link_type = 'format'",
+            (item_id, item_id, item_id)).fetchall()
 
         # ABS playback URLs — for this item and for linked formats, so a
         # physical copy's page can deep-link straight into Audiobookshelf
@@ -310,6 +425,10 @@ async def item_detail(
         abs_link_map = {entry["id"]: entry["abs_url"] for entry in linked_abs_items}
         komga_link_map = {entry["id"]: entry["komga_url"] for entry in linked_komga_items}
         romm_link_map = {entry["id"]: entry["romm_url"] for entry in linked_romm_items}
+        from app.routers.related import manual_unlink_parent_ids
+
+        actor_user = dict(request.state.user)
+        can_edit_item = libraries.has_item_role(db, actor_user, item_id, "editor")
         related_media = []
         for related_item in linked_items:
             data = dict(related_item)
@@ -352,6 +471,14 @@ async def item_detail(
             data["manual_linked"] = media_groups.has_manual_group_edge(
                 db, item_id, data["id"]
             )
+            data["can_edit_item"] = libraries.has_item_role(db, actor_user, data["id"], "editor")
+            data["can_unlink"] = False
+            if can_edit_item and data["can_edit_item"] and data["manual_linked"]:
+                effect_parents = manual_unlink_parent_ids(db, item_id, data["id"])
+                data["can_unlink"] = bool(effect_parents) and all(
+                    libraries.has_item_role(db, actor_user, parent_id, "editor")
+                    for parent_id in effect_parents
+                )
             related_media.append(data)
 
         all_group_items = [dict(item)] + [dict(row) for row in linked_items]
@@ -377,14 +504,32 @@ async def item_detail(
                         "icon_kind": get_platform_icon_kind(platform_slug),
                     })
 
-        from app.routers.tags import get_item_tags, get_all_tags
+        # Every physical copy, not just the primary. `items.location_id` is
+        # the compatibility seam and names only one place; a merged item can
+        # legitimately have copies in two (issue #116).
+        # The copies block's controls build their location <select> from this;
+        # a fragment re-rendered without it loses every picker. There is no
+        # shared all_locations() helper — four routes inline this same query.
+        locations = db.execute(
+            "SELECT * FROM locations ORDER BY sort_order, name"
+        ).fetchall()
+        copy_locations = location_svc.location_tree(db)
+        from app.routers.item_copies import copy_context
+
+        physical_context = copy_context(db, item_id)
+
+        from app.services.tags import get_item_tags, get_all_tags
         item_tags = get_item_tags(db, item_id)
-        all_tags = get_all_tags(db)
+        all_tags = get_all_tags(db, media_type=item["media_type"])
 
         from app.routers.collections import item_collection_context
         collection_context = item_collection_context(db, item_id)
 
-        reading_history = get_reading_history(db, item_id)
+        user_id = int(request.state.user["id"])
+        reading_history = user_state.get_reading_history(db, user_id, item_id)
+        personal_state = user_state.get_state(db, user_id, item_id)
+
+        item_authors = author_index.authors_for(db, item_id)
 
         # Series progress from two labelled sources: local siblings and the
         # Hardcover series_meta row. Never blended into one number — see
@@ -393,7 +538,7 @@ async def item_detail(
         series_progress = None
         if item["series_name"] and item["series_name"].strip():
             siblings = db.execute(
-                "SELECT owned, series_position FROM items "
+                "SELECT owned, series_position FROM items_live "
                 "WHERE series_name = ? COLLATE NOCASE",
                 (item["series_name"],),
             ).fetchall()
@@ -412,20 +557,34 @@ async def item_detail(
                 "gaps": find_gaps(positions),
                 "hc_total": meta["hc_total"] if meta else None,
             }
+        # The list-price line reads history only for the live item on screen;
+        # the template also gates it on feature_on('price_alerts').
+        price_line = price_alerts.price_line(db, item_id) if item["wishlisted"] else None
+        buy_links = buy_links_svc.for_item(db, item) if item["wishlisted"] else []
 
     return request.app.state.templates.TemplateResponse(
         request,
         "item_detail.html",
         {
+            **{key: value for key, value in physical_context.items()
+               if key not in {"item", "locations"}},
             "item": item,
             "item_id": item_id,
             "back": back,
+            "copies": physical_context["copies"],
+            "locations": locations,
+            "copy_locations": copy_locations,
+            "can_edit_item": can_edit_item,
+            "personal_state": personal_state,
+            "personal_status_labels": user_state.status_labels(item["media_type"]),
             "item_tags": item_tags,
             "all_tags": all_tags,
             "item_collections": collection_context["item_collections"],
             "available_collections": collection_context["available_collections"],
             "media_types": MEDIA_TYPES,
             "book_media_types": BOOK_MEDIA_TYPES,
+            "status_media_types": STATUS_MEDIA_TYPES,
+            "synopsis_media_types": SYNOPSIS_MEDIA_TYPES,
             "game_platforms": game_platforms,
             "has_hardcover": has_hardcover,
             "current_checkout": current_checkout,
@@ -433,6 +592,7 @@ async def item_detail(
             "borrowers": borrowers,
             "now_date": date.today().isoformat(),
             "linked_items": linked_items,
+            "format_linked_items": format_linked_items,
             "related_media": related_media,
             "related_formats": related_formats,
             "related_game_platforms": related_game_platforms,
@@ -444,6 +604,9 @@ async def item_detail(
             "romm_url": romm_url,
             "reading_history": reading_history,
             "series_progress": series_progress,
+            "item_authors": item_authors,
+            "price_line": price_line,
+            "buy_links": buy_links,
         },
     )
 
@@ -454,101 +617,141 @@ async def item_edit(
     item_id: int,
     from_: str = Query("", alias="from"),
     error: str | None = Query(None),
-    _=Depends(require_role("editor")),
+    trashed: int | None = Query(None),
+    _=Depends(require_catalogue_role("editor")),
 ):
     back = nav.back_target(from_)
+    trashed_title = None
     with get_db() as db:
-        item = db.execute("SELECT * FROM items WHERE id = ?", (item_id,)).fetchone()
+        try:
+            require_item_role(db, item_id, "editor")
+        except HTTPException as exc:
+            if exc.status_code != 404:
+                raise
+            # Missing, hidden and Trash use the same native GET destination.
+            # Mutation and private-state endpoints retain their 404 contracts.
+            return RedirectResponse(url="/browse", status_code=307)
+        item = db.execute(
+            f"SELECT i.*, {lists.WISHLISTED_SQL} AS wishlisted FROM items_live i WHERE i.id = ?",
+            (item_id,),
+        ).fetchone()
+        if not item:
+            return RedirectResponse(url="/browse")
+        # An identifier_in_trash refusal names the blocking row by id; the
+        # title is resolved here and escaped by the template, so nothing the
+        # user typed is ever echoed back through the query string (G58).
+        # FastAPI rejects a non-integer `trashed`, so no parsing is needed.
+        if trashed is not None:
+            trashed_title = item_write.trashed_title(db, trashed)
         locations = db.execute(
             "SELECT * FROM locations ORDER BY sort_order, name"
         ).fetchall()
         game_platforms = get_game_platforms(db)
-    if not item:
-        return RedirectResponse(url="/browse")
+        item_tags = tags_svc.get_item_tags(db, item_id)
+        all_tags = tags_svc.get_all_tags(db, media_type=item["media_type"])
+        periodical_issue = None
+        if item["media_type"] == "magazine":
+            ensure_periodical_schema(db)
+            periodical_issue = db.execute(
+                "SELECT barcode_ean, barcode_supplement FROM periodical_issues WHERE item_id = ?", (item_id,)
+            ).fetchone()
+    # #87 T2: the edit funnel now saves a legacy checksum-invalid isbn/upc
+    # unchanged rather than bouncing every save on that row (T1). Surface
+    # that silently-kept state to the editor instead of leaving it invisible.
+    isbn_invalid = bool(item["isbn"]) and isbn_svc.canonical_isbn_pair(item["isbn"]) is None
+    upc_invalid = bool(item["upc"]) and not upc_svc.canonical_retail_barcode(item["upc"])[0]
     return request.app.state.templates.TemplateResponse(
         request,
         "item_edit.html",
         {"item": item, "back": back, "media_types": MEDIA_TYPES, "game_platforms": game_platforms,
-         "locations": locations, "error": error},
+         "locations": locations, "error": error,
+         "trashed_title": trashed_title,
+         "periodical_issue": periodical_issue,
+         "item_id": item_id, "item_tags": item_tags, "all_tags": all_tags,
+         "isbn_invalid": isbn_invalid, "upc_invalid": upc_invalid},
     )
 
 
+def _today() -> date:
+    """The date the Stats pages read — one seam, so a test can pin January."""
+    return date.today()
+
+
 @router.get("/stats")
-async def stats(request: Request, _=Depends(require_role("viewer"))):
-    user_id = int(request.state.user["id"])
+async def stats(request: Request, _=Depends(require_catalogue_role("viewer")),
+                __=Depends(require_feature("stats"))):
     with get_db() as db:
         user_state.ensure_schema(db)
         by_type = db.execute(
-            "SELECT media_type, COUNT(*) as c FROM items GROUP BY media_type ORDER BY c DESC"
+            "SELECT media_type, COUNT(*) as c FROM items_live GROUP BY media_type ORDER BY c DESC"
         ).fetchall()
         by_location = db.execute(
             "SELECT COALESCE(l.name, 'Unassigned') as name, COUNT(*) as c "
-            "FROM items i LEFT JOIN locations l ON i.location_id = l.id "
+            "FROM items_live i LEFT JOIN locations l ON i.location_id = l.id "
             "GROUP BY l.name ORDER BY c DESC"
         ).fetchall()
-        total = db.execute("SELECT COUNT(*) as c FROM items").fetchone()["c"]
-        stats_owned = db.execute(
-            "SELECT COUNT(*) as c FROM items WHERE owned = 1"
-        ).fetchone()["c"]
-        wishlist_expr, wishlist_params = browse_filters.personal_wishlist_sql(user_id)
+        total = db.execute("SELECT COUNT(*) as c FROM items_live").fetchone()["c"]
         stats_wishlist = db.execute(
-            f"SELECT COUNT(*) as c FROM items i WHERE {wishlist_expr} = 1",
-            wishlist_params,
+            f"SELECT COUNT(*) as c FROM items_live i WHERE {lists.WISHLISTED_SQL}"
+        ).fetchone()["c"]
+        stats_owned = db.execute(
+            "SELECT COUNT(*) as c FROM items_live WHERE owned = 1"
         ).fetchone()["c"]
         with_covers = db.execute(
-            "SELECT COUNT(*) as c FROM items WHERE cover_path IS NOT NULL"
+            "SELECT COUNT(*) as c FROM items_live WHERE cover_path IS NOT NULL"
         ).fetchone()["c"]
         without_isbn = db.execute(
-            "SELECT COUNT(*) as c FROM items WHERE isbn IS NULL"
+            "SELECT COUNT(*) as c FROM items_live WHERE isbn IS NULL"
         ).fetchone()["c"]
         recent = db.execute(
-            "SELECT i.*, l.name as location_name FROM items i "
+            "SELECT i.*, l.name as location_name FROM items_live i "
             "LEFT JOIN locations l ON i.location_id = l.id "
             "WHERE i.created_at >= datetime('now', '-30 days') "
             "ORDER BY i.created_at DESC LIMIT 20"
         ).fetchall()
 
-        # Personal completion status with legacy fallback. A persisted NULL is
-        # authoritative, so CASE checks whether the user's row exists rather
-        # than COALESCEing back to the household value.
+        # The scoped live view already overlays only the actor's private status;
+        # absent or cleared personal state never falls back to the household.
         read_by_year = db.execute(
-            """SELECT substr(
-                         CASE WHEN uis.user_id IS NOT NULL
-                              THEN uis.date_finished ELSE i.date_finished END,
-                         1, 4
-                     ) AS y,
-                     COUNT(*) AS c
-                FROM items i
-                LEFT JOIN user_item_state uis
-                  ON uis.item_id = i.id AND uis.user_id = ?
-               WHERE CASE WHEN uis.user_id IS NOT NULL
-                          THEN uis.reading_status ELSE i.reading_status END = 'read'
-                 AND CASE WHEN uis.user_id IS NOT NULL
-                          THEN uis.date_finished ELSE i.date_finished END IS NOT NULL
-               GROUP BY y ORDER BY y""",
-            (user_id,),
+            "SELECT substr(date_finished, 1, 4) AS y, media_type, COUNT(*) AS c FROM items_live "
+            "WHERE reading_status = 'read' AND date_finished IS NOT NULL "
+            "GROUP BY y, media_type ORDER BY y"
         ).fetchall()
         growth_rows = db.execute(
-            "SELECT substr(created_at, 1, 7) as m, COUNT(*) as c FROM items "
+            "SELECT substr(created_at, 1, 7) as m, COUNT(*) as c FROM items_live "
             "GROUP BY m ORDER BY m"
         ).fetchall()
         author_rows = db.execute(
-            "SELECT authors, COUNT(*) as c FROM items "
+            "SELECT authors, COUNT(*) as c FROM items_live "
             "WHERE authors IS NOT NULL AND TRIM(authors) != '' GROUP BY authors"
         ).fetchall()
+        # Historical totals are global and have no retained library provenance.
+        # Do not expose another library's past values via the scoped stats page.
         valuation_rows = db.execute(
             "SELECT substr(created_at, 1, 10) as d, total_value FROM valuation_history "
             "ORDER BY created_at"
-        ).fetchall()
-        current_value = db.execute(
-            "SELECT COALESCE(SUM(COALESCE(manual_value, estimated_value)), 0) as v FROM items "
-            "WHERE COALESCE(manual_value, estimated_value) IS NOT NULL"
-        ).fetchone()["v"]
+        ).fetchall() if request.state.user.get("account_role", request.state.user.get("role")) == "admin" else []
+        # The valuation concerns what you own (#125) — owned = 1.
+        current_value = collection_value.owned_total(db)
 
-    from datetime import date as _date
-    current_year = str(_date.today().year)
-    read_pairs = [(r["y"], r["c"]) for r in read_by_year]
-    read_this_year = dict(read_pairs).get(current_year, 0)
+    today = _today()
+    current_year = str(today.year)
+
+    by_key: dict[str, dict[str, int]] = {}
+    book_by_year: dict[str, int] = {}
+    for r in read_by_year:
+        key = status_labels(r["media_type"]).key
+        by_key.setdefault(key, {})
+        by_key[key][r["y"]] = by_key[key].get(r["y"], 0) + r["c"]
+        if r["media_type"] in BOOK_MEDIA_TYPES:
+            book_by_year[r["y"]] = book_by_year.get(r["y"], 0) + r["c"]
+
+    read_pairs = sorted(book_by_year.items())
+    finished_this_year = [
+        (by_key.get(k, {}).get(current_year, 0), labels.done_lower)
+        for k, labels in (("read", READ_LABELS), ("watch", WATCH_LABELS), ("play", PLAY_LABELS))
+    ]
+    finished_this_year = [(n, word) for n, word in finished_this_year if n > 0]
 
     running = 0
     growth_pairs = []
@@ -595,13 +798,38 @@ async def stats(request: Request, _=Depends(require_role("viewer"))):
             "without_isbn": without_isbn,
             "recent": recent,
             "media_types": MEDIA_TYPES,
-            "read_this_year": read_this_year,
+            "finished_this_year": finished_this_year,
             "current_year": current_year,
             "current_value": current_value,
             "chart_read": chart_read,
             "chart_growth": chart_growth,
             "chart_authors": chart_authors,
             "chart_valuation": chart_valuation,
+            # January only: the previous year's wrap-up, as "<year> in Books".
+            "year_in_books": str(today.year - 1) if today.month == 1 else None,
+        },
+    )
+
+
+@router.get("/stats/wrapup")
+async def stats_wrapup(request: Request, period: str | None = None,
+                       _=Depends(require_catalogue_role("viewer")),
+                       __=Depends(require_feature("stats"))):
+    today = _today()
+    with get_db() as db:
+        # No `period` at all (the link from Stats) opens on the newest month with
+        # content; a supplied but bad one still falls back to the current month.
+        chosen = (wrapups.latest_period(db, today) if period is None
+                  else wrapups.parse_period(period, today))
+        summary = wrapups.summarize(db, chosen)
+        first_year = wrapups.earliest_year(db, today)
+    return request.app.state.templates.TemplateResponse(
+        request,
+        "stats_wrapup.html",
+        {
+            "period": chosen,
+            "summary": summary,
+            "period_options": wrapups.period_options(today, first_year),
         },
     )
 
@@ -612,7 +840,7 @@ async def logs(
     level: str = "",
     module: str = "",
     q: str = "",
-    page: int = 1,
+    page: int = Query(1, le=MAX_PAGE),
     _=Depends(require_role("admin")),
 ):
     per_page = 100
@@ -677,12 +905,15 @@ async def settings(request: Request, _=Depends(require_role("admin"))):
     borrower_error_message = BORROWER_ERROR_MESSAGES.get(request.query_params.get("borrower_error"))
     with get_db() as db:
         settings = get_all_settings(db)
-        locations = db.execute(
-            "SELECT * FROM locations ORDER BY sort_order, name"
-        ).fetchall()
-        item_count = db.execute("SELECT COUNT(*) as c FROM items").fetchone()["c"]
+        locations = location_svc.legacy_locations(db)
+        location_nodes = location_svc.location_tree(db)
+        item_count = db.execute("SELECT COUNT(*) as c FROM items_live").fetchone()["c"]
+        # Excludes items dismissed from the cover-review queue
+        # (items.cover_review_dismissed, migration 32) — this figure and the
+        # /cover-review entry point's count are the same number, and an item
+        # marked "not available" there should stop being counted here too.
         missing_covers = db.execute(
-            "SELECT COUNT(*) AS c FROM items WHERE cover_path IS NULL"
+            "SELECT COUNT(*) AS c FROM items_live WHERE cover_path IS NULL AND cover_review_dismissed = 0"
         ).fetchone()["c"]
         cover_queue_stats = cover_queue.stats()
         # Carries each borrower's *returned* loan count for the delete
@@ -703,6 +934,7 @@ async def settings(request: Request, _=Depends(require_role("admin"))):
         share_links = db.execute(
             "SELECT * FROM share_links ORDER BY created_at DESC"
         ).fetchall()
+        tags = tags_svc.list_tags_with_counts(db)
     # Iterate the env map, not `settings`: `get_all_settings` carries only keys
     # with a row, so an env-only credential is absent from it (G15) and a
     # comprehension over it can never see one. Keys here — `is_env_override`
@@ -716,6 +948,12 @@ async def settings(request: Request, _=Depends(require_role("admin"))):
     # while the nav bar shows it. The no-arg path reads the same env-aware
     # snapshot the nav itself uses.
     hideable_nav_tab_states = hideable_tab_states()
+    # Outside the `with` above: the probes open their own connections (G112).
+    from app.features import feature_rows
+    features_rows = feature_rows()
+    # From the same rows, so the marker and the list below it agree.
+    profile_rows = features.profile_rows(features_rows)
+    current_profile = next((p["name"] for p in profile_rows if p["current"]), None)
     # Never hand decrypted credentials to the template — it only needs to know
     # whether one is saved. Fields are write-only; blank submit keeps the value.
     from app.crypto import SENSITIVE_KEYS
@@ -731,6 +969,12 @@ async def settings(request: Request, _=Depends(require_role("admin"))):
     # `secrets_saved` itself env-aware would offer a "Remove saved key" checkbox
     # that cannot remove an env credential.
     secrets_present = {k: secrets_saved[k] or k in env_overrides for k in SENSITIVE_KEYS}
+    # The retained and native RomM names are one explicit credential choice.
+    # Either available alias enables the existing form without exposing a value.
+    romm_saved = any(secrets_saved[key] for key in ("romm_token", "romm_api_token"))
+    romm_present = any(secrets_present[key] for key in ("romm_token", "romm_api_token"))
+    for key in ("romm_token", "romm_api_token"):
+        secrets_saved[key], secrets_present[key] = romm_saved, romm_present
     # `abs_url` needs its own flag: it has a SECRET_ENV_VARS entry but is not a
     # SENSITIVE_KEY (it is not a credential), so `secrets_present` has no member
     # for it — and both Audiobookshelf actions gate on the URL: Test on typed-or-
@@ -738,6 +982,10 @@ async def settings(request: Request, _=Depends(require_role("admin"))):
     abs_url_present = bool(settings.get("abs_url")) or "abs_url" in env_overrides
     komga_url_present = bool(settings.get("komga_url")) or "komga_url" in env_overrides
     romm_url_present = bool(settings.get("romm_url")) or "romm_url" in env_overrides
+    price_alert_last_run_display = price_alerts.describe_last_run(
+        settings.get("price_alert_last_run"), settings.get("price_alert_last_summary"))
+    release_radar_last_run_display = release_radar.describe_last_run(
+        settings.get("release_radar_last_run"), settings.get("release_radar_last_summary"))
     for k in SENSITIVE_KEYS:
         if k in settings:
             settings[k] = ""
@@ -752,15 +1000,30 @@ async def settings(request: Request, _=Depends(require_role("admin"))):
     return request.app.state.templates.TemplateResponse(
         request,
         "settings.html",
-        {"settings": settings, "locations": locations, "item_count": item_count, "share_links": share_links,
+        {"settings": settings, "locations": locations, "location_nodes": location_nodes,
+         "item_count": item_count, "share_links": share_links,
          "borrowers": borrowers, "secrets_saved": secrets_saved,
          "secrets_present": secrets_present, "abs_url_present": abs_url_present,
          "komga_url_present": komga_url_present,
          "romm_url_present": romm_url_present,
          "game_platforms_list": game_platforms_list,
          "hideable_nav_tab_states": hideable_nav_tab_states,
+         "feature_rows": features_rows,
+         "profile_rows": profile_rows,
+         "current_profile": current_profile,
          "borrower_error_message": borrower_error_message,
          "missing_covers": missing_covers, "cover_queue_stats": cover_queue_stats,
          "abs_sync_job": abs_sync_job, "komga_sync_job": komga_sync_job,
-         "romm_sync_job": romm_sync_job},
+         "romm_sync_job": romm_sync_job,
+         "tags": tags, "media_types": MEDIA_TYPES,
+         "price_alert_last_run_display": price_alert_last_run_display,
+         "price_alert_default_threshold": price_alerts.DEFAULT_THRESHOLD_PCT,
+         "price_alert_max_threshold": price_alerts.MAX_THRESHOLD_PCT,
+         "price_alert_default_cap": price_alerts.DEFAULT_NIGHTLY_CAP,
+         "price_alert_max_cap": price_alerts.MAX_NIGHTLY_CAP,
+         "release_radar_last_run_display": release_radar_last_run_display,
+         "release_radar_default_cap": release_radar.DEFAULT_CAP,
+         "release_radar_max_cap": release_radar.MAX_CAP,
+         "buy_links_bookshop_hosts": buy_links_svc.BOOKSHOP_HOSTS,
+         "buy_links_amazon_hosts": buy_links_svc.AMAZON_HOSTS},
     )

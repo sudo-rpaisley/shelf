@@ -1,15 +1,69 @@
 import sqlite3
 from datetime import date, timedelta
 
-from fastapi import APIRouter, Depends, Form, Request
+from fastapi import APIRouter, Depends, Form, HTTPException, Request
 from fastapi.responses import JSONResponse, RedirectResponse
 
+from app import features, i18n
 from app.auth import require_role
 from app.database import get_db, get_setting
+from app.features import require_feature
+from app.services.catalogue_security import require_item_role, require_catalogue_role
+from app.routers import items_common
 
 router = APIRouter(prefix="/api")
 
 DEFAULT_OVERDUE_DAYS = 28
+
+
+def _scan_loan(request, templates, item, raw, *, borrower_id=None, returning=False):
+    """Native scanner loan protocol, with authorization under the write lock."""
+    mode = "return" if returning else "lend"
+    if not features.feature_enabled("lending"):
+        return templates.TemplateResponse(request, "fragments/scan_result.html",
+            {"status": "error", "isbn": raw, "message": i18n.gettext("Lending is turned off on this Shelf.")})
+    if not returning and not borrower_id:
+        return templates.TemplateResponse(request, "fragments/scan_result.html",
+            {"status": "error", "isbn": raw, "message": i18n.gettext("No borrower selected")})
+    with get_db() as db:
+        db.execute("BEGIN IMMEDIATE")
+        require_item_role(db, item["id"], "editor")
+        item = dict(db.execute("SELECT * FROM items_live WHERE id = ?", (item["id"],)).fetchone())
+        active = db.execute(
+            "SELECT c.id, b.name FROM checkouts c JOIN borrowers b ON b.id = c.borrower_id "
+            "WHERE c.item_id = ? AND c.checked_in IS NULL", (item["id"],),
+        ).fetchone()
+        if returning:
+            status = "returned" if active else "not_checked_out"
+            message = (i18n.gettext("Returned from %(name)s") % {"name": active["name"]}
+                       if active else i18n.gettext("Not currently checked out"))
+            if active:
+                db.execute("UPDATE checkouts SET checked_in = datetime('now') WHERE id = ? AND checked_in IS NULL", (active["id"],))
+        elif active:
+            status = "already_checked_out"
+            message = i18n.gettext("Already lent to %(name)s") % {"name": active["name"]}
+        else:
+            borrower = db.execute("SELECT name FROM borrowers WHERE id = ?", (borrower_id,)).fetchone()
+            if borrower is None:
+                return templates.TemplateResponse(request, "fragments/scan_result.html",
+                    {"status": "error", "isbn": raw, "message": i18n.gettext("Borrower not found")})
+            db.execute("INSERT INTO checkouts (item_id, borrower_id) VALUES (?, ?)", (item["id"], borrower_id))
+            status = "checked_out"
+            message = i18n.gettext("Lent to %(name)s") % {"name": borrower["name"]}
+    # Logging opens another connection; never log while holding our write lock.
+    items_common._log_scan(raw, item.get("media_type", ""), status, item["id"], mode)
+    return templates.TemplateResponse(request, "fragments/scan_result.html",
+        {"status": status, "isbn": raw, "item_id": item["id"], "title": item["title"],
+         "cover_path": item.get("cover_path"), "authors": item.get("authors"),
+         "media_type": item.get("media_type"), "message": message})
+
+
+def scan_lend(request, templates, item, borrower_id, raw):
+    return _scan_loan(request, templates, item, raw, borrower_id=borrower_id)
+
+
+def scan_return(request, templates, item, raw):
+    return _scan_loan(request, templates, item, raw, returning=True)
 
 # A loan is overdue when its explicit due date has passed, or — for loans
 # with no due date (e.g. created via the Lend scan mode) — when it has been
@@ -39,7 +93,7 @@ def get_overdue_loans(db) -> list[dict]:
         "SELECT c.*, i.title, i.cover_path, b.name as borrower_name, "
         "CAST(julianday('now') - julianday(c.checked_out) AS INTEGER) as days_out "
         "FROM checkouts c "
-        "JOIN items i ON c.item_id = i.id "
+        "JOIN items_live i ON c.item_id = i.id "
         "JOIN borrowers b ON c.borrower_id = b.id "
         f"WHERE {OVERDUE_CONDITION} "
         "ORDER BY c.checked_out ASC",
@@ -48,10 +102,21 @@ def get_overdue_loans(db) -> list[dict]:
     return [dict(row) for row in rows]
 
 
+def count_overdue(db) -> int:
+    """How many checkouts are overdue — the same predicate as get_overdue_loans."""
+    return db.execute(
+        "SELECT COUNT(*) AS c FROM checkouts c "
+        "JOIN items_live i ON c.item_id = i.id "
+        f"WHERE {OVERDUE_CONDITION}",
+        (get_overdue_days(db),),
+    ).fetchone()["c"]
+
+
 # --- Borrowers ---
 
 @router.post("/borrowers")
-async def create_borrower(name: str = Form(...), _=Depends(require_role("admin"))):
+async def create_borrower(name: str = Form(...), _=Depends(require_role("admin")),
+                          __=Depends(require_feature("lending"))):
     clean_name = name.strip()
     if not clean_name:
         return JSONResponse(
@@ -69,7 +134,11 @@ async def create_borrower(name: str = Form(...), _=Depends(require_role("admin")
 
 
 @router.post("/borrowers/{borrower_id}/delete")
-async def delete_borrower(borrower_id: int, _=Depends(require_role("admin"))):
+async def delete_borrower(
+    borrower_id: int,
+    _=Depends(require_role("admin")),
+    __=Depends(require_feature("lending")),
+):
     """Remove a borrower and, with them, their completed loan history.
 
     `checkouts.borrower_id` has no ON DELETE action and foreign keys are
@@ -110,7 +179,8 @@ async def checkout_item(
     borrower_id: int = Form(...),
     due_days: int = Form(14),
     notes: str = Form(""),
-    _=Depends(require_role("editor")),
+    _=Depends(require_catalogue_role("editor")),
+    __=Depends(require_feature("lending")),
 ):
     """Check out an item to a borrower."""
     if due_days > 0:
@@ -118,7 +188,7 @@ async def checkout_item(
             due = (date.today() + timedelta(days=due_days)).isoformat()
         except OverflowError:
             return JSONResponse(
-                {"ok": False, "message": "Due date is out of range"}, status_code=400
+                {"ok": False, "message": i18n.gettext("Due date is out of range")}, status_code=400
             )
     else:
         due = None
@@ -129,7 +199,15 @@ async def checkout_item(
         # is required before the guard to prevent two concurrent checkouts.
         db.execute("BEGIN IMMEDIATE")
 
-        if not db.execute("SELECT 1 FROM items WHERE id = ?", (item_id,)).fetchone():
+        try:
+            require_item_role(db, item_id, "editor")
+        except HTTPException as exc:
+            if exc.status_code != 404:
+                raise
+            return JSONResponse(
+                {"ok": False, "message": "Item not found"}, status_code=404
+            )
+        if not db.execute("SELECT 1 FROM items_live WHERE id = ?", (item_id,)).fetchone():
             return JSONResponse(
                 {"ok": False, "message": "Item not found"}, status_code=404
             )
@@ -157,19 +235,25 @@ async def checkout_item(
 
 
 @router.post("/checkouts/{checkout_id}/checkin")
-async def checkin_item(checkout_id: int, _=Depends(require_role("editor"))):
+async def checkin_item(
+    checkout_id: int,
+    _=Depends(require_catalogue_role("editor")),
+    __=Depends(require_feature("lending")),
+):
     """Check in an active item loan exactly once."""
     with get_db() as db:
+        db.execute("BEGIN IMMEDIATE")
         checkout = db.execute(
             "SELECT item_id, checked_in FROM checkouts WHERE id = ?", (checkout_id,)
         ).fetchone()
         if not checkout:
             return JSONResponse(
-                {"ok": False, "message": "Checkout not found"}, status_code=404
+                {"ok": False, "message": i18n.gettext("Checkout not found")}, status_code=404
             )
+        require_item_role(db, checkout["item_id"], "editor")
         if checkout["checked_in"] is not None:
             return JSONResponse(
-                {"ok": False, "message": "Checkout already checked in"}, status_code=409
+                {"ok": False, "message": i18n.gettext("Checkout already checked in")}, status_code=409
             )
         cursor = db.execute(
             "UPDATE checkouts SET checked_in = datetime('now') "
@@ -178,13 +262,17 @@ async def checkin_item(checkout_id: int, _=Depends(require_role("editor"))):
         )
         if cursor.rowcount != 1:
             return JSONResponse(
-                {"ok": False, "message": "Checkout already checked in"}, status_code=409
+                {"ok": False, "message": i18n.gettext("Checkout already checked in")}, status_code=409
             )
     return RedirectResponse(url=f"/item/{checkout['item_id']}", status_code=303)
 
 
 @router.get("/checkouts/overdue")
-async def overdue_items(request: Request, _=Depends(require_role("viewer"))):
+async def overdue_items(
+    request: Request,
+    _=Depends(require_catalogue_role("viewer")),
+    __=Depends(require_feature("lending")),
+):
     """List all overdue checkouts (explicit due date or fallback window)."""
     with get_db() as db:
         return get_overdue_loans(db)

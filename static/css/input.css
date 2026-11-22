@@ -1,12 +1,46 @@
-@tailwind base;
-@tailwind components;
-@tailwind utilities;
+@import "tailwindcss" source(none);
+@source "../../app/templates";
+@source "../js";
+@theme {
+  --color-shelf-bg: #0f1117;
+  --color-shelf-card: #1a1d27;
+  --color-shelf-hover: #242836;
+  --color-shelf-accent: #6366f1;
+  --color-shelf-accent2: #818cf8;
+  --color-shelf-text: #e2e8f0;
+  --color-shelf-muted: #94a3b8;
+  --color-shelf-border: #2d3148;
+  --color-shelf-success: #22c55e;
+  --color-shelf-warning: #eab308;
+  --color-shelf-error: #ef4444;
+}
+
+/* Keep Tailwind 3's preflight defaults that v4 dropped. */
+@layer base {
+  button:not(:disabled), [role="button"]:not(:disabled) { cursor: pointer; }
+  ::placeholder { color: #9ca3af; }
+}
+
+/* Tailwind 4's space-y-* puts each gap after a child (margin-block-end) where
+   v3 put it before the next one, so a child followed only by hidden siblings
+   leaves its gap at the bottom of the container: a form's trailing
+   <input type="hidden">, a [hidden] media-type field, an x-show tail. Drop that
+   gap, as v3 did. `.hidden` is not in the list: it often pairs with an `sm:`
+   display class, so it does not mean hidden at every width. */
+@layer utilities {
+  :where([class*="space-y-"]) > :not(:last-child):not(:has(~ :not([hidden], [type="hidden"], [style*="display: none"], [style*="display:none"], template, script))) {
+    margin-block-end: 0;
+  }
+}
 
 /* App-wide styles previously inlined in base.html */
 body { background-color: #0f1117; color: #e2e8f0; }
 .cover-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(160px, 1fr)); gap: 1.25rem; }
 .cover-card { aspect-ratio: 2/3; }
 .cover-card img { width: 100%; height: 100%; object-fit: cover; border-radius: 0.5rem; }
+/* Square artwork (music). Keeps each box's width and derives its height, so
+   it overrides .cover-card's 2:3, aspect-2/3 and any fixed h-* utility. */
+[data-cover-shape="square"] { aspect-ratio: 1 / 1; height: auto; }
 .scan-result { animation: slideIn 0.3s ease-out; }
 @keyframes slideIn { from { opacity: 0; transform: translateY(-10px); } to { opacity: 1; transform: translateY(0); } }
 /* Scrollbar */
@@ -15,3 +49,31 @@ body { background-color: #0f1117; color: #e2e8f0; }
 ::-webkit-scrollbar-thumb { background: #2d3148; border-radius: 4px; }
 /* Hide Alpine-controlled elements until Alpine initializes */
 [x-cloak] { display: none !important; }
+/* Busy state: static/js/app.js sets aria-busy on the htmx control that issued a
+   request. An Alpine control can opt into the same look with :aria-busy="<flag>". */
+button[aria-busy="true"]::after {
+    content: "";
+    display: inline-block;
+    width: 0.9em;
+    height: 0.9em;
+    margin-left: 0.4em;
+    vertical-align: -0.125em;
+    border: 2px solid #2d3148;
+    border-top-color: #6366f1;
+    border-radius: 9999px;
+    animation: busy-spin 0.7s linear infinite;
+}
+input[aria-busy="true"] {
+    padding-right: 2.25rem;
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Ccircle cx='12' cy='12' r='9' fill='none' stroke='%232d3148' stroke-width='3'/%3E%3Cpath d='M12 3a9 9 0 0 1 9 9' fill='none' stroke='%236366f1' stroke-width='3' stroke-linecap='round'%3E%3CanimateTransform attributeName='transform' type='rotate' from='0 12 12' to='360 12 12' dur='0.7s' repeatCount='indefinite'/%3E%3C/path%3E%3C/svg%3E");
+    background-repeat: no-repeat;
+    background-position: right 0.75rem center;
+    background-size: 1rem 1rem;
+}
+@keyframes busy-spin { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) {
+    button[aria-busy="true"]::after { animation: none; }
+    input[aria-busy="true"] {
+        background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Ccircle cx='12' cy='12' r='9' fill='none' stroke='%232d3148' stroke-width='3'/%3E%3Cpath d='M12 3a9 9 0 0 1 9 9' fill='none' stroke='%236366f1' stroke-width='3' stroke-linecap='round'/%3E%3C/svg%3E");
+    }
+}

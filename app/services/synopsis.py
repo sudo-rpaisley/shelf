@@ -16,7 +16,7 @@ logger = logging.getLogger(__name__)
 
 # Media types the book-metadata sources can answer for. Games/movies get
 # descriptions from IGDB/TMDb at scan time and aren't backfilled here.
-BOOK_MEDIA_TYPES = ("book", "ebook", "audiobook", "kids_book")
+SYNOPSIS_MEDIA_TYPES = ("book", "ebook", "audiobook")
 
 
 _STOPWORDS = frozenset({"the", "a", "an", "of", "and", "to", "in", "for"})

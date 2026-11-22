@@ -1,9 +1,7 @@
 """Tests for app.database settings helpers and app.config env var overrides."""
 
-import os
-import pytest
 
-from app.database import get_db, get_setting, get_all_settings
+from app.database import get_setting, get_all_settings
 from app.services import cover_queue
 from tests.conftest import _insert_borrower, _insert_item, _insert_location
 
@@ -108,6 +106,55 @@ class TestMetadataSearchLangSetting:
         assert r.status_code == 403
 
 
+# --- POST /api/settings/display — audible_region ----------------------------
+
+class TestAudibleRegionSetting:
+    def _stored(self, db):
+        row = db.execute("SELECT value FROM settings WHERE key = 'audible_region'").fetchone()
+        return row["value"] if row else None
+
+    def test_default_is_us_with_no_row(self, db):
+        from app.services import audnexus
+        assert audnexus.region() == "us"
+
+    def test_valid_code_persists(self, admin_client, db):
+        from app.services import audnexus
+        r = admin_client.post(
+            "/api/settings/display", data={"audible_region": "de"}, follow_redirects=False
+        )
+        assert r.status_code == 303
+        assert self._stored(db) == "de"
+        assert audnexus.region() == "de"
+
+    def test_unknown_and_empty_leave_prior_value(self, admin_client, db):
+        admin_client.post("/api/settings/display", data={"audible_region": "fr"}, follow_redirects=False)
+        for bad in ("xx", "", "  "):
+            admin_client.post(
+                "/api/settings/display", data={"audible_region": bad}, follow_redirects=False
+            )
+            assert self._stored(db) == "fr"
+
+    def test_unknown_with_no_row_writes_nothing(self, admin_client, db):
+        admin_client.post("/api/settings/display", data={"audible_region": "xx"}, follow_redirects=False)
+        assert self._stored(db) is None
+
+    def test_rendered_page_round_trip(self, admin_client, db):
+        import re
+        admin_client.post("/api/settings/display", data={"audible_region": "de"}, follow_redirects=False)
+        html = admin_client.get("/settings").text
+        m = re.search(r'<select id="audible_region" name="audible_region".*?</select>', html, re.S)
+        assert m, "audible_region select missing from the settings page"
+        block = m.group(0)
+        selected = re.findall(r'<option value="([a-z]+)"\s+selected', block)
+        assert selected == ["de"]
+        assert "not in the catalogue" in html  # visible help line (G129)
+        # Re-post what the form rendered: the stored value must survive.
+        admin_client.post(
+            "/api/settings/display", data={"audible_region": selected[0]}, follow_redirects=False
+        )
+        assert self._stored(db) == "de"
+
+
 # --- GET /settings?borrower_error= — blocked-delete banner -------------------
 
 class TestBorrowerErrorBanner:
@@ -186,10 +233,14 @@ class TestDeleteConfirmations:
         assert "past loan record(s)" not in html
 
     def test_location_form_carries_exact_confirm(self, admin_client, db):
-        _insert_location(db, "Shelf A")
+        from tests.test_ui_phase4_contracts_20261121 import _Markup
+
+        location_id = _insert_location(db, "Shelf A")
         db.commit()
         html = admin_client.get("/settings").text
         assert 'data-confirm="Delete location \'Shelf A\'?"' in html
+        form = _Markup(html).root.one("form", action=f"/api/locations/{location_id}/delete")
+        assert form.attrs["data-confirm"] == "Delete location 'Shelf A'?"
 
     def test_platform_form_carries_exact_confirm(self, admin_client, db):
         db.execute(
@@ -206,10 +257,9 @@ class TestDeleteConfirmations:
     def test_no_dead_inline_confirm_handlers_remain(self, admin_client, db):
         """The converted forms must not fall back to an inline confirm.
 
-        Scoped to the `onclick="return confirm(` pattern rather than all
-        inline handlers: base.html's shortcut-modal buttons carry their own
-        dead onclick attributes, which are a separate feature area and are
-        explicitly out of scope for this branch.
+        Scoped to the `onclick="return confirm(` pattern: this test pins the
+        settings delete forms only. The wider no-inline-handler policy for
+        base.html is pinned in test_shortcut_help.py.
         """
         _insert_borrower(db, "Lars")
         _insert_location(db, "Shelf B")
@@ -258,6 +308,51 @@ class TestCoverQueueStatusLine:
         cover_queue.enqueue(1)
         html = admin_client.get("/settings").text
         assert "2 items without a cover" in html
+
+    def test_dismissed_item_excluded_from_missing_covers_count(self, admin_client, db):
+        """A cover-review-dismissed item (items.cover_review_dismissed, migration
+        32) is "no cover available", not "still needs one" — it must not inflate
+        either this figure or the /cover-review link's count (see
+        TestCoverReviewLink below)."""
+        _insert_item(db, title="No Cover One", isbn="9780000003041")
+        _insert_item(db, title="Dismissed", isbn="9780000003058", cover_review_dismissed=1)
+        db.commit()
+        cover_queue.enqueue(1)
+        html = admin_client.get("/settings").text
+        assert "1 item without a cover" in html
+
+
+# --- GET /settings — /cover-review entry point --------------------------------
+# Named cover-review-link: pinned here so test_nav.py's route-reachability
+# census can exempt /cover-review on the grounds that these tests, not the
+# nav registry, prove the link exists.
+
+class TestCoverReviewLink:
+    def test_link_renders_with_empty_queue_and_no_failures(self, admin_client):
+        """The exact case the old `cover_queue_stats.queued or .failed`
+        conditional suppressed — an entry point must not depend on transient
+        in-memory queue state."""
+        cover_queue.reset()
+        html = admin_client.get("/settings").text
+        assert 'data-testid="cover-queue-status"' not in html
+        assert 'data-testid="cover-review-link"' in html
+        assert 'href="/cover-review"' in html
+
+    def test_link_count_matches_missing_covers(self, admin_client, db):
+        _insert_item(db, title="No Cover One", isbn="9780000003065")
+        _insert_item(db, title="No Cover Two", isbn="9780000003072")
+        db.commit()
+        cover_queue.reset()
+        html = admin_client.get("/settings").text
+        assert "Review covers needing attention (2)" in html
+
+    def test_link_count_excludes_dismissed_items(self, admin_client, db):
+        _insert_item(db, title="No Cover One", isbn="9780000003089")
+        _insert_item(db, title="Dismissed", isbn="9780000003096", cover_review_dismissed=1)
+        db.commit()
+        cover_queue.reset()
+        html = admin_client.get("/settings").text
+        assert "Review covers needing attention (1)" in html
 
 
 class TestVisionIngestKnobHelpText:

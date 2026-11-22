@@ -5,7 +5,8 @@
    detail page has all members available and can choose precise terminology. #}
 <a href="{{ item.browse_series_url }}" class="group relative"
    data-series-group="{{ item.series_name }}">
-    <div class="cover-card bg-shelf-card rounded-lg overflow-hidden border border-shelf-border group-hover:border-shelf-accent/50 transition-colors shadow-lg">
+    {# Collapsed series contain digital_comic/digital_manga only, both portrait. #}
+    <div class="cover-card bg-shelf-card rounded-lg overflow-hidden border border-shelf-border group-hover:border-shelf-accent/50 transition-colors shadow-lg" data-cover-shape="portrait">
         <span class="absolute top-2 right-2 z-10 px-2 py-1 rounded-md text-[10px] font-semibold bg-shelf-card/95 text-shelf-text border border-shelf-border shadow">
             {{ item.browse_series_count }} in series
         </span>

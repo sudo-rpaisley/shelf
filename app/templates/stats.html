@@ -1,7 +1,15 @@
 {% extends "base.html" %}
 {% block title %}Stats — Shelf{% endblock %}
 {% block content %}
-<h1 class="text-2xl font-bold mb-6">Collection Statistics</h1>
+<div class="flex flex-wrap items-baseline justify-between gap-3 mb-6">
+    <h1 class="text-2xl font-bold">Collection Statistics</h1>
+    <div class="flex flex-wrap gap-4 text-sm">
+        {% if year_in_books %}
+        <a href="/stats/wrapup?period={{ year_in_books }}" class="text-shelf-accent hover:underline" data-testid="stats-year-in-books">{{ year_in_books }} in Books</a>
+        {% endif %}
+        <a href="/stats/wrapup" class="text-shelf-accent hover:underline" data-testid="stats-wrapup-link">Wrap-up</a>
+    </div>
+</div>
 
 <div class="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-4 mb-8">
     <div class="bg-shelf-card border border-shelf-border rounded-lg p-5">
@@ -12,14 +20,16 @@
         <p class="text-shelf-muted text-sm">Wishlist</p>
         <p class="text-3xl font-bold">{{ wishlist_count }}</p>
     </div>
-    <div class="bg-shelf-card border border-shelf-border rounded-lg p-5">
-        <p class="text-shelf-muted text-sm">Read in {{ current_year }}</p>
-        <p class="text-3xl font-bold">{{ read_this_year }}</p>
+    <div class="bg-shelf-card border border-shelf-border rounded-lg p-5" data-testid="stats-finished-year">
+        <p class="text-shelf-muted text-sm">Finished in {{ current_year }}</p>
+        <p class="text-3xl font-bold">{% if finished_this_year %}{% for n, word in finished_this_year %}{% if not loop.first %} · {% endif %}{{ n }} <span class="text-sm text-shelf-muted font-normal">{{ word }}</span>{% endfor %}{% else %}0{% endif %}</p>
     </div>
-    <div class="bg-shelf-card border border-shelf-border rounded-lg p-5">
+    {% if feature_on('valuation') %}
+    <div class="bg-shelf-card border border-shelf-border rounded-lg p-5" data-testid="stats-est-value">
         <p class="text-shelf-muted text-sm">Est. Value</p>
         <p class="text-3xl font-bold">{% if current_value %}{{ current_value|money(0) }}{% else %}—{% endif %}</p>
     </div>
+    {% endif %}
     <div class="bg-shelf-card border border-shelf-border rounded-lg p-5">
         <p class="text-shelf-muted text-sm">With Covers</p>
         <p class="text-3xl font-bold">{{ with_covers }} <span class="text-sm text-shelf-muted font-normal">/ {{ total }}</span></p>
@@ -44,6 +54,7 @@
         <h2 class="text-lg font-semibold mb-3">Top Authors</h2>
         {{ chart_authors|safe }}
     </div>
+    {% if feature_on('valuation') %}
     <div class="bg-shelf-card border border-shelf-border rounded-lg p-5" data-testid="chart-valuation">
         <h2 class="text-lg font-semibold mb-3">Collection Value Over Time</h2>
         {% if chart_valuation %}
@@ -52,6 +63,7 @@
         <p class="text-sm text-shelf-muted py-8 text-center">Run batch valuations (Settings &rarr; Integrations &rarr; ISBNdb) at least twice to see value history.</p>
         {% endif %}
     </div>
+    {% endif %}
 </div>
 
 <div class="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-8">
@@ -106,11 +118,11 @@
     <h2 class="text-lg font-semibold mb-4">Recently Added (Last 30 Days)</h2>
     <div class="space-y-2">
         {% for item in recent %}
-        <a href="/item/{{ item.id }}?from=stats" class="flex items-center gap-3 p-2 rounded hover:bg-shelf-hover transition-colors">
+        <a href="/item/{{ item.id }}?from=stats" class="flex items-center gap-3 p-2 rounded-sm hover:bg-shelf-hover transition-colors">
             {% if item.cover_path %}
-            <img src="/{{ item.cover_path }}" alt="" class="w-8 h-12 object-cover rounded">
+            <img src="/{{ item.cover_path }}" alt="" class="w-8 h-12 object-cover rounded-sm" data-cover-shape="{{ cover_shape(item.media_type) }}">
             {% else %}
-            <div class="w-8 h-12 bg-shelf-hover rounded flex items-center justify-center text-xs text-shelf-muted">?</div>
+            <div class="w-8 h-12 bg-shelf-hover rounded-sm flex items-center justify-center text-xs text-shelf-muted">?</div>
             {% endif %}
             <div class="min-w-0 flex-1">
                 <p class="text-sm font-medium truncate">{{ item.title }}</p>

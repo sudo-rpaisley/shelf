@@ -11,7 +11,7 @@
         {% for item in in_progress %}
         <a href="/item/{{ item.id }}"
            class="flex items-center gap-4 bg-shelf-card border border-shelf-border rounded-xl p-3 hover:border-shelf-accent/50 hover:bg-shelf-hover transition-colors min-w-0">
-            <div class="w-12 h-16 shrink-0 bg-shelf-hover rounded overflow-hidden flex items-center justify-center">
+            <div class="w-12 h-16 shrink-0 bg-shelf-hover rounded overflow-hidden flex items-center justify-center" data-cover-shape="{{ cover_shape(item.media_type) }}">
                 {% if item.cover_path %}
                 <img src="/{{ item.cover_path }}" alt="" class="w-full h-full" style="object-fit:contain">
                 {% else %}

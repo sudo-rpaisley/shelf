@@ -1,6 +1,5 @@
 """Tests for app.services.isbn and app.services.upc — pure validation logic."""
 
-import pytest
 
 from app.services.isbn import (
     normalize_isbn,
@@ -10,8 +9,9 @@ from app.services.isbn import (
     validate_isbn10,
     validate_isbn13,
     canonical_isbn_pair,
+    clean_asin,
 )
-from app.services.upc import normalize_barcode, detect_barcode_type, validate_upc
+from app.services.upc import detect_barcode_type, validate_upc
 
 
 # --- ISBN ---
@@ -35,7 +35,14 @@ class TestIsbn10ToIsbn13:
     def test_rejects_wrong_length(self):
         assert isbn10_to_isbn13("123") is None
 
+    def test_x_outside_the_check_digit_is_rejected(self):
+        # A typed title like "X209912345" is 10 chars of [0-9X]; it used to
+        # raise ValueError from int("X") and 500 /api/scan.
+        assert isbn10_to_isbn13("X209912345") is None
+        assert to_isbn13("X209912345") is None
+
     def test_the_hobbit(self):
+        # The Hobbit: ISBN-10 054792822X -> ISBN-13 9780547928227
         assert isbn10_to_isbn13("054792822X") == "9780547928227"
 
 
@@ -51,6 +58,7 @@ class TestIsbn13ToIsbn10:
         assert isbn13_to_isbn10("978") is None
 
     def test_check_digit_x(self):
+        # ISBN-13 9780074625422 -> ISBN-10 007462542X (check digit is X)
         result = isbn13_to_isbn10("9780074625422")
         assert result == "007462542X"
 
@@ -66,6 +74,7 @@ class TestToIsbn13:
         assert to_isbn13("978-0-13-468599-1") == "9780134685991"
 
     def test_upc_12_digit_prepends_zero(self):
+        # 12-digit UPC -> 13-digit EAN
         assert to_isbn13("012345678905") == "0012345678905"
 
     def test_non_isbn_ean13_keeps_legacy_passthrough(self):
@@ -200,3 +209,30 @@ class TestValidateUpc:
 
     def test_non_numeric(self):
         assert validate_upc("abcdefghijkl") is False
+
+
+class TestCleanAsin:
+    def test_upper_cases_and_strips_spaces(self):
+        assert clean_asin(" b0d1234567 ") == "B0D1234567"
+
+    def test_plain_asin_unchanged(self):
+        assert clean_asin("B0D1234567") == "B0D1234567"
+
+    def test_isbn10_shaped_value_is_accepted(self):
+        assert clean_asin("054792822X") == "054792822X"
+
+    def test_none_and_empty(self):
+        assert clean_asin(None) is None
+        assert clean_asin("") is None
+        assert clean_asin("   ") is None
+
+    def test_wrong_length_or_characters(self):
+        assert clean_asin("B0D123456") is None
+        assert clean_asin("B0D12345678") is None
+        assert clean_asin("B0D123456-") is None
+
+    def test_trailing_newline_is_refused(self):
+        assert clean_asin("B0D1234567\n") is None
+
+    def test_non_string(self):
+        assert clean_asin(1234567890) is None

@@ -5,7 +5,7 @@ import sqlite3
 import pytest
 
 from app.media_types import is_digital_media, is_physical_media
-from app.services import holdings
+from app.services import holdings, location_tree
 from app.services.item_write import insert_item
 
 
@@ -42,11 +42,18 @@ def test_legacy_location_and_owned_item_sync_into_primary_copy(db):
         "INSERT INTO locations (name, sort_order) VALUES ('Bedroom', 1)"
     ).lastrowid
 
-    item_id = db.execute(
-        "INSERT INTO items (title, media_type, source, owned, location_id) "
-        "VALUES ('Physical Book', 'book', 'test', 1, ?)",
-        (living,),
-    ).lastrowid
+    # Foundation ensure prepares schema, not a recurring seed for newly added
+    # flat locations/items. Explicitly project this post-init fixture instead.
+    holdings.ensure_foundation(db)
+    assert db.execute("SELECT COUNT(*) FROM location_nodes").fetchone()[0] == 0
+    db.execute("INSERT INTO location_nodes (id, name) VALUES (100, 'Unmapped ID control')")
+    living_node = location_tree.legacy_location_to_node(db, living, create=True)
+    bedroom_node = location_tree.legacy_location_to_node(db, bedroom, create=True)
+    assert living_node != living and bedroom_node != bedroom
+    # This is a NEW owned physical acquisition, so the normal insert funnel
+    # deliberately creates its first copy. Reads/sync alone must not do so.
+    item_id = insert_item(db, title="Physical Book", media_type="book", source="test",
+                          owned=1, location_id=living)
     holdings.sync_item_holding(db, item_id)
 
     copy = db.execute(
@@ -58,6 +65,7 @@ def test_legacy_location_and_owned_item_sync_into_primary_copy(db):
     assert copy is not None
     assert copy["copy_number"] == 1
     assert copy["legacy_location_id"] == living
+    assert copy["location_id"] == living_node
 
     # Old flat move routes still move a copy while it remains on a legacy root.
     db.execute("UPDATE items SET location_id = ? WHERE id = ?", (bedroom, item_id))
@@ -69,6 +77,7 @@ def test_legacy_location_and_owned_item_sync_into_primary_copy(db):
         (item_id,),
     ).fetchone()
     assert moved["legacy_location_id"] == bedroom
+    assert (moved["id"], moved["location_id"]) == (copy["id"], bedroom_node)
 
     # Once the copy has a precise child location, legacy compatibility updates
     # must not flatten it back to a room/root.
@@ -83,6 +92,8 @@ def test_legacy_location_and_owned_item_sync_into_primary_copy(db):
         "SELECT location_id FROM item_copies WHERE id = ?", (moved["id"],)
     ).fetchone()
     assert precise["location_id"] == shelf
+    assert db.execute("SELECT id FROM item_copies WHERE item_id = ?", (item_id,)).fetchall()[0][0] == copy["id"]
+    assert db.execute("SELECT COUNT(*) FROM item_copies WHERE item_id = ?", (item_id,)).fetchone()[0] == 1
 
 
 def test_digital_item_does_not_gain_physical_copy(db):
@@ -110,11 +121,11 @@ def test_provider_identifiers_are_synced_into_digital_holdings(db):
     )
 
     holding = db.execute(
-        "SELECT provider, external_id, library_id FROM digital_holdings "
+        "SELECT id, provider, external_id, library_id FROM digital_holdings "
         "WHERE item_id = ?",
         (item_id,),
     ).fetchone()
-    assert dict(holding) == {
+    assert {key: holding[key] for key in ("provider", "external_id", "library_id")} == {
         "provider": "audiobookshelf",
         "external_id": "abs-one",
         "library_id": "library-a",
@@ -126,13 +137,24 @@ def test_provider_identifiers_are_synced_into_digital_holdings(db):
     )
     holdings.sync_item_holding(db, item_id)
     rows = db.execute(
-        "SELECT external_id, library_id FROM digital_holdings "
-        "WHERE item_id = ? AND provider = 'audiobookshelf'",
+        "SELECT id, external_id, library_id FROM digital_holdings "
+        "WHERE item_id = ? AND provider = 'audiobookshelf' ORDER BY external_id",
         (item_id,),
     ).fetchall()
     assert [(row["external_id"], row["library_id"]) for row in rows] == [
+        ("abs-one", "library-a"),
         ("abs-two", "library-b")
     ]
+    assert rows[0]["id"] == holding["id"], "adding a projection must not replace the original identity"
+    identities = [tuple(row) for row in rows]
+    # Clearing/replacing generic inline metadata is NOT an exact connector
+    # detach instruction. The connector owns removal of its one selected ID.
+    db.execute("UPDATE items SET abs_id = NULL, abs_library_id = NULL WHERE id = ?", (item_id,))
+    holdings.sync_item_holding(db, item_id)
+    assert [tuple(row) for row in db.execute(
+        "SELECT id, external_id, library_id FROM digital_holdings "
+        "WHERE item_id = ? AND provider = 'audiobookshelf' ORDER BY external_id", (item_id,),
+    )] == identities
 
 
 def test_periodical_publication_can_own_multiple_issue_items(db):

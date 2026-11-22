@@ -4,7 +4,8 @@ import httpx
 import pytest
 
 from app.database import get_db
-from app.services import holdings, magazine_google, periodical_records, provider_result
+from app.services import libraries, magazine_google, periodical_records, provider_result
+from app.services.item_write import insert_item
 
 
 def _google_issue(volume_id="ps-2008-05", published="2008-05"):
@@ -37,18 +38,13 @@ def _seed_issue(
     title="Popular Science",
     cover_path=None,
 ):
-    item_id = db.execute(
-        "INSERT INTO items "
-        "(title, media_type, source, owned, cover_path, publish_year, series_name) "
-        "VALUES (?, 'magazine', 'test', ?, ?, ?, ?)",
-        (
-            title,
-            owned,
-            cover_path,
-            int(issue_date[:4]) if issue_date else None,
-            title,
-        ),
-    ).lastrowid
+    # These are NEW physical issues, not historical zero-copy archive rows.
+    item_id = insert_item(
+        db, title=title, media_type="magazine", source="test", owned=owned,
+        wishlisted=not owned, library_id=libraries.DEFAULT_LIBRARY_ID,
+        cover_path=cover_path, publish_year=int(issue_date[:4]) if issue_date else None,
+        series_name=title,
+    )
     periodical_records.link_issue(
         db,
         item_id=item_id,
@@ -58,7 +54,6 @@ def _seed_issue(
         issue_date=issue_date,
         cover_date_label=issue_date,
     )
-    holdings.sync_item_holding(db, item_id)
     return item_id
 
 
@@ -117,7 +112,7 @@ def test_scanned_magazine_search_preserves_barcode_context(
             "google_volume_id": "diecast-55",
             "title": "Diecast Collector",
             "publisher": "Example Publisher",
-            "issn": "1396-5363",
+            "issn": "1396-5360",
             "issue_date": "2002-05",
             "cover_url": None,
         }])
@@ -152,7 +147,7 @@ def test_select_search_result_prefills_issue_without_adding(
             "title": "Diecast Collector",
             "publisher": "Example Publisher",
             "description": "Model collecting magazine.",
-            "issn": "1396-5363",
+            "issn": "1396-5360",
             "issue_date": "2002-05",
             "publish_year": 2002,
             "page_count": 96,
@@ -177,7 +172,7 @@ def test_select_search_result_prefills_issue_without_adding(
     assert 'name="google_volume_id" value="diecast-55"' in response.text
     assert 'name="carrier_ean" value="9770953616115"' in response.text
     assert 'name="barcode_supplement" value="04"' in response.text
-    assert 'name="issn" value="1396-5363"' in response.text
+    assert 'name="issn" value="1396-5360"' in response.text
     assert "Barcode search hint: ISSN 0953-6167" in response.text
     assert "Selected from Google Books search" in response.text
     assert db.execute("SELECT COUNT(*) AS c FROM items").fetchone()["c"] == 0
@@ -193,7 +188,7 @@ def test_selected_search_result_can_override_barcode_issn_hint(
             "title": "Diecast Collector",
             "publisher": "Example Publisher",
             "description": None,
-            "issn": "1396-5363",
+            "issn": "1396-5360",
             "issue_date": "2002-05",
             "publish_year": 2002,
             "page_count": 96,
@@ -217,7 +212,7 @@ def test_selected_search_result_can_override_barcode_issn_hint(
         "SELECT title, issn FROM periodical_publications"
     ).fetchone()
     assert publication["title"] == "Diecast Collector"
-    assert publication["issn"] == "1396-5363"
+    assert publication["issn"] == "1396-5360"
     issue = db.execute(
         "SELECT barcode_ean, barcode_supplement FROM periodical_issues"
     ).fetchone()
@@ -276,8 +271,8 @@ def test_publication_catalogue_summarises_issues_copies_and_internal_gaps(db):
     first_id = _seed_issue(
         db, publication_id, "1", "2024-01", volume="7", cover_path="covers/first.jpg"
     )
-    _seed_issue(db, publication_id, "3", "2024-03", volume="7")
-    _seed_issue(db, publication_id, "4", "2024-04", volume="7", owned=0)
+    third_id = _seed_issue(db, publication_id, "3", "2024-03", volume="7")
+    wishlist_id = _seed_issue(db, publication_id, "4", "2024-04", volume="7", owned=0)
     db.execute(
         "INSERT INTO item_copies (item_id, copy_number, is_primary) VALUES (?, 2, 0)",
         (first_id,),
@@ -292,6 +287,10 @@ def test_publication_catalogue_summarises_issues_copies_and_internal_gaps(db):
     assert catalogue["wishlist_issue_count"] == 1
     assert catalogue["physical_copy_count"] == 3
     assert catalogue["extra_copy_count"] == 1
+    assert [tuple(row) for row in db.execute(
+        "SELECT item_id, COUNT(*) FROM item_copies GROUP BY item_id ORDER BY item_id"
+    )] == [(first_id, 2), (third_id, 1)]
+    assert [row[0] for row in db.execute("SELECT item_id FROM list_items")] == [wishlist_id]
     assert catalogue["potential_gaps"] == [
         {"volume": "7", "start": 1, "end": 4, "missing": [2]}
     ]

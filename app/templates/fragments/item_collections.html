@@ -1,4 +1,4 @@
-{% set can_edit = user and user.role in ('admin', 'editor') %}
+{% set can_edit = can_edit_item|default(false) %}
 <div id="item-collections" class="mt-5 pt-5 border-t border-shelf-border" data-testid="item-collections">
     <div class="flex items-center justify-between gap-3 mb-2">
         <h3 class="text-xs font-semibold uppercase tracking-wider text-shelf-muted">Collections</h3>

@@ -24,6 +24,7 @@ import logging
 import threading
 import time
 from collections import deque
+from contextvars import Context
 from dataclasses import dataclass, field
 from typing import Awaitable, Callable
 
@@ -192,8 +193,8 @@ def start(provider: str, runner: Runner, *, source: str = "manual") -> dict:
     job = _Job(provider=provider, source=source)
     job.task = loop.create_future()
     job.thread = threading.Thread(
-        target=_worker_main,
-        args=(job, runner, loop),
+        target=Context().run,
+        args=(_worker_main, job, runner, loop),
         name=f"shelf-sync-{provider}",
         daemon=True,
     )
@@ -207,9 +208,13 @@ async def wait(provider: str) -> dict:
     job = _jobs.get(provider)
     if job and job.task and not job.task.done():
         try:
-            await job.task
+            await asyncio.shield(job.task)
         except asyncio.CancelledError:
-            pass
+            # A caller shutting down must remain cancellable; don't swallow its
+            # cancellation or cancel a worker-owned completion future with it.
+            caller = asyncio.current_task()
+            if caller is not None and caller.cancelling():
+                raise
     return get_status(provider)
 
 

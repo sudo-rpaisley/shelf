@@ -5,62 +5,29 @@ item row.  This module adds a compatibility membership table so an item can
 belong to more than one ordered series without breaking existing filters,
 imports, series management or integrations that still read the legacy pair.
 
-The legacy pair is treated as the primary membership and is kept in sync.  The
-membership table is created/backfilled idempotently when this feature is first
-used; existing libraries therefore acquire memberships without a destructive
-migration or data rewrite.
+The legacy pair is the primary compatibility projection. Central initialization
+alone owns schema and one-time migration; writes maintain the projection without
+lazy request-time backfills or endpoint replacement.
 """
 
 from __future__ import annotations
 
-from fastapi import Depends, Form, HTTPException, Request
+from math import isfinite
+
+from fastapi import APIRouter, Depends, Form, HTTPException, Request
 from fastapi.responses import HTMLResponse
 
-from app.auth import require_role
+from app.features import require_feature
 from app.config import MEDIA_FAMILIES
-from app.database import get_db
-from app.routers.series import MAX_SERIES_NAME, router
+from app.database import get_db, ensure_series_memberships_schema
+from app.routers.series import LIVE_SERIES_MEMBERSHIPS, MAX_SERIES_NAME, _require_series_role
+from app.services import libraries
+from app.services.catalogue_security import require_catalogue_role, require_item_role
 from app.services.item_write import update_item_fields
 
 
-_ITEM_SERIES_SCHEMA = """
-CREATE TABLE IF NOT EXISTS item_series (
-    item_id      INTEGER NOT NULL REFERENCES items(id) ON DELETE CASCADE,
-    series_name  TEXT NOT NULL COLLATE NOCASE,
-    position     REAL,
-    is_primary   INTEGER NOT NULL DEFAULT 0,
-    created_at   TEXT NOT NULL DEFAULT (datetime('now')),
-    PRIMARY KEY (item_id, series_name)
-)
-"""
-
-
-def _ensure_item_series_schema(db) -> None:
-    """Create/backfill the compatibility membership table idempotently.
-
-    The reconciliation step makes edits performed through Shelf's older
-    single-series field safe: the old primary membership is removed when the
-    legacy field changes, while secondary memberships remain untouched.
-    """
-    db.execute(_ITEM_SERIES_SCHEMA)
-    db.execute(
-        "CREATE INDEX IF NOT EXISTS idx_item_series_name "
-        "ON item_series(series_name COLLATE NOCASE)"
-    )
-    db.execute(
-        "DELETE FROM item_series WHERE is_primary = 1 AND NOT EXISTS ("
-        "SELECT 1 FROM items i WHERE i.id = item_series.item_id "
-        "AND i.series_name IS NOT NULL AND TRIM(i.series_name) != '' "
-        "AND TRIM(i.series_name) = item_series.series_name COLLATE NOCASE"
-        ")"
-    )
-    db.execute(
-        "INSERT INTO item_series (item_id, series_name, position, is_primary) "
-        "SELECT id, TRIM(series_name), series_position, 1 FROM items "
-        "WHERE series_name IS NOT NULL AND TRIM(series_name) != '' "
-        "ON CONFLICT(item_id, series_name) DO UPDATE SET "
-        "position = excluded.position, is_primary = 1"
-    )
+router = APIRouter(dependencies=[Depends(require_feature("series"))])
+_ensure_item_series_schema = ensure_series_memberships_schema
 
 
 def _family_types(media_type: str) -> tuple[str, ...]:
@@ -75,7 +42,10 @@ def _parse_position(raw: str | None) -> float | None:
     if not value:
         return None
     try:
-        return float(value)
+        parsed = float(value)
+        if not isfinite(parsed):
+            raise ValueError("Series position must be finite")
+        return parsed
     except ValueError as exc:
         raise ValueError("Series position must be a number") from exc
 
@@ -83,7 +53,7 @@ def _parse_position(raw: str | None) -> float | None:
 def _item_and_series_context(db, item_id: int) -> dict | None:
     _ensure_item_series_schema(db)
     item_row = db.execute(
-        "SELECT id, title, media_type, series_name, series_position FROM items WHERE id = ?",
+        "SELECT id, title, media_type, series_name, series_position FROM items_live WHERE id = ?",
         (item_id,),
     ).fetchone()
     if not item_row:
@@ -93,7 +63,7 @@ def _item_and_series_context(db, item_id: int) -> dict | None:
     memberships = [
         dict(row)
         for row in db.execute(
-            "SELECT series_name, position, is_primary FROM item_series "
+            f"SELECT series_name, position, is_primary FROM {LIVE_SERIES_MEMBERSHIPS} "
             "WHERE item_id = ? ORDER BY is_primary DESC, series_name COLLATE NOCASE",
             (item_id,),
         ).fetchall()
@@ -107,8 +77,8 @@ def _item_and_series_context(db, item_id: int) -> dict | None:
             dict(row)
             for row in db.execute(
                 "SELECT i.id, i.title, i.authors, i.cover_path, i.media_type, "
-                "i.publish_year, s.position FROM item_series s "
-                "JOIN items i ON i.id = s.item_id "
+                f"i.publish_year, s.position FROM {LIVE_SERIES_MEMBERSHIPS} s "
+                "JOIN items_live i ON i.id = s.item_id "
                 "WHERE s.series_name = ? COLLATE NOCASE "
                 f"AND i.media_type IN ({placeholders}) "
                 "ORDER BY s.position IS NULL, s.position, i.publish_year IS NULL, "
@@ -131,8 +101,8 @@ def _item_and_series_context(db, item_id: int) -> dict | None:
     known_names = [
         row["series_name"]
         for row in db.execute(
-            "SELECT series_name FROM item_series GROUP BY series_name COLLATE NOCASE "
-            "ORDER BY series_name COLLATE NOCASE"
+            f"SELECT s.series_name FROM {LIVE_SERIES_MEMBERSHIPS} s "
+            "GROUP BY s.series_name COLLATE NOCASE ORDER BY s.series_name COLLATE NOCASE"
         ).fetchall()
     ]
 
@@ -146,12 +116,12 @@ def _item_and_series_context(db, item_id: int) -> dict | None:
 
 def _render_panel(request: Request, item_id: int):
     with get_db() as db:
+        require_item_role(db, item_id, "viewer")
         context = _item_and_series_context(db, item_id)
+        if context:
+            context["can_edit"] = libraries.has_item_role(db, dict(request.state.user), item_id, "editor")
     if not context:
         return HTMLResponse("Item not found", status_code=404)
-    user = getattr(request.state, "user", None)
-    role = user.get("role") if isinstance(user, dict) else getattr(user, "role", None)
-    context["can_edit"] = role in ("admin", "editor")
     return request.app.state.templates.TemplateResponse(
         request,
         "fragments/item_series_rows.html",
@@ -163,7 +133,7 @@ def _render_panel(request: Request, item_id: int):
 async def item_series_rows(
     request: Request,
     item_id: int,
-    _=Depends(require_role("viewer")),
+    _=Depends(require_catalogue_role("viewer")),
 ):
     return _render_panel(request, item_id)
 
@@ -174,7 +144,7 @@ async def upsert_item_series_membership(
     item_id: int,
     series_name: str = Form(...),
     position: str = Form(""),
-    _=Depends(require_role("editor")),
+    _=Depends(require_catalogue_role("editor")),
 ):
     name = (series_name or "").strip()
     if not name:
@@ -187,9 +157,12 @@ async def upsert_item_series_membership(
         return HTMLResponse(str(exc), status_code=400)
 
     with get_db() as db:
+        db.execute("BEGIN IMMEDIATE")
+        require_item_role(db, item_id, "editor")
+        _require_series_role(db, name)
         _ensure_item_series_schema(db)
         item = db.execute(
-            "SELECT id, series_name FROM items WHERE id = ?", (item_id,)
+            "SELECT id, series_name FROM items_live WHERE id = ?", (item_id,)
         ).fetchone()
         if not item:
             raise HTTPException(status_code=404, detail="Item not found")
@@ -231,16 +204,19 @@ async def remove_item_series_membership(
     request: Request,
     item_id: int,
     series_name: str = Form(...),
-    _=Depends(require_role("editor")),
+    _=Depends(require_catalogue_role("editor")),
 ):
     name = (series_name or "").strip()
     if not name:
         return HTMLResponse("Series name is required", status_code=400)
 
     with get_db() as db:
+        db.execute("BEGIN IMMEDIATE")
+        require_item_role(db, item_id, "editor")
+        _require_series_role(db, name)
         _ensure_item_series_schema(db)
         membership = db.execute(
-            "SELECT is_primary FROM item_series "
+            f"SELECT is_primary FROM {LIVE_SERIES_MEMBERSHIPS} "
             "WHERE item_id = ? AND series_name = ? COLLATE NOCASE",
             (item_id, name),
         ).fetchone()
@@ -248,17 +224,21 @@ async def remove_item_series_membership(
             return _render_panel(request, item_id)
 
         was_primary = bool(membership["is_primary"])
+        replacement = None
+        if was_primary:
+            replacement = db.execute(
+                "SELECT series_name, position FROM item_series WHERE item_id = ? "
+                "AND series_name != ? COLLATE NOCASE "
+                "ORDER BY created_at, series_name COLLATE NOCASE LIMIT 1", (item_id, name),
+            ).fetchone()
+            if replacement:
+                _require_series_role(db, replacement["series_name"])
         db.execute(
             "DELETE FROM item_series WHERE item_id = ? AND series_name = ? COLLATE NOCASE",
             (item_id, name),
         )
 
         if was_primary:
-            replacement = db.execute(
-                "SELECT series_name, position FROM item_series WHERE item_id = ? "
-                "ORDER BY created_at, series_name COLLATE NOCASE LIMIT 1",
-                (item_id,),
-            ).fetchone()
             if replacement:
                 db.execute(
                     "UPDATE item_series SET is_primary = CASE "

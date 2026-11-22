@@ -8,7 +8,8 @@ pytestmark = pytest.mark.e2e
 
 
 def test_share_link_full_lifecycle(live_server, browser, authed_page):
-    insert_item(live_server["data_dir"], title="Share Me", isbn="9789050000192", owned=0)
+    insert_item(live_server["data_dir"], title="Share Me", isbn="9789050000192", owned=0,
+                wishlisted=True)
 
     # Create a wishlist link on the settings Data tab
     authed_page.goto(f"{live_server['url']}/settings")
@@ -17,8 +18,8 @@ def test_share_link_full_lifecycle(live_server, browser, authed_page):
     share_form = authed_page.locator("form[action='/api/share']")
     share_form.locator("select[name=scope]").select_option("wishlist")
     share_form.locator("input[name=label]").fill("E2E Gift List")
-    share_form.locator("button[type=submit]").click()
-    authed_page.wait_for_load_state("networkidle")
+    with authed_page.expect_navigation():
+        share_form.locator("button[type=submit]").click()
 
     authed_page.locator("button:has-text('Data')").click()
     row = authed_page.get_by_test_id("share-link-row").first
@@ -43,9 +44,9 @@ def test_share_link_full_lifecycle(live_server, browser, authed_page):
         assert page.evaluate("window.__cspViolations") == []
 
         # Revoke in the admin session; public access dies
-        authed_page.get_by_test_id("share-link-row").first.locator(
-            "button:has-text('Revoke')").click()
-        authed_page.wait_for_load_state("networkidle")
+        with authed_page.expect_navigation():
+            authed_page.get_by_test_id("share-link-row").first.locator(
+                "button:has-text('Revoke')").click()
         resp = page.goto(share_url)
         assert resp.status == 404
         assert_page_clean(page)

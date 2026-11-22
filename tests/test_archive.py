@@ -13,6 +13,10 @@ import pytest
 from app import config
 from app.database import get_db
 from app.services import archive as archive_svc
+from app.services import item_copies
+from app.services import item_write
+from app.services import lists
+from app.services import location_tree
 from app.services.archive import (
     ArchiveError,
     apply_plan,
@@ -21,9 +25,20 @@ from app.services.archive import (
     plan_archive,
     read_archive,
 )
-from tests.conftest import _insert_borrower, _insert_item, _insert_location
+from tests.conftest import (
+    _insert_borrower,
+    _insert_item,
+    _insert_location,
+    _insert_node_location,
+    _insert_personal_history,
+    _legacy_location,
+)
 
 # Hostile fixtures are built in-test with zipfile — no binary blobs checked in.
+# Deliberately pinned to version 1, not archive_svc.FORMAT_VERSION: these
+# hand-built fixtures carry no `deleted_at` on their items/copies, so they
+# are the v1 (pre-Trash) coverage on purpose (G78) — a real v2 export is
+# Trash and the v3 NODE path are exercised through build_archive() instead.
 _MANIFEST = json.dumps({"format": "shelf-archive", "version": 1,
                         "exported_at": "2026-08-18T00:00:00Z",
                         "app_version": None, "counts": {}})
@@ -44,11 +59,12 @@ def _write_zip(path, entries, *, manifest=_MANIFEST, library=_LIBRARY):
     return path
 
 
-def _seed_full_library(db):
+def _seed_full_library(db, *, personal_user_id=None):
     """Seed one item exercising every derived/joined field the exporter
     touches: location, tags, cover, series, reading_log, checkouts,
     valuation_history."""
-    loc_id = _insert_location(db, name="Living Room")
+    node_id = _insert_node_location(db, name="Living Room")
+    loc_id = _legacy_location(db, node_id)
     borrower_id = _insert_borrower(db, name="Alex")
 
     item_id = _insert_item(
@@ -72,6 +88,15 @@ def _seed_full_library(db):
     tag_id = db.execute("SELECT id FROM tags WHERE name = 'sci-fi'").fetchone()["id"]
     db.execute("INSERT INTO item_tags (item_id, tag_id) VALUES (?, ?)", (item_id, tag_id))
 
+    # Mirrors what app.services.item_copies.sync_primary_location creates for
+    # any item inserted through the real write funnel with a location_id set
+    # — _insert_item here is a raw INSERT that bypasses the funnel, so this
+    # keeps the fixture's item_copies state consistent with production rather
+    # than leaving it artificially copy-less.
+    item_copies.insert_copy(db, {
+        "item_id": item_id, "copy_number": 1, "location_id": node_id, "is_primary": 1,
+    })
+
     config.COVERS_DIR.mkdir(parents=True, exist_ok=True)
     cover_path = config.COVERS_DIR / f"{item_id}.jpg"
     # Must clear covers.MIN_COVER_SIZE — the reader validates cover bytes the
@@ -88,6 +113,11 @@ def _seed_full_library(db):
         "INSERT INTO reading_log (item_id, status, date_started, notes) VALUES (?, ?, ?, ?)",
         (item_id, "reading", "2026-01-01", "started it"),
     )
+    if personal_user_id is not None:
+        _insert_personal_history(
+            db, personal_user_id, item_id, status="reading",
+            date_started="2026-01-01", notes="started it",
+        )
 
     db.execute(
         "INSERT INTO checkouts (item_id, borrower_id, due_date, notes) VALUES (?, ?, ?, ?)",
@@ -98,7 +128,7 @@ def _seed_full_library(db):
         "INSERT INTO valuation_history (total_value, priced_count) VALUES (?, ?)",
         (42.50, 1),
     )
-    db.execute("COMMIT")
+    db.commit()
     return item_id
 
 
@@ -112,9 +142,14 @@ def _load_zip(content: bytes):
 class TestBuildArchive:
     def test_contract_shape(self, db):
         item_id = _seed_full_library(db)
+        source_copy = db.execute(
+            "SELECT id, created_at FROM item_copies WHERE item_id = ?", (item_id,),
+        ).fetchone()
         path = build_archive(db)
         assert path.exists()
-        assert path.name == "shelf_archive_tmp.zip"
+        assert re.fullmatch(r"shelf_archive_[A-Za-z0-9_\-]+\.zip", path.name)
+        assert path.parent == config.DATA_DIR
+        assert path.stat().st_mode & 0o777 == 0o600
 
         with zipfile.ZipFile(path) as zf:
             manifest = json.loads(zf.read("manifest.json"))
@@ -123,7 +158,7 @@ class TestBuildArchive:
 
         # Manifest shape
         assert manifest["format"] == "shelf-archive"
-        assert manifest["version"] == 1
+        assert manifest["version"] == archive_svc.FORMAT_VERSION == 3
         assert manifest["app_version"] is None
         assert re.match(r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$", manifest["exported_at"])
         assert manifest["counts"]["items"] == 1
@@ -136,8 +171,20 @@ class TestBuildArchive:
         assert item["id"] == 1  # archive-local, not the real db id
         assert item["title"] == "Dune"
         assert item["location"] == "Living Room"
+        assert item["deleted_at"] is None
         assert item["tags"] == ["sci-fi"]
         assert item["cover"] == "covers/1.jpg"
+        assert item["copies"] == [{
+            "copy_number": 1, "location": "Living Room", "is_primary": 1,
+            "position_order": None, "condition": None, "acquired_date": None,
+            "acquisition_source": None, "acquisition_price": None,
+            "provenance": None, "notes": None, "copy_barcode": None,
+            "location_domain": "node",
+            "location_path": [{"name": "Living Room", "sort_order": 0,
+                               "legacy_location": "Living Room"}],
+            "source_copy_id": source_copy["id"], "created_at": source_copy["created_at"],
+            "deleted_at": None,
+        }]
         for forbidden in ("abs_id", "abs_library_id", "location_id", "cover_path"):
             assert forbidden not in item
 
@@ -146,7 +193,9 @@ class TestBuildArchive:
 
         # locations/tags/borrowers by name
         assert library["locations"] == [{"name": "Living Room", "sort_order": 0}]
-        assert library["tags"] == [{"name": "sci-fi"}]
+        # `media_type` rides on every tag, null for a global one — absent
+        # and null are deliberately one answer here (the scope is advisory).
+        assert library["tags"] == [{"name": "sci-fi", "media_type": None}]
         assert library["borrowers"] == [{"name": "Alex"}]
 
         # series
@@ -177,7 +226,7 @@ class TestBuildArchive:
             "UPDATE items SET cover_path = ? WHERE id = ?",
             (f"covers/{item_id}.jpg", item_id),
         )
-        db.execute("COMMIT")
+        db.commit()
         # Deliberately do NOT write the file to disk.
 
         path = build_archive(db)
@@ -201,20 +250,197 @@ class TestBuildArchive:
 
     def test_overwrites_previous_tmp_archive(self, db):
         _insert_item(db, title="First", isbn="9780000000026")
-        db.execute("COMMIT")
+        db.commit()
         path1 = build_archive(db)
         size1 = path1.stat().st_size
+        original_bytes = path1.read_bytes()
 
         _insert_item(db, title="Second", isbn="9780000000002")
-        db.execute("COMMIT")
+        db.commit()
         path2 = build_archive(db)
 
-        assert path1 == path2
+        # Security transition: a delayed first response must retain its OWN
+        # payload, not the second actor/request's replacement file.
+        assert path1 != path2
+        assert path1.read_bytes() == original_bytes
+        with zipfile.ZipFile(path1) as zf:
+            first_library = json.loads(zf.read("library.json"))
+        assert [item["title"] for item in first_library["items"]] == ["First"]
         with zipfile.ZipFile(path2) as zf:
             library = json.loads(zf.read("library.json"))
         assert len(library["items"]) == 2
         # sanity: the file actually changed (not stale content)
         assert path2.stat().st_size != size1 or len(library["items"]) == 2
+
+    def test_item_with_two_copies_exports_both(self, db):
+        """A merged item legitimately has copies in two rooms — the export
+        must not collapse to the single legacy `location` name."""
+        item_id = _insert_item(db, title="Foundation", isbn="9780553293357")
+        loc_a = _insert_node_location(db, name="Living Room")
+        loc_b = _insert_node_location(db, name="Office")
+        copy_a = item_copies.insert_copy(db, {
+            "item_id": item_id, "copy_number": 1, "location_id": loc_a,
+            "is_primary": 1, "position_order": 3, "condition": "Good",
+            "acquired_date": "2020-01-01", "acquisition_source": "Gift",
+            "acquisition_price": 12.5, "provenance": "From Grandma",
+            "notes": "First copy", "copy_barcode": "ASSET-001",
+        })
+        copy_b = item_copies.insert_copy(db, {
+            "item_id": item_id, "copy_number": 2, "location_id": loc_b,
+            "is_primary": 0, "position_order": 1, "condition": "Fair",
+            "acquired_date": "2021-06-15", "acquisition_source": "Used bookstore",
+            "acquisition_price": 4.0, "provenance": None,
+            "notes": "Second copy", "copy_barcode": "ASSET-002",
+        })
+        created_at = {
+            row["id"]: row["created_at"] for row in db.execute(
+                "SELECT id, created_at FROM item_copies WHERE item_id = ?", (item_id,),
+            )
+        }
+        db.commit()
+
+        path = build_archive(db)
+        with zipfile.ZipFile(path) as zf:
+            library = json.loads(zf.read("library.json"))
+
+        copies = library["items"][0]["copies"]
+        assert [c["copy_number"] for c in copies] == [1, 2]
+        assert copies[0] == {
+            "copy_number": 1, "location": "Living Room", "is_primary": 1,
+            "position_order": 3, "condition": "Good",
+            "acquired_date": "2020-01-01", "acquisition_source": "Gift",
+            "acquisition_price": 12.5, "provenance": "From Grandma",
+            "notes": "First copy", "copy_barcode": "ASSET-001",
+            "location_domain": "node",
+            "location_path": [{"name": "Living Room", "sort_order": 0,
+                               "legacy_location": "Living Room"}],
+            "source_copy_id": copy_a, "created_at": created_at[copy_a],
+            "deleted_at": None,
+        }
+        assert copies[1] == {
+            "copy_number": 2, "location": "Office", "is_primary": 0,
+            "position_order": 1, "condition": "Fair",
+            "acquired_date": "2021-06-15", "acquisition_source": "Used bookstore",
+            "acquisition_price": 4.0, "provenance": None,
+            "notes": "Second copy", "copy_barcode": "ASSET-002",
+            "location_domain": "node",
+            "location_path": [{"name": "Office", "sort_order": 0,
+                               "legacy_location": "Office"}],
+            "source_copy_id": copy_b, "created_at": created_at[copy_b],
+            "deleted_at": None,
+        }
+
+    def test_a_copys_missing_mark_is_not_exported(self, db):
+        """Audits and missing marks are history, not catalogue: a restored
+        copy is not missing until the next audit says so."""
+        item_id = _insert_item(db, title="Lost Book", isbn="9780553293364")
+        loc = _insert_node_location(db, name="Den")
+        copy_id = item_copies.insert_copy(db, {
+            "item_id": item_id, "copy_number": 1, "location_id": loc, "is_primary": 1,
+        })
+        assert item_copies.mark_missing(db, copy_id)
+        db.commit()
+
+        path = build_archive(db)
+        with zipfile.ZipFile(path) as zf:
+            library = json.loads(zf.read("library.json"))
+        copies = library["items"][0]["copies"]
+        assert len(copies) == 1
+        assert "missing_since" not in copies[0]
+
+    def test_item_with_no_copies_exports_empty_list(self, db):
+        """Absence of the `copies` key is what T8's back-compat branch must
+        detect (every archive taken before this ships) — an item that was
+        exported by this code but simply owns no copies must be
+        distinguishable from that: `[]`, not a missing key."""
+        _insert_item(db, title="No Copies", isbn="9780000000132")
+        db.commit()
+
+        path = build_archive(db)
+        with zipfile.ZipFile(path) as zf:
+            library = json.loads(zf.read("library.json"))
+
+        item = library["items"][0]
+        assert "copies" in item
+        assert item["copies"] == []
+
+    def test_copies_query_runs_once_not_per_item(self, db, monkeypatch):
+        """`_copies_by_item` is one grouped query for the whole export — an
+        N+1 over item_copies would call it once per item instead of once
+        for the entire run, however many items are exported."""
+        for i in range(3):
+            item_id = _insert_item(db, title=f"Book {i}", isbn=f"97800000001{i:02d}")
+            item_copies.insert_copy(db, {"item_id": item_id, "copy_number": 1})
+        db.commit()
+
+        calls = []
+        original = archive_svc._copies_by_item
+
+        def spy(db_arg):
+            calls.append(db_arg)
+            return original(db_arg)
+
+        monkeypatch.setattr(archive_svc, "_copies_by_item", spy)
+        build_archive(db)
+        assert len(calls) == 1
+
+
+class TestBuildArchiveCarriesTrash:
+    """FORMAT_VERSION 2 — the export reads the physical items/item_copies
+    tables so a trashed row is carried instead of silently omitted
+    (design plan-soft-delete-export)."""
+
+    def test_trashed_item_exports_with_deleted_at_and_its_children(self, db):
+        """`_build_items`'s id_map is built from every row it reads, live or
+        trashed, so a trashed item's tags, reading log, checkout and copies
+        follow it into the archive with no edit of their own."""
+        item_id = _seed_full_library(db)
+        assert item_write.trash_item(db, item_id) is True
+
+        path = build_archive(db)
+        with zipfile.ZipFile(path) as zf:
+            library = json.loads(zf.read("library.json"))
+
+        assert len(library["items"]) == 1
+        item = library["items"][0]
+        assert item["deleted_at"] is not None
+        assert item["tags"] == ["sci-fi"]
+        assert item["copies"]
+        assert library["reading_log"][0]["item_id"] == item["id"]
+        assert library["checkouts"][0]["item_id"] == item["id"]
+
+    def test_live_item_exports_deleted_at_none(self, db):
+        _insert_item(db, title="Still Here", isbn="9780000000149")
+        db.commit()
+
+        path = build_archive(db)
+        with zipfile.ZipFile(path) as zf:
+            library = json.loads(zf.read("library.json"))
+
+        assert library["items"][0]["deleted_at"] is None
+
+    def test_a_trashed_primary_copy_exports_demoted_with_its_deleted_at(self, db):
+        """Trashing a primary copy with a survivor demotes it and promotes
+        the survivor (`item_copies.trash_copy`'s own stamp-and-demote
+        invariant, G107) — both states must round-trip into the archive
+        exactly as stored."""
+        item_id = _insert_item(db, title="Two Copies", isbn="9780000000156")
+        primary_id = item_copies.insert_copy(
+            db, {"item_id": item_id, "copy_number": 1, "is_primary": 1}
+        )
+        item_copies.insert_copy(db, {"item_id": item_id, "copy_number": 2})
+        assert item_copies.trash_copy(db, primary_id) is not None
+        db.commit()
+
+        path = build_archive(db)
+        with zipfile.ZipFile(path) as zf:
+            library = json.loads(zf.read("library.json"))
+
+        copies = {c["copy_number"]: c for c in library["items"][0]["copies"]}
+        assert copies[1]["deleted_at"] is not None
+        assert copies[1]["is_primary"] == 0
+        assert copies[2]["deleted_at"] is None
+        assert copies[2]["is_primary"] == 1
 
 
 class TestExportArchiveEndpoint:
@@ -330,7 +556,10 @@ class TestReaderManifestGate:
 
     def test_rejects_future_version(self, tmp_path):
         p = _write_zip(tmp_path / "a.zip", [],
-                       manifest=json.dumps({"format": "shelf-archive", "version": 2}))
+                       manifest=json.dumps({
+                           "format": "shelf-archive",
+                           "version": archive_svc.FORMAT_VERSION + 1,
+                       }))
         with pytest.raises(ArchiveError, match="newer version of Shelf"):
             read_archive(p)
 
@@ -449,7 +678,7 @@ class TestReaderSelfCompatibility:
         path = build_archive(db)
         with read_archive(path) as reader:
             assert reader.manifest["format"] == "shelf-archive"
-            assert reader.manifest["version"] == 1
+            assert reader.manifest["version"] == archive_svc.FORMAT_VERSION
             lib = reader.library
             assert len(lib["items"]) == 1
             cover_name = lib["items"][0]["cover"]
@@ -468,9 +697,15 @@ def _wipe_library(db):
     table and the covers dir. users/settings/scan_log/etc. are out of scope
     for the archive format and are left alone."""
     for table in ("item_tags", "checkouts", "reading_log", "valuation_history",
-                  "items", "tags", "locations", "borrowers", "series_meta"):
-        db.execute(f"DELETE FROM {table}")
-    db.execute("COMMIT")
+                  "items", "tags", "location_nodes", "locations", "borrowers", "series_meta"):
+        if table == "location_nodes":
+            # A fresh receiving instance has no leftover NODE bindings. Delete
+            # children first: the real hierarchy FK is ON DELETE RESTRICT.
+            for node in reversed(location_tree.flattened_tree(db)):
+                db.execute("DELETE FROM location_nodes WHERE id = ?", (node["id"],))
+        else:
+            db.execute(f"DELETE FROM {table}")
+    db.commit()
     if config.COVERS_DIR.exists():
         shutil.rmtree(config.COVERS_DIR)
     config.COVERS_DIR.mkdir(parents=True, exist_ok=True)
@@ -496,17 +731,26 @@ def _normalize_library(library: dict) -> dict:
     are keyed by their dedupe identity instead, and reading_log/checkouts
     reference that same key rather than a raw id. `cover` collapses to a
     presence flag — the round-trip test checks cover *bytes* separately.
+    v3 source_copy_id is informational, not a receiving-instance identity:
+    normalize it to the copy number while retaining every other copy field.
+    Matched copies' permanent receiving IDs are checked without normalization.
 
     Items compare as a sorted LIST, not a dict keyed by identity: two items
     can legitimately share a dedupe key (same title + author, no ISBN), and
     keying them into a dict would silently collapse both sides — hiding
     exactly the item-loss this round trip exists to catch."""
     id_to_key = {it["id"]: _item_key(it) for it in library["items"]}
+    source_copy_ids = [copy["source_copy_id"]
+                       for it in library["items"] for copy in it["copies"]]
+    assert all(type(copy_id) is int and copy_id > 0 for copy_id in source_copy_ids)
+    assert len(set(source_copy_ids)) == len(source_copy_ids)
     items_norm = []
     for it in library["items"]:
         d = dict(it)
         d.pop("id", None)
         d["cover"] = bool(d.get("cover"))
+        d["copies"] = [{**copy, "source_copy_id": copy["copy_number"]}
+                       for copy in d["copies"]]
         items_norm.append(d)
     items_norm.sort(key=lambda d: json.dumps(d, sort_keys=True, default=str))
 
@@ -550,7 +794,7 @@ class TestRoundTripFreshInstance:
 
         with read_archive(original_path) as reader:
             report = merge_archive(db, reader, mode="skip")
-        db.execute("COMMIT")
+        db.commit()
 
         assert report["imported"] == len(original_library["items"])
         assert report["errors"] == []
@@ -579,7 +823,7 @@ class TestRoundTripFreshInstance:
         )
         # Seed the item with language='de' (German)
         db.execute("UPDATE items SET language = ? WHERE id = ?", ("de", item_id))
-        db.execute("COMMIT")
+        db.commit()
 
         original_path = build_archive(db)
         with zipfile.ZipFile(original_path) as zf:
@@ -592,7 +836,7 @@ class TestRoundTripFreshInstance:
 
         with read_archive(original_path) as reader:
             report = merge_archive(db, reader, mode="skip")
-        db.execute("COMMIT")
+        db.commit()
 
         assert report["imported"] == 1
         assert report["errors"] == []
@@ -630,7 +874,79 @@ class TestRoundTripDuplicateDedupeKeys:
         # The ISBN path can't collide: items has UNIQUE(isbn, media_type), so
         # a duplicate pair is unrepresentable there. This is the only path
         # where one dedupe key can cover two rows.
-        db.execute("COMMIT")
+        db.commit()
+
+    def test_round_trip_preserves_a_cover_review_dismissal(self, db):
+        """A "Not available" verdict survives export -> wipe -> import.
+
+        `_ITEM_COLUMNS` is a whitelist, so a column absent from it is silently
+        dropped on export and reset on import — which would resurrect every
+        item the user had dismissed, the exact non-convergence the column
+        exists to end.
+        """
+        item_id = _insert_item(db, title="Obscure Self-Published Thing",
+                               media_type="book")
+        db.execute("UPDATE items SET cover_review_dismissed = 1 WHERE id = ?",
+                   (item_id,))
+        db.commit()
+
+        path = build_archive(db)
+        with zipfile.ZipFile(path) as zf:
+            library = json.loads(zf.read("library.json"))
+        assert library["items"][0]["cover_review_dismissed"] == 1
+
+        _wipe_library(db)
+
+        with read_archive(path) as reader:
+            report = merge_archive(db, reader, mode="skip")
+        db.commit()
+        assert report["errors"] == []
+
+        restored = db.execute(
+            "SELECT cover_review_dismissed FROM items "
+            "WHERE title = 'Obscure Self-Published Thing'"
+        ).fetchone()
+        assert restored["cover_review_dismissed"] == 1
+
+    def test_an_archive_predating_the_dismissal_column_still_imports(self, db):
+        """Every archive written before migration 32 lacks the key entirely.
+
+        The import builds its field dict from `_ITEM_COLUMNS` with `.get()`, so
+        an absent key becomes an explicit NULL — and the column is NOT NULL, so
+        without coercion the whole import dies on an IntegrityError rather than
+        on anything the user could act on. This is the regression pin for that.
+        """
+        _insert_item(db, title="Written Before The Column", media_type="book")
+        db.commit()
+        path = build_archive(db)
+
+        # Rewrite library.json exactly as an older Shelf would have emitted it:
+        # with no cover_review_dismissed key on any item.
+        with zipfile.ZipFile(path) as zf:
+            names = zf.namelist()
+            blobs = {n: zf.read(n) for n in names}
+        library = json.loads(blobs["library.json"])
+        for item in library["items"]:
+            item.pop("cover_review_dismissed", None)
+        assert "cover_review_dismissed" not in library["items"][0]
+        blobs["library.json"] = json.dumps(library).encode()
+        with zipfile.ZipFile(path, "w") as zf:
+            for n in names:
+                zf.writestr(n, blobs[n])
+
+        _wipe_library(db)
+
+        with read_archive(path) as reader:
+            report = merge_archive(db, reader, mode="skip")
+        db.commit()
+
+        assert report["errors"] == []
+        assert report["imported"] == 1
+        restored = db.execute(
+            "SELECT cover_review_dismissed FROM items "
+            "WHERE title = 'Written Before The Column'"
+        ).fetchone()
+        assert restored["cover_review_dismissed"] == 0
 
     def test_duplicates_survive_fresh_instance_restore(self, db):
         self._seed_pair(db)
@@ -643,7 +959,7 @@ class TestRoundTripDuplicateDedupeKeys:
 
         with read_archive(original_path) as reader:
             report = merge_archive(db, reader, mode="skip")
-        db.execute("COMMIT")
+        db.commit()
 
         assert report["imported"] == 2, report
         assert report["skipped"] == 0, report
@@ -707,7 +1023,7 @@ class TestMergeSkipModeNonEmptyLibrary:
         cover_path = config.COVERS_DIR / f"{existing_id}.jpg"
         cover_path.write_bytes(_JPEG)
         db.execute("UPDATE items SET cover_path = ? WHERE id = ?", (f"covers/{existing_id}.jpg", existing_id))
-        db.execute("COMMIT")
+        db.commit()
 
         reading_log_count = db.execute("SELECT COUNT(*) c FROM reading_log").fetchone()["c"]
         checkouts_count = db.execute("SELECT COUNT(*) c FROM checkouts").fetchone()["c"]
@@ -727,7 +1043,7 @@ class TestMergeSkipModeNonEmptyLibrary:
             report = merge_archive(db, reader, mode="skip")
 
         assert report == {
-            "imported": 0, "updated": 0, "skipped": 1, "errors": [],
+            "imported": 0, "restored": 0, "trashed": 0, "updated": 0, "skipped": 1, "errors": [],
             "covers_installed": 0, "format": "shelf-archive",
         }
         row = db.execute("SELECT title, notes, cover_path FROM items WHERE id = ?", (existing_id,)).fetchone()
@@ -743,7 +1059,7 @@ class TestMergeSkipModeNonEmptyLibrary:
 class TestMergeUpdateModeNonEmptyLibrary:
     def test_metadata_refreshed_and_cover_installed_when_local_absent(self, db, tmp_path):
         existing_id = _insert_item(db, title="Dune", authors="Frank Herbert", isbn="9780441013593")
-        db.execute("COMMIT")
+        db.commit()
 
         library = {
             "items": [{
@@ -786,7 +1102,7 @@ class TestMergeUpdateModeNonEmptyLibrary:
         local_cover.write_bytes(old_bytes)
         db.execute("UPDATE items SET cover_path = ? WHERE id = ?",
                    (f"covers/{existing_id}.jpg", existing_id))
-        db.execute("COMMIT")
+        db.commit()
 
         new_bytes = b"\xff\xd8\xff\xe0" + b"NEW" * 100
         library = {"items": [{"id": 1, "title": "Dune", "isbn": "9780441013593",
@@ -825,7 +1141,7 @@ class TestMergeUpdateModeNonEmptyLibrary:
 class TestMergeIsbnLessDedupe:
     def test_title_authors_fallback_dedupe(self, db, tmp_path):
         _insert_item(db, title="Local Zine", authors="Some Author", isbn=None, media_type="comic")
-        db.execute("COMMIT")
+        db.commit()
 
         library = {"items": [{"id": 1, "title": "Local Zine", "authors": "Some Author",
                                "media_type": "comic", "notes": "matched by title+authors"}]}
@@ -842,7 +1158,7 @@ class TestMergeIsbnLessDedupe:
 
     def test_title_authors_mismatch_creates_new_item(self, db, tmp_path):
         _insert_item(db, title="Local Zine", authors="Some Author", isbn=None, media_type="comic")
-        db.execute("COMMIT")
+        db.commit()
 
         library = {"items": [{"id": 1, "title": "Local Zine", "authors": "Different Author",
                                "media_type": "comic"}]}
@@ -865,7 +1181,7 @@ class TestMergeCaseInsensitiveNameReuse:
             "INSERT INTO series_meta (name, description) VALUES (?, ?)",
             ("Dune Saga", "Local synopsis, must not be overwritten"),
         )
-        db.execute("COMMIT")
+        db.commit()
 
         library = {
             "items": [{
@@ -907,7 +1223,7 @@ class TestMergeCaseInsensitiveNameReuse:
 class TestMergeReportCounts:
     def test_counts_match_actions(self, db, tmp_path):
         _insert_item(db, title="Skip Me", isbn="9780000000125")
-        db.execute("COMMIT")
+        db.commit()
 
         library = {
             "items": [
@@ -922,14 +1238,14 @@ class TestMergeReportCounts:
             report = merge_archive(db, reader, mode="skip")
 
         assert report == {
-            "imported": 1, "updated": 0, "skipped": 1,
+            "imported": 1, "restored": 0, "trashed": 0, "updated": 0, "skipped": 1,
             "errors": ["Archive item 3: missing title"],
             "covers_installed": 0, "format": "shelf-archive",
         }
 
     def test_valuation_history_skipped_into_non_empty_table_and_noted(self, db, tmp_path):
         db.execute("INSERT INTO valuation_history (total_value, priced_count) VALUES (10, 1)")
-        db.execute("COMMIT")
+        db.commit()
 
         library = {"items": [], "valuation_history": [{"total_value": 99, "priced_count": 5}]}
         p = _write_zip(tmp_path / "a.zip", [], library=json.dumps(library))
@@ -1023,7 +1339,8 @@ class TestImportArchiveEndpoint:
 
 _LIBRARY_TABLES = (
     "items", "item_tags", "locations", "tags", "borrowers", "series_meta",
-    "reading_log", "checkouts", "valuation_history",
+    "reading_log", "checkouts", "valuation_history", "item_copies", "location_nodes",
+    "user_item_state", "user_reading_log",
 )
 
 
@@ -1103,18 +1420,18 @@ class TestPlanPurity:
 class TestPlanVerdicts:
     def test_isbn_match_skip_mode(self, db, tmp_path):
         _insert_item(db, title="Dune", isbn="9780441013593")
-        db.execute("COMMIT")
+        db.commit()
         library = {"items": [{"id": 1, "title": "Dune", "isbn": "9780441013593",
                               "media_type": "book"}]}
         plan = _plan(db, tmp_path, library, mode="skip")
         assert plan["mode"] == "skip"
         assert plan["items"] == [{"ref": 1, "title": "Dune", "verdict": "skip",
-                                  "basis": "isbn", "cover": "none"}]
+                                  "basis": "isbn", "cover": "none", "deleted": False}]
         assert plan["summary"]["by_basis"] == {"isbn": 1, "title_authors": 0}
 
     def test_isbn_match_update_mode(self, db, tmp_path):
         _insert_item(db, title="Dune", isbn="9780441013593")
-        db.execute("COMMIT")
+        db.commit()
         library = {"items": [{"id": 1, "title": "Dune", "isbn": "9780441013593",
                               "media_type": "book"}]}
         plan = _plan(db, tmp_path, library, mode="update")
@@ -1125,7 +1442,7 @@ class TestPlanVerdicts:
     def test_title_authors_match_both_modes(self, db, tmp_path):
         _insert_item(db, title="Local Zine", authors="Some Author", isbn=None,
                      media_type="comic")
-        db.execute("COMMIT")
+        db.commit()
         # Casefold collision: the fuzzy path is NOCASE, like the merge's.
         library = {"items": [{"id": 1, "title": "local zine", "authors": "SOME AUTHOR",
                               "media_type": "comic"}]}
@@ -1141,7 +1458,7 @@ class TestPlanVerdicts:
     def test_no_match_is_a_create_with_no_basis(self, db, tmp_path):
         _insert_item(db, title="Local Zine", authors="Some Author", isbn=None,
                      media_type="comic")
-        db.execute("COMMIT")
+        db.commit()
         library = {"items": [
             {"id": 1, "title": "Local Zine", "authors": "Different Author",
              "media_type": "comic"},                                  # fuzzy miss
@@ -1158,7 +1475,7 @@ class TestPlanVerdicts:
     def test_mixed_matrix_counts(self, db, tmp_path):
         _insert_item(db, title="By Isbn", isbn="9780000000125")
         _insert_item(db, title="By Title", authors="A", isbn=None, media_type="book")
-        db.execute("COMMIT")
+        db.commit()
         library = {"items": [
             {"id": 1, "title": "By Isbn", "isbn": "9780000000125", "media_type": "book"},
             {"id": 2, "title": "By Title", "authors": "A", "media_type": "book"},
@@ -1196,7 +1513,7 @@ class TestPlanCoverActions:
 
     def test_matched_item_without_local_cover_installs(self, db, tmp_path):
         _insert_item(db, title="Dune", isbn="9780441013593")
-        db.execute("COMMIT")
+        db.commit()
         library = {"items": [{"id": 1, "title": "Dune", "isbn": "9780441013593",
                               "media_type": "book", "cover": "covers/1.jpg"}]}
         plan = _plan(db, tmp_path, library, [("covers/1.jpg", _JPEG)], mode="update")
@@ -1210,7 +1527,7 @@ class TestPlanCoverActions:
         (config.COVERS_DIR / f"{existing_id}.jpg").write_bytes(_JPEG)
         db.execute("UPDATE items SET cover_path = ? WHERE id = ?",
                    (f"covers/{existing_id}.jpg", existing_id))
-        db.execute("COMMIT")
+        db.commit()
         library = {"items": [{"id": 1, "title": "Dune", "isbn": "9780441013593",
                               "media_type": "book", "cover": "covers/1.jpg"}]}
         plan = _plan(db, tmp_path, library, [("covers/1.jpg", _JPEG)], mode="update")
@@ -1222,7 +1539,7 @@ class TestPlanCoverActions:
         """A skip is a skip: the merge touches no cover on a skipped item,
         whether or not one is already on disk."""
         _insert_item(db, title="Dune", isbn="9780441013593")
-        db.execute("COMMIT")
+        db.commit()
         library = {"items": [{"id": 1, "title": "Dune", "isbn": "9780441013593",
                               "media_type": "book", "cover": "covers/1.jpg"}]}
         plan = _plan(db, tmp_path, library, [("covers/1.jpg", _JPEG)], mode="skip")
@@ -1237,7 +1554,7 @@ class TestPlanWouldCreate:
         db.execute("INSERT INTO tags (name) VALUES ('Sci-Fi')")
         _insert_borrower(db, name="Alex")
         db.execute("INSERT INTO series_meta (name) VALUES ('Dune Saga')")
-        db.execute("COMMIT")
+        db.commit()
 
         library = {
             "items": [{"id": 1, "title": "Dune Messiah", "isbn": "9780441172696",
@@ -1259,7 +1576,7 @@ class TestPlanWouldCreate:
         """Names ride in on items the import actually creates or updates —
         a skipped item's location/tags are never touched by the merge."""
         _insert_item(db, title="Dune", isbn="9780441013593")
-        db.execute("COMMIT")
+        db.commit()
         library = {"items": [{"id": 1, "title": "Dune", "isbn": "9780441013593",
                               "media_type": "book", "location": "Skip Room",
                               "tags": ["skip-tag"]}]}
@@ -1299,7 +1616,7 @@ class TestPlanDuplicateDedupeKeys:
         """The bound is 'created by this import', not 'dedupe is off'."""
         _insert_item(db, title="Automate the Boring Stuff", authors="Al Sweigart",
                      isbn=None, media_type="ebook")
-        db.execute("COMMIT")
+        db.commit()
         library = {"items": [
             {"id": 1, "title": "Automate the Boring Stuff", "authors": "Al Sweigart",
              "media_type": "ebook"},
@@ -1313,7 +1630,7 @@ class TestPlanDuplicateDedupeKeys:
 class TestPlanSummary:
     def test_counts_reconcile_with_item_records(self, db, tmp_path):
         _insert_item(db, title="Skip Me", isbn="9780000000125")
-        db.execute("COMMIT")
+        db.commit()
         library = {"items": [
             {"id": 1, "title": "Skip Me", "isbn": "9780000000125", "media_type": "book"},
             {"id": 2, "title": "Brand New", "isbn": "9780000000309", "media_type": "book"},
@@ -1329,7 +1646,7 @@ class TestPlanSummary:
 
     def test_reading_log_and_checkouts_count_created_items_only(self, db, tmp_path):
         _insert_item(db, title="Skip Me", isbn="9780000000125")
-        db.execute("COMMIT")
+        db.commit()
         library = {
             "items": [
                 {"id": 1, "title": "Skip Me", "isbn": "9780000000125", "media_type": "book"},
@@ -1359,7 +1676,7 @@ class TestPlanSummary:
         assert plan["summary"]["valuation_history"] == {"rows": 2, "mergeable": True}
 
         db.execute("INSERT INTO valuation_history (total_value, priced_count) VALUES (10, 1)")
-        db.execute("COMMIT")
+        db.commit()
         plan = _plan(db, tmp_path, library, name="full.zip")
         assert plan["summary"]["valuation_history"] == {"rows": 2, "mergeable": False}
 
@@ -1372,7 +1689,7 @@ class TestPlanSummary:
 
     def test_unknown_mode_falls_back_to_skip(self, db, tmp_path):
         _insert_item(db, title="Dune", isbn="9780441013593")
-        db.execute("COMMIT")
+        db.commit()
         library = {"items": [{"id": 1, "title": "Dune", "isbn": "9780441013593",
                               "media_type": "book"}]}
         plan = _plan(db, tmp_path, library, mode="destroy-everything")
@@ -1383,7 +1700,7 @@ class TestPlanSummary:
         """The plan is only worth showing if apply agrees with it. Plan a
         mixed archive, run the merge, and check the verdict counts line up."""
         _insert_item(db, title="Skip Me", isbn="9780000000125")
-        db.execute("COMMIT")
+        db.commit()
         library = {
             "items": [
                 {"id": 1, "title": "Skip Me", "isbn": "9780000000125", "media_type": "book"},
@@ -1398,7 +1715,7 @@ class TestPlanSummary:
             plan = plan_archive(db, reader, mode="skip")
         with read_archive(p) as reader:
             report = merge_archive(db, reader, mode="skip")
-        db.execute("COMMIT")
+        db.commit()
 
         assert report["imported"] == plan["summary"]["create"]
         assert report["skipped"] == plan["summary"]["skip"]
@@ -1432,7 +1749,7 @@ class TestApplyPlanReportShape:
                               "media_type": "book"}]}
         _plan, report = _plan_and_apply(db, _zip_for(tmp_path, library))
         assert report == {
-            "imported": 1, "updated": 0, "skipped": 0, "errors": [],
+            "imported": 1, "restored": 0, "trashed": 0, "updated": 0, "skipped": 0, "errors": [],
             "covers_installed": 0, "format": "shelf-archive",
             "covers_replaced": 0, "drifted": 0,
             "deselected": {"creates": 0, "updates": 0, "covers": 0,
@@ -1443,7 +1760,7 @@ class TestApplyPlanReportShape:
         """You apply what you reviewed: an update-mode plan updates even
         though apply_plan is never told a mode."""
         existing_id = _insert_item(db, title="Dune", isbn="9780441013593")
-        db.execute("COMMIT")
+        db.commit()
         library = {"items": [{"id": 1, "title": "Dune", "isbn": "9780441013593",
                               "media_type": "book", "publisher": "Ace"}]}
         _plan, report = _plan_and_apply(db, _zip_for(tmp_path, library), mode="update")
@@ -1525,14 +1842,14 @@ class TestApplyPlanSelection:
 
     def _seed_match(self, db):
         item_id = _insert_item(db, title="Already Here", isbn="9780000000125")
-        db.execute("COMMIT")
+        db.commit()
         return item_id
 
     def test_everything_selected_is_the_full_merge(self, db, tmp_path):
         self._seed_match(db)
         path = _zip_for(tmp_path, self._mixed_library(), [("covers/2.jpg", _JPEG)])
         _plan, report = _plan_and_apply(db, path, mode="update")
-        db.execute("COMMIT")
+        db.commit()
 
         assert report["imported"] == 1 and report["updated"] == 1
         assert report["covers_installed"] == 1
@@ -1548,7 +1865,7 @@ class TestApplyPlanSelection:
         path = _zip_for(tmp_path, self._mixed_library(), [("covers/2.jpg", _JPEG)])
         _plan, report = _plan_and_apply(db, path, mode="update",
                                         selection={"reading_log": False})
-        db.execute("COMMIT")
+        db.commit()
 
         assert report["imported"] == 1
         assert report["deselected"]["reading_log"] == 2
@@ -1562,7 +1879,7 @@ class TestApplyPlanSelection:
         path = _zip_for(tmp_path, self._mixed_library(), [("covers/2.jpg", _JPEG)])
         _plan, report = _plan_and_apply(db, path, mode="update",
                                         selection={"include_creates": False})
-        db.execute("COMMIT")
+        db.commit()
 
         assert report["imported"] == 0
         assert report["updated"] == 1
@@ -1580,7 +1897,7 @@ class TestApplyPlanSelection:
         path = _zip_for(tmp_path, self._mixed_library(), [("covers/2.jpg", _JPEG)])
         _plan, report = _plan_and_apply(db, path, mode="update",
                                         selection={"include_updates": False})
-        db.execute("COMMIT")
+        db.commit()
 
         assert report["imported"] == 1
         assert report["updated"] == 0
@@ -1593,7 +1910,7 @@ class TestApplyPlanSelection:
         path = _zip_for(tmp_path, self._mixed_library(), [("covers/2.jpg", _JPEG)])
         _plan, report = _plan_and_apply(db, path, mode="update",
                                         selection={"covers": False})
-        db.execute("COMMIT")
+        db.commit()
 
         assert report["imported"] == 1
         assert report["covers_installed"] == 0
@@ -1608,7 +1925,7 @@ class TestApplyPlanSelection:
         path = _zip_for(tmp_path, self._mixed_library(), [("covers/2.jpg", _JPEG)])
         _plan, report = _plan_and_apply(db, path, mode="update",
                                         selection={"checkouts": False})
-        db.execute("COMMIT")
+        db.commit()
         assert report["deselected"]["checkouts"] == 1
         assert db.execute("SELECT COUNT(*) c FROM checkouts").fetchone()["c"] == 0
 
@@ -1617,7 +1934,7 @@ class TestApplyPlanSelection:
         path = _zip_for(tmp_path, self._mixed_library(), [("covers/2.jpg", _JPEG)])
         _plan, report = _plan_and_apply(db, path, mode="update",
                                         selection={"valuation_history": False})
-        db.execute("COMMIT")
+        db.commit()
         assert report["deselected"]["valuation_history"] == 1
         assert db.execute("SELECT COUNT(*) c FROM valuation_history").fetchone()["c"] == 0
 
@@ -1654,7 +1971,7 @@ class TestApplyPlanCoverSemantics:
         (config.COVERS_DIR / f"{kept_id}.jpg").write_bytes(old_bytes)
         db.execute("UPDATE items SET cover_path = ? WHERE id = ?",
                    (f"covers/{kept_id}.jpg", kept_id))
-        db.execute("COMMIT")
+        db.commit()
 
         library = {"items": [
             {"id": 1, "title": "No Cover", "isbn": "9780000000125",
@@ -1666,7 +1983,7 @@ class TestApplyPlanCoverSemantics:
         path = _zip_for(tmp_path, library, [("covers/1.jpg", _JPEG),
                                             ("covers/2.jpg", new_bytes)])
         _plan, report = _plan_and_apply(db, path, mode="update")
-        db.execute("COMMIT")
+        db.commit()
 
         assert report["covers_installed"] == 1
         assert report["covers_replaced"] == 0
@@ -1679,7 +1996,7 @@ class TestApplyPlanCoverSemantics:
         (config.COVERS_DIR / f"{kept_id}.jpg").write_bytes(b"\xff\xd8\xff\xe0" + b"OLD" * 100)
         db.execute("UPDATE items SET cover_path = ? WHERE id = ?",
                    (f"covers/{kept_id}.jpg", kept_id))
-        db.execute("COMMIT")
+        db.commit()
 
         new_bytes = b"\xff\xd8\xff\xe0" + b"NEW" * 100
         library = {"items": [{"id": 2, "title": "Has Cover", "isbn": "9780000000217",
@@ -1687,7 +2004,7 @@ class TestApplyPlanCoverSemantics:
         path = _zip_for(tmp_path, library, [("covers/2.jpg", new_bytes)])
         _plan, report = _plan_and_apply(db, path, mode="update",
                                         selection={"replace_covers": True})
-        db.execute("COMMIT")
+        db.commit()
 
         assert report["covers_installed"] == 0
         assert report["covers_replaced"] == 1
@@ -1699,7 +2016,7 @@ class TestApplyPlanCoverSemantics:
         (config.COVERS_DIR / f"{kept_id}.jpg").write_bytes(_JPEG)
         db.execute("UPDATE items SET cover_path = ? WHERE id = ?",
                    (f"covers/{kept_id}.jpg", kept_id))
-        db.execute("COMMIT")
+        db.commit()
 
         library = {"items": [
             {"id": 1, "title": "Brand New", "isbn": "9780000000125",
@@ -1711,7 +2028,7 @@ class TestApplyPlanCoverSemantics:
                                             ("covers/2.jpg", _JPEG)])
         plan, report = _plan_and_apply(db, path, mode="update",
                                        selection={"replace_covers": True})
-        db.execute("COMMIT")
+        db.commit()
         assert report["covers_installed"] == plan["summary"]["covers_install"] == 1
         assert report["covers_replaced"] == plan["summary"]["covers_replace"] == 1
 
@@ -1726,10 +2043,10 @@ class TestApplyPlanDrift:
 
         def race(db):
             _insert_item(db, title="Raced", isbn="9780000000125")
-            db.execute("COMMIT")
+            db.commit()
 
         _plan, report = _plan_and_apply(db, path, mode="skip", mutate=race)
-        db.execute("COMMIT")
+        db.commit()
 
         # Item 1 was planned "create" but now matches a row — refuse to act
         # on the stale verdict rather than quietly doing something else.
@@ -1742,14 +2059,14 @@ class TestApplyPlanDrift:
 
     def test_item_that_disappeared_between_plan_and_apply_is_drift(self, db, tmp_path):
         existing_id = _insert_item(db, title="Vanishing", isbn="9780000000125")
-        db.execute("COMMIT")
+        db.commit()
         library = {"items": [{"id": 1, "title": "Vanishing", "isbn": "9780000000125",
                               "media_type": "book"}]}
         path = _zip_for(tmp_path, library)
 
         def vanish(db):
             db.execute("DELETE FROM items WHERE id = ?", (existing_id,))
-            db.execute("COMMIT")
+            db.commit()
 
         _plan, report = _plan_and_apply(db, path, mode="skip", mutate=vanish)
 
@@ -1767,7 +2084,7 @@ class TestApplyPlanDrift:
 
         def race(db):
             _insert_item(db, title="Raced", isbn="9780000000125")
-            db.execute("COMMIT")
+            db.commit()
 
         _plan, report = _plan_and_apply(db, path, mode="skip", mutate=race)
         assert report["drifted"] == 1
@@ -1781,7 +2098,7 @@ class TestApplyPlanDrift:
                      isbn=None, media_type="ebook")
         _insert_item(db, title="automate the boring stuff", authors="al sweigart",
                      isbn=None, media_type="ebook")
-        db.execute("COMMIT")
+        db.commit()
         path = build_archive(db)
         _wipe_library(db)
 
@@ -1789,7 +2106,7 @@ class TestApplyPlanDrift:
             plan = plan_archive(db, reader, mode="skip")
         with read_archive(path) as reader:
             report = apply_plan(db, reader, plan)
-        db.execute("COMMIT")
+        db.commit()
 
         assert plan["summary"]["create"] == 2
         assert report["imported"] == 2, report
@@ -1809,7 +2126,7 @@ class TestApplyPlanDrift:
             plan = plan_archive(db, reader, mode="skip")
         with read_archive(original_path) as reader:
             report = apply_plan(db, reader, plan)
-        db.execute("COMMIT")
+        db.commit()
 
         assert report["imported"] == len(original_library["items"])
         assert report["errors"] == []
@@ -1955,8 +2272,8 @@ class TestApplyEndpoint:
         assert resp.status_code == 200
         return resp.json()["upload_id"]
 
-    def test_apply_honors_selection_reading_log_deselected(self, admin_client, db):
-        _seed_full_library(db)
+    def test_apply_honors_selection_reading_log_deselected(self, admin_client, db, admin_user):
+        _seed_full_library(db, personal_user_id=admin_user["id"])
         export_resp = admin_client.get("/api/export/archive")
         _wipe_library(db)
 
@@ -1974,6 +2291,9 @@ class TestApplyEndpoint:
         with get_db() as check_db:
             assert check_db.execute("SELECT COUNT(*) c FROM items").fetchone()["c"] == 1
             assert check_db.execute("SELECT COUNT(*) c FROM reading_log").fetchone()["c"] == 0
+            assert check_db.execute(
+                "SELECT COUNT(*) FROM user_reading_log WHERE user_id = ?", (admin_user["id"],),
+            ).fetchone()[0] == 0
 
         # The staged pair is consumed on a successful apply too.
         assert _staged_files() == []
@@ -2071,7 +2391,7 @@ class TestLegacyEndpointReplaceCovers:
         (config.COVERS_DIR / f"{existing_id}.jpg").write_bytes(old_bytes)
         db.execute("UPDATE items SET cover_path = ? WHERE id = ?",
                    (f"covers/{existing_id}.jpg", existing_id))
-        db.execute("COMMIT")
+        db.commit()
 
         new_bytes = b"\xff\xd8\xff\xe0" + b"NEW" * 100
         library = {"items": [{"id": 1, "title": "Dune", "isbn": "9780441013593",
@@ -2123,7 +2443,7 @@ class TestPlanAndApplyAgreeOnABadIsbn:
         stages — otherwise plan says `create`, apply says `update`, and the
         row lands in `drifted` instead of being applied."""
         existing_id = _insert_item(db, title="Dune", authors="Frank Herbert", isbn=None)
-        db.execute("COMMIT")
+        db.commit()
         library = {"items": [{"id": 1, "title": "Dune", "authors": "Frank Herbert",
                               "isbn": "B00EXAMPLE", "media_type": "book",
                               "publisher": "Ace"}]}
@@ -2135,3 +2455,1456 @@ class TestPlanAndApplyAgreeOnABadIsbn:
         assert row["isbn"] is None
         assert row["publisher"] == "Ace"
         assert any("B00EXAMPLE" in e for e in report["errors"])
+
+
+class TestArchiveAsin:
+    """The ASIN is an edition identifier: exported, pre-cleaned in both
+    stages (G72), absent in archives that predate it (G87)."""
+
+    @staticmethod
+    def _import(db, path):
+        with read_archive(path) as reader:
+            report = merge_archive(db, reader, mode="skip")
+        db.commit()
+        return report
+
+    def test_round_trip_preserves_asin(self, db):
+        _insert_item(db, title="Project Hail Mary", media_type="audiobook",
+                     authors="Andy Weir", asin="B08G9PRS1K")
+        db.commit()
+        path = build_archive(db)
+        with zipfile.ZipFile(path) as zf:
+            exported = json.loads(zf.read("library.json"))
+        assert exported["items"][0]["asin"] == "B08G9PRS1K"
+
+        _wipe_library(db)
+        report = self._import(db, path)
+        assert report["errors"] == []
+        row = db.execute("SELECT asin FROM items WHERE title = ?",
+                         ("Project Hail Mary",)).fetchone()
+        assert row["asin"] == "B08G9PRS1K"
+
+    def test_archive_without_asin_key_imports_with_null(self, db, tmp_path):
+        library = json.dumps({"items": [{"id": 1, "title": "Old Export",
+                                         "media_type": "audiobook"}]})
+        path = _write_zip(tmp_path / "old.zip", [], manifest=_MANIFEST,
+                          library=library)
+        report = self._import(db, path)
+        assert report["errors"] == []
+        assert report["imported"] == 1
+        row = db.execute("SELECT asin FROM items WHERE title = 'Old Export'").fetchone()
+        assert row["asin"] is None
+
+    def test_absent_key_does_not_erase_an_existing_asin_on_update(self, db, tmp_path):
+        item_id = _insert_item(db, title="Kept", media_type="audiobook",
+                               authors="A", isbn=None, asin="B08G9PRS1K")
+        db.commit()
+        library = {"items": [{"id": 1, "title": "Kept", "authors": "A",
+                              "media_type": "audiobook", "publisher": "P"}]}
+        _plan, report = _plan_and_apply(db, _zip_for(tmp_path, library), mode="update")
+        assert report["updated"] == 1
+        row = db.execute("SELECT asin FROM items WHERE id = ?", (item_id,)).fetchone()
+        assert row["asin"] == "B08G9PRS1K"
+
+    def test_junk_asin_is_dropped_and_reported_once(self, db, tmp_path):
+        library = json.dumps({"items": [{"id": 1, "title": "Junky",
+                                         "media_type": "audiobook",
+                                         "asin": "junk"}]})
+        path = _write_zip(tmp_path / "junk.zip", [], library=library)
+        report = self._import(db, path)
+        assert report["imported"] == 1
+        assert len(report["errors"]) == 1
+        assert "'junk'" in report["errors"][0] and "ASIN" in report["errors"][0]
+        row = db.execute("SELECT asin FROM items WHERE title = 'Junky'").fetchone()
+        assert row["asin"] is None
+
+    def test_bad_asin_plans_and_applies_the_same_verdict(self, db, tmp_path):
+        existing_id = _insert_item(db, title="Dune", authors="Frank Herbert",
+                                   isbn=None, media_type="audiobook")
+        db.commit()
+        library = {"items": [{"id": 1, "title": "Dune", "authors": "Frank Herbert",
+                              "media_type": "audiobook", "asin": "junk",
+                              "publisher": "Macmillan"}]}
+        plan, report = _plan_and_apply(db, _zip_for(tmp_path, library), mode="update")
+        assert plan["items"][0]["verdict"] == "update"
+        assert report["drifted"] == 0
+        assert report["updated"] == 1
+        row = db.execute("SELECT asin, publisher FROM items WHERE id = ?",
+                         (existing_id,)).fetchone()
+        assert row["asin"] is None
+        assert row["publisher"] == "Macmillan"
+        assert any("'junk'" in e for e in report["errors"])
+
+    def test_good_asin_is_upper_cased_on_import(self, db, tmp_path):
+        library = {"items": [{"id": 1, "title": "Lower", "media_type": "audiobook",
+                              "asin": " b08g9prs1k "}]}
+        _plan, report = _plan_and_apply(db, _zip_for(tmp_path, library))
+        assert report["errors"] == []
+        row = db.execute("SELECT asin FROM items WHERE title = 'Lower'").fetchone()
+        assert row["asin"] == "B08G9PRS1K"
+
+
+class TestArchiveCopiesImport:
+    """The import half of issue #116. Four rules, plus the one that matters
+    most for an untrusted input: a rejected item leaves nothing behind."""
+
+    @staticmethod
+    def _archive(tmp_path, items, name="copies.zip"):
+        """Hand-build an archive rather than deleting keys from a fresh
+        export — the no-`copies`-key case has to be built, not derived, or
+        the test is only asserting that a deletion worked."""
+        return _write_zip(
+            tmp_path / name, [],
+            library=json.dumps({"items": items}),
+        )
+
+    @staticmethod
+    def _import(db, path, mode="skip"):
+        with read_archive(path) as reader:
+            report = merge_archive(db, reader, mode=mode)
+        # The public boundary handles a no-write refusal and, critically,
+        # finalizes connection-owned cover recovery only after the real commit.
+        db.commit()
+        return report
+
+    @staticmethod
+    def _copies(db, title):
+        rows = db.execute(
+            "SELECT c.*, n.name AS location "
+            "FROM item_copies c JOIN items i ON i.id = c.item_id "
+            "LEFT JOIN location_nodes n ON n.id = c.location_id "
+            "WHERE i.title = ? ORDER BY c.copy_number",
+            (title,),
+        ).fetchall()
+        paths = {node["id"]: node["full_path"] for node in location_tree.flattened_tree(db)}
+        return [{**dict(row), "location": paths.get(row["location_id"])} for row in rows]
+
+    def test_a_round_trip_preserves_every_copy_and_its_detail(self, db):
+        item_id = _insert_item(db, title="Foundation", isbn="9780553293357")
+        office = _insert_node_location(db, name="Office")
+        loft = _insert_node_location(db, name="Loft")
+        item_copies.insert_copy(db, {
+            "item_id": item_id, "copy_number": 1, "location_id": office,
+            "is_primary": 1, "position_order": 3, "condition": "Good",
+            "acquired_date": "2020-01-01", "acquisition_source": "Gift",
+            "acquisition_price": 12.5, "provenance": "From Grandma",
+            "notes": "First", "copy_barcode": "ASSET-001",
+        })
+        item_copies.insert_copy(db, {
+            "item_id": item_id, "copy_number": 2, "location_id": loft,
+            "is_primary": 0, "position_order": 1, "condition": "Fair",
+            "acquisition_price": 4.0, "notes": "Second",
+            "copy_barcode": "ASSET-002",
+        })
+        original_created_at = [row["created_at"] for row in self._copies(db, "Foundation")]
+        db.commit()
+        path = build_archive(db)
+
+        _wipe_library(db)
+        report = self._import(db, path)
+
+        assert report["errors"] == []
+        rows = [dict(r) for r in self._copies(db, "Foundation")]
+        assert [r["copy_number"] for r in rows] == [1, 2]
+        assert [r["location"] for r in rows] == ["Office", "Loft"]
+        assert [r["is_primary"] for r in rows] == [1, 0]
+        assert [r["position_order"] for r in rows] == [3, 1]
+        assert [r["condition"] for r in rows] == ["Good", "Fair"]
+        assert [r["acquisition_price"] for r in rows] == [12.5, 4.0]
+        assert [r["copy_barcode"] for r in rows] == ["ASSET-001", "ASSET-002"]
+        assert [r["acquired_date"] for r in rows] == ["2020-01-01", None]
+        assert [r["acquisition_source"] for r in rows] == ["Gift", None]
+        assert [r["provenance"] for r in rows] == ["From Grandma", None]
+        assert [r["notes"] for r in rows] == ["First", "Second"]
+        assert [r["missing_since"] for r in rows] == [None, None]
+        assert [r["created_at"] for r in rows] == original_created_at
+        assert [r["deleted_at"] for r in rows] == [None, None]
+
+    def test_v3_round_trip_preserves_precise_child_and_copy_history(self, db):
+        root = _insert_node_location(db, name="Archive House")
+        child = _insert_node_location(db, name="Reading Shelf", parent_id=root)
+        legacy = _legacy_location(db, child)
+        assert legacy == _legacy_location(db, root)
+        assert root != legacy and child != legacy
+        db.execute("UPDATE location_nodes SET sort_order = 4 WHERE id = ?", (root,))
+        db.execute("UPDATE locations SET sort_order = 4 WHERE id = ?", (legacy,))
+        db.execute("UPDATE location_nodes SET sort_order = 9 WHERE id = ?", (child,))
+        item_id = _insert_item(db, title="Precise Archive", isbn=None, location_id=legacy)
+        source_id = item_copies.insert_copy(db, {
+            "item_id": item_id, "copy_number": 4, "location_id": child, "is_primary": 1,
+            "position_order": 7, "condition": "Signed", "acquired_date": "2020-01-01",
+            "acquisition_source": "Gift", "acquisition_price": 12.5,
+            "provenance": "From Grandma", "notes": "Precise child copy",
+            "copy_barcode": "ARCHIVE-CHILD-004", "missing_since": "2026-01-09",
+            "created_at": "2020-01-02 03:04:05",
+        })
+        trash_id = item_copies.insert_copy(db, {
+            "item_id": item_id, "copy_number": 8, "location_id": root,
+            "is_primary": 0, "created_at": "2021-01-02 03:04:05",
+        })
+        assert item_copies.trash_copy(db, trash_id, at="2026-01-03 04:05:06") is not None
+        db.commit()
+
+        path = build_archive(db)
+        with zipfile.ZipFile(path) as zf:
+            manifest = json.loads(zf.read("manifest.json"))
+            library = json.loads(zf.read("library.json"))
+        assert manifest["version"] == 3
+        assert library["items"][0]["location"] == "Archive House"
+        root_path = [{"name": "Archive House", "sort_order": 4,
+                      "legacy_location": "Archive House"}]
+        expected = [{
+            "copy_number": 4, "location": "Archive House / Reading Shelf", "is_primary": 1,
+            "position_order": 7, "condition": "Signed", "acquired_date": "2020-01-01",
+            "acquisition_source": "Gift", "acquisition_price": 12.5,
+            "provenance": "From Grandma", "notes": "Precise child copy",
+            "copy_barcode": "ARCHIVE-CHILD-004", "location_domain": "node",
+            "location_path": [*root_path, {"name": "Reading Shelf", "sort_order": 9,
+                                          "legacy_location": None}],
+            "source_copy_id": source_id, "created_at": "2020-01-02 03:04:05",
+            "deleted_at": None,
+        }, {
+            "copy_number": 8, "location": "Archive House", "is_primary": 0,
+            "position_order": None, "condition": None, "acquired_date": None,
+            "acquisition_source": None, "acquisition_price": None,
+            "provenance": None, "notes": None, "copy_barcode": None,
+            "location_domain": "node", "location_path": root_path,
+            "source_copy_id": trash_id, "created_at": "2021-01-02 03:04:05",
+            "deleted_at": "2026-01-03 04:05:06",
+        }]
+        assert library["items"][0]["copies"] == expected
+        assert db.execute("SELECT missing_since FROM item_copies WHERE id=?", (source_id,)).fetchone()[0] == "2026-01-09"
+        assert all("missing_since" not in copy for copy in expected)
+
+        _wipe_library(db)
+        report = self._import(db, path)
+        assert report["imported"] == 1
+        assert report["errors"] == []
+        receiving = {row["copy_number"]: row for row in self._copies(db, "Precise Archive")}
+        assert receiving[4]["id"] != source_id
+        assert receiving[8]["id"] != trash_id
+        assert receiving[4]["location"] == "Archive House / Reading Shelf"
+        assert receiving[8]["location"] == "Archive House"
+        assert receiving[4]["missing_since"] is None
+        assert receiving[8]["missing_since"] is None
+        seam = db.execute("SELECT location_id FROM items WHERE title = 'Precise Archive'").fetchone()[0]
+        assert seam == _legacy_location(db, receiving[4]["location_id"])
+        assert receiving[4]["location_id"] != seam
+        with zipfile.ZipFile(build_archive(db)) as zf:
+            again = json.loads(zf.read("library.json"))
+        assert again["items"][0]["copies"] == [
+            {**copy, "source_copy_id": receiving[copy["copy_number"]]["id"]} for copy in expected
+        ]
+
+    def test_an_archive_with_no_copies_key_imports_as_one_primary_copy(
+        self, db, tmp_path
+    ):
+        """Every archive taken before this ships. The branch must be reached
+        by the key's absence, never by an empty list."""
+        path = self._archive(tmp_path, [{
+            "id": 1, "title": "Old Export", "media_type": "book",
+            "owned": 1, "source": "manual", "location": "Shelf A",
+        }])
+
+        report = self._import(db, path)
+
+        assert report["imported"] == 1
+        assert report["errors"] == []
+        rows = [dict(r) for r in self._copies(db, "Old Export")]
+        assert len(rows) == 1
+        assert rows[0]["copy_number"] == 1
+        assert rows[0]["is_primary"] == 1
+        assert rows[0]["location"] == "Shelf A"
+
+    def test_a_matched_existing_item_keeps_its_own_copies(self, db, tmp_path):
+        """G27's precedent: the archive already matches-and-skips dependent
+        rows for existing items, because attaching them would duplicate on
+        every repeat import. Copies are the same argument."""
+        here = _insert_node_location(db, name="Here")
+        item_id = _insert_item(db, title="Local", isbn="9780553293357",
+                               location_id=_legacy_location(db, here))
+        copy_id = item_copies.insert_copy(db, {
+            "item_id": item_id, "copy_number": 1, "location_id": here,
+            "is_primary": 1, "condition": "Mine",
+        })
+        db.commit()
+
+        path = self._archive(tmp_path, [{
+            "id": 1, "title": "Local", "isbn": "9780553293357",
+            "media_type": "book", "owned": 1, "source": "manual",
+            "location": "Elsewhere",
+            "copies": [
+                {"copy_number": 1, "location": "Elsewhere", "is_primary": 1,
+                 "condition": "Theirs"},
+                {"copy_number": 2, "location": "Elsewhere", "is_primary": 0},
+            ],
+        }])
+        report = self._import(db, path, mode="update")
+
+        assert report["updated"] == 1
+        rows = [dict(r) for r in self._copies(db, "Local")]
+        assert len(rows) == 1
+        assert rows[0]["condition"] == "Mine"
+        assert rows[0]["id"] == copy_id
+        assert rows[0]["location_id"] == here
+        # The copy must not have MOVED either. The archive's own `location`
+        # used to reach update_item_fields, which routes a location change
+        # into sync_primary_location and dragged the local primary to the
+        # archive's shelf — a silent relocation on every re-import (B1).
+        assert rows[0]["location"] == "Here"
+        seam = db.execute(
+            "SELECT l.name AS location FROM items i "
+            "LEFT JOIN locations l ON l.id = i.location_id WHERE i.id = ?",
+            (item_id,),
+        ).fetchone()
+        assert seam["location"] == "Here"
+        # And the archive's location is not created as a side effect.
+        assert db.execute(
+            "SELECT COUNT(*) AS n FROM locations WHERE name = 'Elsewhere'"
+        ).fetchone()["n"] == 0
+
+    def test_a_colliding_copy_barcode_is_imported_without_it_and_reported(
+        self, db, tmp_path
+    ):
+        """`copy_barcode` is UNIQUE collection-wide. Losing the barcode is a
+        far smaller loss than losing the copy."""
+        here = _insert_node_location(db, name="Here")
+        holder = _insert_item(db, title="Barcode Holder", isbn="9780441013593",
+                              location_id=_legacy_location(db, here))
+        item_copies.insert_copy(db, {
+            "item_id": holder, "copy_number": 1, "location_id": here,
+            "is_primary": 1, "copy_barcode": "ASSET-001",
+        })
+        db.commit()
+
+        path = self._archive(tmp_path, [{
+            "id": 1, "title": "Newcomer", "media_type": "book", "owned": 1,
+            "source": "manual", "location": "Shelf A",
+            "copies": [{"copy_number": 1, "location": "Shelf A",
+                        "is_primary": 1, "copy_barcode": "ASSET-001"}],
+        }])
+        report = self._import(db, path)
+
+        assert report["imported"] == 1
+        rows = [dict(r) for r in self._copies(db, "Newcomer")]
+        assert len(rows) == 1
+        assert rows[0]["copy_barcode"] is None
+        assert len(report["errors"]) == 1
+        assert "ASSET-001" in report["errors"][0]
+        assert str(holder) in report["errors"][0]
+
+    def test_two_primary_entries_import_without_raising(self, db, tmp_path):
+        """`idx_item_copies_one_primary` is a partial unique index. An archive
+        is untrusted input and must not be able to raise IntegrityError out of
+        an import — the first entry in copy_number order wins."""
+        path = self._archive(tmp_path, [{
+            "id": 1, "title": "Two Primaries", "media_type": "book",
+            "owned": 1, "source": "manual", "location": "Shelf A",
+            "copies": [
+                {"copy_number": 2, "location": "Shelf B", "is_primary": 1},
+                {"copy_number": 1, "location": "Shelf A", "is_primary": 1},
+            ],
+        }])
+        report = self._import(db, path)
+
+        assert report["imported"] == 1
+        assert report["errors"] == []
+        rows = [dict(r) for r in self._copies(db, "Two Primaries")]
+        assert [(r["copy_number"], r["is_primary"]) for r in rows] == [(1, 1), (2, 0)]
+
+    def test_no_primary_entry_still_yields_exactly_one(self, db, tmp_path):
+        path = self._archive(tmp_path, [{
+            "id": 1, "title": "No Primary", "media_type": "book",
+            "owned": 1, "source": "manual", "location": "Shelf A",
+            "copies": [
+                {"copy_number": 1, "location": "Shelf A", "is_primary": 0},
+                {"copy_number": 2, "location": "Shelf B", "is_primary": 0},
+            ],
+        }])
+        report = self._import(db, path)
+
+        assert report["errors"] == []
+        rows = [dict(r) for r in self._copies(db, "No Primary")]
+        assert [(r["copy_number"], r["is_primary"]) for r in rows] == [(1, 1), (2, 0)]
+
+    def test_a_valid_non_first_primary_is_preserved(self, db, tmp_path):
+        """Exactly one primary is not a malformed array, so it must survive as
+        given. Forcing it onto copy 1 moved the physical primary away from the
+        shelf `items.location_id` still named, so the item page and the item
+        seam disagreed the moment the import succeeded — the very reader
+        disagreement #116 exists to remove (B2)."""
+        path = self._archive(tmp_path, [{
+            "id": 1, "title": "Second Is Primary", "media_type": "book",
+            "owned": 1, "source": "manual", "location": "Shelf B",
+            "copies": [
+                {"copy_number": 1, "location": "Shelf A", "is_primary": 0,
+                 "condition": "Spare"},
+                {"copy_number": 2, "location": "Shelf B", "is_primary": 1,
+                 "condition": "Reading"},
+            ],
+        }])
+
+        report = self._import(db, path)
+
+        assert report["imported"] == 1
+        assert report["errors"] == []
+        rows = [dict(r) for r in self._copies(db, "Second Is Primary")]
+        assert [(r["copy_number"], r["is_primary"], r["location"]) for r in rows] == [
+            (1, 0, "Shelf A"), (2, 1, "Shelf B"),
+        ]
+        assert [r["condition"] for r in rows] == ["Spare", "Reading"]
+        seam = db.execute(
+            "SELECT l.name AS location FROM items i "
+            "LEFT JOIN locations l ON l.id = i.location_id "
+            "WHERE i.title = 'Second Is Primary'"
+        ).fetchone()
+        assert seam["location"] == "Shelf B"
+
+    def test_an_explicit_empty_copies_array_imports_no_copy(self, db, tmp_path):
+        """A located item with zero copy rows is real — an upgraded database's
+        wishlist item, the state G86 names — and the archive can say so. The
+        empty array used to collapse onto the missing-key branch, so
+        insert_item's placeholder primary survived and the round trip was not
+        exact (B3). The item keeps its location; only the copy goes."""
+        path = self._archive(tmp_path, [{
+            "id": 1, "title": "Wanted", "media_type": "book",
+            "owned": 0, "source": "manual", "location": "Wishlist Shelf",
+            "copies": [],
+        }])
+
+        report = self._import(db, path)
+
+        assert report["imported"] == 1
+        assert report["errors"] == []
+        assert self._copies(db, "Wanted") == []
+        seam = db.execute(
+            "SELECT l.name AS location FROM items i "
+            "LEFT JOIN locations l ON l.id = i.location_id "
+            "WHERE i.title = 'Wanted'"
+        ).fetchone()
+        assert seam["location"] == "Wishlist Shelf"
+
+    def test_a_located_zero_copy_item_survives_its_own_round_trip(self, db, tmp_path):
+        """The export half of B3: what `_build_items` writes for a located
+        item with no copies must import back to the same thing."""
+        _insert_item(db, title="Round Trip Wishlist", owned=0, wishlisted=True,
+                     location_id=_insert_location(db, name="Wishlist Shelf"))
+        db.execute("DELETE FROM item_copies")
+        db.commit()
+
+        with zipfile.ZipFile(build_archive(db)) as zf:
+            exported = json.loads(zf.read("library.json"))
+        item = next(i for i in exported["items"] if i["title"] == "Round Trip Wishlist")
+        assert item["copies"] == []
+
+        db.execute("DELETE FROM items")
+        db.commit()
+        report = self._import(db, self._archive(tmp_path, [item], name="rt.zip"))
+
+        assert report["imported"] == 1
+        assert self._copies(db, "Round Trip Wishlist") == []
+
+    @pytest.mark.parametrize("bad_copies, fragment", [
+        ([{"copy_number": 1, "location": "Shelf A"},
+          {"copy_number": 1, "location": "Shelf B"}], "duplicate copy_number"),
+        ([{"copy_number": 1, "location": "Shelf A", "acquisition_price": -5}],
+         "negative"),
+        # B4: every value that later reaches `.strip()` or a TEXT column. Each
+        # of these used to pass validation, so the item, its primary copy and
+        # its location were already committed when the resolver raised
+        # AttributeError — a half-import reported as zero imported.
+        ([{"copy_number": 1, "location": {}}], "location"),
+        ([{"copy_number": 1, "location": "Shelf A", "copy_barcode": ["A"]}],
+         "copy_barcode"),
+        ([{"copy_number": 1, "location": "Shelf A", "condition": 7}],
+         "condition"),
+        ([{"copy_number": 1, "location": "Shelf A", "notes": {"a": 1}}],
+         "notes"),
+        ([{"copy_number": 1, "location": "Shelf A", "position_order": "third"}],
+         "position_order"),
+    ], ids=["duplicate-copy-number", "negative-price", "location-not-a-string",
+            "barcode-not-a-string", "condition-not-a-string",
+            "notes-not-a-string", "position-not-an-integer"])
+    def test_a_rejected_item_leaves_nothing_behind(
+        self, db, tmp_path, bad_copies, fragment
+    ):
+        """The whole reason validation runs before the first write.
+        `apply_plan` catches a per-item exception into `errors` and returns
+        normally, so `get_db()` commits everything written up to the raise.
+        The item, its tags, its copies and the location it alone would have
+        created must all be absent."""
+        path = self._archive(tmp_path, [{
+            "id": 1, "title": "Malformed", "media_type": "book", "owned": 1,
+            "source": "manual", "location": "Only For This Item",
+            "tags": ["only-for-this-item"],
+            "copies": bad_copies,
+        }], name=f"bad-{fragment.split()[0]}.zip")
+
+        report = self._import(db, path)
+
+        assert report["imported"] == 0
+        assert len(report["errors"]) == 1
+        assert fragment in report["errors"][0]
+
+        assert db.execute(
+            "SELECT COUNT(*) AS n FROM items WHERE title = 'Malformed'"
+        ).fetchone()["n"] == 0
+        assert db.execute("SELECT COUNT(*) AS n FROM item_copies").fetchone()["n"] == 0
+        assert db.execute("SELECT COUNT(*) AS n FROM item_tags").fetchone()["n"] == 0
+        assert db.execute(
+            "SELECT COUNT(*) AS n FROM locations WHERE name = 'Only For This Item'"
+        ).fetchone()["n"] == 0
+        assert db.execute(
+            "SELECT COUNT(*) AS n FROM tags WHERE name = 'only-for-this-item'"
+        ).fetchone()["n"] == 0
+
+
+def _one_item_archive(tmp_path, item, *, name="wl.zip"):
+    """A minimal archive carrying exactly one item dict, verbatim.
+
+    The item is written as given — no normalisation — so a test can put an
+    absent key, a present null or an outright invalid value into the file and
+    see what the importer makes of it.
+    """
+    library = json.dumps({"locations": [], "tags": [], "borrowers": [],
+                          "series": [], "items": [item]})
+    return _write_zip(tmp_path / name, [], library=library)
+
+
+class TestWishlistMembershipRoundTrip:
+    """`wishlisted` travels in the archive as its own boolean (#125)."""
+
+    def test_a_wishlist_item_exports_true_and_imports_as_a_member(self, db):
+        _insert_item(db, title="Wanted Book", isbn="9780000000019", owned=0, wishlisted=True)
+        db.commit()
+
+        path = build_archive(db)
+        with zipfile.ZipFile(path) as zf:
+            library = json.loads(zf.read("library.json"))
+        assert library["items"][0]["wishlisted"] is True
+
+        _wipe_library(db)
+        with read_archive(path) as reader:
+            report = merge_archive(db, reader, mode="skip")
+        db.commit()
+        assert report["errors"] == []
+
+        row = db.execute(
+            "SELECT id, owned FROM items WHERE title = 'Wanted Book'"
+        ).fetchone()
+        assert row["owned"] == 0
+        assert lists.is_member(db, lists.WISHLIST, row["id"])
+
+    def test_an_owned_item_exports_false(self, db):
+        _insert_item(db, title="Owned Book", isbn="9780000000033", owned=1)
+        db.commit()
+        path = build_archive(db)
+        with zipfile.ZipFile(path) as zf:
+            library = json.loads(zf.read("library.json"))
+        assert library["items"][0]["wishlisted"] is False
+
+    def test_a_matched_item_is_overwritten_in_both_directions(self, db):
+        """G27: an overwrite, not an undo — membership follows `owned`
+        exactly as `owned` itself always overwrites."""
+        owned_id = _insert_item(db, title="Flip Me", isbn="9780000000040", owned=1)
+        db.commit()
+
+        path = _one_item_archive(
+            config.DATA_DIR,
+            {"id": 1, "title": "Flip Me", "isbn": "9780000000040",
+             "media_type": "book", "owned": 0, "wishlisted": True},
+        )
+        with read_archive(path) as reader:
+            report = merge_archive(db, reader, mode="update")
+        db.commit()
+        assert report["errors"] == []
+
+        row = db.execute("SELECT owned FROM items WHERE id = ?", (owned_id,)).fetchone()
+        assert row["owned"] == 0
+        assert lists.is_member(db, lists.WISHLIST, owned_id)
+
+        back = _one_item_archive(
+            config.DATA_DIR,
+            {"id": 1, "title": "Flip Me", "isbn": "9780000000040",
+             "media_type": "book", "owned": 1, "wishlisted": False},
+            name="back.zip",
+        )
+        with read_archive(back) as reader:
+            report = merge_archive(db, reader, mode="update")
+        db.commit()
+        assert report["errors"] == []
+        assert not lists.is_member(db, lists.WISHLIST, owned_id)
+
+
+class TestWishlistedKeyPresence:
+    """G87: an absent key and a present-but-invalid one are different answers.
+
+    A missing `wishlisted` means "this archive predates the key — derive it
+    from owned". A present one belongs to the boolean contract. Collapsing
+    the two is the bug this file already shipped once, on `copies` (#116),
+    and one test covering "absent or empty" would pass under that bug.
+    """
+
+    @pytest.mark.parametrize("owned,expect_member", [(0, True), (1, False)])
+    def test_an_absent_key_is_derived_from_owned(self, db, owned, expect_member):
+        path = _one_item_archive(
+            config.DATA_DIR,
+            {"id": 1, "title": "Legacy Row", "media_type": "book", "owned": owned},
+            name=f"legacy-{owned}.zip",
+        )
+        with read_archive(path) as reader:
+            report = merge_archive(db, reader, mode="skip")
+        db.commit()
+        assert report["errors"] == []
+
+        row = db.execute("SELECT id FROM items WHERE title = 'Legacy Row'").fetchone()
+        assert lists.is_member(db, lists.WISHLIST, row["id"]) is expect_member
+
+    @pytest.mark.parametrize("bad", [None, "false", "true", [], {}, 2, "yes"])
+    def test_a_present_invalid_value_is_an_item_error(self, db, bad):
+        """Each of these would be silently truth-coerced by `bool(...)`:
+        `"false"` and `{}` to True, `[]` and `None` to False."""
+        before = db.execute("SELECT COUNT(*) AS c FROM items").fetchone()["c"]
+        path = _one_item_archive(
+            config.DATA_DIR,
+            {"id": 1, "title": "Bad Wishlisted", "media_type": "book",
+             "owned": 0, "wishlisted": bad},
+            name=f"bad-{type(bad).__name__}-{bad!r}.zip".replace("/", "_"),
+        )
+        with read_archive(path) as reader:
+            report = merge_archive(db, reader, mode="skip")
+        db.commit()
+
+        assert report["errors"], f"{bad!r} was accepted silently"
+        assert db.execute(
+            "SELECT COUNT(*) AS c FROM items"
+        ).fetchone()["c"] == before
+
+
+class TestArchiveRefusesTheContradiction:
+    """G85: apply_plan catches per-item exceptions and carries on inside one
+    transaction, so a refusal raised *after* a write would leave the record
+    half-imported while the report said it failed. The funnel refuses before
+    writing; this is the pin that fails if that ordering is ever undone.
+    """
+
+    def test_owned_and_wishlisted_leaves_nothing_behind(self, db):
+        loc_before = db.execute("SELECT COUNT(*) AS c FROM locations").fetchone()["c"]
+        path = _one_item_archive(
+            config.DATA_DIR,
+            {"id": 1, "title": "Contradiction", "media_type": "book",
+             "owned": 1, "wishlisted": True,
+             "location": "Nowhere Shelf", "tags": ["sci-fi"]},
+            name="contradiction.zip",
+        )
+        with read_archive(path) as reader:
+            report = merge_archive(db, reader, mode="skip")
+        db.commit()
+
+        assert report["errors"], "the contradiction was imported silently"
+        assert db.execute(
+            "SELECT COUNT(*) AS c FROM items WHERE title = 'Contradiction'"
+        ).fetchone()["c"] == 0
+        assert db.execute("SELECT COUNT(*) AS c FROM item_copies").fetchone()["c"] == 0
+        assert db.execute("SELECT COUNT(*) AS c FROM list_items").fetchone()["c"] == 0
+        assert db.execute("SELECT COUNT(*) AS c FROM item_tags").fetchone()["c"] == 0
+        # The get-or-create caches run before the item write, so the location
+        # may exist; what must not exist is a half-written *item*.
+        assert db.execute(
+            "SELECT COUNT(*) AS c FROM locations"
+        ).fetchone()["c"] >= loc_before
+
+
+class TestWishlistRoundTripFidelity:
+    def test_round_trip_preserves_wishlist_membership(self, db):
+        """Full-fidelity re-export comparison with a wishlist item present.
+
+        `_seed_full_library`'s item is owned, so the existing round trip only
+        ever compares `wishlisted: false`. Seeding the wishlist case into that
+        shared helper would change the item count for seventeen call sites
+        (one asserts `len(items) == 1`), so it gets its own seed here instead.
+        """
+        # isbn10 is seeded explicitly for the same reason _seed_full_library
+        # does it: a raw seed leaves it NULL, while the importer derives the
+        # canonical pair — an unrelated difference that would otherwise show
+        # up in this comparison and read as a wishlist defect.
+        _insert_item(db, title="Wanted Book", isbn="9780000000019",
+                     isbn10="0000000019", owned=0, wishlisted=True)
+        _insert_item(db, title="Owned Book", isbn="9780000000033",
+                     isbn10="0000000035", owned=1)
+        db.commit()
+
+        original_path = build_archive(db)
+        with zipfile.ZipFile(original_path) as zf:
+            original_library = json.loads(zf.read("library.json"))
+        by_title = {i["title"]: i for i in original_library["items"]}
+        assert by_title["Wanted Book"]["wishlisted"] is True
+        assert by_title["Owned Book"]["wishlisted"] is False
+
+        _wipe_library(db)
+        with read_archive(original_path) as reader:
+            report = merge_archive(db, reader, mode="skip")
+        db.commit()
+        assert report["errors"] == []
+
+        reimport_path = build_archive(db)
+        with zipfile.ZipFile(reimport_path) as zf:
+            new_library = json.loads(zf.read("library.json"))
+        assert _normalize_library(original_library) == _normalize_library(new_library)
+
+        restored = db.execute(
+            "SELECT id FROM items WHERE title = 'Wanted Book'"
+        ).fetchone()
+        assert lists.is_member(db, lists.WISHLIST, restored["id"])
+
+
+def _rewrite_library(path, mutate):
+    """Rewrite an archive's library.json through `mutate`, in place.
+
+    The pattern `test_an_archive_predating_the_dismissal_column_still_imports`
+    uses, factored out so the kids_book and scope tests can each hand-build
+    the shape an older Shelf would have written.
+    """
+    with zipfile.ZipFile(path) as zf:
+        names = zf.namelist()
+        blobs = {n: zf.read(n) for n in names}
+    library = json.loads(blobs["library.json"])
+    mutate(library)
+    blobs["library.json"] = json.dumps(library).encode()
+    with zipfile.ZipFile(path, "w") as zf:
+        for n in names:
+            zf.writestr(n, blobs[n])
+    return path
+
+
+class TestTagScopeRoundTrip:
+    def test_a_scoped_tag_survives_export_and_import(self, db):
+        item_id = _insert_item(db, title="Scoped", isbn=None, media_type="book")
+        db.execute("INSERT INTO tags (name, media_type) VALUES ('Cookbook', 'book')")
+        tag_id = db.execute("SELECT id FROM tags WHERE name = 'Cookbook'").fetchone()["id"]
+        db.execute("INSERT INTO item_tags (item_id, tag_id) VALUES (?, ?)", (item_id, tag_id))
+        db.commit()
+        path = build_archive(db)
+        _wipe_library(db)
+
+        with read_archive(path) as reader:
+            merge_archive(db, reader, mode="skip")
+        db.commit()
+
+        assert db.execute(
+            "SELECT media_type FROM tags WHERE name = 'Cookbook'"
+        ).fetchone()["media_type"] == "book"
+
+    def test_an_existing_tags_scope_is_not_overwritten(self, db):
+        """`_get_or_create_by_name` never touches an existing row's other
+        columns, and the archive's scope must not be an exception."""
+        item_id = _insert_item(db, title="Scoped", isbn=None, media_type="book")
+        db.execute("INSERT INTO tags (name, media_type) VALUES ('Cookbook', 'book')")
+        tag_id = db.execute("SELECT id FROM tags WHERE name = 'Cookbook'").fetchone()["id"]
+        db.execute("INSERT INTO item_tags (item_id, tag_id) VALUES (?, ?)", (item_id, tag_id))
+        db.commit()
+        path = build_archive(db)
+
+        # The local tag is global; the archive says `book`. Local wins.
+        db.execute("UPDATE tags SET media_type = NULL WHERE id = ?", (tag_id,))
+        db.commit()
+
+        with read_archive(path) as reader:
+            merge_archive(db, reader, mode="update")
+        db.commit()
+
+        assert db.execute(
+            "SELECT media_type FROM tags WHERE name = 'Cookbook'"
+        ).fetchone()["media_type"] is None
+
+    def test_an_archive_without_the_scope_key_still_imports(self, db):
+        """Every archive written before this release lacks it entirely."""
+        item_id = _insert_item(db, title="Old Archive", isbn=None, media_type="book")
+        db.execute("INSERT INTO tags (name) VALUES ('sci-fi')")
+        tag_id = db.execute("SELECT id FROM tags WHERE name = 'sci-fi'").fetchone()["id"]
+        db.execute("INSERT INTO item_tags (item_id, tag_id) VALUES (?, ?)", (item_id, tag_id))
+        db.commit()
+        path = build_archive(db)
+
+        def strip_scope(library):
+            for tag in library["tags"]:
+                tag.pop("media_type", None)
+            assert "media_type" not in library["tags"][0]
+
+        _rewrite_library(path, strip_scope)
+        _wipe_library(db)
+
+        with read_archive(path) as reader:
+            report = merge_archive(db, reader, mode="skip")
+        db.commit()
+
+        assert report["errors"] == []
+        row = db.execute("SELECT media_type FROM tags WHERE name = 'sci-fi'").fetchone()
+        assert row is not None and row["media_type"] is None
+
+    def test_an_unknown_scope_value_imports_as_global(self, db):
+        item_id = _insert_item(db, title="Odd Scope", isbn=None, media_type="book")
+        db.execute("INSERT INTO tags (name) VALUES ('sci-fi')")
+        tag_id = db.execute("SELECT id FROM tags WHERE name = 'sci-fi'").fetchone()["id"]
+        db.execute("INSERT INTO item_tags (item_id, tag_id) VALUES (?, ?)", (item_id, tag_id))
+        db.commit()
+        path = build_archive(db)
+
+        def bad_scope(library):
+            for tag in library["tags"]:
+                tag["media_type"] = "not_a_media_type"
+
+        _rewrite_library(path, bad_scope)
+        _wipe_library(db)
+
+        with read_archive(path) as reader:
+            report = merge_archive(db, reader, mode="skip")
+        db.commit()
+
+        assert report["errors"] == []
+        assert db.execute(
+            "SELECT media_type FROM tags WHERE name = 'sci-fi'"
+        ).fetchone()["media_type"] is None
+
+
+class TestTheRetiredKidsBookAliasInAnArchive:
+    """An archive written by an older Shelf can still say `kids_book`."""
+
+    def _aged(self, db, *, media_type="kids_book", tags=None, **kw):
+        """Build an archive, then rewrite one item to the retired type."""
+        _insert_item(db, title="The Kids Book", media_type="book", **kw)
+        if tags:
+            item_id = db.execute(
+                "SELECT id FROM items WHERE title = 'The Kids Book'"
+            ).fetchone()["id"]
+            for name in tags:
+                db.execute("INSERT OR IGNORE INTO tags (name) VALUES (?)", (name,))
+                tid = db.execute("SELECT id FROM tags WHERE name = ?", (name,)).fetchone()["id"]
+                db.execute(
+                    "INSERT OR IGNORE INTO item_tags (item_id, tag_id) VALUES (?, ?)",
+                    (item_id, tid),
+                )
+        db.commit()
+        path = build_archive(db)
+
+        def age(library):
+            for item in library["items"]:
+                if item["title"] == "The Kids Book":
+                    item["media_type"] = media_type
+
+        _rewrite_library(path, age)
+        return path
+
+    def test_it_is_planned_and_applied_as_book_plus_kids(self, db):
+        path = self._aged(db, isbn="9789000040018")
+        _wipe_library(db)
+
+        with read_archive(path) as reader:
+            plan = plan_archive(db, reader, mode="skip")
+            verdicts = {r["title"]: r["verdict"] for r in plan["items"]}
+            assert verdicts["The Kids Book"] == "create"
+            apply_plan(db, reader, plan)
+        db.commit()
+
+        row = db.execute(
+            "SELECT id, media_type FROM items WHERE title = 'The Kids Book'"
+        ).fetchone()
+        assert row["media_type"] == "book"
+        names = {
+            r["name"] for r in db.execute(
+                "SELECT t.name FROM tags t JOIN item_tags it ON it.tag_id = t.id "
+                "WHERE it.item_id = ?", (row["id"],)
+            )
+        }
+        assert "Kids" in names
+
+    def test_an_item_already_tagged_kids_gets_one_association(self, db):
+        """The create path inserts associations; two spellings of one tag
+        would collide on the primary key and leave a half-written record."""
+        path = self._aged(db, isbn="9789000040025", tags=["kids"])
+        _wipe_library(db)
+
+        with read_archive(path) as reader:
+            report = merge_archive(db, reader, mode="skip")
+        db.commit()
+
+        assert report["errors"] == []
+        item_id = db.execute(
+            "SELECT id FROM items WHERE title = 'The Kids Book'"
+        ).fetchone()["id"]
+        assert db.execute(
+            "SELECT COUNT(*) AS c FROM item_tags WHERE item_id = ?", (item_id,)
+        ).fetchone()["c"] == 1
+
+    def _twin_archive(self, db, *, isbn=None, upc=None):
+        """An archive holding `kids_book` X *and* `book` X — the shape an
+        older Shelf could legitimately have written."""
+        _insert_item(db, title="The Book", isbn=isbn, upc=upc, media_type="book")
+        _insert_item(db, title="The Kids Book", isbn=None, upc=None, media_type="book")
+        db.commit()
+        path = build_archive(db)
+
+        def age(library):
+            for item in library["items"]:
+                if item["title"] == "The Kids Book":
+                    item["media_type"] = "kids_book"
+                    item["isbn"] = isbn
+                    item["upc"] = upc
+
+        _rewrite_library(path, age)
+        return path
+
+    @pytest.mark.parametrize(
+        "kwargs", [{"isbn": "9789000040032"}, {"upc": "0012345678905"}]
+    )
+    def test_an_intra_archive_twin_is_refused_in_plan_and_apply(self, db, kwargs):
+        """Canonicalised, both members occupy one identity slot. The dedupe
+        lookup is bounded to pre-import rows, so the second insert would
+        raise — after the location get-or-create had already written."""
+        path = self._twin_archive(db, **kwargs)
+        _wipe_library(db)
+
+        with read_archive(path) as reader:
+            plan = plan_archive(db, reader, mode="skip")
+            planned_titles = {r["title"] for r in plan["items"]}
+            assert "The Kids Book" not in planned_titles
+            assert "The Book" in planned_titles
+            assert any("The Kids Book" in e for e in plan["summary"]["errors"])
+
+            report = apply_plan(db, reader, plan)
+        db.commit()
+
+        assert any("The Kids Book" in e for e in report["errors"])
+        # Assert on the database, not the response: nothing of the refused
+        # record may be left behind.
+        assert db.execute(
+            "SELECT COUNT(*) AS c FROM items WHERE title = 'The Kids Book'"
+        ).fetchone()["c"] == 0
+        assert db.execute(
+            "SELECT COUNT(*) AS c FROM items WHERE title = 'The Book'"
+        ).fetchone()["c"] == 1
+
+    def test_a_string_id_pair_is_refused_without_taking_down_the_plan(
+        self, db, tmp_path
+    ):
+        """A hand-made archive numbers its items however it likes — `_ref_key`
+        says so. The collision pre-scan must key on that, not on `int()`,
+        which raises outside the per-item `try` and turns one bad record into
+        a failed import."""
+        library = {"items": [
+            {"id": "kid-1", "title": "The Kids Book",
+             "isbn": "9789000041008", "media_type": "kids_book"},
+            {"id": "book-1", "title": "The Book",
+             "isbn": "9789000041008", "media_type": "book"},
+        ]}
+        path = _zip_for(tmp_path, library)
+
+        with read_archive(path) as reader:
+            plan = plan_archive(db, reader, mode="skip")
+            assert {r["title"] for r in plan["items"]} == {"The Book"}
+            assert any("The Kids Book" in e for e in plan["summary"]["errors"])
+            report = apply_plan(db, reader, plan)
+        db.commit()
+
+        assert any("The Kids Book" in e for e in report["errors"])
+        assert db.execute(
+            "SELECT COUNT(*) AS c FROM items WHERE title = 'The Book'"
+        ).fetchone()["c"] == 1
+        assert db.execute(
+            "SELECT COUNT(*) AS c FROM items WHERE title = 'The Kids Book'"
+        ).fetchone()["c"] == 0
+
+    def test_string_ids_with_no_collision_still_import(self, db, tmp_path):
+        """Nothing about the pre-scan may narrow what a string-id archive can
+        do: with no aliased pair it refuses nothing at all, and both rows land.
+
+        `report["errors"]` is deliberately not asserted empty. `apply_plan`
+        still writes `id_map[int(archive_id)]`, which raises on a string id
+        and is caught per item — a **pre-existing** seam (identical on
+        `main`), unrelated to the retired-type pre-scan this class covers.
+        Its only effect is that such an item's reading log and checkouts do
+        not re-attach; the item itself imports.
+        """
+        library = {"items": [
+            {"id": "a", "title": "One", "isbn": "9789000041008",
+             "media_type": "book"},
+            {"id": "b", "title": "Two", "isbn": "9789000041015",
+             "media_type": "kids_book"},
+        ]}
+        with read_archive(_zip_for(tmp_path, library)) as reader:
+            plan = plan_archive(db, reader, mode="skip")
+            assert {r["title"] for r in plan["items"]} == {"One", "Two"}
+            assert plan["summary"]["errors"] == []
+            apply_plan(db, reader, plan)
+        db.commit()
+
+        # Both landed, and the aliased one still became a book with the tag.
+        assert db.execute(
+            "SELECT COUNT(*) AS c FROM items"
+        ).fetchone()["c"] == 2
+        assert db.execute(
+            "SELECT media_type FROM items WHERE title = 'Two'"
+        ).fetchone()["media_type"] == "book"
+
+    def test_a_float_id_is_not_the_same_slot_as_the_int_beside_it(
+        self, db, tmp_path
+    ):
+        """`int(1.0) == int(1)`, so keying the refusal by `int()` would refuse
+        the keeper along with the aliased member and import nothing."""
+        library = {"items": [
+            {"id": 1.0, "title": "The Kids Book",
+             "isbn": "9789000041008", "media_type": "kids_book"},
+            {"id": 1, "title": "The Book",
+             "isbn": "9789000041008", "media_type": "book"},
+        ]}
+        with read_archive(_zip_for(tmp_path, library)) as reader:
+            plan = plan_archive(db, reader, mode="skip")
+            assert {r["title"] for r in plan["items"]} == {"The Book"}
+            apply_plan(db, reader, plan)
+        db.commit()
+
+        assert db.execute(
+            "SELECT COUNT(*) AS c FROM items WHERE title = 'The Book'"
+        ).fetchone()["c"] == 1
+
+    def test_a_plain_duplicate_pair_is_left_alone(self, db):
+        """Two `book` rows sharing an identity are not this plan's doing, and
+        the archive is a faithful copy rather than a de-duplicator."""
+        _insert_item(db, title="First", isbn="9789000040049", media_type="book")
+        db.commit()
+        path = build_archive(db)
+
+        def twin(library):
+            clone = dict(library["items"][0])
+            clone["id"] = 9999
+            clone["title"] = "Second"
+            library["items"].append(clone)
+
+        _rewrite_library(path, twin)
+        _wipe_library(db)
+
+        with read_archive(path) as reader:
+            plan = plan_archive(db, reader, mode="skip")
+
+        titles = {r["title"] for r in plan["items"]}
+        assert {"First", "Second"} <= titles
+
+    def test_plan_and_apply_classify_an_aliased_item_identically(self, db):
+        """The parity contract: the archive has no pydantic model for this,
+        so plan and apply must read the media type through one helper.
+
+        With a matching `book` row already present, a plan that classified on
+        the *raw* `kids_book` finds no match and says `create`, while apply
+        canonicalises first and finds one — the two stages then disagree
+        about the same item, which is the drift the shared helper prevents.
+        """
+        isbn = "9789000040056"
+        path = self._aged(db, isbn=isbn)
+        _wipe_library(db)
+        # The row the archive's item canonicalises onto, already here.
+        _insert_item(db, title="The Book", isbn=isbn, media_type="book")
+        db.commit()
+
+        with read_archive(path) as reader:
+            plan = plan_archive(db, reader, mode="skip")
+            verdicts = {r["title"]: r["verdict"] for r in plan["items"]}
+            assert verdicts["The Kids Book"] == "skip", (
+                "the plan must see the existing book row — it can only do "
+                "that if it canonicalised the archive's media type first"
+            )
+            report = apply_plan(db, reader, plan)
+        # db.commit(), not COMMIT: a skip-only apply writes nothing, so there
+        # may be no transaction open to commit.
+        db.commit()
+
+        assert report["errors"] == []
+        assert db.execute(
+            "SELECT COUNT(*) AS c FROM items WHERE isbn = ?", (isbn,)
+        ).fetchone()["c"] == 1, "no second row may be created"
+
+
+# ---------------------------------------------------------------------------
+# plan-soft-delete-export T5 — a record in its source's Trash lands in Trash
+# ---------------------------------------------------------------------------
+
+_ITEM_GONE_AT = "2026-01-02 03:04:05"
+_COPY_GONE_AT = "2026-01-01 01:01:01"
+_KEPT_COPY_GONE_AT = "2026-02-02 02:02:02"
+
+
+def _seed_library_with_trash(db):
+    """A trashed item with tags, a reading log, an open loan and two copies —
+    one of them individually trashed before the item was — plus a live item
+    with one trashed copy. Every stamp is explicit so the round trip can
+    compare them exactly."""
+    from app.services import tags as tags_svc
+
+    node_id = _insert_node_location(db, name="Den")
+    loc = _legacy_location(db, node_id)
+    bea = _insert_borrower(db, name="Bea")
+    gone = _insert_item(db, title="Gone", isbn="9780441013593",
+                        isbn10="0441013597", location_id=loc)
+    item_copies.add_copy(db, gone, {"location_id": node_id})
+    second = item_copies.add_copy(db, gone, {"location_id": node_id})
+    tags_svc.attach_tags(db, gone, ["Signed"])
+    db.execute("INSERT INTO reading_log (item_id, status) VALUES (?, 'read')", (gone,))
+    db.execute("INSERT INTO checkouts (item_id, borrower_id) VALUES (?, ?)", (gone, bea))
+
+    kept = _insert_item(db, title="Kept", isbn="9780000000125",
+                        isbn10="0000000124", location_id=loc)
+    item_copies.add_copy(db, kept, {"location_id": node_id})
+    kept_second = item_copies.add_copy(db, kept, {"location_id": node_id})
+
+    item_copies.trash_copy(db, second, at=_COPY_GONE_AT)
+    item_copies.trash_copy(db, kept_second, at=_KEPT_COPY_GONE_AT)
+    item_write.trash_item(db, gone, at=_ITEM_GONE_AT)
+    db.commit()
+
+
+def _import_into_fresh(db, path, mode="skip"):
+    _wipe_library(db)
+    db.execute("DELETE FROM item_copies")
+    db.commit()
+    with read_archive(path) as reader:
+        report = merge_archive(db, reader, mode=mode)
+    db.commit()
+    return report
+
+
+class TestTrashRoundTripsIntoAFreshInstall:
+    def test_trash_arrives_as_trash_with_its_own_dates(self, db):
+        from app.services import trash
+
+        _seed_library_with_trash(db)
+        path = build_archive(db)
+        with zipfile.ZipFile(path) as zf:
+            original = json.loads(zf.read("library.json"))
+
+        report = _import_into_fresh(db, path)
+
+        assert report["errors"] == []
+        assert (report["imported"], report["trashed"], report["restored"]) == (1, 1, 0)
+
+        listing = trash.listing(db, expired_only=False, days=30)
+        assert [(r["title"], r["deleted_at"]) for r in listing["items"]] == [
+            ("Gone", _ITEM_GONE_AT)]
+        copies = {(g["item_title"], c["deleted_at"])
+                  for g in listing["copy_groups"] for c in g["copies"]}
+        assert copies == {("Gone", _COPY_GONE_AT), ("Kept", _KEPT_COPY_GONE_AT)}
+
+        # The views hide them.
+        assert [r["title"] for r in db.execute(
+            "SELECT title FROM items_live")] == ["Kept"]
+        gone_id = listing["items"][0]["id"]
+        assert db.execute(
+            "SELECT COUNT(*) AS n FROM copies_live WHERE item_id = ?", (gone_id,)
+        ).fetchone()["n"] == 0
+        # Newly created, so its history came with it.
+        for table in ("reading_log", "checkouts"):
+            assert db.execute(
+                f"SELECT COUNT(*) AS n FROM {table} WHERE item_id = ?", (gone_id,)
+            ).fetchone()["n"] == 1
+
+        # Export again: the same library, Trash and all. `updated_at` moves on
+        # a trashed item — trash_item stamps it, as a restore does.
+        with zipfile.ZipFile(build_archive(db)) as zf:
+            again = json.loads(zf.read("library.json"))
+        for lib in (original, again):
+            for it in lib["items"]:
+                it.pop("updated_at")
+        assert _normalize_library(original) == _normalize_library(again)
+
+    def test_a_trashed_copy_marked_primary_imports_non_primary(self, db, tmp_path):
+        path = _write_zip(tmp_path / "p.zip", [], library=json.dumps({"items": [{
+            "id": 1, "title": "Hand Built", "media_type": "book", "owned": 1,
+            "copies": [
+                {"copy_number": 1, "is_primary": True,
+                 "deleted_at": "2026-01-01 00:00:00"},
+                {"copy_number": 2, "is_primary": False},
+            ],
+        }]}))
+        with read_archive(path) as reader:
+            report = merge_archive(db, reader)
+        db.commit()
+
+        assert report["errors"] == []
+        rows = {r["copy_number"]: r for r in db.execute(
+            "SELECT copy_number, is_primary, deleted_at FROM item_copies")}
+        assert rows[1]["is_primary"] == 0
+        assert rows[1]["deleted_at"] == "2026-01-01 00:00:00"
+        assert rows[2]["is_primary"] == 1 and rows[2]["deleted_at"] is None
+
+    def test_an_item_whose_copies_are_all_trashed_has_no_live_copy(self, db, tmp_path):
+        path = _write_zip(tmp_path / "a.zip", [], library=json.dumps({"items": [{
+            "id": 1, "title": "Emptied", "media_type": "book", "owned": 1,
+            "location": "Den",
+            "copies": [{"copy_number": 1, "is_primary": False,
+                        "deleted_at": "2026-01-01 00:00:00"}],
+        }]}))
+        with read_archive(path) as reader:
+            report = merge_archive(db, reader)
+        db.commit()
+
+        assert report["errors"] == []
+        assert db.execute("SELECT COUNT(*) AS n FROM copies_live").fetchone()["n"] == 0
+        assert db.execute(
+            "SELECT COUNT(*) AS n FROM item_copies WHERE deleted_at IS NOT NULL"
+        ).fetchone()["n"] == 1
+
+    @pytest.mark.parametrize("stamp", [
+        "yesterday", "2026-13-40 00:00:00", "2999-01-01 00:00:00", 12345, "",
+    ], ids=["words", "impossible-date", "future", "number", "empty"])
+    def test_an_untrustworthy_date_trashes_as_of_now(self, db, tmp_path, stamp):
+        path = _write_zip(tmp_path / "d.zip", [], library=json.dumps({"items": [{
+            "id": 1, "title": "Odd Date", "media_type": "book", "owned": 1,
+            "deleted_at": stamp,
+        }]}))
+        with read_archive(path) as reader:
+            report = merge_archive(db, reader)
+        db.commit()
+
+        assert report["trashed"] == 1
+        assert len(report["errors"]) == 1 and "as of now" in report["errors"][0]
+        stored = db.execute(
+            "SELECT deleted_at FROM items WHERE title = 'Odd Date'"
+        ).fetchone()["deleted_at"]
+        assert re.match(r"^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$", stored)
+        assert stored != stamp
+
+    def test_a_v1_archive_imports_every_row_live(self, db, tmp_path):
+        """The module `_MANIFEST` is version 1 and its rows carry no
+        `deleted_at` key at all (G87)."""
+        path = _write_zip(tmp_path / "v1.zip", [], library=json.dumps({"items": [
+            {"id": 1, "title": "Old One", "media_type": "book", "owned": 1},
+            {"id": 2, "title": "Old Two", "media_type": "book", "owned": 1},
+        ]}))
+        with read_archive(path) as reader:
+            report = merge_archive(db, reader)
+        db.commit()
+
+        assert (report["imported"], report["trashed"]) == (2, 0)
+        assert db.execute(
+            "SELECT COUNT(*) AS n FROM items WHERE deleted_at IS NOT NULL"
+        ).fetchone()["n"] == 0
+
+    def test_a_v2_archive_is_refused_by_a_v1_reader(self, db, monkeypatch):
+        _seed_library_with_trash(db)
+        # Pin the historical wire format, not today's v3 exporter. A v2 copy
+        # carries a flat location name and Trash but no NODE-domain path.
+        path = _write_zip(
+            config.DATA_DIR / "v2-reader.zip", [],
+            manifest=json.dumps({"format": "shelf-archive", "version": 2,
+                                 "exported_at": "2026-08-18T00:00:00Z",
+                                 "app_version": None, "counts": {}}),
+            library=json.dumps({"items": [{
+                "id": 1, "title": "Gone", "media_type": "book", "owned": 1,
+                "location": "Den", "deleted_at": _ITEM_GONE_AT,
+                "copies": [{"copy_number": 1, "location": "Den", "is_primary": 0,
+                            "deleted_at": _COPY_GONE_AT}],
+            }]}),
+        )
+        with read_archive(path) as reader:
+            assert reader.manifest["version"] == 2
+        monkeypatch.setattr(archive_svc, "FORMAT_VERSION", 1)
+        with pytest.raises(ArchiveError, match="newer version of Shelf"):
+            read_archive(path)
+
+    def test_a_rejected_deleted_record_leaves_nothing_behind(self, db, tmp_path):
+        """The G85 pin's shape, for a record that would have gone to Trash."""
+        path = _write_zip(tmp_path / "r.zip", [], library=json.dumps({"items": [{
+            "id": 1, "title": "Malformed", "media_type": "book", "owned": 1,
+            "location": "Only For This Item", "tags": ["only-for-this-item"],
+            "deleted_at": "2026-01-01 00:00:00",
+            "copies": [{"copy_number": 1, "deleted_at": "2026-01-01 00:00:00"},
+                       {"copy_number": 1}],
+        }]}))
+        with read_archive(path) as reader:
+            report = merge_archive(db, reader)
+
+        assert report["trashed"] == 0 and len(report["errors"]) == 1
+        for sql in (
+            "SELECT COUNT(*) AS n FROM items",
+            "SELECT COUNT(*) AS n FROM item_copies",
+            "SELECT COUNT(*) AS n FROM item_tags",
+            "SELECT COUNT(*) AS n FROM locations WHERE name = 'Only For This Item'",
+        ):
+            assert db.execute(sql).fetchone()["n"] == 0, sql
+
+    def test_a_deleted_record_with_a_live_twin_in_update_mode_stays_live(
+        self, db, tmp_path
+    ):
+        """The safety property: an import never trashes a live row."""
+        live = _insert_item(db, title="Kept", isbn="9780000000125")
+        db.commit()
+        path = _write_zip(tmp_path / "u.zip", [], library=json.dumps({"items": [{
+            "id": 1, "title": "Kept", "isbn": "9780000000125", "media_type": "book",
+            "owned": 1, "publisher": "New", "deleted_at": "2026-01-01 00:00:00",
+        }]}))
+        with read_archive(path) as reader:
+            report = merge_archive(db, reader, mode="update")
+        db.commit()
+
+        assert report["updated"] == 1 and report["trashed"] == 0
+        assert db.execute(
+            "SELECT deleted_at FROM items WHERE id = ?", (live,)
+        ).fetchone()["deleted_at"] is None
+
+
+class TestArchiveUploadReadsAreBounded:
+    """G55: bound the read before validating. Archive import endpoints used to
+    call `await upload.read()` with no argument, buffering the entire upload
+    before the size ceiling was consulted."""
+
+    def test_import_archive_read_is_called_with_ceiling_plus_one(self, admin_client, tmp_path, monkeypatch):
+        from starlette.datastructures import UploadFile
+
+        from app.services.archive import MAX_IMPORT_UPLOAD_SIZE
+
+        calls = []
+        original_read = UploadFile.read
+
+        async def spy_read(self, size=-1):
+            calls.append(size)
+            return await original_read(self, size)
+
+        monkeypatch.setattr(UploadFile, "read", spy_read)
+
+        # Create a minimal valid zip archive
+        p = _write_zip(tmp_path / "test.zip", [])
+        archive_bytes = p.read_bytes()
+
+        result = admin_client.post(
+            "/api/import/archive",
+            files={"file": ("test.zip", io.BytesIO(archive_bytes), "application/zip")},
+            data={"mode": "skip"},
+        )
+
+        assert result.status_code == 200
+        assert calls == [MAX_IMPORT_UPLOAD_SIZE + 1]
+
+    def test_plan_archive_import_read_is_called_with_ceiling_plus_one(self, admin_client, tmp_path, monkeypatch):
+        from starlette.datastructures import UploadFile
+
+        from app.services.archive import MAX_IMPORT_UPLOAD_SIZE
+
+        calls = []
+        original_read = UploadFile.read
+
+        async def spy_read(self, size=-1):
+            calls.append(size)
+            return await original_read(self, size)
+
+        monkeypatch.setattr(UploadFile, "read", spy_read)
+
+        # Create a minimal valid zip archive
+        p = _write_zip(tmp_path / "test.zip", [])
+        archive_bytes = p.read_bytes()
+
+        result = admin_client.post(
+            "/api/import/archive/plan",
+            files={"file": ("test.zip", io.BytesIO(archive_bytes), "application/zip")},
+            data={"mode": "skip"},
+        )
+
+        assert result.status_code == 200
+        assert calls == [MAX_IMPORT_UPLOAD_SIZE + 1]
+
+
+class TestReleaseRadarStaysOut:
+    """Release watches and upcoming releases are user-owned state the portable
+    archive does not carry (G147; docs/upgrading-and-backups.md names the gap)."""
+
+    def test_neither_table_appears_in_the_archive(self, db):
+        db.execute("INSERT INTO release_watches (series_name) VALUES ('Dune')")
+        watch_id = db.execute("SELECT id FROM release_watches").fetchone()[0]
+        db.execute(
+            "INSERT INTO upcoming_releases (watch_id, hc_book_id, title)"
+            " VALUES (?, 1, 'Dune Messiah Unreleased')",
+            (watch_id,),
+        )
+        db.commit()
+        with zipfile.ZipFile(build_archive(db)) as zf:
+            raw = b"".join(zf.read(n) for n in zf.namelist()).decode(errors="replace")
+        assert "release_watches" not in raw
+        assert "upcoming_releases" not in raw
+        assert "Dune Messiah Unreleased" not in raw
+
+
+class TestApiTokensStayOut:
+    """API tokens are credentials bound to this server; the portable archive
+    neither exports nor imports them (G147)."""
+
+    def _token(self, db):
+        user_id = db.execute(
+            "INSERT INTO users (username, password, display_name, role)"
+            " VALUES ('tok', 'x', 'Tok', 'admin')"
+        ).lastrowid
+        db.execute(
+            "INSERT INTO api_tokens (user_id, name, token_hash, prefix)"
+            " VALUES (?, 'Archive Probe Token', 'hash-probe-1', 'shf_probe')",
+            (user_id,),
+        )
+        db.commit()
+
+    def test_table_absent_from_the_archive(self, db):
+        self._token(db)
+        with zipfile.ZipFile(build_archive(db)) as zf:
+            raw = b"".join(zf.read(n) for n in zf.namelist()).decode(errors="replace")
+        assert "api_tokens" not in raw
+        assert "Archive Probe Token" not in raw
+        assert "hash-probe-1" not in raw
+
+    def test_a_token_survives_an_import_untouched(self, db):
+        self._token(db)
+        before = [tuple(r) for r in db.execute("SELECT * FROM api_tokens")]
+        with read_archive(build_archive(db)) as reader:
+            merge_archive(db, reader, mode="skip")
+        after = [tuple(r) for r in db.execute("SELECT * FROM api_tokens")]
+        assert before and after == before
+
+
+class TestPriceHistoryStaysOut:
+    """Price-alert history is an observation cache for one feature, not part
+    of the catalog: the portable archive neither exports nor imports it, and
+    FORMAT_VERSION stays put (design: plan-price-alerts, Archive and CSV)."""
+
+    def _seed_priced(self, db):
+        item_id = _insert_item(db, title="Dune", isbn="9780441013593", owned=0, wishlisted=True)
+        db.execute("INSERT INTO price_history (item_id, price) VALUES (?, 12.99)", (item_id,))
+        db.execute("INSERT INTO price_history (item_id, price) VALUES (?, NULL)", (item_id,))
+        db.commit()
+        return item_id
+
+    def test_export_has_no_price_history(self, db):
+        self._seed_priced(db)
+        with zipfile.ZipFile(build_archive(db)) as zf:
+            raw = zf.read("library.json").decode()
+        library = json.loads(raw)
+        assert "price_history" not in library
+        assert "price_history" not in raw
+        assert "12.99" not in raw
+
+    def test_import_ignores_a_price_history_key(self, db, tmp_path):
+        self._seed_priced(db)
+        exported = build_archive(db)
+        with zipfile.ZipFile(exported) as zf:
+            entries = {n: zf.read(n) for n in zf.namelist()}
+        library = json.loads(entries["library.json"])
+        library["price_history"] = [{"item_id": 1, "price": 1.0, "observed_at": "2026-01-01"}]
+        entries["library.json"] = json.dumps(library).encode()
+        doctored = tmp_path / "doctored.zip"
+        with zipfile.ZipFile(doctored, "w") as zf:
+            for name, data in entries.items():
+                zf.writestr(name, data)
+
+        _wipe_library(db)
+        db.execute("DELETE FROM price_history")
+        db.commit()
+
+        with read_archive(doctored) as reader:
+            report = merge_archive(db, reader, mode="skip")
+        db.commit()
+
+        assert report["errors"] == []
+        assert report["imported"] == 1
+        assert db.execute("SELECT COUNT(*) FROM price_history").fetchone()[0] == 0

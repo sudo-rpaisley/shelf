@@ -1,27 +1,28 @@
 <div id="personal-state-section" class="space-y-4" data-testid="personal-state">
     {% set state = personal_state %}
     {% set rs = state.reading_status %}
+    {% set psl = personal_status_labels %}
 
     <div id="reading-status-section">
-        <p class="text-sm font-medium text-shelf-muted mb-2">{{ status_labels.heading }}</p>
+        <p class="text-sm font-medium text-shelf-muted mb-2">{{ _(psl.heading) }}</p>
         <div class="flex flex-wrap items-center gap-2">
             <button hx-post="/api/items/{{ item.id }}/reading-status"
                     hx-vals='{"status":"want_to_read"}'
                     hx-target="#personal-state-section" hx-swap="outerHTML"
                     class="px-3 py-1.5 rounded-full text-xs font-medium border transition-colors {% if rs == 'want_to_read' %}bg-shelf-warning/20 text-shelf-warning border-shelf-warning/40{% else %}bg-shelf-card text-shelf-muted border-shelf-border hover:border-shelf-warning/40{% endif %}">
-                {% if rs == 'want_to_read' %}✓ My List ·{% else %}+ My List ·{% endif %} {{ status_labels.want_to_read }}
+                {% if rs == 'want_to_read' %}✓{% else %}+{% endif %} {{ _('My List') }} · {{ _(psl.want_to_read) }}
             </button>
             <button hx-post="/api/items/{{ item.id }}/reading-status"
                     hx-vals='{"status":"reading"}'
                     hx-target="#personal-state-section" hx-swap="outerHTML"
                     class="px-3 py-1.5 rounded-full text-xs font-medium border transition-colors {% if rs == 'reading' %}bg-shelf-accent/20 text-shelf-accent2 border-shelf-accent/40{% else %}bg-shelf-card text-shelf-muted border-shelf-border hover:border-shelf-accent/40{% endif %}">
-                {{ status_labels.reading }}
+                {{ _(psl.reading) }}
             </button>
             <button hx-post="/api/items/{{ item.id }}/reading-status"
                     hx-vals='{"status":"read"}'
                     hx-target="#personal-state-section" hx-swap="outerHTML"
                     class="px-3 py-1.5 rounded-full text-xs font-medium border transition-colors {% if rs == 'read' %}bg-shelf-success/20 text-shelf-success border-shelf-success/40{% else %}bg-shelf-card text-shelf-muted border-shelf-border hover:border-shelf-success/40{% endif %}">
-                {{ status_labels.read }}
+                {{ _(psl.read) }}
             </button>
             {% if rs %}
             <button hx-post="/api/items/{{ item.id }}/reading-status"
@@ -40,7 +41,7 @@
         {% endif %}
         {% if reading_history and reading_history|length >= 2 %}
         <details class="mt-2" data-testid="reading-history">
-            <summary class="text-xs text-shelf-muted cursor-pointer hover:text-shelf-text">{{ status_labels.read }} {{ reading_history|length }} times</summary>
+            <summary class="text-xs text-shelf-muted cursor-pointer hover:text-shelf-text">{{ _('%(status)s %(count)s times', status=_(psl.read), count=reading_history|length) }}</summary>
             <div class="mt-2 space-y-1">
                 {% for r in reading_history %}
                 <div class="text-xs text-shelf-muted flex gap-2">

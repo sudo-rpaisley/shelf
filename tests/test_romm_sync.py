@@ -1,6 +1,8 @@
 """RomM sync mapping, paging, covers, platform selection and linking."""
 import asyncio
+from base64 import b64decode
 import json
+import struct
 
 import httpx
 import respx
@@ -12,6 +14,22 @@ from tests.conftest import _insert_item
 
 ROMM = "http://romm.example"
 TOKEN = "rmm_test_token"
+
+
+def _webp_image():
+    """A real VP8 keyframe in a valid extended WebP with XMP metadata.
+
+    The metadata makes the complete image exceed the upload size floor without
+    pretending that arbitrary RIFF-prefixed bytes are a decodable WebP image.
+    """
+    vp8 = b64decode("UklGRiIAAABXRUJQVlA4IBYAAAAwAQCdASoBAAEADsD+JaQAA3AAAAAA")[12:]
+    metadata = b'<x:xmpmeta xmlns:x="adobe:ns:meta/"><romm>Local RomM cover regression fixture</romm></x:xmpmeta>'
+
+    def chunk(tag, payload):
+        return tag + struct.pack("<I", len(payload)) + payload + (b"\0" if len(payload) % 2 else b"")
+
+    body = b"WEBP" + chunk(b"VP8X", b"\x04" + b"\0" * 9) + vp8 + chunk(b"XMP ", metadata)
+    return b"RIFF" + struct.pack("<I", len(body)) + body
 
 
 def _set_setting(db, key, value):
@@ -107,7 +125,7 @@ def test_maps_romm_rom_to_digital_game(db):
 @respx.mock
 def test_imports_romm_cover_with_real_content_type(db):
     _mock_library()
-    image = b"RIFF" + b"x" * 1200
+    image = _webp_image()
     respx.get(f"{ROMM}/assets/romm/resources/snes/cover/chrono.jpg").mock(
         return_value=httpx.Response(200, content=image,
                                     headers={"Content-Type": "image/webp"}))
@@ -125,8 +143,11 @@ def test_external_cover_never_receives_romm_token(db):
     _mock_library(rom=rom)
     external = respx.get("https://images.example/chrono.jpg").mock(
         return_value=httpx.Response(404))
-    asyncio.run(sync(ROMM, TOKEN))
-    assert "Authorization" not in external.calls[0].request.headers
+    stats = asyncio.run(sync(ROMM, TOKEN))
+    assert external.call_count == 0
+    assert stats["covers"] == 0
+    assert db.execute("SELECT cover_path FROM items").fetchone()["cover_path"] is None
+    assert not covers.COVERS_DIR.exists() or list(covers.COVERS_DIR.iterdir()) == []
 
 
 @respx.mock
@@ -220,7 +241,7 @@ def test_paginates_romm_platform(db):
 
 @respx.mock
 def test_transient_page_timeout_is_retried_without_dropping_platform(db, monkeypatch):
-    monkeypatch.setattr(romm_service, "PAGE_RETRY_BACKOFF", 0)
+    monkeypatch.setattr(romm_service.romm_client, "PAGE_RETRY_BACKOFF", 0)
     respx.get(f"{ROMM}/api/platforms").mock(
         return_value=httpx.Response(200, json=[_platform(count=PAGE_SIZE + 1)]))
     first = [_rom(rid=i + 1, title=f"Game {i + 1}", cover=None)
@@ -241,7 +262,7 @@ def test_transient_page_timeout_is_retried_without_dropping_platform(db, monkeyp
 
 @respx.mock
 def test_exhausted_page_retries_preserve_partial_platform(db, monkeypatch):
-    monkeypatch.setattr(romm_service, "PAGE_RETRY_BACKOFF", 0)
+    monkeypatch.setattr(romm_service.romm_client, "PAGE_RETRY_BACKOFF", 0)
     respx.get(f"{ROMM}/api/platforms").mock(
         return_value=httpx.Response(200, json=[_platform(count=PAGE_SIZE + 50)]))
     first = [_rom(rid=i + 1, title=f"Game {i + 1}", cover=None)
@@ -285,6 +306,11 @@ def test_streaming_progress_reports_imports_without_reset(db):
     added = [entry for entry in progress if entry[3] == "added"]
     assert added[0][0] == 1
     assert added[-1][0] == PAGE_SIZE + 1
+    assert added == [
+        (number, PAGE_SIZE + 1, f"Game {number}", "added") for number in range(1, PAGE_SIZE + 1)
+    ] + [(PAGE_SIZE + 1, PAGE_SIZE + 1, "Last Game", "added")]
+    assert not any(entry[3] == "created" for entry in progress)
+    assert [entry[0] for entry in progress] == sorted(entry[0] for entry in progress)
     assert all(entry[1] >= entry[0] for entry in progress)
 
 

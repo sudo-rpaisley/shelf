@@ -40,7 +40,9 @@ def test_settings_renders_romm_fields_without_echoing_token(admin_client, db):
     assert "RomM Sync" in response.text
     assert 'name="romm_url"' in response.text
     assert 'name="romm_api_token"' in response.text
-    assert "RomM Browser / Public URL" in response.text
+    assert 'label for="romm_public_url"' in response.text
+    assert '>RomM Browser / Public URL</label>' in response.text
+    assert 'id="romm_public_url" name="romm_public_url"' in response.text
     assert "http://romm:8080" in response.text
     assert ':disabled="cleaning || !hasExcluded || syncing"' in response.text
     assert TOKEN not in response.text
@@ -111,7 +113,8 @@ def test_platform_endpoint_marks_excluded_platforms(admin_client, db):
     data = admin_client.get("/api/sync/romm/platforms").json()
     assert data["ok"] is True
     assert [(p["id"], p["included"]) for p in data["platforms"]] == [
-        ("1", True), ("2", False)]
+        ("2", False), ("1", True)]
+    assert [p["name"] for p in data["platforms"]] == ["PlayStation", "Super Nintendo"]
 
 
 def test_platform_selection_validates_and_saves(admin_client, db):
@@ -133,21 +136,29 @@ def test_cleanup_deletes_romm_owned_and_detaches_adopted(admin_client, db, monke
     db.execute("COMMIT")
 
     monkeypatch.setattr(sync_jobs, "is_running", lambda provider: provider == "romm")
+    before = tuple(db.iterdump())
     blocked = admin_client.post("/api/sync/romm/platforms/cleanup")
     assert blocked.status_code == 409
-    assert blocked.json()["ok"] is False
-    assert "wait for it to finish" in blocked.json()["message"]
+    assert blocked.json() == {"ok": False, "message": "RomM sync is running"}
+    assert tuple(db.iterdump()) == before
     assert db.execute("SELECT 1 FROM items WHERE id=?", (owned,)).fetchone() is not None
 
     monkeypatch.setattr(sync_jobs, "is_running", lambda provider: False)
     result = admin_client.post("/api/sync/romm/platforms/cleanup").json()
     assert result == {"ok": True, "deleted": 1, "detached": 1}
-    assert db.execute("SELECT 1 FROM items WHERE id=?", (owned,)).fetchone() is None
+    row = db.execute("SELECT deleted_at, romm_id FROM items WHERE id=?", (owned,)).fetchone()
+    assert row is not None
+    assert row["deleted_at"] is not None
+    assert row["romm_id"] == "10"
+    assert db.execute("SELECT 1 FROM items_live WHERE id=?", (owned,)).fetchone() is None
     row = db.execute("SELECT romm_id, romm_platform_id, source FROM items WHERE id=?",
                      (adopted,)).fetchone()
     assert row["romm_id"] is None
     assert row["romm_platform_id"] is None
     assert row["source"] == "manual"
+    before_repeat = tuple(db.iterdump())
+    assert admin_client.post("/api/sync/romm/platforms/cleanup").json() == {"ok": True, "deleted": 0, "detached": 0}
+    assert tuple(db.iterdump()) == before_repeat
 
 
 def test_item_detail_opens_direct_romm_copy(admin_client, db):

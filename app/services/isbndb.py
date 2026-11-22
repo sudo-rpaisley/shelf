@@ -11,6 +11,16 @@ from app.services import outbound
 ISBNDB_API_URL = "https://api2.isbndb.com/book/{isbn}"
 CACHE_FILE = DATA_DIR / ".isbn_price_cache.json"
 CACHE_MAX_AGE_DAYS = 365
+_CACHEABLE_STATUSES = (200, 404)
+
+
+class LookupFailed(Exception):
+    """ISBNdb gave no answer about the book. `status` is the HTTP status, or
+    None when no response arrived (timeout, connection error)."""
+
+    def __init__(self, status: int | None):
+        super().__init__(f"ISBNdb lookup failed ({status if status is not None else 'no response'})")
+        self.status = status
 
 
 def _load_cache() -> dict:
@@ -52,12 +62,23 @@ def parse_price(data: dict | None) -> float | None:
     return None
 
 
-async def lookup_price(isbn13: str, api_key: str, client: httpx.AsyncClient, cache: dict) -> dict | None:
-    """Look up price for an ISBN. Returns {title, author, msrp, list_price} or None."""
-    entry = cache.get(isbn13)
-    if entry and _cache_is_fresh(entry):
-        return entry["data"]
+async def lookup_price(isbn13: str, api_key: str, client: httpx.AsyncClient, cache: dict,
+                       *, use_cache: bool = True, raise_on_failure: bool = False) -> dict | None:
+    """Look up price for an ISBN. Returns {title, author, msrp, list_price} or None.
 
+    `use_cache=False` skips the cache read and always asks ISBNdb, but still
+    writes a fresh answer into `cache`. The price-alert pass needs a current
+    price, not the year-old one valuation is happy with. A failed request
+    (anything but 200 or 404) leaves `cache` untouched, and returns None
+    unless `raise_on_failure`, which raises `LookupFailed` instead so a caller
+    can tell "no price" from "no answer".
+    """
+    if use_cache:
+        entry = cache.get(isbn13)
+        if entry and _cache_is_fresh(entry):
+            return entry["data"]
+
+    status = None
     try:
         await outbound.acquire("api2.isbndb.com")
         resp = await client.get(
@@ -65,7 +86,8 @@ async def lookup_price(isbn13: str, api_key: str, client: httpx.AsyncClient, cac
             headers={"Authorization": api_key},
             timeout=10,
         )
-        if resp.status_code == 200:
+        status = resp.status_code
+        if status == 200:
             book = resp.json().get("book", {})
             data = {
                 "title": book.get("title", ""),
@@ -76,7 +98,15 @@ async def lookup_price(isbn13: str, api_key: str, client: httpx.AsyncClient, cac
         else:
             data = None
     except Exception:
+        status = None
         data = None
 
-    cache[isbn13] = {"data": data, "fetched_at": time.time()}
+    # Cache only an answer: a book (200) or ISBNdb saying it has none (404).
+    # A refused key, a rate limit, a 5xx or a timeout says nothing about the
+    # book, and an entry written for it would be trusted for CACHE_MAX_AGE_DAYS
+    # — overwriting a good price the valuation report had cached.
+    if status in _CACHEABLE_STATUSES:
+        cache[isbn13] = {"data": data, "fetched_at": time.time()}
+    elif raise_on_failure:
+        raise LookupFailed(status)
     return data

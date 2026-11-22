@@ -64,6 +64,7 @@ class TestBackupEndpoint:
         assert not (config.DATA_DIR / "shelf_backup.db").exists()
 
 
+@pytest.mark.usefixtures("established_restore_keys")
 class TestRestoreEncrypted:
     def _encrypted_backup(self, admin_client, passphrase="hunter2"):
         resp = admin_client.post("/api/settings/backup", data={"passphrase": passphrase})
@@ -148,6 +149,7 @@ class TestRestoreEncrypted:
         assert "passphrase" in body["message"].lower()
 
 
+@pytest.mark.usefixtures("established_restore_keys")
 class TestRestoreMigratesLegacyBackup:
     """Restore is the second production caller of init_db()
     (app/routers/settings.py) and migrates a *live, serving* app.
@@ -161,55 +163,26 @@ class TestRestoreMigratesLegacyBackup:
     def _wedged_legacy_backup(self, tmp_path):
         """A 0.4.1-era Shelf database, wedged exactly as #24 describes:
         migration 15's ALTER committed, its schema_version row lost."""
-        import sqlite3 as sq
-
-        from app.database import MIGRATIONS, SCHEMA
+        from tests.lineage import captured_common_database
 
         db_path = tmp_path / "legacy_backup.db"
-        conn = sq.connect(str(db_path))
-        conn.executescript(SCHEMA)
-        # users as a post-migration-13 install has it (restore requires the
-        # table, and token_version already exists by version 13).
-        conn.executescript(
-            "CREATE TABLE IF NOT EXISTS users ("
-            "  id            INTEGER PRIMARY KEY AUTOINCREMENT,"
-            "  username      TEXT NOT NULL UNIQUE COLLATE NOCASE,"
-            "  password      TEXT NOT NULL,"
-            "  display_name  TEXT,"
-            "  role          TEXT NOT NULL DEFAULT 'viewer',"
-            "  token_version INTEGER NOT NULL DEFAULT 1,"
-            "  created_at    TEXT NOT NULL DEFAULT (datetime('now')),"
-            "  updated_at    TEXT NOT NULL DEFAULT (datetime('now'))"
-            ");"
-        )
-        # series_meta in its pre-#15 four-column shape.
-        conn.executescript(
-            "CREATE TABLE IF NOT EXISTS series_meta ("
-            "  name        TEXT PRIMARY KEY COLLATE NOCASE,"
-            "  description TEXT,"
-            "  source      TEXT,"
-            "  updated_at  TEXT"
-            ");"
-        )
+        # Literal common-prefix SQL and parent users bootstrap retain the real
+        # role CHECK. No current schema, blanket OperationalError forgiveness,
+        # later registrants or erased modern provenance manufactures this era.
+        conn = captured_common_database(db_path, 14, series_meta=True, users=True)
         conn.execute(
             "INSERT INTO users (username, password, role, token_version) "
             "VALUES ('legacy_admin', 'x', 'admin', 1)"
         )
-        for version, description, sql in MIGRATIONS:
-            if version > 14:
-                continue
-            try:
-                conn.execute(sql)
-            except sq.OperationalError:
-                pass
-            conn.execute(
-                "INSERT INTO schema_version (version, description) VALUES (?, ?)",
-                (version, description),
-            )
         conn.commit()
         # The wedge: migration 15's ALTER lands and commits alone.
         conn.execute("ALTER TABLE items ADD COLUMN manual_value REAL DEFAULT NULL")
+        conn.execute(
+            "INSERT INTO items (title, manual_value, reading_status) "
+            "VALUES ('Legacy catalogue marker', 12.5, 'read')"
+        )
         conn.commit()
+        assert conn.execute("SELECT 1 FROM schema_version WHERE version = 15").fetchone() is None
         conn.close()
         return db_path.read_bytes()
 
@@ -235,9 +208,14 @@ class TestRestoreMigratesLegacyBackup:
             token_version = conn.execute(
                 "SELECT token_version FROM users WHERE username = 'legacy_admin'"
             ).fetchone()["token_version"]
+            marker = conn.execute(
+                "SELECT manual_value, reading_status FROM items WHERE title = 'Legacy catalogue marker'"
+            ).fetchone()
 
         assert {15, 16, 17, 18, 19, 20, 21} <= applied
         assert "manual_value" in item_cols
         assert {"complete", "hc_total", "hc_missing", "hc_checked_at"} <= series_cols
+        assert tuple(marker) == (12.5, "read")
+        assert 47 not in applied
         # Sessions invalidated after the migration ran.
         assert token_version == 2

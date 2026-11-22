@@ -1,6 +1,19 @@
 from app.auth import hash_password
+from app.database import _run_migrations, inspect_schema_lineage
 from app.services import user_state
 from tests.conftest import _insert_item
+from tests.lineage import captured_fork_before_personal_snapshot
+
+import pytest
+
+
+@pytest.fixture
+def snapshot_db(tmp_path):
+    conn = captured_fork_before_personal_snapshot(tmp_path / "personal-snapshot.db")
+    try:
+        yield conn
+    finally:
+        conn.close()
 
 
 def _second_user(db, username="other"):
@@ -28,14 +41,16 @@ def _raw_item(db, **values):
 
 
 def _run_snapshot(db):
-    # The general test harness mirrors legacy inserts into personal tables so
-    # old tests model an upgraded database. These tests exercise migrations
-    # 55-56 themselves, so clear that harness-only mirror first.
-    db.execute("DELETE FROM user_item_state")
-    db.execute("DELETE FROM user_reading_log")
-    for version in (55, 56):
-        sql = next(sql for number, _description, sql in user_state._USER_STATE_MIGRATIONS if number == version)
-        db.execute(sql)
+    # Only historical, positively identified pending seeds; never replay them
+    # by deleting the current installation's state/provenance/history.
+    assert inspect_schema_lineage(db) == "fork"
+    assert db.execute("SELECT 1 FROM schema_version WHERE version >= 48").fetchone() is None
+    assert db.execute(
+        "SELECT 1 FROM sqlite_master WHERE name IN ('user_item_state', 'user_reading_log')"
+    ).fetchone() is None
+    db.commit()
+    _run_migrations(db)
+    assert inspect_schema_lineage(db) == "integrated"
 
 
 def test_users_created_after_upgrade_do_not_inherit_shared_state(db, viewer_user):
@@ -55,7 +70,9 @@ def test_users_created_after_upgrade_do_not_inherit_shared_state(db, viewer_user
     assert state["wishlist"] == 0
 
 
-def test_snapshot_copies_legacy_state_for_users_present_at_upgrade(db, viewer_user):
+def test_snapshot_copies_legacy_state_for_users_present_at_upgrade(snapshot_db):
+    db = snapshot_db
+    viewer_user = {"id": _second_user(db, "legacy-viewer")}
     item_id = _raw_item(
         db,
         reading_status="read",
@@ -82,7 +99,9 @@ def test_snapshot_copies_legacy_state_for_users_present_at_upgrade(db, viewer_us
     assert history[0]["date_finished"] == "2025-01-10"
 
 
-def test_user_created_after_snapshot_gets_no_copied_history(db, viewer_user):
+def test_user_created_after_snapshot_gets_no_copied_history(snapshot_db):
+    db = snapshot_db
+    _second_user(db, "legacy-viewer")
     item_id = _raw_item(
         db,
         reading_status="read",

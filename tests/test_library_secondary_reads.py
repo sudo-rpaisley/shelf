@@ -199,4 +199,33 @@ def test_hidden_music_item_helpers_do_not_expose_release(db, viewer_client):
 
     edit = viewer_client.get(f"/music/item/{item_id}/edit", follow_redirects=False)
     assert edit.status_code == 303
-    assert edit.headers["location"] == "/music"
+    # Native page-role denial redirects to safe Browse before item lookup.
+    assert edit.headers["location"] == "/browse"
+
+
+def test_editor_elsewhere_cannot_distinguish_hidden_music_from_missing(db, editor_client):
+    private = libraries.create_library(db, "No music membership")
+    item_id = _insert_item(db, title="Hidden Pressing Title", isbn=None,
+                           media_type="vinyl", _library_id=private["id"])
+    db.commit()
+    # This principal passes the catalogue-editor door through Main Library,
+    # unlike the original viewer denial above. The item guard must still hide it.
+    hidden = editor_client.get(f"/music/item/{item_id}/edit", follow_redirects=False)
+    missing = editor_client.get("/music/item/999999/edit", follow_redirects=False)
+    assert hidden.status_code == missing.status_code == 404
+    assert hidden.text == missing.text
+    assert "Hidden Pressing Title" not in hidden.text
+
+
+def test_global_viewer_with_music_library_editorship_can_edit_copy(db, viewer_client, viewer_user):
+    from app.services import music_catalog
+    from app.services.item_write import insert_item
+
+    libraries.set_membership(db, libraries.DEFAULT_LIBRARY_ID, viewer_user["id"], "editor")
+    item_id = insert_item(db, title="Editable Music", media_type="vinyl",
+                          library_id=libraries.DEFAULT_LIBRARY_ID)
+    music_catalog.save_release(db, item_id, {"musicbrainz_release_id": "editor-mb", "media": []})
+    db.commit()
+    response = viewer_client.get(f"/music/item/{item_id}/edit", follow_redirects=False)
+    assert response.status_code == 200
+    assert "Editable Music" in response.text

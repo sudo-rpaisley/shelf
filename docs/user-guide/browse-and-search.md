@@ -3,6 +3,11 @@
 **Browse** is your catalog. It remembers your view, filters and sort between
 visits.
 
+Browse uses **one actual search input** at every width, not separate hidden
+desktop/mobile fields. `/` focuses that control; filters, URL bookmarks and
+keyboard behavior share its value. Results/counts are limited to accessible
+libraries, and status filters read your own personal state.
+
 ## Views
 
 - **Grid** — cover tiles, best on phones and for "what do I have?"
@@ -12,6 +17,11 @@ visits.
 
 List view's toolbar has a **Columns** button. It opens a checklist of columns
 plus a **Reset to defaults** button.
+
+With a single type picked in the **Type** filter, the **Author** column's
+header uses that type's word — **Artist** for music, **Developer** for video
+games, **Director** for DVDs — and reads **Author** otherwise. The checklist
+itself always calls it **Author**.
 
 The selection checkbox, cover thumbnail, and **Title** are always shown and
 aren't offered in the picker — Title is the row's link to the item, so a row
@@ -57,13 +67,24 @@ Filter chips along the top, all combinable:
 | Filter | Values |
 |---|---|
 | **Search** | Free text over title, author, ISBN, series, publisher |
-| **Type** | Book, kids book, audiobook, eBook, DVD / Blu-ray, CD, comic, video game |
+| **Type** | Book, audiobook, eBook, DVD / Blu-ray, CD, comic, Manga, video game |
 | **Location** | Any location, or "no location" |
-| **Reading status** | Want to read, reading, read, none |
-| **Owned** | Owned / wishlist |
+| **Status** | Follows the Type filter: Want to read / Reading / Read for books, Want to watch / Watching / Watched for DVDs, Want to play / Playing / Played for video games. With no type chosen it shows Want to / In progress / Finished, and one Finished choice spans every type |
+| **Owned** | All / Owned / Wishlist / Not owned or wishlisted |
 | **Lent out** | Items currently checked out |
 | **Tag** | Any custom tag |
+| **Author** | One author, set by clicking their name on an [item page](items.md#whats-on-the-page) |
 | **Language** | Edition language (captured on lookup) |
+| **Source** | How the item arrived — a sync (RomM, Komga, Audiobookshelf), a metadata provider, a CSV import, Photo Intake, or Manual. Only sources your library actually contains are listed |
+
+The **Author** filter has no dropdown — a library can hold hundreds of names.
+You set it from an item page: each author there is a link, and clicking one
+opens Browse showing everything by that person. Its chip names the author, and
+takes the same word the Type filter gives the author column (**Artist** for
+music, and so on). It combines with every other filter, so "this author's
+books on the living-room shelf" is two clicks. It matches one person, where
+**Search** matches text: searching `Ken Liu` still finds every item whose
+author text contains those words.
 
 Counts next to each value update as you narrow down, and they tell you what
 you would get if you picked that value — counted against your other active
@@ -83,14 +104,24 @@ than an error, and leaves the filter listed so you can clear it.
 ## Sorting
 
 Title, author, date added, publish year, value — ascending or descending.
+Like the column header, the author sort option takes the picked type's word:
+with **Type** set to a music format it reads **Artist**, and so on.
 Sort by "date added, newest first" is the quickest way to check a scanning
 session.
 
 ## Tags
 
 Tags are free-form labels you invent: `signed`, `first-edition`, `book-club`,
-`to-sell`. Add them as chips on the item page; filter by them here. Tags are
-yours alone — they aren't synced anywhere.
+`to-sell`. Add them as chips on the item page or its edit page, to many items
+at once from the [bulk bar](#bulk-editing), or set
+[default tags](scanning.md#default-tags) while scanning so each new item
+arrives tagged; filter by them here. An admin renames, scopes and deletes
+them in [Settings](settings.md#tags). Tags are yours alone — they aren't
+synced anywhere.
+
+**Tags column.** In list view, the column picker offers an optional **Tags**
+column, off by default. It shows each item's tags as chips; tapping one
+filters Browse by that tag.
 
 ## Bulk editing
 
@@ -99,13 +130,30 @@ bar appears with actions:
 
 - **Move** to a location
 - **Change type**
-- **Set reading status**
+- **Set status** — Want to / In progress / Finished, or clear it
+- **Add to / remove from wishlist**
 - **Set series** (or clear it)
+- **Set language** (or clear it) — pick from the same list as the item edit
+  page
+- **Add tag** / **Remove tag** — type a tag name or pick one, then choose the
+  button. Removing a tag from the last item that carries it deletes the tag.
+- **Delete Selected** — moves the items to Trash
 
-Editors and admins only. Bulk actions are immediate and not undoable — filter
-carefully first. A bulk action whose target no longer exists — a location
+Anyone can use **Select**; what happens next depends on your role. Move,
+Change type, Set status, the wishlist action, Set series and Set language
+are **admin** only — and only an admin sees Set language at all. Add tag and Remove tag are for **editors and admins** — a
+viewer does not see them. Delete Selected moves items to Trash and needs an
+**editor** or admin. Bulk actions are immediate — filter carefully first.
+Only Delete is undoable (restore from Trash); a tag you added by mistake is
+removed the same way it was added. A bulk action whose target no longer exists — a location
 deleted from another tab while the bar was open, say — is refused with a
 message and changes nothing.
+
+Those route-level requirements do not bypass library checks: every selected
+item must also be authorized under the write lock. A global Editor with only
+Viewer membership cannot change shared metadata. Personal state remains yours,
+not a household-wide status update. Final bulk-control role/display parity is
+part of [integration verification](../upstream-integration.md).
 
 ## Selecting across pages
 

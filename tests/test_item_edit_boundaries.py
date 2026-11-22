@@ -1,5 +1,9 @@
 """Request-boundary regressions for single-item edit and quick status writes."""
 
+import io
+
+from PIL import Image
+
 from app.routers import items
 from app.services import periodical_records
 from tests.conftest import _insert_item
@@ -11,6 +15,14 @@ def _row(db, item_id):
 
 def _forbid_cover_save(*args, **kwargs):
     raise AssertionError("cover storage must not run for a rejected edit")
+
+
+def _valid_cover():
+    output = io.BytesIO()
+    Image.new("RGB", (24, 36), "blue").save(output, format="JPEG")
+    content = output.getvalue()
+    assert len(content) > 100 and items.covers.validate_uploaded_cover(content)
+    return content
 
 
 def test_edit_rejects_blank_title_without_mutation(editor_client, db):
@@ -155,9 +167,9 @@ def test_edit_rejects_unknown_media_type_without_mutation(editor_client, db):
     assert _row(db, item_id)["media_type"] == "book"
 
 
-def test_edit_rejects_unknown_reading_status_without_mutation(editor_client, db):
+def test_edit_rejects_unknown_reading_status_without_mutation(editor_client, editor_user, db):
     item_id = _insert_item(
-        db, title="Keep Status", isbn="9780441172719", reading_status="reading"
+        db, title="Keep Status", isbn="9780441172719", reading_status="reading", personal_user_id=editor_user["id"]
     )
     db.commit()
 
@@ -168,6 +180,8 @@ def test_edit_rejects_unknown_reading_status_without_mutation(editor_client, db)
     assert response.status_code == 400
     assert response.text == "Invalid reading status"
     assert _row(db, item_id)["reading_status"] == "reading"
+    assert db.execute("SELECT reading_status FROM user_item_state WHERE user_id = ? AND item_id = ?",
+                      (editor_user["id"], item_id)).fetchone()[0] == "reading"
 
 
 def test_edit_rejects_invalid_owned_value_without_mutation(editor_client, db):
@@ -184,51 +198,56 @@ def test_edit_rejects_invalid_owned_value_without_mutation(editor_client, db):
 def test_edit_rejects_stale_location_before_cover_storage(editor_client, db, monkeypatch):
     item_id = _insert_item(db, title="Keep Location", isbn="9780441172719")
     db.commit()
-    monkeypatch.setattr(items.covers, "save_uploaded_cover", _forbid_cover_save)
+    monkeypatch.setattr(items.covers, "write_uploaded_cover", _forbid_cover_save)
 
     response = editor_client.post(
         f"/api/items/{item_id}",
         data={"location_id": "999999"},
-        files={"cover": ("cover.jpg", b"x" * 200, "image/jpeg")},
+        files={"cover": ("cover.jpg", _valid_cover(), "image/jpeg")},
     )
 
     assert response.status_code == 400
     assert response.text == "Location not found"
     assert _row(db, item_id)["location_id"] is None
+    assert list(items.covers.COVERS_DIR.iterdir()) == []
 
 
 def test_edit_missing_item_rejected_before_cover_storage(editor_client, monkeypatch):
-    monkeypatch.setattr(items.covers, "save_uploaded_cover", _forbid_cover_save)
+    monkeypatch.setattr(items.covers, "write_uploaded_cover", _forbid_cover_save)
 
     response = editor_client.post(
         "/api/items/999999",
-        files={"cover": ("cover.jpg", b"x" * 200, "image/jpeg")},
+        files={"cover": ("cover.jpg", _valid_cover(), "image/jpeg")},
     )
 
     assert response.status_code == 404
     assert response.text == "Not found"
+    assert list(items.covers.COVERS_DIR.iterdir()) == []
 
 
 def test_edit_catalogue_conflict_rejected_before_cover_storage(editor_client, db, monkeypatch):
     keep_id = _insert_item(db, title="Existing ISBN", isbn="9780441172719", media_type="book")
     edit_id = _insert_item(db, title="Edited ISBN", isbn="9780156027601", media_type="book")
     db.commit()
-    monkeypatch.setattr(items.covers, "save_uploaded_cover", _forbid_cover_save)
+    monkeypatch.setattr(items.covers, "write_uploaded_cover", _forbid_cover_save)
 
     response = editor_client.post(
         f"/api/items/{edit_id}",
         data={"isbn": "9780441172719"},
-        files={"cover": ("cover.jpg", b"x" * 200, "image/jpeg")},
+        files={"cover": ("cover.jpg", _valid_cover(), "image/jpeg")},
     )
 
     assert response.status_code == 409
     assert response.text == "Update conflicts with existing catalogue data"
     assert _row(db, keep_id)["isbn"] == "9780441172719"
     assert _row(db, edit_id)["isbn"] == "9780156027601"
+    assert list(items.covers.COVERS_DIR.iterdir()) == []
 
 
-def test_quick_status_rejects_unknown_value_without_clearing(editor_client, db):
-    item_id = _insert_item(db, title="Keep Quick Status", isbn="9780441172719")
+def test_quick_status_rejects_unknown_value_without_clearing(editor_client, editor_user, db):
+    item_id = _insert_item(db, title="Keep Quick Status", isbn="9780441172719",
+                           reading_status="read", date_started="2026-01-01", date_finished="2026-01-02",
+                           personal_user_id=editor_user["id"])
     db.execute(
         "UPDATE items SET reading_status = 'read', date_started = '2026-01-01', "
         "date_finished = '2026-01-02' WHERE id = ?",
@@ -246,6 +265,11 @@ def test_quick_status_rejects_unknown_value_without_clearing(editor_client, db):
     assert row["reading_status"] == "read"
     assert row["date_started"] == "2026-01-01"
     assert row["date_finished"] == "2026-01-02"
+    state = db.execute("SELECT reading_status, date_started, date_finished FROM user_item_state "
+                       "WHERE user_id = ? AND item_id = ?", (editor_user["id"], item_id)).fetchone()
+    assert tuple(state) == ("read", "2026-01-01", "2026-01-02")
     assert db.execute(
         "SELECT COUNT(*) FROM reading_log WHERE item_id = ?", (item_id,)
     ).fetchone()[0] == 0
+    assert db.execute("SELECT COUNT(*) FROM user_reading_log WHERE user_id = ? AND item_id = ?",
+                      (editor_user["id"], item_id)).fetchone()[0] == 0

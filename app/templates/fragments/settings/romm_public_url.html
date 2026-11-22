@@ -26,9 +26,11 @@
             <button type="submit" class="px-4 py-2 bg-shelf-hover text-shelf-text rounded-lg text-sm hover:bg-shelf-border transition-colors">
                 Save Public URL
             </button>
+            {% if feature_on('romm') %}
             <a href="/romm/library" class="inline-flex px-4 py-2 bg-shelf-hover text-shelf-text rounded-lg text-sm hover:bg-shelf-border transition-colors">
                 Browse synced library
             </a>
+            {% endif %}
         </div>
     </form>
 </div>

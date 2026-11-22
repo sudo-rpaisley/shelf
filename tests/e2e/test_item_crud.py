@@ -1,12 +1,13 @@
 """E2E tests: item detail, edit, and delete."""
 import sqlite3
-from pathlib import Path
-from types import SimpleNamespace
 
 import pytest
 from playwright.sync_api import expect
 
-from tests.e2e.conftest import insert_item, insert_reading_log
+from tests.e2e.conftest import (
+    insert_item, insert_node_location, insert_physical_item, insert_reading_log,
+    live_db_connection,
+)
 
 pytestmark = pytest.mark.e2e
 
@@ -54,11 +55,12 @@ def _cover_search_fragment(item_id: int, *, with_current: bool = True) -> str:
     Rendering the template keeps the stub honest: only the *candidate data* is
     faked, never the markup.
     """
-    from jinja2 import Environment, FileSystemLoader
+    from starlette.requests import Request
 
-    templates_dir = Path(__file__).resolve().parents[2] / "app" / "templates"
-    env = Environment(loader=FileSystemLoader(str(templates_dir)), autoescape=True)
-    return env.get_template("fragments/cover_search.html").render(
+    from tests.e2e.conftest import template_env
+
+    return template_env().get_template("fragments/cover_search.html").render(
+        request=Request({"type": "http", "headers": [], "query_string": b""}),
         item_id=item_id,
         candidates=[
             {
@@ -69,18 +71,16 @@ def _cover_search_fragment(item_id: int, *, with_current: bool = True) -> str:
             for i in range(2)
         ],
         cover_path=f"covers/{item_id}.jpg" if with_current else None,
+        media_type="book",
         query="stub query",
         failed_url=None,
-        request=SimpleNamespace(query_params={}),
     )
 
 
 def _stub_cover_search(authed_page, item_id: int, *, with_current: bool = True):
     """Intercept the picker's GET so the test never reaches
-    covers.search_cover_by_title — which calls googleapis.com and
-    openlibrary.org for real on two 10s timeouts and swallows every
-    exception (app/services/covers.py:113-160), so a flaky leg would just
-    render an empty grid instead of failing loudly. `make test-e2e` is a
+    covers.search_book_covers, which calls googleapis.com and
+    openlibrary.org for real with 10s timeouts. `make test-e2e` is a
     release gate; a leg whose outcome depends on the network is a defect.
 
     Returns (handled, offenders): `handled["count"]` proves our route — not
@@ -127,6 +127,47 @@ def test_item_detail_page_loads(live_server, authed_page):
     expect(authed_page.locator("body")).to_contain_text("Tolkien")
 
 
+def test_two_copies_in_two_locations_show_both_in_the_copies_block(
+    live_server, authed_page
+):
+    """#116 T10: an item with two copies in two locations renders the
+    `Copies` block (not the single-copy `Location:` line) and names both
+    locations — the design plan's own multi-copy contract for
+    fragments/item_copies.html."""
+    from app.services.item_copies import insert_copy
+
+    data_dir = live_server["data_dir"]
+    office = insert_node_location(data_dir, "Copies Block Office")
+    loft = insert_node_location(data_dir, "Copies Block Loft")
+
+    item_id = insert_physical_item(
+        data_dir, title="Two Copy Book", media_type="book",
+        isbn="9780000116000", location_id=office,
+    )
+
+    conn = live_db_connection(data_dir)
+    try:
+        insert_copy(conn, {"item_id": item_id, "copy_number": 1,
+                            "location_id": office, "is_primary": 1})
+        insert_copy(conn, {"item_id": item_id, "copy_number": 2,
+                            "location_id": loft, "is_primary": 0})
+        conn.commit()
+    finally:
+        conn.close()
+
+    authed_page.goto(f"{live_server['url']}/item/{item_id}")
+    authed_page.wait_for_load_state("networkidle")
+
+    copies_block = authed_page.locator("#item-copies")
+    expect(copies_block).to_contain_text("Copies")
+    expect(copies_block).to_contain_text("Copies Block Office")
+    expect(copies_block).to_contain_text("Copies Block Loft")
+    # The single-copy `Location:` line is a different rendering arm — its
+    # presence here would mean the block collapsed to one row instead of
+    # listing both.
+    expect(copies_block).not_to_contain_text("Location:")
+
+
 def test_item_edit_page_loads(live_server, authed_page):
     """The edit page renders with a form pre-populated with item data."""
     item_id = insert_item(
@@ -161,6 +202,108 @@ def test_item_edit_save(live_server, authed_page):
     expect(authed_page.locator("body")).to_contain_text("Updated Title")
 
 
+def test_edit_page_tag_island_adds_and_removes_without_reload(live_server, authed_page):
+    """The edit-page tag island (#item-tags) adds and removes a tag purely
+    via HTMX — no navigation — and adds no field of its own to the Save
+    form, so the rest of the edit still saves normally afterward."""
+    item_id = insert_item(
+        live_server["data_dir"],
+        title="Tag Island Probe",
+        media_type="book",
+        isbn="9780000091253",
+    )
+    tag_name = "E2E Island Tag 9f2"
+
+    authed_page.goto(f"{live_server['url']}/item/{item_id}/edit")
+    authed_page.wait_for_load_state("networkidle")
+
+    # A marker that only a full navigation would clear.
+    authed_page.evaluate("window.__e2eTagIslandMarker = 'still-here'")
+    # Keep an unsaved edit across both section switches and tag HTMX swaps.
+    authed_page.locator("input[name=title]").fill("Tag Island Probe Updated")
+    authed_page.get_by_test_id("edit-section-nav").get_by_role("link", name="Tags", exact=True).click()
+
+    name_input = authed_page.locator("#item-tags input[name=name]")
+    name_input.fill(tag_name)
+    with authed_page.expect_response(
+        lambda r: r.url.split("?")[0].endswith(f"/api/items/{item_id}/tags")
+        and r.request.method == "POST"
+    ):
+        name_input.press("Enter")
+
+    chip = authed_page.locator("#item-tags").get_by_text(tag_name, exact=True)
+    expect(chip).to_be_visible()
+    assert authed_page.evaluate("window.__e2eTagIslandMarker") == "still-here"
+    # The section heading names the island, so the fragment's own label is
+    # hidden — and stays hidden after the add swapped the fragment out.
+    label = authed_page.locator("#edit-tags [data-tags-label]")
+    expect(label).to_have_count(1)
+    expect(label).to_be_hidden()
+    remove_box = authed_page.locator("#item-tags button[title='Remove tag']").bounding_box()
+    assert remove_box["width"] >= 24 and remove_box["height"] >= 24, remove_box
+
+    with authed_page.expect_response(
+        lambda r: f"/api/items/{item_id}/tags/" in r.url.split("?")[0]
+        and r.request.method == "DELETE"
+    ):
+        authed_page.locator("#item-tags button[title='Remove tag']").click()
+
+    expect(
+        authed_page.locator("#item-tags").get_by_text(tag_name, exact=True)
+    ).to_have_count(0)
+    assert authed_page.evaluate("window.__e2eTagIslandMarker") == "still-here"
+
+    # The island added no field to the save form — the rest of the edit
+    # still saves normally.
+    authed_page.get_by_test_id("edit-section-nav").get_by_role("link", name="General", exact=True).click()
+    expect(authed_page.locator("input[name=title]")).to_have_value("Tag Island Probe Updated")
+    authed_page.locator("[data-testid=save-btn]").click()
+    authed_page.wait_for_url(f"{live_server['url']}/item/{item_id}", timeout=10_000)
+    expect(authed_page.locator("body")).to_contain_text("Tag Island Probe Updated")
+
+
+def test_owned_box_disables_and_clears_the_wishlist_box(live_server, authed_page):
+    """#125: the two ownership boxes are independent, except that an owned
+    item cannot be wishlisted — checking "I own this" clears and disables the
+    wishlist box, and the saved row is owned and off the wishlist."""
+    item_id = insert_item(
+        live_server["data_dir"],
+        title="Ownership Boxes Probe",
+        media_type="book",
+        isbn="9780000125002",
+        owned=0,
+        wishlisted=True,
+    )
+    authed_page.goto(f"{live_server['url']}/item/{item_id}/edit")
+    authed_page.get_by_test_id("edit-section-nav").get_by_role("link", name="Copies & Location", exact=True).click()
+    owned = authed_page.get_by_test_id("edit-owned")
+    wish = authed_page.get_by_test_id("edit-wishlisted")
+    expect(wish).to_be_checked()
+    expect(wish).to_be_enabled()
+    expect(owned).not_to_be_checked()
+
+    owned.check()
+    expect(wish).not_to_be_checked()
+    expect(wish).to_be_disabled()
+
+    owned.uncheck()
+    expect(wish).to_be_enabled()
+    owned.check()
+
+    authed_page.locator("button[type=submit]:has-text('Save')").click()
+    authed_page.wait_for_url(f"{live_server['url']}/item/{item_id}", timeout=10_000)
+    conn = sqlite3.connect(str(live_server["data_dir"] / "shelf.db"))
+    try:
+        owned_val = conn.execute("SELECT owned FROM items WHERE id = ?", (item_id,)).fetchone()[0]
+        member = conn.execute(
+            "SELECT COUNT(*) FROM list_items li JOIN lists l ON l.id = li.list_id "
+            "WHERE l.slug = 'wishlist' AND li.item_id = ?", (item_id,)
+        ).fetchone()[0]
+    finally:
+        conn.close()
+    assert (owned_val, member) == (1, 0)
+
+
 def test_manual_value_overrides_estimate_then_falls_back(live_server, authed_page):
     """#18: a manual value overrides the ISBNdb estimate in the Stats total
     and the valuation report (with a "manual" badge); clearing it falls
@@ -176,7 +319,7 @@ def test_manual_value_overrides_estimate_then_falls_back(live_server, authed_pag
     # Set a manual value via the edit form.
     authed_page.goto(f"{live_server['url']}/item/{item_id}/edit")
     authed_page.wait_for_load_state("networkidle")
-    authed_page.get_by_role("button", name="Copies & Location", exact=True).click()
+    authed_page.get_by_test_id("edit-section-nav").get_by_role("link", name="Copies & Location", exact=True).click()
     authed_page.locator("input[name=manual_value]").fill("500")
     authed_page.locator("button[type=submit]:has-text('Save')").click()
     authed_page.wait_for_url(f"{live_server['url']}/item/{item_id}", timeout=10_000)
@@ -197,7 +340,7 @@ def test_manual_value_overrides_estimate_then_falls_back(live_server, authed_pag
     # Clear the manual value — falls back to the ISBNdb estimate everywhere.
     authed_page.goto(f"{live_server['url']}/item/{item_id}/edit")
     authed_page.wait_for_load_state("networkidle")
-    authed_page.get_by_role("button", name="Copies & Location", exact=True).click()
+    authed_page.get_by_test_id("edit-section-nav").get_by_role("link", name="Copies & Location", exact=True).click()
     authed_page.locator("input[name=manual_value]").fill("")
     authed_page.locator("button[type=submit]:has-text('Save')").click()
     authed_page.wait_for_url(f"{live_server['url']}/item/{item_id}", timeout=10_000)
@@ -213,25 +356,22 @@ def test_manual_value_overrides_estimate_then_falls_back(live_server, authed_pag
 
 
 def test_item_delete(live_server, authed_page):
-    """Deleting an item through More actions removes it and redirects away."""
+    """Deleting an item removes it and redirects to browse."""
     item_id = insert_item(
         live_server["data_dir"],
         title="Book To Delete",
         media_type="book",
         isbn="9780000009999",
     )
+    # Navigate to detail page
     authed_page.goto(f"{live_server['url']}/item/{item_id}")
     authed_page.wait_for_load_state("networkidle")
 
-    actions_menu = authed_page.get_by_test_id("item-actions-menu")
-    expect(actions_menu).to_be_hidden()
-    authed_page.get_by_test_id("item-actions-toggle").click()
-    expect(actions_menu).to_be_visible()
-
-    # Record the confirmation message rather than blindly accepting: an
-    # accept-and-assume handler passes even when the confirm is missing or its
-    # listener is dead, because the plain submit still fires and the row still
-    # disappears (G28).
+    # Click delete — may be a button that fires a DELETE request via HTMX
+    # or a form submit. Record the confirmation message rather than blindly
+    # accepting: an accept-and-assume handler passes even when the confirm is
+    # missing or its listener is dead, because the plain submit still fires
+    # and the row still disappears (G28).
     messages = []
 
     def accept(dialog):
@@ -239,15 +379,24 @@ def test_item_delete(live_server, authed_page):
         dialog.accept()
 
     authed_page.once("dialog", accept)
-    authed_page.get_by_test_id("delete-btn").click()
-    authed_page.wait_for_load_state("networkidle")
+    authed_page.get_by_test_id("item-actions-toggle").click()
+    delete_btn = authed_page.get_by_test_id("delete-btn")
+    # The DELETE answers 200 with a body, not a redirect (app/routers/items.py),
+    # and the navigation is a *second*, JS-driven step: data-after-request=
+    # "goto-browse" on the button sends app.js to /browse once the swap lands.
+    # The assertion below reads page.url, so the waiter is the navigation —
+    # waiting for the HTMX response would return before app.js had run.
+    with authed_page.expect_navigation(url=f"{live_server['url']}/browse"):
+        delete_btn.click()
 
-    assert messages == ["Delete 'Book To Delete'?"]
+    assert messages == ["Move “Book To Delete” to Trash?"]
 
-    # Should be gone — either redirected to browse or item no longer shows.
+    # Should be gone — either redirected to browse or item no longer shows
     if "/item/" not in authed_page.url:
+        # Redirected away — success
         assert True
     else:
+        # Still on item page — check for 404 / removal message
         assert authed_page.locator("body").inner_text() != ""
 
 
@@ -301,8 +450,8 @@ def test_fractional_series_position_round_trips_in_browser(live_server, authed_p
 
     authed_page.goto(f"{live_server['url']}/item/{item_id}/edit")
     authed_page.wait_for_load_state("networkidle")
-    authed_page.get_by_role("button", name="Series", exact=True).click()
 
+    authed_page.get_by_test_id("edit-section-nav").get_by_role("link", name="Series", exact=True).click()
     position = authed_page.locator("#series_position")
     expect(position).to_have_value("2.25")
     position.fill("2.5")
@@ -316,10 +465,9 @@ def test_cover_picker_opens_on_item_that_already_has_a_cover(live_server, authed
     item that already has a cover, not just on cover-less items.
 
     The picker's GET is stubbed via page.route rather than hit for real:
-    covers.search_cover_by_title calls out to googleapis.com and
-    openlibrary.org on two 10s timeouts and swallows every exception, so a
-    flaky leg would silently render as an empty gallery instead of failing
-    this test where the bug would actually be. See _stub_cover_search's
+    covers.search_book_covers calls out to googleapis.com and
+    openlibrary.org on 10s timeouts, which could make the UI test flaky.
+    See _stub_cover_search's
     docstring for how "the server was never reached" is verified rather than
     assumed.
     """

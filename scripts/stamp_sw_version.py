@@ -19,6 +19,9 @@ fails the gate.
 
 Note sw.js itself is deliberately not in PRECACHE — if it were, stamping the
 version would change the bytes the version is derived from and never converge.
+
+The check is enforced on all CI events and locally. Authors commit regenerated
+artifacts before submission; this fork's read-only CI never pushes repairs.
 """
 
 import argparse
@@ -30,6 +33,13 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 SW_PATH = ROOT / "static" / "sw.js"
 STATIC_ROOT = ROOT / "static"
+
+# scripts/ is not a package -- tests load this script standalone via
+# importlib.util.spec_from_file_location, which skips sys.path[0] entirely.
+# Put the script's own directory on the path so `import ci_context` resolves
+# under both that loader and a direct `python scripts/stamp_sw_version.py`.
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from ci_context import staleness_is_enforceable as staleness_is_enforceable  # noqa: E402
 
 DIGEST_CHARS = 8
 

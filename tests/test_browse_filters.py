@@ -118,6 +118,18 @@ class TestBuildWhere:
             where, params = bf.build_where(values, exclude=f.name)
             assert where.count("?") == len(params)
 
+    def test_author_is_an_exists_over_the_index(self):
+        where, params = bf.build_where({"author_filter": "7"})
+        assert "EXISTS (SELECT 1 FROM item_authors ia" in where
+        assert "ia.item_id = i.id" in where
+        assert params == [7]
+
+    @pytest.mark.parametrize("value", ["abc", "1.5", "-", "9" * 22])
+    def test_an_uncastable_author_matches_nothing(self, value):
+        # Never None: that would drop the condition and show everything under
+        # an active Author chip.
+        assert bf.build_where({"author_filter": value}) == ("WHERE 1 = 0", [])
+
     def test_location_is_cast_to_int(self):
         _where, params = bf.build_where({"location_filter": "7"})
         assert params == [7]
@@ -135,9 +147,26 @@ class TestBuildWhere:
         assert where == "WHERE 1 = 0"
         assert params == []
 
+    def test_location_none_selects_items_without_one(self):
+        # "none" is not an id: it must not reach int(), which would make it
+        # an uncastable value that matches nothing.
+        assert bf.build_where({"location_filter": "none"}) == (
+            "WHERE i.location_id IS NULL", [],
+        )
+
     def test_owned_is_tri_state(self):
+        """The URL contract is unchanged — "1" and "0" still mean owned and
+        wishlist — but "0" now reads `list_items` rather than `owned = 0`
+        (#125), and a fourth value, "none", reads its negation. The negative
+        assertion is the point: it is what goes red if the filter is ever
+        reverted to reading possession."""
         assert "i.owned = 1" in bf.build_where({"owned": "1"})[0]
-        assert "i.owned = 0" in bf.build_where({"owned": "0"})[0]
+        wishlist_where = bf.build_where({"owned": "0"})[0]
+        assert "EXISTS (SELECT 1 FROM list_items" in wishlist_where
+        assert "i.owned = 0" not in wishlist_where
+        neither_where = bf.build_where({"owned": "none"})[0]
+        assert "i.owned = 0" in neither_where
+        assert "NOT EXISTS (SELECT 1 FROM list_items" in neither_where
         assert bf.build_where({"owned": "either"}) == ("", [])
 
     def test_lent_out_only_applies_when_set(self):
@@ -253,3 +282,17 @@ class TestClientConfig:
 
     def test_sort_clears_to_its_default_not_empty(self):
         assert bf.BY_NAME["sort"].clear_to == "newest"
+
+
+def test_search_matches_an_asin(viewer_client, db):
+    from tests.conftest import _insert_item
+
+    _insert_item(db, title="Project Hail Mary", isbn=None, media_type="audiobook",
+                 asin="B0D1234567")
+    _insert_item(db, title="Unrelated", isbn=None, media_type="audiobook")
+    db.commit()
+
+    html = viewer_client.get("/api/search?q=B0D1234567").text
+
+    assert "Project Hail Mary" in html
+    assert "Unrelated" not in html

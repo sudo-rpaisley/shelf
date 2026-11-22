@@ -7,7 +7,10 @@ function browsePage() {
         bulkLocationVal: '',
         bulkTypeVal: '',
         bulkStatusVal: '',
+        bulkWishlistVal: '',
         bulkSeriesVal: '',
+        bulkLanguageVal: '',
+        bulkTagVal: '',
         filterPills: [],
         viewMode: localStorage.getItem('shelf-view') || 'grid',
         // viewMode is the only thing that decides whether the list view
@@ -17,11 +20,13 @@ function browsePage() {
         visibleCols: {},
         columnsOpen: false,
         filtersOpen: false,
-        // Bound (x-model) to BOTH the mobile and desktop search inputs, which
-        // share name="q". Keeping them in lockstep is what stops hx-include
-        // from sending "q=typed&q=" — Starlette's QueryParams.get() returns the
-        // LAST duplicate, so an empty second input used to wipe the search.
+        // One responsive search control. Keep its value synchronized before
+        // htmx serializes a filter change or a restored query.
         searchQuery: '',
+
+        // Getters: an Alpine CSP expression can't call t().
+        get selectedLabel() { return t('{count} selected').replace('{count}', this.selectedIds.length); },
+        get selectModeLabel() { return this.selectMode ? t('Done') : t('Select'); },
 
         init() {
             // Must run before anything else touches the DOM. visibleCols needs
@@ -35,6 +40,7 @@ function browsePage() {
             this.visibleCols = this.loadColumns();
             this.searchQuery = this.$el.dataset.initialQuery || '';
             this.canSelect = this.$el.dataset.canSelect === '1';
+            this.enhanceSearchForm();
             // Returning to a bare /browse re-applies the last filter set.
             // Falls through to the sort-only restore when there's nothing stored
             // (sessionStorage is per-tab, so a new tab always lands here).
@@ -65,10 +71,18 @@ function browsePage() {
             document.querySelector('[name="sort"]')?.addEventListener('change', function(e) {
                 localStorage.setItem('shelf-sort', e.target.value);
             });
+            try {
+                var flash = sessionStorage.getItem('shelf-bulk-flash');
+                if (flash) {
+                    sessionStorage.removeItem('shelf-bulk-flash');
+                    flash = JSON.parse(flash);
+                    showToast(flash.message, flash.type);
+                }
+            } catch (e) {}
             // Show keyboard shortcut hint on first visit
             if (!localStorage.getItem('shelf-shortcuts-seen')) {
                 localStorage.setItem('shelf-shortcuts-seen', '1');
-                setTimeout(function() { showToast('Press ? for keyboard shortcuts', 'info'); }, 1500);
+                setTimeout(function() { showToast(t('Press ? for keyboard shortcuts'), 'info'); }, 1500);
             }
             // Browse-page keyboard shortcuts
             this._keyHandler = (e) => this.handleKey(e);
@@ -111,6 +125,8 @@ function browsePage() {
                 if (e.key === 'Escape') { document.activeElement.blur(); e.preventDefault(); }
                 return;
             }
+            // Leave Ctrl/Cmd/Alt combos to the browser (find-in-page, etc.); Escape still works.
+            if (e.key !== 'Escape' && (e.ctrlKey || e.metaKey || e.altKey)) return;
             if (e.key === 'Escape') {
                 if (this.selectMode) { this.selectMode = false; this.selectedIds = []; e.preventDefault(); }
             } else if (e.key === 'e' && this.canSelect) {
@@ -122,7 +138,7 @@ function browsePage() {
             } else if (e.key === 'f') {
                 this.filtersOpen = !this.filtersOpen;
                 e.preventDefault();
-            } else if (e.key === 'x' && !e.ctrlKey && !e.metaKey) {
+            } else if (e.key === 'x') {
                 this.clearAllFilters();
                 e.preventDefault();
             }
@@ -246,6 +262,50 @@ function browsePage() {
             });
         },
 
+        enhanceSearchForm() {
+            var form = document.getElementById('browse-filters');
+            if (!form) return;
+            // Native type-ahead/filter requests inherit this owner; runSearch
+            // uses the same form as its source. A newer search aborts the old
+            // XHR before it can apply results, OOB controls or history changes.
+            form.setAttribute('hx-sync', 'this:replace');
+            var self = this;
+            var submitted = null;
+            // Keep the genuine /browse GET form usable without JavaScript.
+            // With JS, Enter has the same fragment/URL/pill semantics as the
+            // other filters, including every successful hidden control.
+            form.addEventListener('submit', function(e) {
+                e.preventDefault();
+                self.setControlValue('view', self.viewMode);
+                var params = new URLSearchParams(new FormData(form));
+                submitted = params.toString();
+                self.runSearch(params);
+            });
+            form.addEventListener('keydown', function(e) {
+                if (e.key === 'Enter' && e.target.name === 'q' && !e.isComposing) {
+                    // Suppress the browser's additional native `search` event;
+                    // requestSubmit still uses the real form/submit handler.
+                    e.preventDefault();
+                    form.requestSubmit();
+                }
+            });
+            form.addEventListener('input', function() { submitted = null; });
+            form.addEventListener('change', function() { submitted = null; });
+            form.addEventListener('htmx:confirm', function(e) {
+                // Enter keyup or a pending type-ahead debounce may follow the
+                // explicit submit. Cancel only that identical q request, not
+                // a changed query/filter, a retry submit or another control.
+                // confirm runs BEFORE hx-sync replacement; configRequest is
+                // too late, since the duplicate would already have aborted
+                // the valid submitted request before being cancelled itself.
+                if (submitted !== null && e.detail.elt.name === 'q' &&
+                    e.detail.path === '/api/search' &&
+                    new URLSearchParams(new FormData(form)).toString() === submitted) {
+                    e.preventDefault();
+                }
+            });
+        },
+
         // Issue #13: the sort-only fallback set the select's value but fired the
         // request with htmx.trigger, which restoreFilters() had already learned
         // is unreliable at init time (see its comment below) -- so the dropdown
@@ -267,8 +327,17 @@ function browsePage() {
         // table (the #7 bug).
         runSearch(params) {
             params.set('view', this.viewMode);
-            htmx.ajax('GET', '/api/search?' + params.toString(),
-                      {target: '#item-grid', swap: 'innerHTML'});
+            this.setControlValue('view', this.viewMode);
+            htmx.ajax('GET', '/api/search', {
+                source: document.getElementById('browse-filters'),
+                // HTMX serializes the source form too. Merge values rather
+                // than putting them in the URL and sending each filter twice.
+                values: Object.fromEntries(params),
+                target: '#item-grid', swap: 'innerHTML'
+            }).catch(function() {
+                // Replacement aborts are expected. HTMX still reports actual
+                // network failures through its normal request/error events.
+            });
         },
 
         // Issue #8: filters lived only in DOM controls + history.replaceState,
@@ -281,6 +350,14 @@ function browsePage() {
             var stored = sessionStorage.getItem('shelf-browse-qs');
             if (!stored) return false;
             var params = new URLSearchParams(stored);
+            // #117b: the author chip's name comes from the server, which a
+            // fragment replay never asks for — the chip would show an id. So
+            // an author filter restores as a full page load instead.
+            var author = document.querySelector('[name="author_filter"]');
+            if (params.get('author_filter') && author && !author.dataset.label) {
+                window.location.replace('/browse?' + stored);
+                return true;
+            }
             var applied = new URLSearchParams();
             var any = false;
             var self = this;
@@ -320,6 +397,7 @@ function browsePage() {
         setView(mode) {
             this.viewMode = mode;
             localStorage.setItem('shelf-view', mode);
+            this.setControlValue('view', mode);
             // Re-trigger search to get correct template
             var trigger = document.querySelector('[name="media_type_filter"]') || document.querySelector('[name="q"]');
             if (trigger) htmx.trigger(trigger, 'change');
@@ -336,7 +414,17 @@ function browsePage() {
                     var opt = el.options[el.selectedIndex];
                     label = opt ? opt.text.replace(/ \(\d+\)$/, '') : el.value;
                 } else {
-                    label = def.prefix ? def.prefix + ': ' + el.value : el.value;
+                    // A hidden control may carry a display label (the author
+                    // filter's name) in place of its raw value.
+                    var shown = el.dataset.label || el.value;
+                    var prefix = def.prefix;
+                    if (def.name === 'author_filter') {
+                        // Author/Artist/Director/Developer, as the sort option
+                        // already switches with the Type filter.
+                        var creator = document.getElementById('sort-option-author');
+                        if (creator && creator.text) prefix = creator.text;
+                    }
+                    label = prefix ? prefix + ': ' + shown : shown;
                 }
                 if (def.prefix && el.tagName === 'SELECT') label = def.prefix + ': ' + label;
                 pills.push({name: def.name, label: label});
@@ -367,7 +455,11 @@ function browsePage() {
             var el = document.querySelector('[name="' + name + '"]');
             if (el) {
                 this.setControlValue(name, def ? def.clearTo : '');
-                htmx.trigger(el, el.tagName === 'SELECT' ? 'change' : 'keyup');
+                if (el.dataset.label) el.dataset.label = '';
+                // A hidden input ignores keyup, so it listens for change like
+                // a select does; text inputs keep their keyup trigger.
+                var isChange = el.tagName === 'SELECT' || el.type === 'hidden';
+                htmx.trigger(el, isChange ? 'change' : 'keyup');
             }
         },
 
@@ -381,6 +473,8 @@ function browsePage() {
                 if (def.clearTo === null) return;
                 self.setControlValue(def.name, def.clearTo);
             });
+            var author = document.querySelector('[name="author_filter"]');
+            if (author) author.dataset.label = '';
             sessionStorage.removeItem('shelf-browse-qs');
             var trigger = document.querySelector('[name="media_type_filter"]') || document.querySelector('[name="q"]');
             if (trigger) htmx.trigger(trigger, 'change');
@@ -402,12 +496,17 @@ function browsePage() {
         // opens a new tab instead (middle-click is handled natively by the
         // anchor markup, which never reaches this handler).
         openOrToggle(id, url, event) {
-            if (this.selectMode) { this.toggleItem(id); return; }
+            if (this.selectMode) {
+                if (this.canSelectItem(id)) this.toggleItem(id);
+                else showToast(t('This item is read-only in its library.'), 'info');
+                return;
+            }
             if (event && (event.ctrlKey || event.metaKey)) window.open(url, '_blank');
             else window.location = url;
         },
 
         toggleItem(id) {
+            if (!this.canSelectItem(id)) return;
             var idx = this.selectedIds.indexOf(id);
             if (idx >= 0) this.selectedIds.splice(idx, 1);
             else this.selectedIds.push(id);
@@ -415,7 +514,7 @@ function browsePage() {
 
         selectAll() {
             var self = this;
-            document.querySelectorAll('[data-item-id]').forEach(function(el) {
+            document.querySelectorAll('[data-item-id][data-can-edit-item="1"]').forEach(function(el) {
                 var id = parseInt(el.dataset.itemId);
                 if (self.selectedIds.indexOf(id) < 0) self.selectedIds.push(id);
             });
@@ -423,6 +522,10 @@ function browsePage() {
 
         deselectAll() {
             this.selectedIds = [];
+        },
+
+        canSelectItem(id) {
+            return this.canSelect && !!document.querySelector('[data-item-id="' + id + '"][data-can-edit-item="1"]');
         },
 
         // Alpine's CSP evaluator has no access to browser globals, so the
@@ -442,20 +545,57 @@ function browsePage() {
                 });
                 var data = await resp.json();
                 if (data.ok) {
-                    showToast('Updated ' + data.updated + ' items', 'success');
+                    showToast(t('Updated {count} items').replace('{count}', data.updated), 'success');
                     this.selectedIds = [];
                     location.reload();
                 } else {
-                    showToast(data.message || 'Update failed', 'error');
+                    showToast(data.message || t('Update failed'), 'error');
                 }
             } catch (e) {
-                showToast('Update failed: ' + e.message, 'error');
+                showToast(t('Update failed') + ': ' + e.message, 'error');
+            }
+        },
+
+        async bulkTags(mode) {
+            // Capture both before the await -- selectedIds/bulkTagVal can
+            // change (or the component re-render) while the fetch is in
+            // flight (G2).
+            var name = (this.bulkTagVal || '').trim();
+            if (!name || !this.selectedIds.length) return;
+            var ids = this.selectedIds;
+            try {
+                var resp = await fetch('/api/items/bulk-tags', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json', 'X-CSRF-Token': window.csrfToken()},
+                    body: JSON.stringify({
+                        item_ids: ids,
+                        add: mode === 'add' ? [name] : [],
+                        remove: mode === 'remove' ? [name] : []
+                    })
+                });
+                var data = await resp.json();
+                if (data.ok) {
+                    // The reload below would wipe a toast shown now; init()
+                    // shows this one after the page comes back.
+                    try {
+                        sessionStorage.setItem('shelf-bulk-flash', JSON.stringify({
+                            message: data.message, type: data.updated ? 'success' : 'info'
+                        }));
+                    } catch (e) {}
+                    this.selectedIds = [];
+                    this.bulkTagVal = '';
+                    location.reload();
+                } else {
+                    showToast(data.message || t('Tag update failed'), 'error');
+                }
+            } catch (e) {
+                showToast(t('Tag update failed') + ': ' + e.message, 'error');
             }
         },
 
         async bulkDelete() {
             var ids = this.selectedIds.slice();
-            if (!ids.length || !confirm('Delete ' + ids.length + ' items?')) return;
+            if (!ids.length || !confirm(t('Move {count} items to Trash?').replace('{count}', ids.length))) return;
 
             var deleted = 0;
             var failed = 0;
@@ -473,18 +613,18 @@ function browsePage() {
             }
 
             if (failed === 0) {
-                showToast('Deleted ' + deleted + ' items', 'success');
+                sessionStorage.setItem('shelf-bulk-flash', JSON.stringify({message: t('Moved {count} items to Trash').replace('{count}', deleted), type: 'success'}));
                 this.selectedIds = [];
                 location.reload();
                 return;
             }
 
             if (deleted > 0) {
-                showToast('Deleted ' + deleted + ' items; ' + failed + ' failed', 'error');
+                sessionStorage.setItem('shelf-bulk-flash', JSON.stringify({message: t('Moved {count} items to Trash').replace('{count}', deleted) + '; ' + t('Delete failed for {count} items').replace('{count}', failed), type: 'error'}));
                 this.selectedIds = [];
                 location.reload();
             } else {
-                showToast('Delete failed for ' + failed + ' items', 'error');
+                showToast(t('Delete failed for {count} items').replace('{count}', failed), 'error');
             }
         }
     }

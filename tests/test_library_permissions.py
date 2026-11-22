@@ -1,8 +1,10 @@
 """Tests for first-class Shelf libraries and their permission boundary."""
 
 from app.auth import hash_password
+from app.database import _run_migrations, inspect_schema_lineage
 from app.services import libraries
 from tests.conftest import _insert_item
+from tests.lineage import captured_fork_before_library_snapshot
 
 
 def _user(db, username: str, role: str = "viewer") -> dict:
@@ -19,13 +21,14 @@ def _user(db, username: str, role: str = "viewer") -> dict:
 
 
 def _run_upgrade_snapshot(db) -> None:
-    for version in (60, 61, 62):
-        sql = next(
-            sql
-            for number, _description, sql in libraries._LIBRARY_MIGRATIONS
-            if number == version
-        )
-        db.execute(sql)
+    assert inspect_schema_lineage(db) == "fork"
+    assert db.execute("SELECT 1 FROM schema_version WHERE version >= 57").fetchone() is None
+    assert db.execute(
+        "SELECT 1 FROM sqlite_master WHERE name IN ('libraries', 'library_items', 'library_memberships')"
+    ).fetchone() is None
+    db.commit()
+    _run_migrations(db)
+    assert inspect_schema_lineage(db) == "integrated"
 
 
 def test_init_creates_default_main_library(db):
@@ -36,14 +39,14 @@ def test_init_creates_default_main_library(db):
     assert main["is_archived"] == 0
 
 
-def test_upgrade_snapshot_preserves_existing_single_library_access(db):
+def test_upgrade_snapshot_preserves_existing_single_library_access(tmp_path):
+    db = captured_fork_before_library_snapshot(tmp_path / "library-snapshot.db")
     viewer = _user(db, "legacy-viewer", "viewer")
     editor = _user(db, "legacy-editor", "editor")
     admin = _user(db, "legacy-admin", "admin")
     item_id = _insert_item(db, title="Legacy Catalogue Item", _library_id=None)
 
-    # Re-run only the idempotent data migrations as if these rows existed at
-    # upgrade time. Existing installations should wake up as one Main Library.
+    # These rows really predate first application of the pending fork seeds.
     _run_upgrade_snapshot(db)
 
     assert libraries.item_library_id(db, item_id) == libraries.DEFAULT_LIBRARY_ID
@@ -54,6 +57,7 @@ def test_upgrade_snapshot_preserves_existing_single_library_access(db):
     assert db.execute(
         "SELECT 1 FROM library_memberships WHERE user_id = ?", (admin["id"],)
     ).fetchone() is None
+    db.close()
 
 
 def test_library_role_is_independent_of_legacy_global_viewer_role(db):
@@ -100,7 +104,8 @@ def test_global_admin_can_recover_every_library_and_mapped_or_unmapped_item(db):
     assert libraries.has_library_role(db, admin, first["id"], "editor") is True
     assert libraries.has_library_role(db, admin, second["id"], "viewer") is True
     assert libraries.has_item_role(db, admin, mapped, "editor") is True
-    assert libraries.has_item_role(db, admin, unmapped, "viewer") is True
+    assert libraries.can_recover_item(db, admin, unmapped) is True
+    assert libraries.has_item_role(db, admin, unmapped, "viewer") is False
     accessible = libraries.accessible_library_ids(db, admin)
     assert first["id"] in accessible
     assert second["id"] in accessible

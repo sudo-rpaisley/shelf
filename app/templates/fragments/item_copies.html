@@ -1,134 +1,48 @@
-<div id="item-copies-panel" data-testid="item-copies-panel">
-    {% if copy_error %}
-    <div class="mb-3 rounded-lg border border-shelf-error/30 bg-shelf-error/10 px-3 py-2 text-sm text-shelf-error">{{ copy_error }}</div>
-    {% endif %}
-    {% if missing %}
-    <p class="text-sm text-shelf-muted">Item not found.</p>
-    {% elif not is_physical_holding %}
-    <p class="text-sm text-shelf-muted">This item does not have physical copies or shelf locations.</p>
+{# Copy location_id is a location_nodes ID. Never use flat item locations here.
+   This root is the destination of EVERY copy operation, including200 refusals. #}
+{% set may_edit = can_edit_item|default(false) %}
+{% set legacy = not copies and item and item.location_name %}
+{%- macro detail_suffix(copy) -%}
+{%- set details = [] %}
+{%- for value in [copy.condition, copy.acquired_date, copy.acquisition_source] %}{% if value %}{{ details.append(value) or '' }}{% endif %}{% endfor %}
+{%- if copy.acquisition_price is not none %}{{ details.append(copy.acquisition_price|money) or '' }}{% endif %}
+{%- for value in [copy.provenance, copy.notes] %}{% if value %}{{ details.append(value) or '' }}{% endif %}{% endfor %}
+{%- for detail in details %} · {{ detail }}{% endfor %}
+{%- endmacro %}
+{% set single_details = detail_suffix(copies[0]) if copies|length == 1 else '' %}
+{% set show_single = copies|length == 1 and (copies[0].location_id or single_details|trim or copies[0].copy_barcode or copies[0].missing_since or may_edit) %}
+<div id="item-copies" class="{% if not legacy and not show_single and copies|length < 2 and not may_edit and not copy_error and not message %}hidden{% else %}col-span-2 space-y-3{% endif %}">
+    {% if copy_error %}<p role="alert" class="rounded-lg border border-shelf-error/30 bg-shelf-error/10 px-3 py-2 text-sm text-shelf-error">{{ copy_error }}</p>{% endif %}
+    {% if message %}<p role="status" class="rounded-lg border border-shelf-success/40 bg-shelf-success/10 px-3 py-2 text-sm text-shelf-success">{{ message }}</p>{% endif %}
+    {% if missing %}<p class="text-sm text-shelf-muted">{{ _('Item not found.') }}</p>
+    {% elif not is_physical_holding and not legacy %}<p class="text-sm text-shelf-muted">{{ _('This item does not have physical copies or shelf locations.') }}</p>
     {% else %}
-        {% if message %}
-        <div class="mb-3 rounded-lg border border-shelf-success/40 bg-shelf-success/10 px-3 py-2 text-sm text-shelf-success">{{ message }}</div>
-        {% endif %}
-
-        <div class="space-y-3">
-            {% for copy in copies %}
-            <details class="rounded-lg border border-shelf-border bg-shelf-bg" {% if copies|length == 1 %}open{% endif %} data-copy-id="{{ copy.id }}">
-                <summary class="cursor-pointer px-4 py-3 flex items-center justify-between gap-3">
-                    <span class="font-medium">Copy {{ copy.copy_number }}{% if copy.is_primary %} <span class="text-xs text-shelf-accent2">Primary</span>{% endif %}</span>
-                    <span class="text-xs text-shelf-muted text-right">{{ copy.location_path or 'No location' }}{% if copy.position_order %} · Position {{ copy.position_order }}{% endif %}</span>
-                </summary>
-                <div class="border-t border-shelf-border p-4">
-                    {% if user and user.role in ('editor', 'admin') %}
-                    <form hx-post="/api/items/{{ item_id }}/copies/{{ copy.id }}"
-                          hx-target="#item-copies-panel" hx-swap="outerHTML"
-                          class="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                        <label class="text-sm">
-                            <span class="block text-shelf-muted mb-1">Location</span>
-                            <select name="location_id" class="w-full bg-shelf-card border border-shelf-border rounded-lg px-3 py-2 text-shelf-text">
-                                <option value="">No location</option>
-                                {% for node in location_nodes %}
-                                <option value="{{ node.id }}" {% if copy.location_id == node.id %}selected{% endif %}>{{ '— ' * node.depth }}{{ node.name }}</option>
-                                {% endfor %}
-                            </select>
-                        </label>
-                        <label class="text-sm">
-                            <span class="block text-shelf-muted mb-1">Condition</span>
-                            <select name="condition" class="w-full bg-shelf-card border border-shelf-border rounded-lg px-3 py-2 text-shelf-text">
-                                <option value="">Not recorded</option>
-                                {% for value, label in conditions %}
-                                <option value="{{ value }}" {% if copy.condition == value %}selected{% endif %}>{{ label }}</option>
-                                {% endfor %}
-                            </select>
-                        </label>
-                        <label class="text-sm">
-                            <span class="block text-shelf-muted mb-1">Acquired</span>
-                            <input type="date" name="acquired_date" value="{{ copy.acquired_date or '' }}"
-                                   class="w-full bg-shelf-card border border-shelf-border rounded-lg px-3 py-2 text-shelf-text">
-                        </label>
-                        <label class="text-sm">
-                            <span class="block text-shelf-muted mb-1">Acquisition price</span>
-                            <input type="number" min="0" step="0.01" name="acquisition_price" value="{{ copy.acquisition_price if copy.acquisition_price is not none else '' }}"
-                                   class="w-full bg-shelf-card border border-shelf-border rounded-lg px-3 py-2 text-shelf-text">
-                        </label>
-                        <label class="text-sm col-span-full">
-                            <span class="block text-shelf-muted mb-1">Copy barcode / asset label</span>
-                            <input type="text" name="copy_barcode" value="{{ copy.copy_barcode or '' }}" maxlength="120"
-                                   class="w-full bg-shelf-card border border-shelf-border rounded-lg px-3 py-2 text-shelf-text font-mono">
-                        </label>
-                        <label class="text-sm col-span-full">
-                            <span class="block text-shelf-muted mb-1">Copy notes</span>
-                            <textarea name="notes" rows="2" class="w-full bg-shelf-card border border-shelf-border rounded-lg px-3 py-2 text-shelf-text">{{ copy.notes or '' }}</textarea>
-                        </label>
-                        <div class="col-span-full flex flex-wrap gap-2 items-center">
-                            <button type="submit" class="px-3 py-2 bg-shelf-accent text-white rounded-lg text-sm hover:bg-shelf-accent2 transition-colors">Save copy</button>
-                            {% if copies|length > 1 %}
-                            <button type="button"
-                                    hx-delete="/api/items/{{ item_id }}/copies/{{ copy.id }}"
-                                    hx-target="#item-copies-panel" hx-swap="outerHTML"
-                                    hx-confirm="Remove Copy {{ copy.copy_number }}?"
-                                    class="px-3 py-2 border border-shelf-error/30 text-shelf-error rounded-lg text-sm hover:bg-shelf-error/10 transition-colors">Remove copy</button>
-                            {% endif %}
-                        </div>
-                    </form>
-                    {% else %}
-                    <dl class="grid grid-cols-2 gap-2 text-sm">
-                        <div><dt class="text-shelf-muted">Location</dt><dd>{{ copy.location_path or 'No location' }}</dd></div>
-                        <div><dt class="text-shelf-muted">Condition</dt><dd>{{ copy.condition|replace('_', ' ')|title if copy.condition else 'Not recorded' }}</dd></div>
-                        {% if copy.acquired_date %}<div><dt class="text-shelf-muted">Acquired</dt><dd>{{ copy.acquired_date }}</dd></div>{% endif %}
-                        {% if copy.acquisition_price is not none %}<div><dt class="text-shelf-muted">Paid</dt><dd>{{ copy.acquisition_price|money }}</dd></div>{% endif %}
-                        {% if copy.copy_barcode %}<div class="col-span-full"><dt class="text-shelf-muted">Copy barcode</dt><dd class="font-mono">{{ copy.copy_barcode }}</dd></div>{% endif %}
-                        {% if copy.notes %}<div class="col-span-full"><dt class="text-shelf-muted">Notes</dt><dd>{{ copy.notes }}</dd></div>{% endif %}
-                    </dl>
-                    {% endif %}
-                </div>
-            </details>
-            {% endfor %}
+    {% if copies|length > 1 %}<p class="text-xs font-semibold uppercase tracking-wider text-shelf-muted">{{ _('Copies') }}</p>{% endif %}
+    {% for copy in copies %}
+    {% if copies|length > 1 or show_single %}
+    <div class="rounded-lg border border-shelf-border bg-shelf-bg p-3 text-sm" data-copy-id="{{ copy.id }}">
+        <div>
+            {% if copies|length > 1 %}<span class="font-medium">{{ _('Copy #%(n)s', n=copy.copy_number) }}</span> {% endif %}
+            {% if copy.location_id %}{% if copies|length == 1 %}<span class="text-shelf-muted">{{ _('Location:') }}</span> {% endif %}<a href="/locations/{{ copy.location_id }}" class="text-shelf-accent2">{{ copy.location_path or copy.location_name }}</a>{% else %}<span class="text-shelf-muted">{{ _('No location') }}</span>{% endif %}{{ detail_suffix(copy) }}{% if copy.position_order is not none %} · {{ _('position %(n)s', n=copy.position_order) }}{% endif %}
+            {% if copy.copy_barcode %} · <code>{{ copy.copy_barcode }}</code>{% endif %}
+            {% if copy.is_primary and copies|length > 1 %} <span class="text-xs text-shelf-accent2">{{ _('Primary') }}</span>{% endif %}
+            {% if may_edit %}<button type="button" data-testid="edit-copy-{{ copy.id }}" hx-get="/api/items/{{ item_id }}/copies/{{ copy.id }}/edit" hx-target="#item-copies" hx-swap="outerHTML" class="text-xs text-shelf-accent2">{{ _('Edit') }}</button>{% endif %}
         </div>
-
-        {% if user and user.role in ('editor', 'admin') %}
-        <details class="mt-4 rounded-lg border border-dashed border-shelf-border">
-            <summary class="cursor-pointer px-4 py-3 text-sm text-shelf-accent2">Add another copy</summary>
-            <form hx-post="/api/items/{{ item_id }}/copies"
-                  hx-target="#item-copies-panel" hx-swap="outerHTML"
-                  class="border-t border-shelf-border p-4 grid grid-cols-1 sm:grid-cols-2 gap-3">
-                <label class="text-sm">
-                    <span class="block text-shelf-muted mb-1">Location</span>
-                    <select name="location_id" class="w-full bg-shelf-card border border-shelf-border rounded-lg px-3 py-2 text-shelf-text">
-                        <option value="">No location</option>
-                        {% for node in location_nodes %}
-                        <option value="{{ node.id }}">{{ '— ' * node.depth }}{{ node.name }}</option>
-                        {% endfor %}
-                    </select>
-                </label>
-                <label class="text-sm">
-                    <span class="block text-shelf-muted mb-1">Condition</span>
-                    <select name="condition" class="w-full bg-shelf-card border border-shelf-border rounded-lg px-3 py-2 text-shelf-text">
-                        <option value="">Not recorded</option>
-                        {% for value, label in conditions %}<option value="{{ value }}">{{ label }}</option>{% endfor %}
-                    </select>
-                </label>
-                <label class="text-sm">
-                    <span class="block text-shelf-muted mb-1">Acquired</span>
-                    <input type="date" name="acquired_date" class="w-full bg-shelf-card border border-shelf-border rounded-lg px-3 py-2 text-shelf-text">
-                </label>
-                <label class="text-sm">
-                    <span class="block text-shelf-muted mb-1">Acquisition price</span>
-                    <input type="number" min="0" step="0.01" name="acquisition_price" class="w-full bg-shelf-card border border-shelf-border rounded-lg px-3 py-2 text-shelf-text">
-                </label>
-                <label class="text-sm col-span-full">
-                    <span class="block text-shelf-muted mb-1">Copy barcode / asset label</span>
-                    <input type="text" name="copy_barcode" maxlength="120" class="w-full bg-shelf-card border border-shelf-border rounded-lg px-3 py-2 text-shelf-text font-mono">
-                </label>
-                <label class="text-sm col-span-full">
-                    <span class="block text-shelf-muted mb-1">Copy notes</span>
-                    <textarea name="notes" rows="2" class="w-full bg-shelf-card border border-shelf-border rounded-lg px-3 py-2 text-shelf-text"></textarea>
-                </label>
-                <div class="col-span-full">
-                    <button type="submit" class="px-3 py-2 bg-shelf-accent text-white rounded-lg text-sm hover:bg-shelf-accent2 transition-colors">Add copy</button>
-                </div>
-            </form>
-        </details>
-        {% endif %}
+        {% if copy.missing_since %}<p data-testid="copy-missing-{{ copy.id }}" class="text-xs text-shelf-error mt-2">{{ _('missing since %(date)s', date=copy.missing_since) }} {% if may_edit %}<button type="button" data-testid="copy-found-{{ copy.id }}" hx-post="/api/items/{{ item_id }}/copies/{{ copy.id }}/found" hx-target="#item-copies" hx-swap="outerHTML" class="text-shelf-accent2">{{ _('Found') }}</button>{% endif %}</p>{% endif %}
+    </div>
+    {% endif %}
+    {% endfor %}
+    {% if legacy %}<p class="text-sm"><span class="text-shelf-muted">{{ _('Location:') }}</span> <a href="/browse?location_filter={{ item.location_id }}" class="text-shelf-accent2">{{ item.location_name }}</a></p>{% endif %}
+    {% if may_edit and is_physical_holding %}
+    {% if copies and feature_on('collector') %}<p><a href="/labels/sheet?item_id={{ item_id }}" data-testid="print-copy-labels" class="text-xs text-shelf-accent2">{{ _('Print labels for this item') }}</a></p>{% endif %}
+    <details open class="rounded-lg border border-dashed border-shelf-border">
+        <summary class="cursor-pointer px-4 py-3 text-sm text-shelf-accent2">{{ _('Add another copy') }}</summary>
+        <form action="/api/items/{{ item_id }}/copies" method="post" hx-post="/api/items/{{ item_id }}/copies" hx-target="#item-copies" hx-swap="outerHTML" class="border-t border-shelf-border p-4 grid grid-cols-1 sm:grid-cols-2 gap-3">
+            {% include "fragments/csrf_field.html" %}
+            {% with copy=unsaved_copy|default({}) %}{% include "fragments/item_copy_fields.html" %}{% endwith %}
+            <button type="submit" data-testid="add-copy" class="px-3 py-2 bg-shelf-accent text-white rounded-lg text-sm">{{ _('Add copy') }}</button>
+        </form>
+    </details>
+    {% endif %}
     {% endif %}
 </div>

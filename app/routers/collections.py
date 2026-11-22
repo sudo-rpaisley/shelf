@@ -8,11 +8,13 @@ library grouping such as favourites, a project, a course list, or a theme.
 import re
 import sqlite3
 
-from fastapi import APIRouter, Depends, Form, Request
+from fastapi import APIRouter, Depends, Form, HTTPException, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
 
 from app.auth import require_role
 from app.database import get_db
+from app.services import catalogue_security, item_write, libraries
+from app.services.catalogue_security import require_catalogue_role, require_item_role
 
 router = APIRouter()
 
@@ -30,27 +32,39 @@ def normalize_collection_description(description: str | None) -> str | None:
 
 
 def get_all_collections(db) -> list:
-    """All collections with membership counts, alphabetically."""
+    """Definitions are shared; counts include only visible, live members."""
     return db.execute(
         "SELECT c.id, c.name, c.description, c.created_at, c.updated_at, "
-        "COUNT(ci.item_id) AS item_count "
+        "COUNT(i.id) AS item_count "
         "FROM collections c "
         "LEFT JOIN collection_items ci ON ci.collection_id = c.id "
+        "LEFT JOIN items_live i ON i.id = ci.item_id "
         "GROUP BY c.id ORDER BY c.name COLLATE NOCASE"
     ).fetchall()
 
 
 def get_collection_cards(db) -> list[dict]:
     cards = []
+    user = catalogue_security.current_actor()
+    can_edit_definitions = bool(user) and any(
+        libraries.has_library_role(db, user, library_id, "editor")
+        for library_id in libraries.accessible_library_ids(db, user)
+    )
     for row in get_all_collections(db):
         card = dict(row)
         card["preview_items"] = db.execute(
             "SELECT i.id, i.title, i.cover_path, i.media_type "
-            "FROM collection_items ci JOIN items i ON i.id = ci.item_id "
+            "FROM collection_items ci JOIN items_live i ON i.id = ci.item_id "
             "WHERE ci.collection_id = ? "
             "ORDER BY ci.created_at DESC, i.id DESC LIMIT 4",
             (row["id"],),
         ).fetchall()
+        card["can_edit"] = can_edit_definitions and all(
+            libraries.has_item_role(db, user, child["item_id"], "editor")
+            for child in db.execute(
+                "SELECT item_id FROM collection_items WHERE collection_id = ?", (row["id"],)
+            )
+        )
         cards.append(card)
     return cards
 
@@ -59,6 +73,7 @@ def get_item_collections(db, item_id: int) -> list:
     return db.execute(
         "SELECT c.id, c.name, c.description FROM collection_items ci "
         "JOIN collections c ON c.id = ci.collection_id "
+        "JOIN items_live i ON i.id = ci.item_id "
         "WHERE ci.item_id = ? ORDER BY c.name COLLATE NOCASE",
         (item_id,),
     ).fetchall()
@@ -68,7 +83,27 @@ def item_collection_context(db, item_id: int) -> dict:
     current = get_item_collections(db, item_id)
     current_ids = {row["id"] for row in current}
     available = [row for row in get_all_collections(db) if row["id"] not in current_ids]
-    return {"item_collections": current, "available_collections": available}
+    user = catalogue_security.current_actor()
+    return {
+        "item_collections": current, "available_collections": available,
+        "can_edit_item": bool(user) and libraries.has_item_role(db, user, item_id, "editor"),
+    }
+
+
+def _require_collection_editor(db, collection_id: int) -> None:
+    """A shared rename/delete affects EVERY attachment, including Trash.
+
+    Empty definitions may be managed by any catalogue editor. Definitions have
+    no per-library owner; populated ones require authority over all children,
+    never a global-editor shortcut or a successful partial detach.
+    """
+    if not db.execute("SELECT 1 FROM collections WHERE id = ?", (collection_id,)).fetchone():
+        raise HTTPException(404, "Collection not found")
+    for row in db.execute(
+        "SELECT item_id FROM collection_items WHERE collection_id = ? ORDER BY item_id",
+        (collection_id,),
+    ).fetchall():
+        require_item_role(db, row["item_id"], "editor", include_deleted=True)
 
 
 def _render_item_collections(request: Request, db, item_id: int):
@@ -92,14 +127,14 @@ async def collections_page(request: Request, _=Depends(require_role("viewer"))):
 async def create_collection(
     name: str = Form(...),
     description: str = Form(""),
-    _=Depends(require_role("editor")),
+    _=Depends(require_catalogue_role("editor")),
 ):
     clean_name = normalize_collection_name(name)
     if not clean_name:
         return HTMLResponse("Collection name required", status_code=400)
     clean_description = normalize_collection_description(description)
     try:
-        with get_db() as db:
+        with get_db() as db, item_write._write_scope(db):
             db.execute(
                 "INSERT INTO collections (name, description) VALUES (?, ?)",
                 (clean_name, clean_description),
@@ -114,14 +149,15 @@ async def update_collection(
     collection_id: int,
     name: str = Form(...),
     description: str = Form(""),
-    _=Depends(require_role("editor")),
+    _=Depends(require_catalogue_role("editor")),
 ):
     clean_name = normalize_collection_name(name)
     if not clean_name:
         return HTMLResponse("Collection name required", status_code=400)
     clean_description = normalize_collection_description(description)
     try:
-        with get_db() as db:
+        with get_db() as db, item_write._write_scope(db):
+            _require_collection_editor(db, collection_id)
             result = db.execute(
                 "UPDATE collections SET name = ?, description = ?, "
                 "updated_at = datetime('now') WHERE id = ?",
@@ -137,9 +173,10 @@ async def update_collection(
 @router.delete("/api/collections/{collection_id}")
 async def delete_collection(
     collection_id: int,
-    _=Depends(require_role("editor")),
+    _=Depends(require_catalogue_role("editor")),
 ):
-    with get_db() as db:
+    with get_db() as db, item_write._write_scope(db):
+        _require_collection_editor(db, collection_id)
         result = db.execute("DELETE FROM collections WHERE id = ?", (collection_id,))
         if result.rowcount != 1:
             return HTMLResponse("Collection not found", status_code=404)
@@ -151,15 +188,13 @@ async def add_item_to_collection(
     request: Request,
     item_id: int,
     collection_id: int = Form(...),
-    _=Depends(require_role("editor")),
+    _=Depends(require_catalogue_role("editor")),
 ):
-    with get_db() as db:
-        item = db.execute("SELECT id FROM items WHERE id = ?", (item_id,)).fetchone()
+    with get_db() as db, item_write._write_scope(db):
+        require_item_role(db, item_id, "editor")
         collection = db.execute(
             "SELECT id FROM collections WHERE id = ?", (collection_id,)
         ).fetchone()
-        if not item:
-            return HTMLResponse("Item not found", status_code=404)
         if not collection:
             return HTMLResponse("Collection not found", status_code=404)
         db.execute(
@@ -174,12 +209,10 @@ async def remove_item_from_collection(
     request: Request,
     item_id: int,
     collection_id: int,
-    _=Depends(require_role("editor")),
+    _=Depends(require_catalogue_role("editor")),
 ):
-    with get_db() as db:
-        item = db.execute("SELECT id FROM items WHERE id = ?", (item_id,)).fetchone()
-        if not item:
-            return HTMLResponse("Item not found", status_code=404)
+    with get_db() as db, item_write._write_scope(db):
+        require_item_role(db, item_id, "editor")
         result = db.execute(
             "DELETE FROM collection_items WHERE collection_id = ? AND item_id = ?",
             (collection_id, item_id),

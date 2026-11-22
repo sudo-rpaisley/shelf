@@ -2,6 +2,7 @@ import logging
 
 import httpx
 
+from app.services import authors as authors_svc
 from app.services import outbound, provider_result
 
 logger = logging.getLogger(__name__)
@@ -11,6 +12,12 @@ logger = logging.getLogger(__name__)
 # without it the published rate is 1 req/s. A public project URL only — never
 # a personal email — this directory is subtree-published to a public repo.
 USER_AGENT = "Shelf/1.0 (+https://github.com/dgahagan/shelf)"
+
+# Each author name is its own request, paced at HOST_RATE_LIMITS
+# ["openlibrary.org"] (0.34 s), so five authors add at most four requests
+# (~1.36 s) to an interactive scan. Pacing is per host, so fetching them
+# concurrently would not be faster.
+MAX_AUTHORS = 5
 
 
 async def _rate_limit():
@@ -59,9 +66,10 @@ async def lookup(isbn: str, client: httpx.AsyncClient) -> provider_result.Provid
     Returns a `ProviderResult`: `found("openlibrary", metadata)` on a real
     hit; `no_match` for a 200 with no usable title, an unreadable body, or any
     other non-200, non-429 status; `rate_limited` for a 429; `transport_failed`
-    for a dead socket or timeout on the *edition* request. A failure on the
-    follow-up author/description requests leaves those fields unset and still
-    returns the hit.
+    for a dead socket or timeout on the *edition* request. The follow-up
+    requests never undo the hit: a failed work fetch leaves both `authors`
+    and `description` unset, and a failed author request drops only that
+    author's name while the others are kept.
     """
     await _rate_limit()
     try:
@@ -70,7 +78,7 @@ async def lookup(isbn: str, client: httpx.AsyncClient) -> provider_result.Provid
             headers={"User-Agent": USER_AGENT},
             follow_redirects=True,
         )
-    except (httpx.TimeoutException, httpx.NetworkError):
+    except httpx.HTTPError:
         logger.debug("Open Library lookup failed for ISBN %s: transport error", isbn, exc_info=True)
         return provider_result.transport_failed("openlibrary")
 
@@ -140,9 +148,9 @@ async def lookup(isbn: str, client: httpx.AsyncClient) -> provider_result.Provid
         work_key = _work_key(data)
         work = await _fetch_work(work_key, client) if work_key else None
 
-        author = await _resolve_author(data, work, client)
-        if author:
-            result["authors"] = author
+        joined = authors_svc.join_names(await _resolve_authors(data, work, client))
+        if joined:
+            result["authors"] = joined
 
         desc = _work_description(work)
         if desc:
@@ -176,37 +184,49 @@ async def _fetch_work(work_key: str, client: httpx.AsyncClient) -> dict | None:
 
 async def _resolve_author(edition_data: dict, work: dict | None,
                           client: httpx.AsyncClient) -> str | None:
-    """Resolve an author name from the already-fetched work record.
+    """Compatibility adapter to the paced, failure-isolated multi-author resolver."""
+    return authors_svc.join_names(await _resolve_authors(edition_data, work, client))
 
-    An edition with no work of its own falls back to its own author list; a
-    work we failed to fetch simply yields no author, leaving the rest of the
-    hit intact.
+def _author_keys(edition_data: dict, work: dict | None) -> list[str]:
+    """Author keys in payload order, repeats dropped, at most MAX_AUTHORS.
+
+    An edition with no work of its own supplies its own `{"key": ...}`
+    entries; otherwise the work's entries are read, which nest the key as
+    `{"author": {"key": ...}}` (or occasionally carry it directly).
     """
     if _work_key(edition_data) is None:
-        # Some editions have authors directly
-        authors = edition_data.get("authors", [])
-        if authors and isinstance(authors[0], dict):
-            akey = authors[0].get("key")
-            if akey:
-                return await _fetch_author_name(akey, client)
-        return None
+        entries = edition_data.get("authors") or []
+    elif work:
+        entries = work.get("authors") or []
+    else:
+        return []
 
-    if not work:
-        return None
+    keys: list[str] = []
+    for entry in entries:
+        if not isinstance(entry, dict):
+            continue
+        nested = entry.get("author")
+        key = (nested.get("key") if isinstance(nested, dict) else None) or entry.get("key")
+        if key and key not in keys:
+            keys.append(key)
+    return keys[:MAX_AUTHORS]
 
-    authors = work.get("authors", [])
-    if not authors:
-        return None
 
-    # Work authors have nested structure
-    author_entry = authors[0]
-    akey = None
-    if isinstance(author_entry, dict):
-        akey = author_entry.get("author", {}).get("key") or author_entry.get("key")
-    if not akey:
-        return None
+async def _resolve_authors(edition_data: dict, work: dict | None,
+                           client: httpx.AsyncClient) -> list[str | None]:
+    """Resolve every author name, in payload order.
 
-    return await _fetch_author_name(akey, client)
+    Each request is isolated: `_fetch_author_name` does not catch transport
+    errors itself, and without this guard one dead socket would propagate to
+    `lookup`'s enrichment handler and drop every name, not just its own (G47).
+    """
+    names: list[str | None] = []
+    for key in _author_keys(edition_data, work):
+        try:
+            names.append(await _fetch_author_name(key, client))
+        except Exception:
+            logger.debug("Open Library author fetch failed for %s", key, exc_info=True)
+    return names
 
 
 async def _fetch_author_name(author_key: str, client: httpx.AsyncClient) -> str | None:
@@ -295,7 +315,7 @@ async def _search(
             params={**params, "limit": str(limit), "fields": _SEARCH_FIELDS, "lang": lang},
             headers={"User-Agent": USER_AGENT},
         )
-    except (httpx.TimeoutException, httpx.NetworkError):
+    except httpx.HTTPError:
         logger.debug("Open Library search failed for %r: transport error", params, exc_info=True)
         return provider_result.transport_failed("openlibrary")
 
@@ -315,7 +335,6 @@ async def _search(
             title = doc.get("title")
             if not title:
                 continue
-            authors = doc.get("author_name", [])
             # Prefer the best-matching edition's ISBNs (language-aware), then
             # fall back to the work-wide pool
             edition_docs = (doc.get("editions") or {}).get("docs") or []
@@ -338,7 +357,9 @@ async def _search(
                 "title": title,
                 "work_key": doc.get("key"),
                 "languages": doc.get("language") or [],
-                "authors": ", ".join(authors) if authors else None,
+                # author_name is a list in the search API; a string raises in
+                # join_names and this parse guard answers no_match (G45).
+                "authors": authors_svc.join_names(doc.get("author_name") or []),
                 "publish_year": doc.get("first_publish_year"),
                 "publisher": doc.get("publisher", [None])[0] if doc.get("publisher") else None,
                 "cover_url": cover_url,

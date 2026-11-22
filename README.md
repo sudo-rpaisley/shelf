@@ -3,58 +3,71 @@
 [![Release](https://img.shields.io/github/v/release/dgahagan/shelf)](https://github.com/dgahagan/shelf/releases)
 [![Docker Pulls](https://img.shields.io/docker/pulls/dangahagan/shelf)](https://hub.docker.com/r/dangahagan/shelf)
 [![CI](https://github.com/sudo-rpaisley/shelf/actions/workflows/test.yml/badge.svg)](https://github.com/sudo-rpaisley/shelf/actions/workflows/test.yml)
-[![Unit tests](https://img.shields.io/badge/unit%20tests-2601%20passing-brightgreen)](https://github.com/sudo-rpaisley/shelf/actions/workflows/test.yml)
-[![E2E tests](https://img.shields.io/badge/e2e%20tests-215%20passing-brightgreen)](https://github.com/sudo-rpaisley/shelf/actions/workflows/test.yml)
+[![Unit tests](https://img.shields.io/badge/unit%20tests-10564%20passing-brightgreen)](https://github.com/sudo-rpaisley/shelf/actions/workflows/test.yml)
+[![E2E tests](https://img.shields.io/badge/e2e%20tests-621%20passing-brightgreen)](https://github.com/sudo-rpaisley/shelf/actions/workflows/test.yml)
 [![License: AGPL-3.0](https://img.shields.io/github/license/sudo-rpaisley/shelf)](LICENSE)
 
 Shelf is a self-hosted home library catalogue for books and other media. Scan
-barcodes, photograph shelves, fetch metadata and cover art, track reading and
-lending, organise locations and series, and manage the collection from a
-responsive web interface.
+barcodes, photograph shelves, fetch metadata and cover art, track personal media
+activity and lending, and organize libraries, locations, Collections and series
+from a responsive web interface.
 
 <p align="center">
   <img src="screenshots/demo.gif" width="800" alt="Photo Intake demo — a shelf photo is analysed by AI vision and detected books are prepared for import">
 </p>
 
-> **Repository note:** this repository is a working fork of
-> [`dgahagan/shelf`](https://github.com/dgahagan/shelf). Stable release and
-> Docker image links currently refer to the upstream project. To run the code
-> in this fork, use the development instructions below.
+> **Working fork:** this is [`sudo-rpaisley/shelf`](https://github.com/sudo-rpaisley/shelf),
+> integrating [`dgahagan/shelf`](https://github.com/dgahagan/shelf). Release and
+> Docker badges above refer to **upstream**, not a fork image. Recorded test-count
+> badges are retained from the fork parent pending final collection; they are not
+> evidence that this integration passed. See the [integration status and database
+> compatibility contract](docs/upstream-integration.md) before trying the candidate.
 
 ## Highlights
 
-- **Barcode scanning** — use a phone camera or USB/Bluetooth scanner for ISBN,
-  EAN and UPC barcodes.
-- **Nine scan modes** — Add, Shelf Fill, Wishlist, Lend, Return, Move,
-  Inventory, Lookup and Quick Rate.
-- **Photo Intake** — photograph a shelf or stack of books, review the detected
-  titles, then import them in bulk.
-- **Automatic metadata and covers** — book metadata can cascade through Open
-  Library, Hardcover, Google Books and DNB; games and films can use IGDB and
-  TMDb; music releases can use MusicBrainz and the Cover Art Archive.
-- **More than books** — catalogue audiobooks, eBooks, DVDs/Blu-rays, vinyl,
-  cassettes, CDs, digital music, comics, Manga, children's books and video games
-  alongside physical books.
-- **Collection management** — locations, tags, bulk editing, series tracking,
-  provider-backed series details, bulk issue ranges for physical comics and
-  magazines, lending and collection statistics.
-- **Personal media state** — each user has their own reading/watching/listening/
-  playing status, progress, history, rating, favourites, wishlist, cross-media
-  My List, automatic Continue/Up Next series progression and private notes
-  without changing the shared catalogue.
-- **Import, export and backup** — CSV migration, Goodreads/StoryGraph import,
-  portable collection archives and database backup/restore.
-- **Offline Store Mode** — a PWA workflow for checking your collection while
-  shopping without a network connection.
-- **Multi-user** — admin, editor and viewer roles for a shared household
-  catalogue, with account-specific personal media state.
+- **Barcode scanning** — phone cameras and USB/Bluetooth scanners; ISBN, EAN,
+  UPC and individual-copy labels. Nine workflows: Add, Shelf Fill, Wishlist,
+  Lend, Return, Move, Inventory, Lookup and Quick Rate.
+- **Photo Intake** — photograph a shelf or stack, review titles, authors, ISBNs
+  and media types, then confirm. DVD/game rows use TMDb/IGDB on exact-title
+  matches; vision can use Anthropic, an OpenAI-compatible endpoint or local Ollama.
+- **Metadata and covers** — national bibliographies, Open Library, Hardcover,
+  Google Books and media-specific providers; title search and Add by hand when
+  a barcode cannot help. Cover search, upload, URL import and a review queue
+  distinguish a provider failure from a genuine miss.
+- **More than books** — audiobooks, eBooks, children's books, comics, Manga,
+  magazines, DVDs/Blu-rays, vinyl, cassettes, CDs, digital music and games.
+  MusicBrainz records exact music releases and tracks; periodicals have
+  publication/issue identity. Related Media links formats and adaptations.
+- **Libraries and personal activity** — library-specific Viewer/Editor access;
+  private status, progress, history, rating, favourites, wishlist and notes.
+  My List and Continue / Up Next span media without overwriting another user's
+  state. The shared acquisition wishlist is a different list.
+- **Collection organization** — Collections, multiple series memberships,
+  provider-backed series metadata, gap checks, bulk issue ranges and release
+  radar alongside tags, filters, bulk editing and customizable columns.
+- **Physical inventory** — precise room/bookcase/shelf nodes, per-copy barcodes,
+  condition, acquisition details, provenance and order; Shelf Fill, Arrange,
+  printed labels and multi-device audits. Digital holdings stay separate.
+- **Reversible deletion** — ordinary item/copy removal uses Trash, retaining
+  children and history. The last live copy of an owned physical item cannot be
+  removed. Restore needs library write authority; permanent purge is admin-only.
+- **Lending and valuation** — checkouts, overdue reminders, statistics,
+  insurance reports, optional ISBNdb price alerts and your own affiliate buy links.
+- **Import/export** — CSV/TSV, Goodreads, StoryGraph, LibraryThing/Libib (beta)
+  and Audible exports; portable catalogue archives with covers and database
+  backup/restore. Personal-state privacy is not the same as shared catalogue export.
+- **Store Mode** — offline ownership/acquisition-list checks and queued valid
+  barcodes. Invalid codes are rejected without inserting placeholder items.
+- **Optional features** — setup profiles and Settings → Features hide/refuse
+  disabled workflows while retaining their data. Read-only API tokens support
+  homelab dashboards without granting catalogue writes.
 
-Shelf itself runs on your network in a single Docker container with SQLite and
-does not require a Shelf-hosted account or service. Optional metadata, cover,
-sync and vision features contact the providers you configure. Metadata lookups
-send identifiers or search terms to those providers; Photo Intake sends the
-selected image to a remote vision provider unless you use a local backend such
-as Ollama or a local OpenAI-compatible endpoint.
+Shelf runs on your network in one container with SQLite; no Shelf-hosted account
+is required. **Optional integrations do send data to providers:** identifiers,
+search terms, selected photos, and reading activity when you enable sync. Remote
+cover candidates also contact their image hosts. Use a local vision backend if
+photos must stay local; self-hosting is not a promise of zero outbound traffic.
 
 ## Screenshots
 
@@ -70,11 +83,19 @@ as Ollama or a local OpenAI-compatible endpoint.
 |---|---|
 | ![Series](screenshots/series.png) | ![Stats](screenshots/stats.png) |
 
+| Wrap-up |
+|---|
+| ![Wrap-up](screenshots/wrapup.png) |
+
+Screenshots illustrate workflows; they are not browser-validation evidence for
+the integrated candidate.
+
 ## Quick start
 
 ### Stable upstream image
 
-For a normal installation, run the published image:
+To run **upstream**, not this fork, use its published image with a separate
+data volume:
 
 ```yaml
 services:
@@ -90,32 +111,30 @@ services:
     restart: unless-stopped
 ```
 
-Save that as `compose.yaml`, then run:
+Save as `compose.yaml`, then run `docker compose up -d`. Open
+`https://localhost:18888`, create the first admin account and choose a feature
+profile. For another hostname/IP, set `CERT_SAN` in a local `.env`, for example
+`CERT_SAN=IP:192.168.1.100,DNS:shelf,DNS:localhost`.
+
+Browsers initially warn about the self-signed certificate. See
+[HTTPS & reverse proxy](docs/https-and-reverse-proxy.md) for trusted certificates
+and `SHELF_TLS=off` behind a TLS-terminating proxy. Set `SHELF_TRUST_PROXY` to
+the proxy's actual IP/CIDR, not a blanket trust flag.
+
+The official image and its release attestations are owned and published by
+upstream. To verify an upstream release that carries an attestation:
 
 ```bash
-docker compose up -d
+gh attestation verify oci://index.docker.io/dangahagan/shelf:X.Y.Z --repo dgahagan/shelf
 ```
 
-Open `https://localhost:18888` and create the first admin account with the
-setup wizard. Browsers will initially warn about Shelf's self-signed
-certificate; see [HTTPS & reverse proxy](docs/https-and-reverse-proxy.md) for
-production options.
+This fork does not publish that image or inherit its provenance guarantees.
+See [Installation](docs/installation.md) for upstream tags and `docker run`.
 
-If you access Shelf by IP address or another hostname, add it to `CERT_SAN` in
-an `.env` file beside the Compose file, for example:
+### Run this fork from source
 
-```bash
-CERT_SAN=IP:192.168.1.100,DNS:shelf,DNS:localhost
-```
-
-See [Installation](docs/installation.md) for `docker run`, image tags and the
-full setup guide.
-
-### Run this repository from source
-
-The root `docker-compose.yml` is a **development Compose file**. It builds the
-local source, uses host networking, stores data in `./data-dev` by default and
-listens on port `18889` unless overridden.
+Read [database compatibility](docs/upstream-integration.md#database-compatibility)
+first. Do not reuse an upstream/live data volume for a trial.
 
 ```bash
 git clone https://github.com/sudo-rpaisley/shelf.git
@@ -123,23 +142,30 @@ cd shelf
 docker compose up -d --build
 ```
 
-Open `https://localhost:18889`.
+The repository's Compose file builds local source, uses host networking,
+defaults to `./data-dev` and listens on `https://localhost:18889`. Use disposable
+data for evaluating the integration; these instructions are not a deployment
+record or upgrade-safety claim.
 
 ## Persistent data
 
-A normal container installation keeps persistent state under `/data`:
+A normal container installation keeps state under `/data`:
 
 ```text
 data/
-  shelf.db        SQLite database
+  shelf.db        catalogue, users, settings, private activity and history
   covers/         cached cover images
   certs/          generated TLS certificate and key
-  encryption.key  credential-encryption key when not supplied by environment
+  encryption.key  decrypts saved credentials unless supplied by environment
+  signing.key     signs sessions unless SECRET_KEY is supplied
 ```
 
-Back up the whole data directory, or use Shelf's backup/export tools. Keep
-`encryption.key` private: it is needed to decrypt credentials stored in the
-database when `SHELF_ENCRYPTION_KEY` is not provided separately.
+Back up a consistent whole directory or use the database backup tool. A whole
+directory backup includes keys beside the data they protect: keep it private.
+A database-only backup still contains private activity, password/token hashes
+and encrypted credentials, and has no covers. A portable archive is a catalogue
+transfer, **not** full recovery of every user's private state. See
+[Upgrading & backups](docs/upgrading-and-backups.md).
 
 ## Documentation
 
@@ -147,41 +173,28 @@ Full documentation lives in [`docs/`](docs/README.md).
 
 | Area | Documentation |
 |---|---|
-| Install and operate | [Installation](docs/installation.md) · [Configuration](docs/configuration.md) · [HTTPS & reverse proxy](docs/https-and-reverse-proxy.md) · [Upgrading & backups](docs/upgrading-and-backups.md) |
-| Use Shelf | [Getting started](docs/user-guide/getting-started.md) · [Scanning](docs/user-guide/scanning.md) · [Photo Intake](docs/user-guide/photo-intake.md) · [Browse & search](docs/user-guide/browse-and-search.md) · [Items](docs/user-guide/items.md) · [Series](docs/user-guide/series.md) |
-| Collection workflows | [Lending](docs/user-guide/lending.md) · [Wishlist & Store Mode](docs/user-guide/wishlist-and-store-mode.md) · [Sharing](docs/user-guide/sharing.md) · [Stats & valuation](docs/user-guide/stats-and-valuation.md) · [Import & export](docs/user-guide/import-and-export.md) |
-| Administration | [Integrations](docs/user-guide/integrations.md) · [Users & roles](docs/user-guide/users-and-roles.md) · [Troubleshooting](docs/troubleshooting.md) · [FAQ](docs/faq.md) |
-| Development | [Development](docs/development.md) · [Architecture](docs/architecture.md) · [Contributing](CONTRIBUTING.md) · [Security](SECURITY.md) |
+| Integration | [Status, compatibility and fork policies](docs/upstream-integration.md) |
+| Operate | [Installation](docs/installation.md) · [Configuration](docs/configuration.md) · [HTTPS](docs/https-and-reverse-proxy.md) · [Backups](docs/upgrading-and-backups.md) |
+| Use | [Getting started](docs/user-guide/getting-started.md) · [Home](docs/user-guide/home.md) · [Scanning](docs/user-guide/scanning.md) · [Browse](docs/user-guide/browse-and-search.md) · [Items](docs/user-guide/items.md) |
+| Organize | [Locations](docs/user-guide/locations.md) · [Copies](docs/item-copies.md) · [Labels](docs/user-guide/labels.md) · [Audits](docs/user-guide/audits.md) · [Series](docs/user-guide/series.md) |
+| Media | [Music](docs/user-guide/music.md) · [Periodicals](docs/user-guide/periodicals.md) · [Related Media](docs/related-media.md) |
+| Workflows | [Photo Intake](docs/user-guide/photo-intake.md) · [Lending](docs/user-guide/lending.md) · [Wishlist & Store](docs/user-guide/wishlist-and-store-mode.md) · [Sharing](docs/user-guide/sharing.md) · [Import/export](docs/user-guide/import-and-export.md) |
+| Administration | [Users & libraries](docs/user-guide/users-and-roles.md) · [Integrations](docs/user-guide/integrations.md) · [Homelab](docs/homelab-integration.md) · [Settings](docs/user-guide/settings.md) |
+| Help/development | [Support](SUPPORT.md) · [Security](SECURITY.md) · [FAQ](docs/faq.md) · [Troubleshooting](docs/troubleshooting.md) · [Development](docs/development.md) · [Architecture](docs/architecture.md) · [Contributing](CONTRIBUTING.md) |
 
 ## Integrations
 
-Core book cataloguing works without paid API keys. Optional integrations add
-richer metadata or additional workflows.
-
-| Service | Purpose |
-|---|---|
-| Open Library | Book metadata, covers and title search |
-| Google Books | Fallback metadata, covers and synopses; optional API key |
-| ISSN Portal | Serial publication identification for 977 magazine barcodes |
-| Hardcover | Richer book metadata, series information and reading sync |
-| DNB | German ISBN metadata |
-| IGDB | Video-game metadata, covers and platforms |
-| TMDb | Film/DVD/Blu-ray metadata and title search |
-| MusicBrainz | Exact music release/pressing metadata, track listings and release-group identity |
-| Cover Art Archive | Release-specific music cover artwork |
-| ISBNdb | Collection valuation |
-| Audiobookshelf | Link and sync selected audiobook libraries; optional browser URL for reverse-proxied links; enrich series totals and duration |
-| Komga | Link and sync selected Comic and Manga libraries; enrich series synopsis, publisher, status and totals |
-| RomM | Link and sync digital games; import unordered game collections and franchises |
-| Anthropic / OpenAI-compatible / Ollama | Photo Intake vision backends |
-
-See [Integrations](docs/user-guide/integrations.md) for configuration and what
-data each integration uses.
+Core book cataloguing works without paid API keys. Optional services include
+Hardcover, Audiobookshelf, Komga, RomM, IGDB, TMDb, MusicBrainz / Cover Art Archive,
+ISSN Portal, ISBNdb, Google Books, LibraryThing, Discogs and vision backends.
+Configured connectors preserve exact attached identities, rather than guessing
+ownership from titles; provider-library IDs are separate from Shelf libraries.
+See [Integrations](docs/user-guide/integrations.md) for setup and data use.
 
 ## Development
 
-The development guide documents the project layout, local environment, tests,
-lints and generated assets:
+Python 3.12, FastAPI, raw SQLite (WAL), Jinja2, HTMX, Alpine's CSP build and
+Tailwind CSS. JS/CSS is vendored; no CDN or inline-script dependency.
 
 ```bash
 python -m venv .venv
@@ -190,24 +203,18 @@ make setup
 make dev
 ```
 
-Common checks are:
+Common checks are `make test`, `make test-e2e` and `make checks`. Unit and E2E
+suites run separately; live provider contract tests are outside normal gates.
+These are contributor commands, not checks claimed to have run for this merge.
 
-```bash
-make test
-make test-e2e
-make checks
-make css
-```
-
-See [docs/development.md](docs/development.md) before making changes and
-[CONTRIBUTING.md](CONTRIBUTING.md) before opening a pull request.
-
-The test-count badges above are generated from pytest collection. Use
-`make badges` after adding or removing tests; CI verifies that the committed
-counts are current.
+Fork CI is read-only. Generate and **commit** CSS/service-worker output with
+`make css` and recorded suite counts with `make badges` in the same fork PR as
+the source changes. Counts come from collection, not passing tests; do not
+hand-edit them. There is no bot restamp/push-back or Docker publishing workflow.
+See [Development](docs/development.md) and [Contributing](CONTRIBUTING.md).
 
 ## License
 
-[AGPL-3.0](LICENSE) — free to use, self-host and modify. If you offer a
-modified version of Shelf as a network service, you must make the corresponding
-source available under the same licence.
+[AGPL-3.0](LICENSE) — free to use, self-host and modify. If you offer a modified
+version as a network service, make the corresponding source available under
+the same licence.

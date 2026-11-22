@@ -48,3 +48,10 @@ def test_five_digit_supplement_is_preserved():
 
 def test_other_concatenated_lengths_are_rejected():
     assert periodicals.parse_barcode(POPULAR_SCIENCE_EAN + "123") is None
+
+
+def test_common_separators_are_normalised_before_parsing():
+    serial = periodicals.parse_barcode("9770-1617-3700-8 05")
+    assert serial is not None
+    assert serial.ean13 == POPULAR_SCIENCE_EAN
+    assert serial.supplement == "05"

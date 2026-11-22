@@ -47,10 +47,13 @@ SENSITIVE_KEYS: frozenset[str] = frozenset(
         "abs_token",
         "komga_api_key",
         "romm_api_token",
+        # Both native and retained fork credential names are protected at rest.
+        "romm_token",
         "anthropic_api_key",
         "openai_api_key",
         "hardcover_token",
         "google_books_api_key",
+        "librarything_token",
         "isbndb_api_key",
         "tmdb_api_key",
         "igdb_client_id",
@@ -150,6 +153,19 @@ def get_encryption_key() -> str:
         return _cached_encryption_key
     key = os.environ.get("SHELF_ENCRYPTION_KEY", "").strip() or _read_or_create_keyfile("encryption.key")
     _cached_encryption_key = key
+    return key
+
+
+def get_existing_encryption_key() -> str:
+    """Read the authoritative destination key WITHOUT creating/replacing it.
+
+    Restore is not a key-initialization path. Honor the already active process
+    key, then the normal external sources, but never generate a missing key.
+    """
+    key = (_cached_encryption_key or os.environ.get("SHELF_ENCRYPTION_KEY", "").strip()
+           or _read_keyfile("encryption.key"))
+    if not key:
+        raise ValueError("Restore requires an existing destination encryption key")
     return key
 
 
@@ -257,6 +273,57 @@ def decrypt_backup(data: bytes, passphrase: str) -> bytes:
         raise ValueError("Wrong passphrase or corrupted backup file")
 
 
+def normalize_sensitive_settings(
+    conn, *, encryption_key: str, signing_key: str, legacy_signing_keys: tuple[str, ...] = (),
+) -> dict:
+    """Normalize ONLY the supplied connection under explicit destination keys.
+
+    No get_db, key resolution/generation, environment/global changes, commits or
+    logging: a staging failure must not touch the serving database or key files.
+    Backup signing keys are decryption candidates ONLY, never destination keys.
+    Foreign/unknown ciphertext stays byte-for-byte encrypted and is reported by
+    setting name so a restore cannot silently throw credentials away.
+    """
+    if not isinstance(encryption_key, str) or not encryption_key:
+        raise ValueError("An explicit destination encryption key is required")
+    if not isinstance(signing_key, str) or not signing_key:
+        raise ValueError("An explicit destination signing key is required")
+    if any(not isinstance(key, str) or not key for key in legacy_signing_keys):
+        raise ValueError("Invalid legacy signing-key candidate")
+    destination = _fernet(encryption_key)
+    candidates = [_fernet(key) for key in dict.fromkeys((signing_key, *legacy_signing_keys))]
+    rewritten = 0
+    undecryptable = []
+    for key, value in conn.execute("SELECT key, value FROM settings").fetchall():
+        if key not in SENSITIVE_KEYS or not value:
+            continue
+        if not isinstance(value, str):
+            raise ValueError(f"Invalid sensitive setting: {key}")
+        if is_fernet_token(value):
+            try:
+                destination.decrypt(value.encode())
+                continue
+            except InvalidToken:
+                pass
+            for candidate in candidates:
+                try:
+                    plaintext = candidate.decrypt(value.encode()).decode()
+                    break
+                except (InvalidToken, UnicodeDecodeError):
+                    continue
+            else:
+                undecryptable.append(key)
+                continue
+        else:
+            plaintext = value
+        conn.execute(
+            "UPDATE settings SET value = ? WHERE key = ?",
+            (encrypt_value(plaintext, encryption_key), key),
+        )
+        rewritten += 1
+    return {"rewritten": rewritten, "undecryptable": sorted(undecryptable)}
+
+
 def migrate_sensitive_settings() -> int:
     """Move sensitive settings onto the dedicated encryption key.
 
@@ -273,34 +340,15 @@ def migrate_sensitive_settings() -> int:
 
     new_key = get_encryption_key()
     legacy_key = get_secret_key()
-    migrated = 0
     with get_db() as db:
-        rows = db.execute("SELECT key, value FROM settings").fetchall()
-        for row in rows:
-            key, value = row["key"], row["value"]
-            if key not in SENSITIVE_KEYS or not value:
-                continue
-            if is_fernet_token(value):
-                try:
-                    _fernet(new_key).decrypt(value.encode())
-                    continue  # already on the new key
-                except InvalidToken:
-                    pass
-                try:
-                    plaintext = _fernet(legacy_key).decrypt(value.encode()).decode()
-                except InvalidToken:
-                    logger.warning(
-                        "settings[%s]: undecryptable with current or legacy key; "
-                        "left as-is — re-enter the credential in Settings", key
-                    )
-                    continue
-            else:
-                plaintext = value  # pre-encryption plaintext value
-            db.execute(
-                "UPDATE settings SET value = ? WHERE key = ?",
-                (encrypt_value(plaintext, new_key), key),
-            )
-            migrated += 1
+        result = normalize_sensitive_settings(db, encryption_key=new_key, signing_key=legacy_key)
+    # Log only after the transaction closes; SQLiteHandler may open a live DB.
+    for key in result["undecryptable"]:
+        logger.warning(
+            "settings[%s]: undecryptable with current or legacy key; "
+            "left as-is — re-enter the credential in Settings", key,
+        )
+    migrated = result["rewritten"]
     if migrated:
         logger.info("Re-encrypted %d sensitive setting(s) with the dedicated encryption key", migrated)
     return migrated

@@ -4,31 +4,46 @@ import asyncio
 import logging
 import os
 import sqlite3
+from contextvars import Context
 
 import httpx
-from fastapi import APIRouter, Depends, Request, UploadFile, File
+from fastapi import APIRouter, Depends, HTTPException, UploadFile, File
 from pydantic import BaseModel, field_validator
 
-from app.auth import require_role
-from app.config import HTTP_TIMEOUT, LOW_RES_LONG_EDGE, MEDIA_TYPES, TILING_THRESHOLD
+from app import i18n
+from app.features import require_feature
+from app.config import (
+    HTTP_TIMEOUT,
+    LOW_RES_LONG_EDGE,
+    MEDIA_TYPES,
+    TILING_THRESHOLD,
+    canonical_media_type,
+)
 from app.database import get_db, get_all_settings, get_setting
-from app.services import cover_queue, covers, openlibrary, tiling, title_lookup, vision
+from app.services import cover_queue, covers, openlibrary, restore_report, tiling, title_lookup, vision
 from app.services import isbn as isbn_svc
 from app.services import authors as authors_svc
 from app.services import national
+from app.services import item_write
+from app.services import catalogue_security, libraries
+from app.services.catalogue_security import require_catalogue_role, require_item_role
+from app.services import tags as tags_svc
 from app.services.title_match import titles_agree, titles_match_exactly
-from app.services.item_write import ItemValueError, insert_item, update_item_fields
+from app.services.item_write import ItemValueError, insert_item
 from app.services.write_targets import UnknownLocationError, validated_location_id
 
 logger = logging.getLogger(__name__)
 
-router = APIRouter(prefix="/api/intake", dependencies=[Depends(require_role("editor"))])
+router = APIRouter(
+    prefix="/api/intake",
+    dependencies=[Depends(require_catalogue_role("editor")), Depends(require_feature("intake"))],
+)
 
 MAX_PHOTO_DIMENSION = 100_000  # sanity bound on client-reported pixels
 _LOCATION_ERROR = "Selected location no longer exists — choose another location"
 
 # Same five types cover enrichment treats as the book catalogue.
-BOOK_SEARCH_MEDIA_TYPES = cover_queue.COVER_REQUEUE_MEDIA_TYPES
+BOOK_SEARCH_MEDIA_TYPES = tuple(dict.fromkeys((*cover_queue.COVER_REQUEUE_MEDIA_TYPES, "kids_book")))
 
 
 class PlanRequest(BaseModel):
@@ -48,12 +63,12 @@ async def plan_photo(payload: PlanRequest):
     """
     w, h = payload.width, payload.height
     if not (0 < w <= MAX_PHOTO_DIMENSION and 0 < h <= MAX_PHOTO_DIMENSION):
-        return {"ok": False, "message": "Invalid photo dimensions"}
+        return {"ok": False, "message": i18n.gettext("Invalid photo dimensions")}
 
     with get_db() as db:
         settings = get_all_settings(db)
     if not settings.get("vision_provider"):
-        return {"ok": False, "message": "No vision provider configured"}
+        return {"ok": False, "message": i18n.gettext("No vision provider configured")}
 
     cap = tiling.ingest_cap(settings)
     factor = tiling.downscale_factor(w, h, cap)
@@ -86,19 +101,25 @@ async def analyze_photo(photos: list[UploadFile] = File(...)):
     """
     images: list[tuple[bytes, str]] = []
     parts: list[str] = []
+    total_bytes = 0
     for photo in photos:
         mime = (photo.content_type or "").lower()
         if mime not in vision.ALLOWED_MIME:
-            return {"ok": False, "message": "Please upload a JPEG, PNG, or WebP photo"}
+            return {"ok": False, "message": i18n.gettext("Please upload a JPEG, PNG, or WebP photo")}
         image_bytes = await photo.read()
         if len(image_bytes) > vision.MAX_IMAGE_BYTES:
-            return {"ok": False, "message": "Photo is too large (max 10 MB)"}
+            return {"ok": False, "message": i18n.gettext("Photo is too large (max 10 MB)")}
         if not image_bytes:
-            return {"ok": False, "message": "Empty upload"}
+            return {"ok": False, "message": i18n.gettext("Empty upload")}
+        # Stop reading further tiles the moment the combined budget is spent,
+        # rather than reading every file first and checking at the end.
+        total_bytes += len(image_bytes)
+        if total_bytes > vision.MAX_TOTAL_INTAKE_BYTES:
+            return {"ok": False, "message": i18n.gettext("This upload is too large to analyze (over 300 MB in total)")}
         images.append((image_bytes, mime))
         parts.append(f"{photo.filename or '-'} {mime} {len(image_bytes)} B")
     if not images:
-        return {"ok": False, "message": "Empty upload"}
+        return {"ok": False, "message": i18n.gettext("Empty upload")}
 
     logger.info("Intake analyze: %d photo(s) — %s", len(parts), ", ".join(parts))
 
@@ -111,7 +132,7 @@ async def analyze_photo(photos: list[UploadFile] = File(...)):
         return {"ok": False, "message": str(e)}
 
     if not books:
-        return {"ok": False, "message": "No books were recognized in this photo"}
+        return {"ok": False, "message": i18n.gettext("No books were recognized in this photo")}
     return {"ok": True, "books": books}
 
 
@@ -124,6 +145,10 @@ class IntakeBook(BaseModel):
     @field_validator("media_type")
     @classmethod
     def _known_media_type(cls, v):
+        # Canonicalise before the membership test and return the canonical
+        # value, so a stale intake plan holding a retired type validates and
+        # every later step — the dupe guard included — sees one spelling.
+        v = canonical_media_type(v)
         if v not in MEDIA_TYPES:
             raise ValueError(f"Unknown media_type: {v!r}")
         return v
@@ -133,37 +158,80 @@ class IntakeConfirm(BaseModel):
     books: list[IntakeBook]
     location_id: int | None = None
     owned: bool = True
+    library_id: int | None = None
+    tags: list[str] = []
 
 
-def _isbn_taken(isbn13: str, media_type: str) -> bool:
+def _isbn_taken(isbn13: str, media_type: str, *, db=None, hit_ids=None) -> bool:
     """True when (isbn13, media_type) is already in the library.
 
-    Its own connection — used to classify an IntegrityError raised by
-    `_save_item`, which manages a connection of its own.
+    The advisory pre-provider check opens a read-only connection. Constraint
+    classification instead supplies the still-locked batch connection, after
+    the failed row's savepoint has rolled back. Authorize ALL retained twins,
+    including Trash, before disclosing a live duplicate.
     """
-    with get_db() as db:
-        return db.execute(
-            "SELECT id FROM items WHERE isbn = ? AND media_type = ?",
-            (isbn13, media_type),
-        ).fetchone() is not None
+    from app.routers import items_common
+
+    if db is None:
+        with get_db() as connection:
+            return _isbn_taken(isbn13, media_type, db=connection, hit_ids=hit_ids)
+    types = items_common.media_type_candidates(media_type)
+    hits = db.execute(
+        f"SELECT id, deleted_at FROM items WHERE isbn = ? AND media_type IN ({','.join('?' for _ in types)})",
+        (isbn13, *types),
+    ).fetchall()
+    for hit in hits:
+        _authorize_intake_collision(db, hit["id"])
+    if hit_ids is not None:
+        hit_ids.extend(hit["id"] for hit in hits)
+    return any(hit["deleted_at"] is None for hit in hits)
 
 
-def _title_taken(db, title: str, authors: str, media_type: str) -> bool:
+def _authorize_intake_collision(db, item_id):
+    try:
+        require_item_role(db, item_id, "editor", include_deleted=True)
+    except HTTPException as exc:
+        if exc.status_code in (403, 404):
+            raise item_write.IdentifierUnavailable("This identifier is unavailable") from None
+        raise
+
+
+def _title_taken(db, title: str, authors: str, media_type: str, *, hit_ids=None) -> bool:
     """True when (title, authors, media_type) is already in the library.
 
-    Takes the caller's connection, unlike `_isbn_taken`, and the difference is
-    deliberate. `_isbn_taken` exists to classify an IntegrityError raised by
-    `_save_item`, which manages a connection of its own, so it opens one too.
-    This one is called twice on two different terms: once by the unlocked
-    pre-check at step 1, and once by the re-check inside the insert block,
-    which *must* run on that block's connection or the write lock buys nothing
-    (G18). Declared once so the two cannot drift.
+    Never acquires a write lock itself: step 1 is an advisory read whose
+    connection closes before any provider await. The deciding re-check uses
+    the caller's outer write scope (G18), not a second connection.
     """
-    return db.execute(
-        "SELECT id FROM items WHERE title = ? COLLATE NOCASE "
-        "AND IFNULL(authors, '') = ? COLLATE NOCASE AND media_type = ?",
-        (title, authors, media_type),
-    ).fetchone() is not None
+    from app.routers import items_common
+
+    types = items_common.media_type_candidates(media_type)
+    hits = db.execute(
+        "SELECT id FROM items_live WHERE title = ? COLLATE NOCASE "
+        f"AND IFNULL(authors, '') = ? COLLATE NOCASE AND media_type IN ({','.join('?' for _ in types)})",
+        (title, authors, *types),
+    ).fetchall()
+    for hit in hits:
+        _authorize_intake_collision(db, hit["id"])
+    if hit_ids is not None:
+        hit_ids.extend(hit["id"] for hit in hits)
+    return bool(hits)
+
+
+def _prechecked_plan(book, reason, hit_ids):
+    """Spare provider work, but retain skipped identities for locked preflight.
+
+    A later row can await a provider after this advisory read. Re-check even
+    skipped candidates before any batch mutation, without turning a vanished
+    duplicate into an unresearched insertion.
+    """
+    title = book.title.strip()
+    return {
+        "isbn": vision.clean_isbn(book.isbn), "media_type": book.media_type,
+        "query_title": title, "query_authors": book.authors or "",
+        "entry": {"title": title}, "skip_reason": reason, "cover_url": None,
+        "prechecked_ids": hit_ids,
+    }
 
 
 async def _confirm_one(
@@ -171,12 +239,10 @@ async def _confirm_one(
     location_id: int | None, owned: bool, hc_token: str | None,
     google_api_key: str | None, creds: dict[str, str | None],
 ) -> tuple[str, dict, int | None]:
-    """Resolve one confirmed row to an ``added``/``skipped`` entry.
+    """Resolve one confirmed row without writing catalogue metadata.
 
-    Returns (status, entry, item_id) where status is "added" or "skipped"
-    and item_id is the new row's id (None when skipped). Numbered steps
-    below match the plan; step 2 is deliberately left empty for T6's
-    ISBN-first cascade.
+    Returns ("prepared", plan, None); even advisory duplicates join the final
+    locked, all-target preflight. No catalogue mutation precedes provider I/O.
     """
     title = book.title.strip()
     media_type = book.media_type
@@ -192,17 +258,18 @@ async def _confirm_one(
     # the same query under BEGIN IMMEDIATE and is the guard that decides
     # (G18). Do not collapse this into that one as a duplicate, and do not
     # promote it back into the decision.
+    hit_ids = []
     with get_db() as db:
-        if _title_taken(db, title, book.authors or "", media_type):
-            return "skipped", {"title": title, "reason": "already in library"}, None
+        if _title_taken(db, title, book.authors or "", media_type, hit_ids=hit_ids):
+            return "prepared", _prechecked_plan(book, "already in library", hit_ids), None
 
     # 2. A printed ISBN, if one survives re-validation, buys the full scan
     # cascade. The client value is re-cleaned server-side — the review field
     # is editable and nothing about it is trusted.
     printed_isbn13 = vision.clean_isbn(book.isbn)
     if printed_isbn13:
-        if _isbn_taken(printed_isbn13, media_type):
-            return "skipped", {"title": title, "reason": "ISBN already in library"}, None
+        if _isbn_taken(printed_isbn13, media_type, hit_ids=hit_ids):
+            return "prepared", _prechecked_plan(book, "ISBN already in library", hit_ids), None
 
         # Deferred import, the store.py precedent — the item routers never
         # import intake. Call through the module so tests can patch it.
@@ -221,24 +288,12 @@ async def _confirm_one(
 
         if metadata:
             if titles_agree(title, metadata.get("title")):
-                try:
-                    item_id = items_common._save_item(metadata, printed_isbn13, media_type,
-                                         location_id, "photo_intake", hc_ids)
-                except sqlite3.IntegrityError:
-                    # A location deleted after the boundary check can still
-                    # raise the same FK exception; classify ISBN races before
-                    # allowing the invariant failure to propagate.
-                    if _isbn_taken(printed_isbn13, media_type):
-                        return "skipped", {
-                            "title": title, "reason": "ISBN already in library"}, None
-                    raise
-                if not owned:
-                    with get_db() as db:
-                        update_item_fields(db, item_id, {"owned": 0})
-                # The catalogue's title is the record; the row's was the query.
-                return "added", {
-                    "title": metadata["title"], "id": item_id, "matched": True,
-                    "lookup": "matched"}, item_id
+                return "prepared", {
+                    "metadata": metadata, "isbn": printed_isbn13, "hc_ids": hc_ids,
+                    "media_type": media_type, "query_title": title,
+                    "query_authors": book.authors or "", "cover_url": None,
+                    "entry": {"title": metadata["title"], "matched": True, "lookup": "matched"},
+                }, None
 
             # 6b. The cascade resolved the identifier and it names a different
             # book, so the identifier is known untrusted. Clear it rather than
@@ -341,106 +396,64 @@ async def _confirm_one(
         else:
             isbn13 = pair[0]
 
-    with get_db() as db:
-        # G18. The write lock is taken here, as the block's *first* statement,
-        # above every guard query below. get_db() hands back sqlite3's deferred
-        # isolation, which opens no transaction for a bare SELECT — without
-        # this line the lock would be taken at the INSERT and a rival writer
-        # could commit the same row in between, which is exactly what the three
-        # guards below exist to prevent. Nothing that opens a second connection
-        # or writes a log record may run inside this block: it would wait out
-        # SQLite's 5s busy timeout against the lock this block holds and fail
-        # (G3). That is why step 1 stays above the lookups and why the cover
-        # download at 5b stays below the block.
-        db.execute("BEGIN IMMEDIATE")
-
-        # 4-pre. Step 1's pre-check decided nothing, and it read before the
-        # lock existed. Re-run it here, unconditionally, on the row's own
-        # *read* title — a rival that committed during the lookup window is
-        # visible to this query and was not visible to that one. This is the
-        # guard that decides.
-        if _title_taken(db, book.title.strip(), book.authors or "", media_type):
-            return "skipped", {
-                "title": book.title.strip(), "reason": "already in library"}, None
-
-        # 4a. The dupe check at step 1 ran on the row's *read* title. A lookup
-        # that resolved 'SPIDER-MAN 2' to *Marvel's Spider-Man 2* has moved the
-        # target, so re-run it on the resolved title before inserting. Scoped
-        # to title + media_type, not authors: the provider does not supply the
-        # row's authors. Mirrors `_isbn_taken`, which the printed-ISBN path
-        # already calls twice for this reason. Skipped when nothing moved,
-        # where it would repeat step 1 verbatim.
-        if title != book.title.strip():
-            resolved_dupe = db.execute(
-                "SELECT id FROM items WHERE title = ? COLLATE NOCASE AND media_type = ?",
-                (title, media_type),
-            ).fetchone()
-            if resolved_dupe:
-                return "skipped", {"title": title, "reason": "already in library"}, None
-
-        # 4. ISBN dupe check, scoped to media type.
-        if isbn13:
-            taken = db.execute(
-                "SELECT id FROM items WHERE isbn = ? AND media_type = ?",
-                (isbn13, media_type),
-            ).fetchone()
-            if taken:
-                return "skipped", {"title": title, "reason": "ISBN already in library"}, None
-
-        # 5. Insert. A location deleted after the boundary check can still
-        # fail the FK invariant here; an ISBN race is classified separately.
-        try:
-            item_id = insert_item(
-                db,
-                title=title,
-                authors=book.authors or meta.get("authors"),
-                isbn=isbn13,
-                media_type=media_type,
-                publisher=meta.get("publisher"),
-                publish_year=meta.get("publish_year"),
-                page_count=meta.get("page_count"),
-                # Absent from Open Library's weak-path result, so the book path
-                # is unchanged; a TMDb or IGDB hit carries both. `authors` keeps
-                # the row's own value above — IGDB's `developer` is not an
-                # author — and `platform` is not written at all: `_parse_game`
-                # answers `platform_names`, IGDB's own names, which is not the
-                # `game_platforms` slug vocabulary the item edit page validates
-                # against (G57).
-                description=meta.get("description"),
-                series_name=meta.get("series_name"),
-                location_id=location_id,
-                owned=int(owned),
-                source="photo_intake",
-                language=language,
-            )
-        except sqlite3.IntegrityError:
-            if isbn13:
-                hit = db.execute(
-                    "SELECT id FROM items WHERE isbn = ? AND media_type = ?",
-                    (isbn13, media_type),
-                ).fetchone()
-                if hit:
-                    return "skipped", {"title": title, "reason": "ISBN already in library"}, None
-            raise
-        # insert_item() reads lastrowid inside the connection's scope (G16).
-
-    # 5b. A disc/game hit's cover downloads directly, on the batch's own
-    # client (G29 — this stays off the book cover-queue hand-off; a book's
-    # `meta` may also carry a cover_url, but `cover_url` above is only ever
-    # set on the UPC_METADATA_PROVIDERS branch). None is a normal outcome —
-    # allowlist reject or failed fetch — and changes nothing else about the
-    # row (G11: covers._download_to_item re-validates the post-redirect URL).
-    if cover_url:
-        cover_path = await covers._download_to_item(item_id, cover_url, client)
-        if cover_path:
-            with get_db() as db:
-                db.execute(
-                    "UPDATE items SET cover_path = ? WHERE id = ?", (cover_path, item_id))
-
     if meta:
         lookup = "matched"
-    return "added", {
-        "title": title, "id": item_id, "matched": bool(meta), "lookup": lookup}, item_id
+    return "prepared", {
+        "fields": {"title": title, "authors": book.authors or meta.get("authors"),
+                   "isbn": isbn13, "media_type": media_type,
+                   "publisher": meta.get("publisher"), "publish_year": meta.get("publish_year"),
+                   "page_count": meta.get("page_count"), "description": meta.get("description"),
+                   "series_name": meta.get("series_name"), "language": language},
+        "isbn": isbn13, "media_type": media_type, "query_title": book.title.strip(),
+        "query_authors": book.authors or "", "cover_url": cover_url,
+        "entry": {"title": title, "matched": bool(meta), "lookup": lookup},
+    }, None
+
+
+def _preflight_plan(db, plan, library_id=None):
+    """Authorize every identity; return its collision kind, not a boolean.
+
+    Do not short-circuit title/ISBN authority checks after finding a duplicate.
+    A hidden or read-only twin must refuse the whole batch before any write.
+    """
+    from app.routers import items_common
+
+    for item_id in plan.get("prechecked_ids", ()):
+        _authorize_intake_collision(db, item_id)
+    types = items_common.media_type_candidates(plan["media_type"])
+    hits = db.execute(
+        f"SELECT id, deleted_at, media_type FROM items WHERE isbn = ? AND media_type IN ({','.join('?' for _ in types)})",
+        (plan["isbn"], *types),
+    ).fetchall() if plan["isbn"] else []
+    for hit in hits:
+        _authorize_intake_collision(db, hit["id"])
+    if hits:
+        # Match the canonical save helper's deterministic preference, without
+        # retyping, consolidating or deleting either retained identity.
+        selected = min(hits, key=lambda hit: (
+            hit["deleted_at"] is not None,
+            hit["media_type"] != plan["media_type"], hit["id"]))
+        plan["media_type"] = selected["media_type"]
+        if "fields" in plan:
+            plan["fields"]["media_type"] = selected["media_type"]
+    isbn_duplicate = any(hit["deleted_at"] is None for hit in hits)
+    if not isbn_duplicate and library_id is not None:
+        for hit in hits:
+            if libraries.item_library_id(db, hit["id"]) != library_id:
+                raise ItemValueError("This identifier is unavailable in the requested library")
+    title_duplicate = _title_taken(db, plan["query_title"], plan["query_authors"], plan["media_type"])
+    resolved_title = plan["entry"]["title"]
+    if resolved_title != plan["query_title"]:
+        rows = db.execute(
+            f"SELECT id FROM items_live WHERE title = ? COLLATE NOCASE AND media_type IN ({','.join('?' for _ in types)})",
+            (resolved_title, *types),
+        ).fetchall()
+        for row in rows:
+            _authorize_intake_collision(db, row["id"])
+        title_duplicate |= bool(rows)
+    if isbn_duplicate:
+        return "ISBN already in library"
+    return "already in library" if title_duplicate else None
 
 
 @router.post("/confirm")
@@ -448,12 +461,16 @@ async def confirm_books(payload: IntakeConfirm):
     """Insert confirmed candidates as items via the normal metadata pipeline."""
     try:
         with get_db() as db:
+            library_id = payload.library_id or libraries.DEFAULT_LIBRARY_ID
+            catalogue_security.require_library_role(db, library_id, "editor")
             location_id = validated_location_id(db, payload.location_id)
     except UnknownLocationError:
         return {"ok": False, "message": _LOCATION_ERROR}
 
     added, skipped = [], []
     new_item_ids: list[int] = []
+    plans = []
+    cover_jobs = []
 
     with get_db() as db:
         search_lang = get_setting(db, "metadata_search_lang") or "en"
@@ -470,30 +487,104 @@ async def confirm_books(payload: IntakeConfirm):
         }
     preferred_marc = national.iso_to_marc(search_lang)
 
-    async with httpx.AsyncClient(timeout=HTTP_TIMEOUT) as client:
-        for book in payload.books:
-            title = book.title.strip()
-            if not title:
-                continue
+    with tags_svc.default_tags(";".join(payload.tags)):
+        async with httpx.AsyncClient(timeout=HTTP_TIMEOUT) as client:
+            for book in payload.books:
+                title = book.title.strip()
+                if not title:
+                    continue
 
+                try:
+                    status, entry, item_id = await _confirm_one(
+                        book, client, search_lang, preferred_marc, location_id,
+                        payload.owned, hc_token, google_api_key, creds)
+                except ItemValueError as e:
+                    # A stale location is caught by the boundary check above and
+                    # never reaches here; this guards a field _confirm_one has
+                    # not yet boundary-checked (G47 — see the forced-raise pin).
+                    if isinstance(e, item_write.IdentifierUnavailable):
+                        return {"ok": False, "message": str(e), "added": [], "skipped": []}
+                    skipped.append({"title": title, "reason": str(e)})
+                    continue
+                if status == "prepared":
+                    plans.append(entry)
+                else:
+                    skipped.append(entry)
+
+            from app.routers import items_common
             try:
-                status, entry, item_id = await _confirm_one(
-                    book, client, search_lang, preferred_marc, location_id,
-                    payload.owned, hc_token, google_api_key, creds)
-            except ItemValueError as e:
-                # A stale location is caught by the boundary check above and
-                # never reaches here; this guards a field _confirm_one has
-                # not yet boundary-checked (G47 — see the forced-raise pin).
-                skipped.append({"title": title, "reason": str(e)})
-                continue
-            if status == "added":
-                added.append(entry)
-                new_item_ids.append(item_id)
-            else:
-                skipped.append(entry)
+                with get_db() as db, item_write._write_scope(db):
+                    catalogue_security.require_library_role(db, library_id, "editor")
+                    location_id = validated_location_id(db, location_id)
+                    duplicates = [_preflight_plan(db, plan, library_id) for plan in plans]
+                    for plan, duplicate in zip(plans, duplicates):
+                        # Until an earlier row succeeds, nothing can invalidate
+                        # this decision: the outer write lock is still held.
+                        # Later rows must see identities inserted/restored by
+                        # this batch, not just the original preflight snapshot.
+                        if new_item_ids:
+                            duplicate = _preflight_plan(db, plan, library_id)
+                        reason = duplicate or plan.get("skip_reason")
+                        if reason:
+                            skipped.append({"title": plan["entry"]["title"], "reason": i18n.gettext(reason)})
+                            continue
+                        try:
+                            # Per-row canonical savepoint, still inside the
+                            # all-target batch scope. Recoverable failures must
+                            # roll back all row effects before classification.
+                            with item_write._write_scope(db):
+                                if "metadata" in plan or plan["media_type"] == "kids_book":
+                                    item_id = items_common._save_item(
+                                        plan.get("metadata", plan.get("fields")), plan["isbn"], plan["media_type"], location_id,
+                                        "photo_intake", plan.get("hc_ids", {}), owned=payload.owned,
+                                        library_id=library_id, db=db)
+                                else:
+                                    item_id = insert_item(db, **plan["fields"], location_id=location_id,
+                                                          library_id=library_id, owned=int(payload.owned),
+                                                          wishlisted=not payload.owned, source="photo_intake")
+                        except sqlite3.IntegrityError as exc:
+                            # Only this exact native constraint can represent a
+                            # canonical ISBN duplicate. FK/CHECK/other UNIQUE
+                            # faults refuse and roll back the complete batch.
+                            if (getattr(exc, "sqlite_errorcode", None) == sqlite3.SQLITE_CONSTRAINT_UNIQUE
+                                    and str(exc) == "UNIQUE constraint failed: items.isbn, items.media_type"
+                                    and plan["isbn"]
+                                    and _isbn_taken(plan["isbn"], plan["media_type"], db=db)):
+                                skipped.append({"title": plan["entry"]["title"],
+                                                "reason": i18n.gettext("ISBN already in library")})
+                                continue
+                            raise
+                        except item_write.IdentifierUnavailable:
+                            raise
+                        except ItemValueError as exc:
+                            skipped.append({"title": plan["entry"]["title"], "reason": str(exc)})
+                            continue
+                        new_item_ids.append(item_id)
+                        added.append({**plan["entry"], "id": item_id,
+                                      "restored": item_write.was_restored(item_id)})
+                        if plan["cover_url"]:
+                            cover_jobs.append((item_id, plan["cover_url"]))
+            except ItemValueError as exc:
+                return {"ok": False, "message": str(exc), "added": [], "skipped": []}
+            except sqlite3.DatabaseError:
+                return {"ok": False, "message": "Import conflicts with existing catalogue data", "added": [], "skipped": []}
+
+            # Covers never download before the complete metadata preflight.
+            for item_id, cover_url in cover_jobs:
+                if not restore_report.keeps_stored_cover(item_id):
+                    with items_common.CoverStage(item_id) as stage:
+                        cover_path = await covers._download_to_item(stage.download_id, cover_url, client)
+                        if cover_path:
+                            with get_db() as db:
+                                stage.store(db, cover_path, library_ids={item_id: library_id})
 
     if new_item_ids and not os.environ.get("SHELF_DISABLE_COVER_ENRICH"):
         from app.routers import items_common
-        asyncio.create_task(items_common._enrich_import_covers(new_item_ids))
+        user = catalogue_security.current_actor()
+        user = dict(user) if user is not None else None
+        with get_db() as db, item_write._write_scope(db):
+            library_ids = items_common.authorize_item_targets(db, new_item_ids)
+        asyncio.create_task(items_common._enrich_import_covers(
+            new_item_ids, user=user, library_ids=library_ids), context=Context())
 
     return {"ok": True, "added": added, "skipped": skipped}

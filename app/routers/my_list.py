@@ -12,14 +12,16 @@ deleting the user's personal state, so access can be restored safely later.
 
 from __future__ import annotations
 
-from fastapi import Depends, Form, Request
+from fastapi import APIRouter, Depends, Form, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
 
-from app.auth import require_role
+from app.services.catalogue_security import require_catalogue_role as require_role
 from app.config import MEDIA_TYPES
 from app.database import get_db
-from app.routers import pages
 from app.services import libraries, user_state
+from app.services.catalogue_security import require_item_role
+
+router = APIRouter()
 
 
 VALID_KINDS = ("all", "read", "watch", "listen", "play")
@@ -51,7 +53,7 @@ def _user_id(request: Request) -> int:
     return int(request.state.user["id"])
 
 
-@pages.router.get("/my-list")
+@router.get("/my-list")
 async def my_list(
     request: Request,
     kind: str = "all",
@@ -75,7 +77,7 @@ async def my_list(
                        i.cover_path, i.publish_year, i.platform,
                        uis.updated_at
                   FROM user_item_state uis
-                  JOIN items i ON i.id = uis.item_id
+                   JOIN items_live i ON i.id = uis.item_id
                  WHERE uis.user_id = ?
                    AND uis.reading_status = 'want_to_read'
                    AND ({access_sql})
@@ -116,7 +118,7 @@ async def my_list(
     )
 
 
-@pages.router.post("/my-list/{item_id}/remove")
+@router.post("/my-list/{item_id}/remove")
 async def remove_from_my_list(
     request: Request,
     item_id: int,
@@ -124,13 +126,12 @@ async def remove_from_my_list(
     _=Depends(require_role("viewer")),
 ):
     """Remove one accessible item from My List without changing Wishlist."""
-    user = request.state.user
     if kind not in VALID_KINDS:
         kind = "all"
 
     with get_db() as db:
-        if not libraries.has_item_role(db, user, item_id, "viewer"):
-            return HTMLResponse("Item not found", status_code=404)
+        db.execute("BEGIN IMMEDIATE")
+        require_item_role(db, item_id, "viewer")
         state = user_state.get_state(db, _user_id(request), item_id)
         if state is None:
             return HTMLResponse("Item not found", status_code=404)

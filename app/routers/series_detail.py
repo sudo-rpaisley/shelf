@@ -14,12 +14,17 @@ from __future__ import annotations
 from collections import Counter
 from urllib.parse import urlencode
 
-from fastapi import Depends, HTTPException, Query, Request
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 
-from app.auth import require_role
-from app.database import get_db
-from app.routers.series import router
+from app.services.catalogue_security import require_catalogue_role as require_role
+from app.database import get_db, ensure_series_memberships_schema
+from app.features import require_feature
+from app.routers.provider_series_detail import attach_provider_metadata
+from app.routers.series import LIVE_SERIES_MEMBERSHIPS
+from app.services import lists
 from app.services.series_display import count_label, find_gaps, infer_series_unit
+
+router = APIRouter()
 
 
 @router.get("/series/detail")
@@ -29,6 +34,7 @@ async def series_detail_page(
     media_type: str | None = Query(default=None),
     komga_series_id: str | None = Query(default=None),
     _=Depends(require_role("viewer")),
+    __=Depends(require_feature("series")),
 ):
     """Render one series with members ordered by ``series_position``.
 
@@ -44,23 +50,28 @@ async def series_detail_page(
     params: list[object]
     if requested_komga_id:
         identity_clause = (
-            "LOWER(COALESCE(source, '')) = 'komga' AND komga_series_id = ?"
+            "LOWER(COALESCE(i.source, '')) = 'komga' AND i.komga_series_id = ?"
         )
         params = [requested_komga_id]
     else:
-        identity_clause = "series_name = ? COLLATE NOCASE"
+        identity_clause = "s.series_name = ? COLLATE NOCASE"
         params = [requested_name]
 
     media_clause = ""
     if media_type:
-        media_clause = " AND media_type = ?"
+        media_clause = " AND i.media_type = ?"
         params.append(media_type)
 
     with get_db() as db:
+        ensure_series_memberships_schema(db)
         rows = db.execute(
-            "SELECT id, title, authors, cover_path, series_name, series_position, "
-            "publish_year, owned, reading_status, media_type, source, komga_series_id "
-            f"FROM items WHERE {identity_clause}"
+            "SELECT i.id, i.title, i.authors, i.cover_path, "
+            + ("i.series_name, i.series_position, " if requested_komga_id else "s.series_name, s.position AS series_position, ")
+            + "i.publish_year, i.owned, i.reading_status, i.media_type, i.source, i.komga_series_id, "
+            f"i.abs_id, i.abs_library_id, i.romm_id, {lists.WISHLISTED_SQL} AS wishlisted "
+            "FROM items_live i "
+            + ("" if requested_komga_id else f"JOIN {LIVE_SERIES_MEMBERSHIPS} s ON s.item_id = i.id ")
+            + f"WHERE {identity_clause}"
             f"{media_clause} "
             "ORDER BY (series_position IS NULL), series_position ASC, "
             "(publish_year IS NULL), publish_year ASC, title COLLATE NOCASE, id ASC",
@@ -83,7 +94,7 @@ async def series_detail_page(
     unit = infer_series_unit(items)
     gaps = find_gaps(item.get("series_position") for item in items)
     owned_count = sum(1 for item in items if item.get("owned"))
-    wishlist_count = len(items) - owned_count
+    wishlist_count = sum(1 for item in items if item["wishlisted"])
 
     # If the detail URL did not need an explicit media filter, a uniform series
     # can still use media-specific actions. Mixed physical/digital groups stay
@@ -120,6 +131,8 @@ async def series_detail_page(
         "browse_url": browse_url,
         "can_bulk_add": can_bulk_add,
     }
+    with get_db() as db:
+        attach_provider_metadata(db, series, komga_series_id=requested_komga_id)
 
     return request.app.state.templates.TemplateResponse(
         request,

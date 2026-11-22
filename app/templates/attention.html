@@ -50,7 +50,7 @@
                         {{ item.authors or item.media_type }}{% if item.issue_number %} · Issue {{ item.issue_number }}{% elif item.issue_date %} · {{ item.issue_date }}{% elif item.publish_year %} · {{ item.publish_year }}{% endif %}{% if item.location_name %} · {{ item.location_name }}{% endif %}
                     </p>
                 </div>
-                {% if user and user.role in ('editor', 'admin') %}
+                {% if item.can_edit_item|default(false) %}
                 <a href="/item/{{ item.id }}/edit"
                    class="px-3 py-2 bg-shelf-hover border border-shelf-border rounded-lg text-sm hover:border-shelf-accent/50 hover:text-white transition-colors">Fix</a>
                 {% endif %}

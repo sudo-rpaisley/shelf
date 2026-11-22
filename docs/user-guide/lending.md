@@ -2,6 +2,13 @@
 
 Shelf tracks who has what, nags you when it's late, and keeps the history.
 
+Lending can be turned off in Settings → **Features**. While it is off, your
+loans and borrowers are kept and overdue reminders pause. The item page's
+Lending panel, the **Loaned** and **Overdue** badges, Home's **Lent out** tile
+and Browse's **Lent Out** filter disappear, and Scan offers no **Lend** or
+**Return** mode. The **Borrowers** card in Settings still lists names, but
+cannot add or remove them. Turning it back on picks up where you left off.
+
 ## Borrowers
 
 Settings → Library → **Borrowers**: add the people you lend to (name, optional
@@ -33,7 +40,9 @@ Settings → Library → **Lending** → Notification URL. Two formats:
 **Send test** fires one immediately. Once set, a daily digest lists every
 overdue loan; it is sent at most once per day and only when something is
 overdue. The URL is stored encrypted (an ntfy topic is effectively a
-secret).
+secret). The same URL also carries the wishlist
+[price-drop digest](wishlist-and-store-mode.md#price-alerts) and the
+[release-radar digest](series.md#watching-for-new-volumes) when those are on.
 
 ## History
 

@@ -1,11 +1,6 @@
-<div id="item-series-loader"
-     hx-get="/api/items/{{ item.id }}/series-rows"
-     hx-trigger="load"
-     hx-swap="outerHTML">
-</div>
-
-{% if related_media or (user and user.role in ('admin', 'editor')) %}
-<div id="related-media-panel" class="mb-6 rounded-xl border border-shelf-border bg-shelf-bg/50 p-4" data-testid="related-media-panel">
+{% set can_edit = can_edit_item|default(false) %}
+{% if related_media %}
+<div id="connected-media-panel" class="mb-6 rounded-xl border border-shelf-border bg-shelf-bg/50 p-4" data-testid="related-media-panel">
     <div class="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-3 mb-4">
         <div class="min-w-0">
             <p class="text-[10px] uppercase tracking-wider text-shelf-muted">Connections</p>
@@ -47,9 +42,9 @@
             <div class="flex gap-3 p-3 min-w-0">
                 <a href="/item/{{ related.id }}{% if back.key %}?from={{ back.key }}{% endif %}" class="shrink-0">
                     {% if related.cover_path %}
-                    <img src="/{{ related.cover_path }}" alt="" class="h-20 w-14 object-cover rounded-md bg-shelf-hover shadow-sm">
+                    <img src="/{{ related.cover_path }}" alt="" class="h-20 w-14 object-cover rounded-md bg-shelf-hover shadow-sm" data-cover-shape="{{ cover_shape(related.media_type) }}">
                     {% else %}
-                    <div class="h-20 w-14 rounded-md bg-shelf-hover flex items-center justify-center px-1 text-center text-[10px] text-shelf-muted">
+                    <div class="h-20 w-14 rounded-md bg-shelf-hover flex items-center justify-center px-1 text-center text-[10px] text-shelf-muted" data-cover-shape="{{ cover_shape(related.media_type) }}">
                         {{ related.media_label }}
                     </div>
                     {% endif %}
@@ -79,7 +74,7 @@
                     </p>
                 </div>
 
-                {% if user and user.role in ('admin', 'editor') and related.manual_linked %}
+                {% if related.can_unlink|default(false) and related.manual_linked %}
                 <form action="/api/items/{{ item.id }}/related/{{ related.id }}/remove" method="post" class="absolute top-2 right-2">
                     <input type="hidden" name="_csrf" value="{{ request.cookies.get('csrf_token', '') }}">
                     <button type="submit" title="Remove connection" aria-label="Disconnect {{ related.title }}"
@@ -106,7 +101,7 @@
     <p class="text-xs text-shelf-muted">No connected editions, formats or adaptations yet.</p>
     {% endif %}
 
-    {% if user and user.role in ('admin', 'editor') %}
+    {% if can_edit %}
     <details class="mt-4 pt-3 border-t border-shelf-border">
         <summary class="cursor-pointer text-xs text-shelf-accent2 hover:text-shelf-accent">Connect an item</summary>
         <p class="text-xs text-shelf-muted mt-2 mb-2">Search the Shelf library to connect another edition, format, platform version or adaptation to this work.</p>

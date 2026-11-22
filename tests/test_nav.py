@@ -37,37 +37,54 @@ VIEWER = {"id": 3, "username": "viewer", "role": "viewer"}
 
 # --- Registry shape ---------------------------------------------------------
 
-def test_registry_covers_all_destinations():
+def test_registry_covers_the_sixteen_tabs():
+    # Keep the upstream case name while pinning the complete integrated registry.
     assert [t["key"] for t in NAV_TABS] == [
         "home", "browse", "my_list", "collections", "series", "discover", "scan", "intake",
-        "locations", "music", "store", "stats", "settings", "logs",
+        "shelf-fill", "locations", "music", "periodicals", "store", "stats", "settings", "logs",
+        "trash", "labels", "audits", "duplicates",
     ]
     for tab in NAV_TABS:
         assert tab["label"] and tab["path"].startswith("/")
-        assert tab["group"] in {"primary", "add", "more", "account"}
 
 
-def test_home_browse_collections_and_settings_are_not_hideable():
+def test_only_trash_labels_audits_duplicates_settings_and_logs_render_in_the_account_menu(db, admin_user):
+    """`menu` is what base.html asks instead of naming a key.
+
+    It is the whole reason a tab can move out of the row without either
+    template learning its name, so pin the membership rather than the flag.
+    """
+    # Group defaults are normalized by the same interface used by base.html.
+    assert [t["key"] for t in visible_tabs(admin_user) if t["menu"] == "account"] == [
+        "settings", "logs", "trash", "labels", "audits", "duplicates",
+    ]
+    assert all(t.get("menu", "") in ("", "account") for t in NAV_TABS)
+
+
+def test_visible_tabs_carries_the_menu_destination(db):
+    """visible_tabs() is the only thing the templates see."""
+    by_key = {t["key"]: t for t in visible_tabs(ADMIN)}
+    assert by_key["logs"]["menu"] == "account"
+    assert by_key["settings"]["menu"] == "account"
+    assert by_key["browse"]["menu"] == ""
+
+
+def test_browse_and_settings_are_not_hideable():
     assert set(ALWAYS_VISIBLE) == {"home", "browse", "collections", "settings"}
     assert not HIDEABLE_KEYS & set(ALWAYS_VISIBLE)
-
-
-def test_primary_group_is_the_small_top_level_navigation():
-    primary = [t["key"] for t in NAV_TABS if t["group"] == "primary"]
-    assert primary == ["home", "browse", "my_list", "collections", "series", "discover"]
 
 
 # --- Role gating ------------------------------------------------------------
 
 def test_viewer_sees_no_scan_intake_settings_or_logs(db):
     keys = _keys(VIEWER)
-    assert "home" in keys and "browse" in keys and "store" in keys and "stats" in keys
+    assert "browse" in keys and "store" in keys and "stats" in keys
     for gated in ("scan", "intake", "settings", "logs"):
         assert gated not in keys
 
 
-def test_editor_sees_scan_but_no_settings_or_logs(db):
-    keys = _keys(EDITOR)
+def test_editor_sees_scan_but_no_settings_or_logs(db, editor_user):
+    keys = _keys(editor_user)  # real default-library Editor membership
     assert "scan" in keys
     assert "settings" not in keys and "logs" not in keys
 
@@ -80,7 +97,8 @@ def test_admin_sees_settings_and_logs(db):
 def test_anonymous_sees_only_ungated_tabs(db):
     keys = _keys(None)
     assert keys == [
-        "home", "browse", "my_list", "collections", "series", "locations", "music", "store", "stats"
+        "home", "browse", "my_list", "collections", "series", "locations", "music",
+        "periodicals", "store", "stats",
     ]
 
 
@@ -134,13 +152,13 @@ def test_hidden_tabs_are_dropped(db):
     _set(db, "nav_hidden_tabs", json.dumps(["stats", "store"]))
     keys = _keys(ADMIN)
     assert "stats" not in keys and "store" not in keys
-    assert "home" in keys and "browse" in keys and "settings" in keys
+    assert "browse" in keys and "settings" in keys
 
 
-def test_always_visible_tabs_survive_a_forged_hidden_list(db):
-    _set(db, "nav_hidden_tabs", json.dumps(["home", "browse", "settings"]))
+def test_browse_and_settings_survive_a_forged_hidden_list(db):
+    _set(db, "nav_hidden_tabs", json.dumps(["browse", "settings"]))
     keys = _keys(ADMIN)
-    assert "home" in keys and "browse" in keys and "settings" in keys
+    assert "browse" in keys and "settings" in keys
 
 
 @pytest.mark.parametrize("stored", ["not json", "{}", '"stats"', "[1, 2]", "null", ""])
@@ -153,6 +171,80 @@ def test_malformed_hidden_lists_hide_nothing(db, stored):
 def test_unknown_keys_in_the_hidden_list_are_ignored(db):
     _set(db, "nav_hidden_tabs", json.dumps(["stats", "nonexistent"]))
     assert "stats" not in _keys(ADMIN)
+
+
+# --- Feature gating ----------------------------------------------------------
+
+def _set_feature(key, enabled):
+    from app.database import get_db
+    from app.features import set_feature_enabled
+    with get_db() as conn:
+        set_feature_enabled(conn, key, enabled)
+
+
+def test_disabling_a_feature_hides_its_tab_for_every_role(db):
+    _set_feature("stats", False)
+    for user in (ADMIN, EDITOR, VIEWER, None):
+        assert "stats" not in _keys(user)
+
+
+def test_disabling_hardcover_hides_discover_even_with_a_token(db):
+    _set(db, "hardcover_token", "hc-token")
+    assert "discover" in _keys(ADMIN)
+    _set_feature("hardcover", False)
+    assert "discover" not in _keys(ADMIN)
+
+
+def test_hand_hidden_tab_of_an_enabled_feature_is_still_hidden(db):
+    _set(db, "nav_hidden_tabs", json.dumps(["stats"]))
+    assert "stats" not in _keys(ADMIN)
+
+
+def test_disabled_features_tab_stays_out_when_not_hand_hidden(db):
+    _set_feature("stats", False)
+    # nav_hidden_tabs is untouched — the tab is absent purely on the feature flag.
+    assert "stats" not in _keys(ADMIN)
+
+
+def test_hideable_tab_states_reports_feature_off(db):
+    state = _state(hideable_tab_states(), "stats")
+    assert state["feature_off"] is False
+    assert state["feature_label"] == "Statistics"
+
+    _set_feature("stats", False)
+    state = _state(hideable_tab_states(), "stats")
+    assert state["feature_off"] is True
+    assert state["feature_label"] == "Statistics"
+
+
+def test_hideable_tab_states_feature_label_blank_for_a_featureless_tab(db):
+    """`scan` (and `trash`, `logs`) belong to no feature — never turned off,
+    never labelled."""
+    state = _state(hideable_tab_states(), "trash")
+    assert state["feature_off"] is False
+    assert state["feature_label"] == ""
+
+
+# --- Settings page: feature-off annotation -----------------------------------
+
+def test_navigation_row_shows_turned_off_in_features(admin_client, db):
+    _set_feature("stats", False)
+    row = _row(admin_client.get("/settings").text, "stats")
+    assert "Turned off in Features" in row
+    assert _is_checked(row)
+
+    import re
+    checkbox = re.search(r"<input[^>]*>", row).group(0)
+    assert "disabled" not in checkbox
+
+
+def test_navigation_row_feature_off_beats_the_configure_hint(admin_client, db):
+    """discover has both a `requires` hint and, once disabled, a feature-off
+    one — the feature-off message wins; the tab is gone from the nav anyway."""
+    _set_feature("hardcover", False)
+    row = _row(admin_client.get("/settings").text, "discover")
+    assert "Turned off in Features" in row
+    assert "Hidden until" not in row
 
 
 # --- Caching ----------------------------------------------------------------
@@ -220,7 +312,6 @@ def test_wrapper_injects_nav_tabs_with_keyword_context(monkeypatch, db):
     ctx = _captured_context(monkeypatch, ADMIN, context={})
     assert ctx["user"] == ADMIN
     assert [t["key"] for t in ctx["nav_tabs"]] == _keys(ADMIN)
-    assert all("group" in tab for tab in ctx["nav_tabs"])
 
 
 def test_wrapper_injects_nav_tabs_with_positional_context(monkeypatch, db):
@@ -237,11 +328,9 @@ def test_wrapper_does_not_override_an_explicit_nav_tabs(monkeypatch, db):
 # --- Rendered nav -----------------------------------------------------------
 
 def test_rendered_nav_follows_the_registry(admin_client, db):
-    """The nav shell renders primary, grouped, and account destinations from `nav_tabs`."""
+    """The nav bar itself renders from `nav_tabs`, not from hardcoded anchors."""
     html = admin_client.get("/browse").text
-    assert 'data-nav-tab="home"' in html
     assert 'data-nav-tab="browse"' in html
-    assert 'data-nav-tab="collections"' in html
     assert 'data-nav-tab="settings"' in html
     assert 'data-nav-tab="discover"' not in html  # no token configured
     _set(db, "hardcover_token", "hc-token")
@@ -250,15 +339,9 @@ def test_rendered_nav_follows_the_registry(admin_client, db):
 
 def test_rendered_nav_respects_role(viewer_client, db):
     html = viewer_client.get("/browse").text
-    assert 'data-nav-tab="home"' in html
     assert 'data-nav-tab="browse"' in html
     for gated in ("scan", "settings", "logs"):
         assert f'data-nav-tab="{gated}"' not in html
-
-
-def test_shelf_brand_links_home(admin_client, db):
-    html = admin_client.get("/browse").text
-    assert '<a href="/" class="text-lg font-bold text-shelf-accent2 tracking-tight mr-6">Shelf</a>' in html
 
 
 def test_active_tab_is_highlighted(admin_client, db):
@@ -289,17 +372,17 @@ def test_hiding_a_tab_then_unhiding_round_trips(admin_client, db):
     assert "stats" in _keys(ADMIN)
 
 
-def test_always_visible_tabs_cannot_be_hidden_via_forged_form(admin_client, db):
-    # Submit forged unchecks for the non-hideable destinations. None of these
-    # keys belongs to HIDEABLE_KEYS, so they cannot be removed from the nav.
+def test_browse_and_settings_cannot_be_hidden_via_forged_form(admin_client, db):
+    # Submit nothing checked at all, plus forged unchecks for browse/settings —
+    # neither key is hideable, so nothing can remove them from the nav.
     r = admin_client.post(
         "/api/settings/nav",
-        data={"home": "", "browse": "", "settings": ""},
+        data={"browse": "", "settings": ""},
         follow_redirects=False,
     )
     assert r.status_code == 303
     keys = _keys(ADMIN)
-    assert "home" in keys and "browse" in keys and "settings" in keys
+    assert "browse" in keys and "settings" in keys
 
 
 def test_unknown_keys_in_the_form_are_not_stored(admin_client, db):
@@ -487,7 +570,7 @@ def test_intake_available_ollama_on_defaults_is_true(db):
     assert _state(hideable_tab_states(), "intake")["available"] is True
 
 
-@pytest.mark.parametrize("key", ["stats", "store", "music", "locations"])
+@pytest.mark.parametrize("key", ["stats", "store"])
 def test_tabs_without_requires_are_always_available(db, key):
     state = _state(hideable_tab_states(), key)
     assert state["available"] is True
@@ -523,3 +606,268 @@ def test_env_provided_token_counts_as_configured_with_no_argument(db, monkeypatc
     invalidate_cache()
     states = hideable_tab_states()
     assert _state(states, "discover")["available"] is True
+
+
+# --- Reachability: the census that 0.37.0 shipped without ---------------------
+
+def test_every_top_level_page_is_reachable_from_the_nav():
+    """A page nobody can navigate to is a page that does not ship.
+
+    v0.37.0 shipped four such pages — Home, Music, Periodicals and Shelf Fill
+    all rendered correctly at their URL and appeared nowhere in `NAV_TABS`, so
+    every route test passed and no user could reach any of them. Route tests
+    prove a page *renders*; this proves a page can be *found*.
+
+    Parameterised pages (an item, a publication, one location's Arrange) are
+    reached from a listing rather than the nav and are exempt by shape. The
+    rest are named individually, each with the reason it needs no tab — an
+    entry added here is a deliberate decision, which is exactly what was
+    missing.
+    """
+    import os
+    os.environ.setdefault("SHELF_DISABLE_RATE_LIMIT", "1")
+    from app.main import app
+    from app.nav import NAV_TABS
+
+    EXEMPT = {
+        "/": "the brand link in base.html is the Home affordance",
+        "/login": "pre-auth",
+        "/setup": "pre-auth, first run only",
+        "/health": "machine endpoint, not a page",
+        "/sw.js": "service worker asset",
+        "/docs": "FastAPI's own docs UI",
+        "/docs/oauth2-redirect": "FastAPI's own docs UI",
+        "/redoc": "FastAPI's own docs UI",
+        "/openapi.json": "schema, not a page",
+        "/labels/sheet": (
+            "reached from the Print sheet form and the Assign result on /labels, "
+            "and from the item page's Print-labels link — a print view of a "
+            "selection, not a destination (copy-labels plan)"
+        ),
+        "/stats/wrapup": (
+            "reached from the Wrap-up link on /stats, not the nav: a recap of the "
+            "stats is a stats surface (wrap-ups design). The link is pinned by "
+            "test_wrapup_route.py::test_stats_links_to_the_wrapup_always"
+        ),
+        "/upcoming": "reached from the Upcoming releases link in the Series page header, not the nav (release-radar plan); pinned by tests/test_upcoming_page.py",
+        "/cover-review": (
+            "reached from Settings -> Data -> Maintenance, not the nav: a "
+            "maintenance chore does not earn permanent nav real estate "
+            "(cover-attention-queue design, section 3). The link's existence is "
+            "pinned by test_settings.py's cover-review-link tests, so this "
+            "exemption is a claim with a test behind it rather than a hole."
+        ),
+        "/magazines": (
+            "Home's Magazines media-family card (home.html) is the entry; "
+            "pinned by test_magazines_is_reached_from_the_home_family_card"
+        ),
+        "/music/add": (
+            "the editor-only Add music link in Music Browse (browse.html); "
+            "pinned by test_music_add_is_reached_from_music_browse"
+        ),
+        "/romm/library": (
+            "Browse synced library in Settings -> Integrations -> RomM; "
+            "pinned by test_romm_library_is_reached_from_its_settings_card"
+        ),
+        "/series/detail": (
+            "a query-parameterized series page linked by the collapsed Browse "
+            "series card (browse_grouping -> series_card.html), not a top-level tab; "
+            "pinned by test_series_detail_is_reached_from_a_collapsed_browse_card"
+        ),
+        "/search": (
+            "base.html's persistent search form redirects to filtered Browse; "
+            "pinned by test_search_is_reached_from_the_persistent_navigation_form"
+        ),
+        "/romm": (
+            "the legacy entry redirects303 to the linked /romm/library; "
+            "pinned by test_romm_redirects_to_the_linked_library"
+        ),
+        "/attention": (
+            "Home loads the dashboard whose Needs attention tile links here; "
+            "pinned by test_attention_is_reached_from_the_home_dashboard"
+        ),
+        "/settings/library-recovery": (
+            "the admin-only Recover items without a library link in Settings -> "
+            "Library is the entry, not a global tab; pinned with every feature "
+            "off by tests/test_ui_phase4_contracts_20261121.py::"
+            "test_native_admin_recovery_is_a_core_settings_library_link_not_global_navigation"
+        ),
+    }
+
+    nav_paths = {t["path"] for t in NAV_TABS}
+    unreachable = []
+    for route in app.routes:
+        path = getattr(route, "path", None)
+        methods = getattr(route, "methods", set()) or set()
+        if not path or "GET" not in methods:
+            continue
+        if path.startswith("/api") or path.startswith("/static"):
+            continue
+        if "{" in path:            # reached from a listing, not the nav
+            continue
+        if path in EXEMPT or path in nav_paths:
+            continue
+        unreachable.append(path)
+
+    assert not unreachable, (
+        "these pages render but nothing links to them — give each a NAV_TABS "
+        f"entry or an EXEMPT reason: {sorted(unreachable)}"
+    )
+
+
+def test_the_brand_link_goes_home(admin_client):
+    """The one link that reaches `/`. If it drifts, Home is unreachable again."""
+    html = admin_client.get("/browse").text
+    assert '<a href="/" class="text-lg font-bold' in html
+
+
+def _rendered_link(html, href):
+    """Read a genuine rendered anchor, not an arbitrary occurrence of its URL."""
+    import re
+    from html import unescape
+
+    matches = []
+    for anchor in re.finditer(r'<a\b([^>]*)>(.*?)</a>', html, re.S):
+        target = re.search(r'(?:^|\s)href="([^"]*)"', anchor.group(1))
+        if target and unescape(target.group(1)) == href:
+            matches.append(anchor)
+    assert len(matches) == 1, (href, len(matches))
+    attrs, body = matches[0].groups()
+    assert not re.search(r'(?:^|\s)(?:hidden|x-cloak)(?:\s|=|$)', attrs)
+    classes = re.search(r'(?:^|\s)class="([^"]*)"', attrs)
+    assert not classes or "hidden" not in classes.group(1).split()
+    return " ".join(unescape(re.sub(r'<[^>]*>', ' ', body)).split())
+
+
+def test_magazines_is_reached_from_the_home_family_card(admin_client):
+    home = admin_client.get("/")
+    assert home.status_code == 200
+    assert "Magazines" in _rendered_link(home.text, "/magazines")
+
+
+def test_music_add_is_reached_from_music_browse(editor_client):
+    music = editor_client.get("/browse?media_family_filter=music")
+    assert music.status_code == 200
+    assert _rendered_link(music.text, "/music/add") == "Add music"
+
+
+def test_music_add_is_not_offered_to_a_viewer(viewer_client):
+    viewer = viewer_client.get("/browse?media_family_filter=music")
+    assert viewer.status_code == 200
+    assert 'href="/music/add"' not in viewer.text
+
+
+def test_romm_library_is_reached_from_its_settings_card(admin_client):
+    settings = admin_client.get("/settings")
+    assert settings.status_code == 200
+    assert _rendered_link(settings.text, "/romm/library") == "Browse synced library"
+
+
+def test_series_detail_is_reached_from_a_collapsed_browse_card(viewer_client, db):
+    from urllib.parse import parse_qs, urlsplit
+
+    from tests.conftest import _insert_item
+    from tests.test_ui_phase4_contracts_20261121 import _Markup
+
+    name = "Navigation & Series"
+    for position in (1, 2):
+        _insert_item(db, title=f"Navigation volume {position}", isbn=None,
+                     media_type="digital_comic", series_name=name, series_position=position)
+    db.commit()
+    browse = viewer_client.get("/browse?media_type_filter=digital_comic")
+    assert browse.status_code == 200
+    grid = _Markup(browse.text).root.one("template", **{"x-if": "viewMode === 'grid'"}).one(
+        "div", **{"data-testid": "item-grid"},
+    )
+    cards = grid.find_all("a", **{"data-series-group": name})
+    assert len(cards) == 1
+    destinations = [anchor.attrs["href"] for anchor in grid.find_all("a")
+                    if anchor.attrs.get("href", "").startswith("/series/detail?")]
+    assert len(destinations) == 1
+    destination = urlsplit(destinations[0])
+    assert destination.path == "/series/detail"
+    assert parse_qs(destination.query) == {"name": [name], "media_type": ["digital_comic"]}
+    assert cards[0].attrs["href"] == destinations[0]
+    assert "2 in series" in cards[0].text
+
+
+def test_search_is_reached_from_the_persistent_navigation_form(viewer_client):
+    import re
+    from urllib.parse import parse_qs, urlsplit
+
+    browse = viewer_client.get("/browse")
+    assert browse.status_code == 200
+    forms = re.findall(r'<form\b[^>]*action="/search"[^>]*>.*?</form>', browse.text, re.S)
+    assert len(forms) == 1
+    form = forms[0]
+    assert 'method="get"' in form and 'role="search"' in form
+    assert re.search(r'<input\b[^>]*type="search"[^>]*name="query"[^>]*>', form)
+    assert 'type="submit"' in form
+    assert "x-cloak" not in form
+
+    response = viewer_client.get("/search", params={"query": "  Navigation & Shelf  "}, follow_redirects=False)
+    assert response.status_code == 303
+    destination = urlsplit(response.headers["location"])
+    assert destination.path == "/browse"
+    assert parse_qs(destination.query) == {"q": ["Navigation & Shelf"]}
+    blank = viewer_client.get("/search", params={"query": "   "}, follow_redirects=False)
+    assert blank.status_code == 303
+    assert blank.headers["location"] == "/browse"
+
+
+def test_romm_redirects_to_the_linked_library(viewer_client):
+    response = viewer_client.get("/romm", follow_redirects=False)
+    assert response.status_code == 303
+    assert response.headers["location"] == "/romm/library"
+
+
+def test_attention_is_reached_from_the_home_dashboard(viewer_client, db):
+    from tests.conftest import _insert_item
+
+    _insert_item(db, title="Navigation needs attention", isbn=None)
+    db.commit()
+    home = viewer_client.get("/")
+    assert home.status_code == 200
+    assert 'hx-get="/api/home/dashboard"' in home.text
+    dashboard = viewer_client.get("/api/home/dashboard")
+    assert dashboard.status_code == 200
+    assert dashboard.context["attention_count"] == 1
+    assert _rendered_link(dashboard.text, "/attention") == "Needs attention 1"
+
+
+# --- Cross-links into Browse -------------------------------------------------
+
+def test_every_browse_link_uses_a_registered_filter_name():
+    """A `/browse?...` link whose parameter is not a real filter is ignored.
+
+    Silently: `browse_filters.values_from` reads the names it knows and drops
+    the rest, so the page renders fine and shows *everything*. v0.37.0's Home
+    linked its media-type breakdown at `?media_type=` and its lent-out tile at
+    `?lent=`, when the registry names them `media_type_filter` and `lent_out` —
+    both tiles looked right and neither filtered anything.
+
+    `app/browse_filters.py` is the single declaration; this holds every caller
+    to it. `view` is registered `in_url=False` and so is not a legal link
+    parameter either.
+    """
+    import re
+    from pathlib import Path
+    from app.browse_filters import BY_NAME
+
+    linkable = {name for name, f in BY_NAME.items() if f.in_url}
+    roots = [Path("app/templates"), Path("static/js")]
+    bad = []
+    for root in roots:
+        for path in root.rglob("*"):
+            if path.suffix not in (".html", ".js"):
+                continue
+            for m in re.finditer(r"/browse\?([^\"'\s>]+)", path.read_text()):
+                for pair in m.group(1).split("&amp;" if "&amp;" in m.group(1) else "&"):
+                    key = pair.split("=")[0].strip()
+                    if key and key not in linkable:
+                        bad.append(f"{path}: ?{key}=")
+
+    assert not bad, (
+        "these links pass a parameter Browse does not know, so the filter is "
+        f"silently dropped: {sorted(set(bad))}"
+    )

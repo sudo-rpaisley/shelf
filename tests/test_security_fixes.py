@@ -11,13 +11,11 @@ Covers:
 """
 
 import io
-import time
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
 from app.database import get_db
-from tests.conftest import _insert_item
 
 
 # ---------------------------------------------------------------------------
@@ -57,7 +55,7 @@ class TestCoverRedirectValidation:
     @pytest.mark.anyio
     async def test_rejects_redirect_to_untrusted_domain(self, tmp_path):
         """If a redirect lands on a domain not in ALLOWED_COVER_DOMAINS, download fails."""
-        from app.services.covers import _download, ALLOWED_COVER_DOMAINS
+        from app.services.covers import _download
 
         dest = tmp_path / "cover.jpg"
         trusted_url = "https://covers.openlibrary.org/b/id/123-L.jpg"
@@ -276,6 +274,30 @@ class TestDisplayNameTokenVersion:
         assert payload["tv"] == 1
 
 
+class TestIdentityComesFromTheRow:
+    def test_reused_id_does_not_inherit_the_old_session(self, admin_client, admin_user, db):
+        # No route renames a user; a different username on the same id means id reuse after a restore.
+        db.execute("UPDATE users SET username = 'someone_else' WHERE id = ?", (admin_user["id"],))
+        db.commit()
+        resp = admin_client.get("/browse", follow_redirects=False)
+        assert resp.status_code == 303
+        assert resp.headers["location"] == "/login"
+
+    def test_role_is_read_from_the_row(self, admin_client, admin_user, db):
+        db.execute("UPDATE users SET role = 'viewer' WHERE id = ?", (admin_user["id"],))
+        db.commit()
+        assert admin_client.get("/api/users").status_code == 403
+
+    def test_display_name_is_read_from_the_row(self, admin_client, admin_user, db):
+        import re
+        db.execute("UPDATE users SET display_name = 'Renamed' WHERE id = ?", (admin_user["id"],))
+        db.commit()
+        html = admin_client.get("/").text
+        button = html[html.index('data-testid="account-menu-button"'):]
+        name = re.search(r'text-shelf-text truncate">([^<]*)</span>', button).group(1)
+        assert name == "Renamed"
+
+
 # ---------------------------------------------------------------------------
 # M4 — X-Frame-Options removed; CSP frame-ancestors is sole framing control
 # ---------------------------------------------------------------------------
@@ -296,7 +318,14 @@ class TestSecurityHeaders:
     def test_other_security_headers_intact(self, admin_client):
         resp = admin_client.get("/browse")
         assert "x-content-type-options" in {h.lower() for h in resp.headers}
+
+    def test_hsts_present_over_https(self, admin_client):
+        resp = admin_client.get("https://testserver/browse")
         assert "strict-transport-security" in {h.lower() for h in resp.headers}
+
+    def test_hsts_absent_over_http(self, admin_client):
+        resp = admin_client.get("http://testserver/browse")
+        assert "strict-transport-security" not in {h.lower() for h in resp.headers}
 
 
 # ---------------------------------------------------------------------------
@@ -466,40 +495,42 @@ class TestCSVFieldLengthCaps:
 
 
 # ---------------------------------------------------------------------------
-# Client IP extraction — proxy headers only trusted behind SHELF_TRUST_PROXY
+# Client IP extraction — the socket peer; uvicorn owns proxy trust
 # ---------------------------------------------------------------------------
 
 
-class TestClientIPTrust:
+class TestClientIPIsTheSocketPeer:
     def _request(self, headers=None, peer="9.9.9.9"):
         req = MagicMock()
         req.headers = headers or {}
-        req.client.host = peer
+        if peer is None:
+            req.client = None
+        else:
+            req.client.host = peer
         return req
 
-    def test_ignores_forwarded_headers_by_default(self, monkeypatch):
+    def test_returns_peer_without_trust_proxy(self, monkeypatch):
         monkeypatch.delenv("SHELF_TRUST_PROXY", raising=False)
         from app.config import get_client_ip
         req = self._request({"x-forwarded-for": "1.2.3.4", "cf-connecting-ip": "5.6.7.8"})
         assert get_client_ip(req) == "9.9.9.9"
 
-    def test_honors_cf_header_when_trusted(self, monkeypatch):
-        monkeypatch.setenv("SHELF_TRUST_PROXY", "1")
-        from app.config import get_client_ip
-        req = self._request({"cf-connecting-ip": "5.6.7.8"})
-        assert get_client_ip(req) == "5.6.7.8"
-
-    def test_honors_xff_first_entry_when_trusted(self, monkeypatch):
+    def test_ignores_xff_even_with_trust_proxy(self, monkeypatch):
         monkeypatch.setenv("SHELF_TRUST_PROXY", "1")
         from app.config import get_client_ip
         req = self._request({"x-forwarded-for": "1.2.3.4, 10.0.0.1"})
-        assert get_client_ip(req) == "1.2.3.4"
+        assert get_client_ip(req) == "9.9.9.9"
 
-    def test_falls_back_to_peer_when_trusted_but_no_headers(self, monkeypatch):
+    def test_ignores_cf_header_even_with_trust_proxy(self, monkeypatch):
         monkeypatch.setenv("SHELF_TRUST_PROXY", "1")
         from app.config import get_client_ip
-        req = self._request({})
+        req = self._request({"cf-connecting-ip": "5.6.7.8"})
         assert get_client_ip(req) == "9.9.9.9"
+
+    def test_unknown_without_a_peer(self, monkeypatch):
+        monkeypatch.delenv("SHELF_TRUST_PROXY", raising=False)
+        from app.config import get_client_ip
+        assert get_client_ip(self._request({}, peer=None)) == "unknown"
 
 
 # ---------------------------------------------------------------------------
@@ -508,6 +539,7 @@ class TestClientIPTrust:
 # ---------------------------------------------------------------------------
 
 
+@pytest.mark.usefixtures("established_restore_keys")
 class TestRestoreSecretKeyPreserved:
     def test_restore_preserves_key_and_bumps_token_version(self, admin_client, monkeypatch):
         import app.config as config
@@ -555,11 +587,86 @@ class TestRestoreSecretKeyPreserved:
         # startup step prunes it, so no key material survives in the database.
         assert secret_row is None
 
+@pytest.mark.usefixtures("established_restore_keys")
+class TestRestoreOutranksEveryPriorSession:
+    def _restore_after_live_bump(self, admin_client, admin_user, monkeypatch, live_tv):
+        """Back up at tv 1, move the live admin to live_tv (a password change), then restore
+        with a session minted at live_tv. Returns that session's token."""
+        import app.config as config
+        from app.auth import create_token
+        from app.database import get_db
+        monkeypatch.setattr("app.routers.settings.DATA_DIR", config.DATA_DIR)
+        monkeypatch.setattr("app.routers.settings.DATABASE_PATH", config.DATABASE_PATH)
+
+        backup = admin_client.get("/api/settings/backup")
+        assert backup.status_code == 200
+        with get_db() as db:
+            db.execute("UPDATE users SET token_version = ? WHERE id = ?", (live_tv, admin_user["id"]))
+        token = create_token(
+            admin_user["id"], admin_user["username"], admin_user["role"], admin_user["display_name"], live_tv,
+        )
+        admin_client.cookies.set("access_token", token)
+        resp = admin_client.post(
+            "/api/settings/restore",
+            files={"file": ("backup.db", io.BytesIO(backup.content), "application/octet-stream")},
+        )
+        assert resp.json()["ok"] is True, resp.json()
+        return token
+
+    def test_restored_versions_exceed_the_pre_restore_max(self, admin_client, admin_user, monkeypatch):
+        from app.database import get_db
+        self._restore_after_live_bump(admin_client, admin_user, monkeypatch, live_tv=5)
+        with get_db() as db:
+            versions = [r[0] for r in db.execute("SELECT token_version FROM users")]
+        assert versions and all(v > 5 for v in versions), versions
+
+    def test_a_session_minted_before_restore_is_refused(self, admin_client, admin_user, monkeypatch):
+        self._restore_after_live_bump(admin_client, admin_user, monkeypatch, live_tv=2)
+        resp = admin_client.get("/browse", follow_redirects=False)
+        assert resp.status_code == 303
+        assert resp.headers["location"] == "/login"
+
+    def test_a_deleted_users_ended_session_stays_refused(self, admin_client, admin_user, monkeypatch):
+        """A user deleted after the backup can hold a version above every live row;
+        restoring them must still outrank their old sessions."""
+        import app.config as config
+        from app.auth import create_token, hash_password
+        from app.database import get_db
+        monkeypatch.setattr("app.routers.settings.DATA_DIR", config.DATA_DIR)
+        monkeypatch.setattr("app.routers.settings.DATABASE_PATH", config.DATABASE_PATH)
+
+        with get_db() as db:
+            db.execute(
+                "INSERT INTO users (username, password, display_name, role) VALUES ('bob', ?, 'Bob', 'editor')",
+                (hash_password("password123"),),
+            )
+            bob_id = db.execute("SELECT id FROM users WHERE username = 'bob'").fetchone()[0]
+        backup = admin_client.get("/api/settings/backup")
+        assert backup.status_code == 200
+
+        # Two password changes after the backup: tv 1 -> 3. A tv-2 cookie is a session bob ended.
+        ended_session = create_token(bob_id, "bob", "editor", "Bob", 2)
+        with get_db() as db:
+            db.execute("UPDATE users SET token_version = 3 WHERE id = ?", (bob_id,))
+        assert admin_client.delete(f"/api/users/{bob_id}").json()["ok"] is True
+
+        resp = admin_client.post(
+            "/api/settings/restore",
+            files={"file": ("backup.db", io.BytesIO(backup.content), "application/octet-stream")},
+        )
+        assert resp.json()["ok"] is True, resp.json()
+        admin_client.cookies.set("access_token", ended_session)
+        resp = admin_client.get("/browse", follow_redirects=False)
+        assert resp.status_code == 303
+        assert resp.headers["location"] == "/login"
+
+
 # ---------------------------------------------------------------------------
 # Restore rejects views and virtual tables (ported from dbe47c3)
 # ---------------------------------------------------------------------------
 
 
+@pytest.mark.usefixtures("established_restore_keys")
 class TestRestoreRejectsRiskySchema:
     def _get_backup_with(self, admin_client, tmp_path, extra_sql):
         """Download a valid backup, inject extra schema objects, return bytes."""
@@ -593,15 +700,13 @@ class TestRestoreRejectsRiskySchema:
         assert "views" in data["message"]
 
     def test_rejects_virtual_tables(self, admin_client, tmp_path, monkeypatch):
-        import sqlite3 as sq
         self._align_paths(monkeypatch)
-        try:
-            content = self._get_backup_with(
-                admin_client, tmp_path,
-                "CREATE VIRTUAL TABLE sneaky_fts USING fts5(content)",
-            )
-        except sq.OperationalError:
-            pytest.skip("SQLite build lacks FTS5")
+        # FTS5 is a real environment prerequisite, never permission to skip
+        # this positive hostile-backup fixture and claim restore safety.
+        content = self._get_backup_with(
+            admin_client, tmp_path,
+            "CREATE VIRTUAL TABLE sneaky_fts USING fts5(content)",
+        )
         resp = admin_client.post(
             "/api/settings/restore",
             files={"file": ("backup.db", io.BytesIO(content), "application/octet-stream")},

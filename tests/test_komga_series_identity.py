@@ -11,6 +11,7 @@ import httpx
 import respx
 
 from app.services.komga import sync
+from app.services import komga_sync
 
 KOMGA = "http://komga.example:25600"
 KEY = "test-api-key"
@@ -34,6 +35,7 @@ def _book(book_id: str, series_id: str, series_title: str, number: int, isbn: st
 
 
 def _mock_sync(books: list[dict]) -> None:
+    komga_sync.save_library_selection([{"id": "lib_manga", "included": True, "kind": "manga"}])
     respx.get(f"{KOMGA}/api/v1/libraries").mock(
         return_value=httpx.Response(200, json=[{"id": "lib_manga", "name": "Manga"}])
     )

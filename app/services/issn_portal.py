@@ -11,6 +11,7 @@ import re
 
 import httpx
 
+from app import config
 from app.services import outbound, provider_result
 
 logger = logging.getLogger(__name__)
@@ -26,6 +27,7 @@ RESOURCE_URLS = (
     "https://portal-plus.issn.org/resource/ISSN/{issn}",
 )
 _USER_AGENT = "Shelf/1.0 (+https://github.com/sudo-rpaisley/shelf)"
+RESOURCE_URL = config.ISSN_PORTAL_URL_DEFAULT  # alias of the default; lookup() resolves at call time
 
 
 def _normalise_issn(value: str | None) -> str:
@@ -33,10 +35,20 @@ def _normalise_issn(value: str | None) -> str:
 
 
 def _canonical_issn(value: str | None) -> str | None:
+    """Validate and format an ISSN as ``NNNN-NNNC``."""
     normalised = _normalise_issn(value)
     if len(normalised) != 8 or not normalised[:7].isdigit():
         return None
     if not (normalised[-1].isdigit() or normalised[-1] == "X"):
+        return None
+
+    weighted = sum(
+        int(digit) * weight
+        for digit, weight in zip(normalised[:7], range(8, 1, -1))
+    )
+    value = (11 - (weighted % 11)) % 11
+    expected = "X" if value == 10 else str(value)
+    if normalised[-1] != expected:
         return None
     return f"{normalised[:4]}-{normalised[4:]}"
 
@@ -214,7 +226,12 @@ async def lookup(
         return provider_result.no_match("issn_portal")
 
     attempts: list[provider_result.ProviderResult] = []
-    for resource_url in RESOURCE_URLS:
+    configured_url = config.issn_portal_url()
+    # An explicit endpoint override is authoritative: never escape a local
+    # proxy/test endpoint by falling back to a real metadata provider.
+    urls = ((configured_url, *(url for url in RESOURCE_URLS if url != configured_url))
+            if configured_url == RESOURCE_URL else (configured_url,))
+    for resource_url in urls:
         try:
             resp = await outbound.fetch(
                 client,

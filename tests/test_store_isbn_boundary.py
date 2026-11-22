@@ -13,7 +13,7 @@ def test_store_queue_rejects_bad_checksum_before_lookup(admin_client, db):
 
     assert response.status_code == 200
     assert response.json()["results"] == [
-        {"isbn": "9780441172718", "status": "invalid"}
+        {"isbn": "9780441172718", "code": "9780441172718", "status": "invalid", "owned": False}
     ]
     lookup.assert_not_awaited()
     assert db.execute("SELECT COUNT(*) FROM items").fetchone()[0] == 0

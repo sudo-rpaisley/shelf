@@ -7,25 +7,32 @@ call through it so tests can patch.
 """
 
 import logging
+import sqlite3
 
 import httpx
 
-from fastapi import APIRouter, Depends, Form, Request
-from fastapi.responses import HTMLResponse, JSONResponse
+from fastapi import APIRouter, Depends, Form, HTTPException, Request
+from fastapi.responses import HTMLResponse
 
-from app.auth import require_role
-from app.config import HTTP_TIMEOUT, MEDIA_TYPES
+from app import i18n
+from app.config import HTTP_TIMEOUT, MEDIA_TYPES, canonical_media_type
 from app.database import get_db, get_game_platforms, get_setting
-from app.routers import items_common
-from app.services import covers, igdb, openlibrary, scan_outcome, tmdb
+from app.routers import items_common, magazines
+from app.services import audnexus, covers, igdb, item_write, openlibrary, restore_report, scan_outcome, tmdb
+from app.services import tags as tags_svc
 from app.services import isbn as isbn_svc
-from app.services import upc as upc_svc
-from app.services.item_write import ItemValueError, insert_item, validated_location_id
+from app.services.catalogue_security import require_catalogue_role, require_item_role, require_library_role
+from app.services.item_write import ItemValueError, insert_item, update_item_fields, validated_location_id
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api")
 
+
+def _destination(db, location_id, library_id):
+    """Advisory refusal before provider work; the insert rechecks under lock."""
+    require_library_role(db, library_id if library_id is not None else 1, "editor")
+    return validated_location_id(db, location_id)
 
 
 @router.get("/games/search")
@@ -33,8 +40,12 @@ async def search_games(
     request: Request,
     q: str = "",
     platform: str = "",
-    _=Depends(require_role("editor")),
+    _=Depends(require_catalogue_role("editor")),
 ):
+    return await _game_search_results(request, q, platform)
+
+
+async def _game_search_results(request, q, platform):
     """Search IGDB for video games by title + optional platform. Returns HTMX fragment."""
     templates = request.app.state.templates
     if not q.strip():
@@ -62,7 +73,7 @@ async def search_games(
     return templates.TemplateResponse(
         request, "fragments/game_search_results.html",
         {
-            "results": results, "platform": platform,
+            "results": results, "platform": platform, "query": q.strip(),
             "search_status": search_status, "search_provider": search_provider,
         },
     )
@@ -73,7 +84,10 @@ async def add_game_from_search(
     igdb_id: int = Form(...),
     platform: str = Form(""),
     location_id: int | None = Form(None),
-    _=Depends(require_role("editor")),
+    tags: str = Form(""),
+    reading_status: str = Form(""),
+    library_id: int | None = Form(None),
+    _=Depends(require_catalogue_role("editor")),
 ):
     """Add a video game to the collection from an IGDB search result."""
     templates = request.app.state.templates
@@ -81,11 +95,18 @@ async def add_game_from_search(
     platform = (platform or "").strip()
     with get_db() as db:
         valid_platforms = get_game_platforms(db)
+        try:
+            location_id = _destination(db, location_id, library_id)
+        except ItemValueError as exc:
+            return templates.TemplateResponse(
+                request, "fragments/scan_result.html",
+                {"status": "error", "isbn": "", "message": str(exc)},
+            )
     if platform and platform not in valid_platforms:
         return templates.TemplateResponse(
             request, "fragments/scan_result.html",
             {"status": "error", "isbn": "",
-             "message": "Unrecognised game platform — pick one and try again"},
+             "message": i18n.gettext("Unrecognised game platform — pick one and try again")},
         )
     platform_val = platform or None
 
@@ -102,7 +123,7 @@ async def add_game_from_search(
     if not metadata:
         return templates.TemplateResponse(
             request, "fragments/scan_result.html",
-            {"status": "error", "isbn": "", "message": "Failed to fetch game details from IGDB"},
+            {"status": "error", "isbn": "", "message": i18n.gettext("Failed to fetch game details from IGDB")},
         )
 
     # The funnel's own <=0-is-no-location rule applies on write; no need to
@@ -121,28 +142,34 @@ async def add_game_from_search(
     value_error = None
     with get_db() as db:
         db.execute("BEGIN IMMEDIATE")
+        require_library_role(db, library_id if library_id is not None else 1, "editor")
         existing = db.execute(
-            "SELECT id, title FROM items WHERE title = ? AND media_type = 'video_game' AND platform = ?",
+            "SELECT id, title FROM items_live WHERE title = ? AND media_type = 'video_game' AND platform IS ?",
             (metadata["title"], platform_val),
         ).fetchone()
+        if existing:
+            require_item_role(db, existing["id"], "editor")
         if existing is None:
             # location_id is the funnel's to check (#54): insert_item raises
             # ItemValueError and the card carries its message. Rendered after
             # the block so nothing runs under the write.
             try:
-                item_id = insert_item(
-                    db,
-                    title=metadata["title"],
-                    description=metadata.get("description"),
-                    media_type="video_game",
-                    publisher=metadata.get("publisher"),
-                    publish_year=metadata.get("publish_year"),
-                    series_name=metadata.get("series_name"),
-                    series_memberships=metadata.get("series_memberships"),
-                    platform=platform_val,
-                    location_id=loc_id,
-                    source="igdb",
-                )
+                with tags_svc.default_tags(tags), \
+                     item_write.default_reading_status(reading_status):
+                    item_id = insert_item(
+                        db,
+                        library_id=library_id,
+                        title=metadata["title"],
+                        description=metadata.get("description"),
+                        media_type="video_game",
+                        publisher=metadata.get("publisher"),
+                        publish_year=metadata.get("publish_year"),
+                        series_name=metadata.get("series_name"),
+                        series_memberships=metadata.get("series_memberships"),
+                        platform=platform_val,
+                        location_id=loc_id,
+                        source="igdb",
+                    )
             except ItemValueError as e:
                 value_error = str(e)
 
@@ -163,11 +190,12 @@ async def add_game_from_search(
     # Download cover
     cover_path = None
     if metadata.get("cover_url"):
-        async with httpx.AsyncClient(timeout=HTTP_TIMEOUT) as client:
-            cover_path = await covers._download_to_item(item_id, metadata["cover_url"], client)
-        if cover_path:
-            with get_db() as db:
-                db.execute("UPDATE items SET cover_path = ? WHERE id = ?", (cover_path, item_id))
+        with items_common.CoverStage(item_id) as stage:
+            async with httpx.AsyncClient(timeout=HTTP_TIMEOUT) as client:
+                cover_path = await covers._download_to_item(stage.download_id, metadata["cover_url"], client)
+            if cover_path:
+                with get_db() as db:
+                    cover_path = stage.store(db, cover_path, library_ids={item_id: library_id or 1})
 
     items_common._log_scan("", "video_game", "added", item_id)
 
@@ -177,13 +205,11 @@ async def add_game_from_search(
             "status": "added", "isbn": "", "title": metadata["title"],
             "authors": metadata.get("developer"),
             "cover_path": cover_path, "item_id": item_id,
-            "source": "igdb", "media_type_label": "Video Game",
+            "source": "igdb", "media_type_label": i18n.gettext("Video Game"), "media_type": "video_game",
         },
     )
     resp.headers["HX-Trigger"] = items_common._toast_header(f"Added: {metadata['title'][:50]}")
     return resp
-
-BOOK_MEDIA_TYPES = {"book", "kids_book", "audiobook", "ebook", "comic", "digital_comic"}
 
 @router.get("/title-search")
 async def title_search(
@@ -191,15 +217,32 @@ async def title_search(
     q: str = "",
     media_type: str = "book",
     platform: str = "",
-    _=Depends(require_role("editor")),
+    location_id: int | None = None,
+    mode: str = "add",
+    carrier_ean: str = "",
+    barcode_supplement: str = "",
+    issn_hint: str = "",
+    for_scan: bool = False,
+    library_id: int | None = None,
+    tags: str = "",
+    reading_status: str = "",
+    _=Depends(require_catalogue_role("editor")),
 ):
     """Unified title search — routes to the right backend based on media type."""
+    media_type = canonical_media_type(media_type)
+    if media_type == "magazine":
+        return await magazines.magazine_search_results(
+            request, q=q, location_id=location_id, mode=mode,
+            carrier_ean=carrier_ean, barcode_supplement=barcode_supplement,
+            issn_hint=issn_hint, for_scan=for_scan, library_id=library_id,
+            tags=tags, reading_status=reading_status,
+        )
     if not q.strip():
         return HTMLResponse("")
     if media_type == "video_game":
-        return await search_games(request, q=q, platform=platform, _=_)
+        return await _game_search_results(request, q, platform)
     if media_type == "dvd":
-        return await search_dvds(request, q=q, _=_)
+        return await _dvd_search_results(request, q)
     # The `auto` guard. `scan.html`'s hx-include carries #media-type here, so once
     # Auto is in that picker this route receives `auto` — and there is no
     # barcode on this path, so `auto` has nothing to mean. Resolve it (and any
@@ -207,19 +250,26 @@ async def title_search(
     # fragment's hidden field carries something the add route will accept.
     if not items_common.is_valid_media_type(media_type):
         media_type = "book"
-    return await search_books(request, q=q, media_type=media_type, _=_)
+    return await _book_search_results(request, q, media_type)
 
 @router.get("/books/search")
 async def search_books(
     request: Request,
     q: str = "",
     media_type: str = "book",
-    _=Depends(require_role("editor")),
+    _=Depends(require_catalogue_role("editor")),
 ):
+    return await _book_search_results(request, q, media_type)
+
+
+async def _book_search_results(request, q, media_type):
     """Search Open Library for books by title. Returns HTMX fragment."""
     templates = request.app.state.templates
     if not q.strip():
         return HTMLResponse("")
+    # The fragment renders this straight into the add form's hidden field,
+    # so a retired value would otherwise ride back out to the client.
+    media_type = canonical_media_type(media_type)
 
     with get_db() as db:
         search_lang = get_setting(db, "metadata_search_lang") or "en"
@@ -245,17 +295,21 @@ async def add_book_from_search(
     isbn: str = Form(...),
     media_type: str = Form("book"),
     location_id: int | None = Form(None),
-    _=Depends(require_role("editor")),
+    tags: str = Form(""),
+    reading_status: str = Form(""),
+    library_id: int | None = Form(None),
+    _=Depends(require_catalogue_role("editor")),
 ):
     """Add a book to the collection from a title search result (by ISBN)."""
     templates = request.app.state.templates
+    media_type = media_type if media_type == "kids_book" else canonical_media_type(media_type)
     # The `auto` guard, kept in front of the lookup below so a bad value never
     # costs a provider call; the funnel checks the value again on the save.
     if not items_common.is_valid_media_type(media_type):
         return templates.TemplateResponse(
             request, "fragments/scan_result.html",
             {"status": "error", "isbn": isbn.strip(),
-             "message": "Unrecognised media type — pick one and try again"},
+             "message": i18n.gettext("Unrecognised media type — pick one and try again")},
         )
     # Check digit before the lookup, as `/api/scan`'s add branch does (#54).
     isbn13 = isbn_svc.to_isbn13(isbn.strip())
@@ -263,21 +317,24 @@ async def add_book_from_search(
     if pair is None:
         return templates.TemplateResponse(
             request, "fragments/scan_result.html",
-            {"status": "error", "isbn": isbn, "message": "Invalid ISBN"},
+            {"status": "error", "isbn": isbn, "message": i18n.gettext("Invalid ISBN")},
         )
     isbn13 = pair[0]
 
     # Check duplicate, and refuse a stale location before the lookup too.
     location_error = None
-    with get_db() as db:
+    with get_db() as db, item_write._write_scope(db):
         try:
-            location_id = validated_location_id(db, location_id)
+            location_id = _destination(db, location_id, library_id)
         except ItemValueError as e:
             location_error = str(e)
+        types = items_common.media_type_candidates(media_type)
         existing = db.execute(
-            "SELECT id, title FROM items WHERE isbn = ? AND media_type = ?",
-            (isbn13, media_type),
+            f"SELECT id, title FROM items_live WHERE isbn = ? AND media_type IN ({','.join('?' for _ in types)})",
+            (isbn13, *types),
         ).fetchone()
+        if existing:
+            require_item_role(db, existing["id"], "editor")
     if location_error:
         return templates.TemplateResponse(
             request, "fragments/scan_result.html",
@@ -305,31 +362,73 @@ async def add_book_from_search(
             items_common._log_scan(isbn13, media_type, "not_found")
             return templates.TemplateResponse(
                 request, "fragments/scan_result.html",
-                {"status": "error", "isbn": isbn13, "message": "Could not fetch metadata for this ISBN"},
+                {"status": "error", "isbn": isbn13, "message": i18n.gettext("Could not fetch metadata for this ISBN")},
             )
 
-        item_id = items_common._save_item(metadata, isbn13, media_type, location_id, source, hc_ids)
+        try:
+            with tags_svc.default_tags(tags), \
+                 item_write.default_reading_status(reading_status):
+                item_id = items_common._save_item(metadata, isbn13, media_type, location_id, source, hc_ids,
+                                                  library_id=library_id)
+        except sqlite3.IntegrityError:
+            # A rival add (this same route, or a scan of the same ISBN) can
+            # win the insert during this request's own metadata lookup — the
+            # same race the duplicate check above defends against before the
+            # lookup starts. Re-run it rather than let the UNIQUE violation
+            # reach the caller as a 500 (F-BUG-1).
+            with get_db() as db, item_write._write_scope(db):
+                existing = db.execute(
+                    f"SELECT id, title FROM items_live WHERE isbn = ? AND media_type IN ({','.join('?' for _ in types)})",
+                    (isbn13, *types),
+                ).fetchone()
+                if existing:
+                    require_item_role(db, existing["id"], "editor")
+            if existing is None:
+                raise
+            items_common._log_scan(isbn13, media_type, "duplicate", existing["id"])
+            return templates.TemplateResponse(
+                request, "fragments/scan_result.html",
+                {"status": "duplicate", "isbn": isbn13, "title": existing["title"], "item_id": existing["id"]},
+            )
+        except ItemValueError as e:
+            # A reading_status outside the three values raises on block entry,
+            # before any insert, so nothing was filed.
+            return templates.TemplateResponse(
+                request, "fragments/scan_result.html",
+                {"status": "error", "isbn": isbn13, "message": str(e)},
+            )
 
-        hc_cover = metadata.get("cover_url") if source == "hardcover" else hc_ids.get("cover_url")
-        cover_path = await covers.download_cover(
-            item_id, isbn13,
-            metadata.get("cover_url") if source != "hardcover" else None,
-            metadata.get("cover_id"), client,
-            hardcover_cover_url=hc_cover,
-        )
-        if cover_path:
-            with get_db() as db:
-                db.execute("UPDATE items SET cover_path = ? WHERE id = ?", (cover_path, item_id))
+        with get_db() as db, item_write._write_scope(db):
+            cover_bindings = items_common.authorize_item_targets(db, [item_id])
+        # Cover kept: skip the download entirely on a restored row that
+        # already has one — a skipped download is also a skipped outbound
+        # call for a cover we would then discard (claude-R8).
+        cover_path = None
+        if not restore_report.keeps_stored_cover(item_id):
+            hc_cover = metadata.get("cover_url") if source == "hardcover" else hc_ids.get("cover_url")
+            with items_common.CoverStage(item_id) as stage:
+                cover_path = await covers.download_cover(
+                    stage.download_id, isbn13,
+                    metadata.get("cover_url") if source != "hardcover" else None,
+                    metadata.get("cover_id"), client,
+                    hardcover_cover_url=hc_cover,
+                )
+                if cover_path:
+                    with get_db() as db:
+                        cover_path = stage.store(db, cover_path, library_ids=cover_bindings)
 
-    items_common._log_scan(isbn13, media_type, "added", item_id)
+    status = restore_report.restored_status(item_id, "added")
+    items_common._log_scan(isbn13, media_type, status, item_id)
 
     resp = templates.TemplateResponse(
         request, "fragments/scan_result.html",
         {
-            "status": "added", "isbn": isbn13, "title": metadata["title"],
-            "authors": metadata.get("authors"), "cover_path": cover_path,
+            "status": status, "isbn": isbn13,
+            **({"title": metadata["title"], "authors": metadata.get("authors"),
+                "cover_path": cover_path}
+               if status != "restored" else restore_report.restored_card(item_id)),
             "item_id": item_id, "source": source,
-            "media_type_label": MEDIA_TYPES.get(media_type, media_type),
+            "media_type_label": i18n.gettext(MEDIA_TYPES.get(media_type, media_type)), "media_type": media_type,
         },
     )
     resp.headers["HX-Trigger"] = items_common._toast_header(f"Added: {metadata['title'][:50]}")
@@ -339,8 +438,12 @@ async def add_book_from_search(
 async def search_dvds(
     request: Request,
     q: str = "",
-    _=Depends(require_role("editor")),
+    _=Depends(require_catalogue_role("editor")),
 ):
+    return await _dvd_search_results(request, q)
+
+
+async def _dvd_search_results(request, q):
     """Search TMDb for movies by title. Returns HTMX fragment."""
     templates = request.app.state.templates
     if not q.strip():
@@ -378,7 +481,10 @@ async def add_dvd_from_search(
     publish_year: str = Form(""),
     cover_url: str = Form(""),
     location_id: int | None = Form(None),
-    _=Depends(require_role("editor")),
+    tags: str = Form(""),
+    reading_status: str = Form(""),
+    library_id: int | None = Form(None),
+    _=Depends(require_catalogue_role("editor")),
 ):
     """Add a DVD/Blu-ray to the collection from a TMDb search result."""
     templates = request.app.state.templates
@@ -387,7 +493,7 @@ async def add_dvd_from_search(
     if not title:
         return templates.TemplateResponse(
             request, "fragments/scan_result.html",
-            {"status": "error", "isbn": "", "message": "Title is required"},
+            {"status": "error", "isbn": "", "message": i18n.gettext("Title is required")},
         )
 
     publish_year = (publish_year or "").strip()
@@ -395,11 +501,20 @@ async def add_dvd_from_search(
         if not publish_year.isdigit():
             return templates.TemplateResponse(
                 request, "fragments/scan_result.html",
-                {"status": "error", "isbn": "", "message": "Invalid publish year"},
+                {"status": "error", "isbn": "", "message": i18n.gettext("Invalid publish year")},
             )
         year = int(publish_year)
     else:
         year = None
+
+    with get_db() as db:
+        try:
+            location_id = _destination(db, location_id, library_id)
+        except ItemValueError as exc:
+            return templates.TemplateResponse(
+                request, "fragments/scan_result.html",
+                {"status": "error", "isbn": "", "message": str(exc)},
+            )
 
     # Fetch richer TMDb grouping metadata before the write lock. Network I/O
     # must never happen while BEGIN IMMEDIATE is held.
@@ -432,26 +547,32 @@ async def add_dvd_from_search(
     value_error = None
     with get_db() as db:
         db.execute("BEGIN IMMEDIATE")
+        require_library_role(db, library_id if library_id is not None else 1, "editor")
         existing = db.execute(
-            "SELECT id, title FROM items WHERE title = ? AND media_type = 'dvd'",
+            "SELECT id, title FROM items_live WHERE title = ? AND media_type = 'dvd'",
             (title,),
         ).fetchone()
+        if existing:
+            require_item_role(db, existing["id"], "editor")
         if existing is None:
             # location_id is the funnel's to check (#54): insert_item raises
             # ItemValueError and the card carries its message. Rendered after
             # the block so nothing runs under the write.
             try:
-                item_id = insert_item(
-                    db,
-                    title=title,
-                    description=description or None,
-                    media_type="dvd",
-                    publish_year=year,
-                    series_name=series_name,
-                    series_memberships=series_memberships,
-                    location_id=loc_id,
-                    source="tmdb",
-                )
+                with tags_svc.default_tags(tags), \
+                     item_write.default_reading_status(reading_status):
+                    item_id = insert_item(
+                        db,
+                        library_id=library_id,
+                        title=title,
+                        description=description or None,
+                        media_type="dvd",
+                        publish_year=year,
+                        series_name=series_name,
+                        series_memberships=series_memberships,
+                        location_id=loc_id,
+                        source="tmdb",
+                    )
             except ItemValueError as e:
                 value_error = str(e)
 
@@ -472,11 +593,12 @@ async def add_dvd_from_search(
     # Download cover
     cover_path = None
     if cover_url:
-        async with httpx.AsyncClient(timeout=HTTP_TIMEOUT) as client:
-            cover_path = await covers._download_to_item(item_id, cover_url, client)
-        if cover_path:
-            with get_db() as db:
-                db.execute("UPDATE items SET cover_path = ? WHERE id = ?", (cover_path, item_id))
+        with items_common.CoverStage(item_id) as stage:
+            async with httpx.AsyncClient(timeout=HTTP_TIMEOUT) as client:
+                cover_path = await covers._download_to_item(stage.download_id, cover_url, client)
+            if cover_path:
+                with get_db() as db:
+                    cover_path = stage.store(db, cover_path, library_ids={item_id: library_id or 1})
 
     items_common._log_scan("", "dvd", "added", item_id)
 
@@ -485,8 +607,80 @@ async def add_dvd_from_search(
         {
             "status": "added", "isbn": "", "title": title,
             "cover_path": cover_path, "item_id": item_id,
-            "source": "tmdb", "media_type_label": "DVD / Blu-ray",
+            "source": "tmdb", "media_type_label": i18n.gettext("DVD / Blu-ray"), "media_type": "dvd",
         },
     )
     resp.headers["HX-Trigger"] = items_common._toast_header(f"Added: {title[:50]}")
     return resp
+
+
+@router.post("/items/{item_id}/fill-from-audible")
+async def fill_from_audible(request: Request, item_id: int, _=Depends(require_catalogue_role("editor"))):
+    """Fill an audiobook's empty fields from the Audible catalogue, by ASIN.
+
+    Never overwrites. Every outcome the user can act on answers 200 with an
+    inline message (G145); only a missing item is a 404 with a toast.
+    """
+    try:
+        with get_db() as db, item_write._write_scope(db):
+            require_item_role(db, item_id, "editor")
+            item = db.execute(
+                f"SELECT id, media_type, asin, {', '.join(audnexus.FILL_FIELDS)} "
+                "FROM items_live WHERE id = ?", (item_id,)
+            ).fetchone()
+    except HTTPException as exc:
+        if exc.status_code != 404:
+            raise
+        item = None
+    if not item:
+        return HTMLResponse("", status_code=404, headers={
+            "HX-Trigger": items_common._toast_header(i18n.gettext("Item not found"), "error")})
+
+    def answer(outcome: str, message: str, link: bool = False):
+        return request.app.state.templates.TemplateResponse(
+            request, "fragments/audnexus_fill_result.html",
+            {"outcome": outcome, "message": message, "item_id": item_id, "link": link})
+
+    asin = (item["asin"] or "").strip()
+    if item["media_type"] != "audiobook" or not asin:
+        return answer("no_asin", i18n.gettext("This item has no ASIN to look up."))
+
+    region = audnexus.region()  # after the read block closes (G112)
+    async with httpx.AsyncClient(timeout=HTTP_TIMEOUT) as client:
+        result = await audnexus.lookup(asin, client, region=region)
+
+    if result.outcome == "no_match":
+        return answer("no_match", i18n.gettext(
+            "Not in the Audible catalogue for the %(region)s marketplace. "
+            "Check Settings → Library → Audible marketplace.")
+            % {"region": i18n.gettext(audnexus.REGIONS[region])})
+    if result.outcome == "rate_limited":
+        return answer("rate_limited", i18n.gettext(
+            "The Audible catalogue is rate-limiting requests. Try again in a minute."))
+    if not result.found:
+        return answer("transport_failed", i18n.gettext(
+            "Could not reach the Audible catalogue (Audnexus)."))
+
+    # The provider lookup ran without holding SQLite's writer. Re-read blanks
+    # under the same scope as authority and write, so a concurrent human edit
+    # is not overwritten by an older snapshot.
+    fields = {}
+    try:
+        with get_db() as db, item_write._write_scope(db):
+            require_item_role(db, item_id, "editor")
+            item = db.execute("SELECT * FROM items_live WHERE id = ?", (item_id,)).fetchone()
+            fields = audnexus.blank_fields(item, result.payload)
+            if fields:
+                update_item_fields(db, item_id, fields)
+    except ItemValueError as e:
+        return answer("invalid", i18n.gettext(
+            "Audible's details could not be saved: %(error)s") % {"error": str(e)})
+    if not fields:
+        return answer("nothing", i18n.gettext(
+            "Nothing to fill — every detail Audible has is already set."))
+    return answer("filled", i18n.ngettext(
+        "Filled %(count)s field from Audible: %(fields)s.",
+        "Filled %(count)s fields from Audible: %(fields)s.", len(fields))
+        % {"count": len(fields),
+           "fields": ", ".join(i18n.gettext(audnexus.FILL_LABELS[f]) for f in fields)},
+        link=True)

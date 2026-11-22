@@ -1,17 +1,21 @@
 import asyncio
 import json
 import logging
+from contextvars import Context
+from datetime import datetime, timezone
 
 import httpx
-from fastapi import APIRouter, Depends, Request, Form
-from fastapi.responses import HTMLResponse
+from fastapi import APIRouter, Depends, Request
 from starlette.responses import StreamingResponse
 
 from app.auth import require_role
+from app.features import require_feature
 from app.config import HTTP_TIMEOUT, MEDIA_TYPES
 from app.currency import format_money
 from app.database import get_db, get_setting
-from app.services import isbndb, tmdb
+from app.routers import items_common
+from app.services import catalogue_security, isbndb, item_write, tmdb
+from app.services.catalogue_security import require_catalogue_role
 
 logger = logging.getLogger(__name__)
 
@@ -98,10 +102,12 @@ async def test_tmdb_key(request: Request, _=Depends(require_role("admin"))):
 
 
 @router.post("/valuate/{item_id:int}")
-async def valuate_item(item_id: int, _=Depends(require_role("admin"))):
+async def valuate_item(item_id: int, _=Depends(require_catalogue_role("editor")),
+                       __=Depends(require_feature("valuation"))):
     """Look up price for a single item."""
-    with get_db() as db:
-        item = db.execute("SELECT isbn FROM items WHERE id = ?", (item_id,)).fetchone()
+    with get_db() as db, item_write._write_scope(db):
+        library_ids = items_common.authorize_item_targets(db, [item_id])
+        item = db.execute("SELECT isbn FROM items_live WHERE id = ?", (item_id,)).fetchone()
         api_key = get_setting(db, "isbndb_api_key")
 
     if not item or not item["isbn"]:
@@ -117,23 +123,32 @@ async def valuate_item(item_id: int, _=Depends(require_role("admin"))):
 
     price = isbndb.parse_price(data)
     if price:
-        with get_db() as db:
-            db.execute(
-                "UPDATE items SET estimated_value = ?, value_updated_at = datetime('now') WHERE id = ?",
-                (price, item_id),
-            )
+        try:
+            _store_prices([item_id], {item_id: price}, library_ids=library_ids)
+        except item_write.ItemValueError as exc:
+            return {"ok": False, "message": str(exc)}
         return {"ok": True, "value": price}
     return {"ok": False, "message": "No price found"}
 
 
 
 
-def _snapshot_valuation() -> None:
-    """Append a valuation_history row after a batch run (feeds the stats chart)."""
+def _snapshot_valuation(item_ids=None) -> None:
+    """Append a valuation_history row after a batch run (feeds the stats chart).
+
+    The valuation concerns what you own (#125): the total, the report and
+    both sweeps are scoped to `owned = 1`. Pricing one named item
+    (`valuate_item`) is not.
+    """
     with get_db() as db:
+        ids = list(dict.fromkeys(item_ids)) if item_ids is not None else None
+        if ids == []:
+            return
+        where = "" if ids is None else f" AND id IN ({','.join('?' for _ in ids)})"
         row = db.execute(
             "SELECT COALESCE(SUM(estimated_value), 0) as total, COUNT(*) as c "
-            "FROM items WHERE estimated_value IS NOT NULL"
+            f"FROM items_live WHERE estimated_value IS NOT NULL AND owned = 1{where}",
+            ids or [],
         ).fetchone()
         if row["c"] > 0:
             db.execute(
@@ -142,13 +157,26 @@ def _snapshot_valuation() -> None:
             )
 
 
+def _snapshot_targets(db):
+    # valuation_history is a legacy GLOBAL aggregate with no library owner.
+    # Preserve native admin snapshots, but do not publish a library editor's
+    # private subtotal into a chart shared with unrelated library members.
+    actor = catalogue_security.current_actor()
+    if actor is not None and actor.get("role") != "admin":
+        return []
+    return [row[0] for row in db.execute("SELECT id FROM items_live WHERE owned = 1")]
+
+
 @router.post("/valuate/all")
-async def valuate_all(_=Depends(require_role("admin"))):
+async def valuate_all(_=Depends(require_catalogue_role("editor")),
+                      __=Depends(require_feature("valuation"))):
     """Batch valuate all items with ISBNs."""
-    with get_db() as db:
+    with get_db() as db, item_write._write_scope(db):
         items = db.execute(
-            "SELECT id, isbn FROM items WHERE isbn IS NOT NULL"
+            "SELECT id, isbn FROM items_live WHERE isbn IS NOT NULL AND owned = 1"
         ).fetchall()
+        library_ids = items_common.authorize_item_targets(db, [item["id"] for item in items])
+        snapshot_ids = _snapshot_targets(db)
         api_key = get_setting(db, "isbndb_api_key")
 
     if not api_key:
@@ -156,17 +184,14 @@ async def valuate_all(_=Depends(require_role("admin"))):
 
     cache = isbndb._load_cache()
     results = {"priced": 0, "not_found": 0, "total": len(items), "total_value": 0.0}
+    prices = {}
 
     async with httpx.AsyncClient() as client:
         for item in items:
             data = await isbndb.lookup_price(item["isbn"], api_key, client, cache)
             price = isbndb.parse_price(data)
             if price:
-                with get_db() as db:
-                    db.execute(
-                        "UPDATE items SET estimated_value = ?, value_updated_at = datetime('now') WHERE id = ?",
-                        (price, item["id"]),
-                    )
+                prices[item["id"]] = price
                 results["priced"] += 1
                 results["total_value"] += price
             else:
@@ -177,17 +202,23 @@ async def valuate_all(_=Depends(require_role("admin"))):
                 isbndb._save_cache(cache)
 
     isbndb._save_cache(cache)
-    _snapshot_valuation()
+    _store_prices([item["id"] for item in items], prices, library_ids=library_ids)
+    _snapshot_valuation(snapshot_ids)
     return results
 
 
 @router.get("/valuate/stream")
-async def valuate_all_stream(request: Request, _=Depends(require_role("admin"))):
+async def valuate_all_stream(request: Request, _=Depends(require_catalogue_role("editor")),
+                             __=Depends(require_feature("valuation"))):
     """SSE endpoint for batch valuation with progress updates."""
-    with get_db() as db:
+    user = catalogue_security.current_actor()
+    user = dict(user) if user is not None else None
+    with get_db() as db, item_write._write_scope(db):
         items = db.execute(
-            "SELECT id, isbn, title FROM items WHERE isbn IS NOT NULL"
+            "SELECT id, isbn, title FROM items_live WHERE isbn IS NOT NULL AND owned = 1"
         ).fetchall()
+        library_ids = items_common.authorize_item_targets(db, [item["id"] for item in items])
+        snapshot_ids = _snapshot_targets(db)
         api_key = get_setting(db, "isbndb_api_key")
 
     if not api_key:
@@ -200,17 +231,17 @@ async def valuate_all_stream(request: Request, _=Depends(require_role("admin")))
     async def run_valuate():
         cache = isbndb._load_cache()
         results = {"priced": 0, "not_found": 0, "total": len(items), "total_value": 0.0}
+        prices = {}
         try:
+            with get_db() as db, item_write._write_scope(db):
+                items_common.authorize_item_targets(
+                    db, [item["id"] for item in items], user=user, library_ids=library_ids)
             async with httpx.AsyncClient() as client:
                 for i, item in enumerate(items, 1):
                     data = await isbndb.lookup_price(item["isbn"], api_key, client, cache)
                     price = isbndb.parse_price(data)
                     if price:
-                        with get_db() as db:
-                            db.execute(
-                                "UPDATE items SET estimated_value = ?, value_updated_at = datetime('now') WHERE id = ?",
-                                (price, item["id"]),
-                            )
+                        prices[item["id"]] = price
                         results["priced"] += 1
                         results["total_value"] += price
                         status = format_money(price)
@@ -227,7 +258,8 @@ async def valuate_all_stream(request: Request, _=Depends(require_role("admin")))
                         isbndb._save_cache(cache)
 
             isbndb._save_cache(cache)
-            _snapshot_valuation()
+            _store_prices([item["id"] for item in items], prices, user=user, library_ids=library_ids)
+            _snapshot_valuation(snapshot_ids)
             await queue.put({
                 "type": "done", **results,
                 "total_display": format_money(results["total_value"]),
@@ -238,7 +270,7 @@ async def valuate_all_stream(request: Request, _=Depends(require_role("admin")))
             await queue.put({"type": "error", "message": "Valuation failed — check server logs"})
 
     async def event_stream():
-        task = asyncio.create_task(run_valuate())
+        task = asyncio.create_task(run_valuate(), context=Context())
         try:
             while True:
                 msg = await queue.get()
@@ -252,8 +284,22 @@ async def valuate_all_stream(request: Request, _=Depends(require_role("admin")))
     return StreamingResponse(event_stream(), media_type="text/event-stream")
 
 
+def _store_prices(item_ids, prices, *, user=None, library_ids=None):
+    """Recheck every original target before the first batch write."""
+    if not set(prices).issubset(item_ids):
+        raise ValueError("Prices exceed the authorized selection")
+    with get_db() as db, item_write._write_scope(db):
+        items_common.authorize_item_targets(db, item_ids, user=user, library_ids=library_ids)
+        for item_id, price in prices.items():
+            item_write.update_item_fields(db, item_id, {
+                "estimated_value": price,
+                "value_updated_at": datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S"),
+            })
+
+
 @router.get("/valuation/report")
-async def valuation_report(request: Request, _=Depends(require_role("viewer"))):
+async def valuation_report(request: Request, _=Depends(require_role("viewer")),
+                           __=Depends(require_feature("valuation"))):
     """Insurance valuation report: every item grouped by location with
     per-location subtotals, so the printout documents what exists and
     where it is — not just what has a price."""
@@ -263,16 +309,19 @@ async def valuation_report(request: Request, _=Depends(require_role("viewer"))):
         items = db.execute(
             "SELECT i.*, l.name as location_name, "
             "COALESCE(i.manual_value, i.estimated_value) AS effective_value "
-            "FROM items i "
+            "FROM items_live i "
             "LEFT JOIN locations l ON i.location_id = l.id "
+            "WHERE i.owned = 1 "
             "ORDER BY (l.name IS NULL), l.name COLLATE NOCASE, "
             "(COALESCE(i.manual_value, i.estimated_value) IS NULL), "
             "COALESCE(i.manual_value, i.estimated_value) DESC, i.title COLLATE NOCASE"
         ).fetchall()
-        total_with_isbn = db.execute("SELECT COUNT(*) as c FROM items WHERE isbn IS NOT NULL").fetchone()["c"]
+        total_with_isbn = db.execute(
+            "SELECT COUNT(*) as c FROM items_live WHERE isbn IS NOT NULL AND owned = 1"
+        ).fetchone()["c"]
 
     total_items = len(items)
-    priced = [i for i in items if i["effective_value"]]
+    priced = [i for i in items if i["effective_value"] is not None]
     total_value = sum(i["effective_value"] for i in priced)
     avg_price = total_value / len(priced) if priced else 0
     unpriced = total_items - len(priced)
@@ -287,7 +336,7 @@ async def valuation_report(request: Request, _=Depends(require_role("viewer"))):
             location_groups.append({"name": name, "items": [], "subtotal": 0.0, "priced_count": 0})
         group = location_groups[-1]
         group["items"].append(item)
-        if item["effective_value"]:
+        if item["effective_value"] is not None:
             group["subtotal"] += item["effective_value"]
             group["priced_count"] += 1
 

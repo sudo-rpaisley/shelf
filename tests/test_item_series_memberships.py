@@ -1,17 +1,32 @@
-from tests.conftest import _insert_item
+import pytest
+
+from app.services import item_write
+from tests.conftest import _insert_item, _redirect_stale_path_constants
+from tests.lineage import captured_fork_before_series_memberships
 
 
-def test_series_rows_backfill_existing_items_and_stay_in_media_family(viewer_client, db):
-    first = _insert_item(
-        db,
+@pytest.fixture
+def _historical_series_upgrade(tmp_path, monkeypatch, _isolated_db):
+    """Genuine pre40 history is initialized BEFORE clients/connections open.
+
+    Rebind only this test's disposable database; never erase today's ledger or
+    ask a GET to run DDL/data backfills. The immutable parent bootstrap is
+    filtered before construction by the explicit historical cutoff in lineage.
+    """
+    from app import config, database
+
+    path = tmp_path / "pre-series-memberships.db"
+    historical = captured_fork_before_series_memberships(path)
+    _insert_item(
+        historical,
         title="Saga One",
         isbn="9780000000101",
         media_type="book",
         series_name="The Saga",
         series_position=1,
     )
-    second = _insert_item(
-        db,
+    _insert_item(
+        historical,
         title="Saga Two",
         isbn="9780000000102",
         media_type="ebook",
@@ -19,14 +34,27 @@ def test_series_rows_backfill_existing_items_and_stay_in_media_family(viewer_cli
         series_position=2,
     )
     _insert_item(
-        db,
+        historical,
         title="Saga Audio",
         isbn="9780000000103",
         media_type="audiobook",
         series_name="The Saga",
         series_position=3,
     )
-    db.commit()
+    assert historical.execute("SELECT 1 FROM sqlite_master WHERE name = 'item_series'").fetchone() is None
+    assert historical.execute("SELECT 1 FROM schema_version WHERE version >= 40").fetchone() is None
+    historical.commit()
+    historical.close()
+    _redirect_stale_path_constants(monkeypatch, config.DATA_DIR, path, config.COVERS_DIR)
+    database.init_db()
+
+
+@pytest.mark.usefixtures("_historical_series_upgrade")
+def test_series_rows_backfill_existing_items_and_stay_in_media_family(viewer_client, db):
+    first = db.execute("SELECT id FROM items WHERE title = 'Saga One'").fetchone()["id"]
+    second = db.execute("SELECT id FROM items WHERE title = 'Saga Two'").fetchone()["id"]
+    assert {40, 41, 42} <= {r[0] for r in db.execute("SELECT version FROM schema_version")}
+    before_get = "\n".join(db.iterdump())
 
     response = viewer_client.get(f"/api/items/{second}/series-rows")
 
@@ -38,6 +66,7 @@ def test_series_rows_backfill_existing_items_and_stay_in_media_family(viewer_cli
     assert "Saga Audio" not in response.text
     assert response.text.index("Saga One") < response.text.index("Saga Two")
     assert 'aria-current="page"' in response.text
+    assert "\n".join(db.iterdump()) == before_get, "GET must not backfill memberships or change persistent state"
 
     rows = db.execute(
         "SELECT item_id, series_name, position, is_primary FROM item_series "
@@ -47,6 +76,9 @@ def test_series_rows_backfill_existing_items_and_stay_in_media_family(viewer_cli
     assert len(rows) == 2
     assert all(row["series_name"] == "The Saga" for row in rows)
     assert all(row["is_primary"] == 1 for row in rows)
+    assert [tuple(row) for row in rows] == [
+        (first, "The Saga", 1, 1), (second, "The Saga", 2, 1),
+    ]
 
 
 def test_single_item_series_has_no_navigation_row_but_can_be_managed(editor_client, db):
@@ -69,34 +101,42 @@ def test_single_item_series_has_no_navigation_row_but_can_be_managed(editor_clie
 
 
 def test_item_can_belong_to_multiple_series_and_primary_is_promoted(editor_client, db):
-    current = _insert_item(
+    current = item_write.insert_item(
         db,
         title="Crossing Book",
-        isbn="9780000000301",
+        isbn="9780000000309",
         media_type="book",
+        source="test",
         series_name="Main Sequence",
         series_position=2,
     )
-    _insert_item(
+    item_write.insert_item(
         db,
         title="Main One",
-        isbn="9780000000302",
+        isbn="9780000000316",
         media_type="book",
+        source="test",
         series_name="Main Sequence",
         series_position=1,
     )
-    _insert_item(
+    item_write.insert_item(
         db,
         title="World One",
-        isbn="9780000000303",
+        isbn="9780000000323",
         media_type="book",
+        source="test",
         series_name="Shared World",
         series_position=1,
     )
     db.commit()
 
-    # First GET creates/backfills the compatibility membership table.
+    # The real writer has already created the primary; GET is read-only.
+    assert [tuple(row) for row in db.execute(
+        "SELECT series_name, position, is_primary FROM item_series WHERE item_id = ?", (current,),
+    )] == [("Main Sequence", 2, 1)]
+    before_get = "\n".join(db.iterdump())
     assert editor_client.get(f"/api/items/{current}/series-rows").status_code == 200
+    assert "\n".join(db.iterdump()) == before_get
 
     add = editor_client.post(
         f"/api/items/{current}/series-memberships",
@@ -140,6 +180,7 @@ def test_item_can_belong_to_multiple_series_and_primary_is_promoted(editor_clien
         (current, "Shared World"),
     ).fetchone()
     assert promoted["is_primary"] == 1
+    assert db.execute("SELECT COUNT(*) FROM item_series WHERE item_id = ?", (current,)).fetchone()[0] == 1
 
 
 def test_updating_primary_membership_keeps_legacy_position_in_sync(editor_client, db):
